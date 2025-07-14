@@ -2,6 +2,7 @@
 import OpenAI from 'openai';
 import formidable from 'formidable';
 import fs from 'fs';
+import { parseAssistant } from '@/lib/assistant';
 
 export const config = {
   api: {
@@ -34,18 +35,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nessun file audio inviato' });
     }
 
-    try {
-      // chiamata a Whisper
-      const response = await openai.audio.transcriptions.create({
-        file: fs.createReadStream(audioFile.filepath),
-        model: 'whisper-1',
-        language: 'it',           // lingua italiana
-      });
+   // 1) trascrizione Whisper
+const response = await openai.audio.transcriptions.create({
+  file: fs.createReadStream(audioFile.filepath),
+  model: 'whisper-1',
+  language: 'it',
+});
 
-      return res.status(200).json({ text: response.text });
-    } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: 'Errore nella trascrizione audio' });
-    }
-  });
+// 2) post‑elaborazione con l’assistente
+const risposta = await parseAssistant(response.text);
+
+// 3) risposta API
+return res.status(200).json({
+  text: response.text,   // trascrizione pura
+  risposta               // testo generato dall’assistente
+});
 }
