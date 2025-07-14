@@ -1,92 +1,51 @@
-// pages/api/stt.js -----------------------------------------------------------
-import fs from 'fs';
-import path from 'path';
-import formidable from 'formidable';
+// pages/api/stt.js
 import OpenAI from 'openai';
+import formidable from 'formidable';
+import fs from 'fs';
 
-export const config = { api: { bodyParser: false } };
+export const config = {
+  api: {
+    bodyParser: false,   // necessario per ricevere multipart/form‑data
+  },
+};
 
-/* singleton OpenAI --------------------------------------------------------- */
-let openai;
-function getOpenAI() {
-  if (!openai) {
-    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return openai;
-}
-
-/* parse multipart e restituisce path del file audio ------------------------ */
-function parseMultipart(req) {
-  const uploadDir = '/tmp';
-  return new Promise((resolve, reject) => {
-    const form = formidable({
-      uploadDir,
-      multiples: false,
-      maxFileSize: 25 * 1024 * 1024,
-      filter: p => p.mimetype?.startsWith('audio/'),
-      filename: (_, __, part) =>
-        `audio-${Date.now()}${path.extname(part.originalFilename || '')}`,
-    });
-
-    form.parse(req, (err, _f, files) => {
-      if (err) return reject(err);
-      const audio = files.audio || files.file || Object.values(files)[0];
-      if (!audio) return reject(new Error('Missing audio file (field "audio")'));
-      resolve({ filepath: audio.filepath });
-      
-    });
-  });
-}
-form.parse(req, (err, _fields, files) => {
-  console.log('files ricevuti:', files);     // 👈  vedi quali chiavi arrivano
-  if (err) return reject(err);
-  const audio = files.audio || files.file || Object.values(files)[0];
-  
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,   // assicurati che sia presente nel .env
 });
-function parseMultipart(req) {
-  const uploadDir = '/tmp';
-  return new Promise((resolve, reject) => {
-    const form = formidable({
-      uploadDir,
-      multiples: false,
-      maxFileSize: 25 * 1024 * 1024,
-      filter: p => p.mimetype?.startsWith('audio/'),
-      filename: (_, __, part) =>
-        `audio-${Date.now()}${path.extname(part.originalFilename || '')}`,
-    });
 
-    form.parse(req, (err, _f, files) => {
-      if (err) return reject(err);
-      const audio = Object.values(files)[0];           // 👈  qualunque chiave
-      if (!audio?.filepath) return reject(new Error('Nessun file audio'));
-      resolve({ filepath: audio.filepath });
-    });
-  });
-}
-
-
-/* handler ------------------------------------------------------------------ */
 export default async function handler(req, res) {
-  if (req.method !== 'POST')
-    return res.status(405).json({ error: 'Method Not Allowed' });
-
-  try {
-    const { filepath } = await parseMultipart(req);
-    const client = getOpenAI();
-
-    const rsp = await client.audio.transcriptions.create({
-      model: 'whisper-1',
-      file: fs.createReadStream(filepath),
-      response_format: 'json',
-      // language: 'it',
-    });
-
-    fs.unlink(filepath, () => {}); // cleanup
-    return res.status(200).json({ text: rsp.text });
-  } catch (error) {
-    console.error('/api/stt error:', error);
-    return res
-      .status(500)
-      .json({ error: 'Transcription failed', details: String(error) });
+  // consenti solo POST
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).end(`Metodo ${req.method} non consentito`);
   }
+
+  // parse multipart/form‑data
+  const form = formidable({ multiples: false });
+
+  form.parse(req, async (err, fields, files) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Errore nel caricamento del file audio' });
+    }
+
+    const audioFile = files.audio;
+    if (!audioFile) {
+      return res.status(400).json({ error: 'Nessun file audio inviato' });
+    }
+
+    try {
+      // chiamata a Whisper
+      const response = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(audioFile.filepath),
+        model: 'whisper-1',
+        language: 'it',           // lingua italiana
+      });
+
+      return res.status(200).json({ text: response.text });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ error: 'Errore nella trascrizione audio' });
+    }
+  });
 }
