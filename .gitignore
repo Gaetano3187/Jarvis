@@ -1,0 +1,13 @@
+# dipendenze e build
+node_modules/
+.next/
+dist/
+out/
+.turbo/
+
+# configurazioni locali / segreti
+.env*
+.vscode/
+
+# cache
+*.log

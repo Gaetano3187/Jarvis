@@ -1,0 +1,22 @@
+diff --git a/agent/index.js b/agent/index.js
+index 0000000..1111111 100644
++++ b/agent/index.js
+@@
++import OpenAI from 'openai';
++import { callAssistant } from '../lib/openaiAssistant.js';
++const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+@@
+- +  if (testo && !nome_prodotto) {
++    const messages = [
++      { role: 'system', content: 'Estrai un JSON { "nome": string, "quantita": number } dal testo.' },
++      { role: 'user', content: testo }
++    ];
++    const assistantResponse = await callAssistant(messages);
++    try {
++      const parsed = JSON.parse(assistantResponse);
++      nome_prodotto = parsed.nome || parsed.prodotto || nome_prodotto;
++      quantita = parsed.quantita || quantita;
++    } catch (e) {
++      nome_prodotto = testo;
++    }
++  }

@@ -1,0 +1,25 @@
+name: Extract TeleportHQ UI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'jarvis-assistent-next.zip'
+permissions:
+  contents: write
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Unzip TeleportHQ archive
+        run: |
+          sudo apt-get update && sudo apt-get install -y unzip
+          unzip -o jarvis-assistent-next.zip -d .
+          rm jarvis-assistent-next.zip
+      - name: Commit extracted files
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: 'Unzip TeleportHQ UI'
+          add: '.'
