@@ -10,6 +10,7 @@ export default function Login () {
   const router = useRouter()
   const { signIn } = useAuth()
   const [error, setError] = useState(null)
+  {
 
   /*──────── SUBMIT ────────*/
   const handleSubmit = async (e) => {
