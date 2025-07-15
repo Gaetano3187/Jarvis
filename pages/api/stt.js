@@ -35,19 +35,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nessun file audio inviato' });
     }
 
-   // 1) trascrizione Whisper
-const response = await openai.audio.transcriptions.create({
-  file: fs.createReadStream(audioFile.filepath),
-  model: 'whisper-1',
-  language: 'it',
-});
-
-// 2) post‑elaborazione con l’assistente
+  const response = await openai.audio.transcriptions.create({ ... });
 const risposta = await parseAssistant(response.text);
-
-// 3) risposta API
-return res.status(200).json({
-  text: response.text,   // trascrizione pura
-  risposta               // testo generato dall’assistente
-});
-}
+return res.status(200).json({ text: response.text, risposta });
