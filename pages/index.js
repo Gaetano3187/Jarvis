@@ -10,7 +10,6 @@ export default function Login () {
   const router = useRouter()
   const { signIn } = useAuth()
   const [error, setError] = useState(null)
-  {
 
   /*──────── SUBMIT ────────*/
   const handleSubmit = async (e) => {
@@ -23,8 +22,8 @@ export default function Login () {
       router.push('/home')              // redirect
     } catch (err) {
       setError(err.message)
-    }                         //  ← chiude il catch
-  };                          //  ← chiude l’arrow-function
+    }                                    // ← fine catch
+  }                                      // ← fine handleSubmit
 
   /*──────── UI ────────*/
   return (
