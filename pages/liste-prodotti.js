@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Head  from 'next/head';
 import Link  from 'next/link';
-import { askAssistant as askAssistantAPI } from '../lib/assistant';
+
 import { supabase } from '../lib/supabaseClient';
 import { parseAssistant } from '@/lib/assistant';
 
