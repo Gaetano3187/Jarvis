@@ -6,6 +6,7 @@ import Link  from 'next/link';
 import { supabase }      from '../lib/supabaseClient';   // percorso corretto
 import { askAssistant } from '../lib/assistant'
 import withAuth          from '../hoc/withAuth';
+import { parseAssistant } from '@/lib/assistant';
 
 function Varie() {
   /* ─────────── STATE ─────────── */
