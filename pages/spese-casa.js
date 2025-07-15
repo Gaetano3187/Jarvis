@@ -6,6 +6,7 @@ import Link  from 'next/link'
 import withAuth        from '../hoc/withAuth'
 import { supabase }    from '../lib/supabaseClient'
 import { askAssistant } from '../lib/assistant'
+import { parseAssistant } from '@/lib/assistant';
 
 function SpeseCasa () {
   /* ------------------- state ------------------- */
