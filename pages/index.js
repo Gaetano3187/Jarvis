@@ -1,5 +1,5 @@
 // pages/index.js
-import React, { useState } from 'react'
+import React, { useState, Fragment } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 
@@ -18,16 +18,16 @@ export default function Login () {
     const password = e.target['thq-sign-in-1-password']?.value
 
     try {
-      await signIn(email, password)     // Supabase auth
-      router.push('/home')              // redirect
+      await signIn(email, password)   // Supabase auth
+      router.push('/home')            // redirect
     } catch (err) {
       setError(err.message)
-    }                                    // ← fine catch
-  }                                      // ← fine handleSubmit
+    }
+  };                                  // ← fine handleSubmit
 
   /*──────── UI ────────*/
   return (
-    <>
+    <Fragment>
       <Head>
         <title>Login - Jarvis</title>
         <link rel="icon" href="/favicon.ico" />
@@ -88,6 +88,6 @@ export default function Login () {
           }
         }
       `}</style>
-    </>
+    </Fragment>
   )
 }
