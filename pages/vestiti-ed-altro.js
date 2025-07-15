@@ -4,6 +4,7 @@ import Head from 'next/head'
 import { supabase } from '../supabase/supabaseClient'
 import withAuth from '../hoc/withAuth'
 import { askAssistant } from '../lib/assistant'
+import { parseAssistant } from '@/lib/assistant';
 
 const VestitiEdAltro = () => {
   const [spese, setSpese] = useState([])
