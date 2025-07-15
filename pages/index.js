@@ -20,7 +20,7 @@ export default function Login() {
     try {
       await signIn(email, password);   // Supabase auth
       router.push('/home');            // redirect
-    } catch (err) {
+    } catch (err) 
       setError(err.message);
     }
   };                                   // ← una sola graffa + “;”
