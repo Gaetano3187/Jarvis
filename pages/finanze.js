@@ -3,6 +3,7 @@ import React, { useCallback } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { askAssistant } from '../lib/assistant'
+import { parseAssistant } from '@/lib/assistant';
 /* ––– Categorie box collegate alle pagine esistenti ––– */
 const categories = [
   {
