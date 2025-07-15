@@ -1,33 +1,33 @@
 // pages/index.js
-import React, { useState, Fragment } from 'react'
-import Head from 'next/head'
-import { useRouter } from 'next/router'
+import React, { useState } from 'react';
+import Head from 'next/head';
+import { useRouter } from 'next/router';
 
-import { useAuth } from '../context/AuthContext'
-import SignIn1 from '../components/sign-in1'
+import { useAuth } from '../context/AuthContext';
+import SignIn1 from '../components/sign-in1';
 
-export default function Login () {
-  const router = useRouter()
-  const { signIn } = useAuth()
-  const [error, setError] = useState(null)
+export default function Login() {
+  const router = useRouter();
+  const { signIn } = useAuth();
+  const [error, setError] = useState(null);   // ← niente graffa dopo questa riga!
 
   /*──────── SUBMIT ────────*/
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    const email = e.target['thq-sign-in-1-email']?.value
-    const password = e.target['thq-sign-in-1-password']?.value
+    e.preventDefault();
+    const email = e.target['thq-sign-in-1-email']?.value;
+    const password = e.target['thq-sign-in-1-password']?.value;
 
     try {
-      await signIn(email, password)   // Supabase auth
-      router.push('/home')            // redirect
+      await signIn(email, password);   // Supabase auth
+      router.push('/home');            // redirect
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     }
-  };                                  // ← fine handleSubmit
+  };                                   // ← una sola graffa + “;”
 
   /*──────── UI ────────*/
   return (
-    <Fragment>
+    <>
       <Head>
         <title>Login - Jarvis</title>
         <link rel="icon" href="/favicon.ico" />
@@ -88,6 +88,6 @@ export default function Login () {
           }
         }
       `}</style>
-    </Fragment>
-  )
+    </>
+  );
 }
