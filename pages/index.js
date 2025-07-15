@@ -1,3 +1,4 @@
+// pages/index.js
 import React, { useState } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
@@ -5,10 +6,9 @@ import { useRouter } from 'next/router'
 import { useAuth } from '../context/AuthContext'
 import SignIn1 from '../components/sign-in1'
 
-export default function Login() {
+export default function Login () {
   const router = useRouter()
   const { signIn } = useAuth()
-
   const [error, setError] = useState(null)
 
   /*──────── SUBMIT ────────*/
@@ -22,8 +22,8 @@ export default function Login() {
       router.push('/home')              // redirect
     } catch (err) {
       setError(err.message)
-    }
-  }
+    }                         //  ← chiude il catch
+  };                          //  ← chiude l’arrow-function
 
   /*──────── UI ────────*/
   return (
