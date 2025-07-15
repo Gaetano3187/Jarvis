@@ -87,22 +87,26 @@ export default function ListeProdotti() {
   };
 
   /* ─── assistant --------------------------------------------------------- */
-  const askAssistant = askAssistantAPI;
-// 1) trascrizione Whisper
-const response = await openai.audio.transcriptions.create({
-  file: fs.createReadStream(audioFile.filepath),
-  model: 'whisper-1',
-  language: 'it',
-});
+   const askAssistant = askAssistantAPI;
 
-// 2) post‑elaborazione con l’assistente
-const risposta = await parseAssistant(response.text);
+  const parseJson = (answer, fallback) => {
+    try {
+      const s = answer.indexOf('{');
+      const e = answer.lastIndexOf('}');
+      if (s > -1 && e > -1) {
+        const j = JSON.parse(answer.slice(s, e + 1));
 
-// 3) risposta API
-return res.status(200).json({
-  text: response.text,   // trascrizione pura
-  risposta               // testo generato dall’assistente
-});
+        if (j.type === 'shopping_list' && Array.isArray(j.prodotti)) {
+          const t = j.lista === LISTA_ONLINE ? LISTA_ONLINE : LISTA_SUPER;
+          return { listType: t, names: j.prodotti.map(p => p.nome) };
+        }
+        if (Array.isArray(j)) return { listType: fallback, names: j };
+      }
+    } catch {/* ignore */}
+    return {
+      listType: fallback,
+      names   : answer.split('\n').map(t => t.trim()).filter(Boolean),
+    };
   };
 
   const handleAI = async (prompt, listType) => {
@@ -112,6 +116,7 @@ return res.status(200).json({
       await addMany(names, listType);
     } catch (e) { setErr(e.message); }
   };
+
 
   /* ─── manuale ----------------------------------------------------------- */
   const handleAdd = listType => {
