@@ -41,7 +41,6 @@ export default function Login() {
           src="/intro.mp4"
           autoPlay
           muted
-          loop
           playsInline
           poster="https://play.teleporthq.io/static/svg/videoposter.svg"
         />
