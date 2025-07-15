@@ -86,7 +86,8 @@ TESTO:
 
           <Link href="/finanze" className="box-home">
             📊 FINANZE
-          </Link>
+          </L
+          ink>
         </div>
 
         {/* colonna destra */}
