@@ -1,4 +1,3 @@
-// pages/index.js
 import React, { useState } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
@@ -21,7 +20,8 @@ export default function Login() {
     try {
       await signIn(email, password)     // Supabase auth
       router.push('/home')              // redirect
-    }catch (err) {setError(err.message)
+    } catch (err) {
+      setError(err.message)
     }
   }
 
