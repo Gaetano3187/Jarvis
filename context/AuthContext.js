@@ -12,16 +12,29 @@ export const AuthProvider = ({ children }) => {
 
   /* ─────────────── INIT + LISTENER ─────────────── */
   useEffect(() => {
-    let mounted = true
+  let mounted = true;
 
-    // 1. sessione al primo render
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) => {
-        if (mounted) {
-          setUser(session?.user ?? null)
-          setLoading(false)
-        }
+  // sessione iniziale (v2)
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (mounted) {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    }
+  });
+
+  // listener login/logout (v2)
+  const { data: { subscription } } =
+    supabase.auth.onAuthStateChange((_event, authSession) => {
+      setUser(authSession?.user ?? null);
+    });
+
+  // cleanup
+  return () => {
+    mounted = false;
+    subscription.unsubscribe();
+  };
+}, []);
+
       })
 
     // 2. listener per login / logout
