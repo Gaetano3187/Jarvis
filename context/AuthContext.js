@@ -15,12 +15,13 @@ export const AuthProvider = ({ children }) => {
     let mounted = true
 
     // 1. sessione al primo render
-   supabase.auth
-    .getSession()
-    .then(({ data: { session } }) => {
-      if (mounted) {
-        setUser(session?.user ?? null);
-        setLoading(false);
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (mounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
       })
 
     // 2. listener per login / logout
