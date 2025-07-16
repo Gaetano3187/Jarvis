@@ -23,11 +23,8 @@ export default function Login() {
     } catch (err) 
       setError(err.message);
     }
-  };                                   // ← una sola graffa + “;”
-
   /*──────── UI ────────*/
-  return (
-    <>
+  return     <>
       <Head>
         <title>Login - Jarvis</title>
         <link rel="icon" href="/favicon.ico" />
