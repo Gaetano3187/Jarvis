@@ -9,7 +9,7 @@ import SignIn1 from '../components/sign-in1';
 export default function Login() {
   const router = useRouter();
   const { signIn } = useAuth();
-  const [error, setError] = useState(null);   // ← niente graffa dopo questa riga!
+  const [error, setError] = useState(null);
 
   /*──────── SUBMIT ────────*/
   const handleSubmit = async (e) => {
@@ -20,31 +20,39 @@ export default function Login() {
     try {
       await signIn(email, password);   // Supabase auth
       router.push('/home');            // redirect
-    } catch (err) 
+    } catch (err) {
       setError(err.message);
     }
-  /*──────── UI ────────*/
-return (
-  <>
-    <Head>
-      <title>Login - Jarvis</title>
-      <link rel="icon" href="/favicon.ico" />
-    </Head>
+  };                                   // ← fine handleSubmit
 
-    <div className="login-page hud-bg">
-      {/* video di sfondo */}
-      <video
-        className="bg-video"
-        src="/intro.mp4"
-        autoPlay
-        muted
-        playsInline
-        poster="https://play.teleporthq.io/static/svg/videoposter.svg"
-      />
-      {/* qui puoi continuare con wrapper/form, ecc. */}
-    </div>
-  </>
-);
+  /*──────── UI ────────*/
+  return (
+    <>
+      <Head>
+        <title>Login - Jarvis</title>
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
+
+      <div className="login-page hud-bg">
+        {/* video di sfondo */}
+        <video
+          className="bg-video"
+          src="/intro.mp4"
+          autoPlay
+          muted
+          playsInline
+          poster="https://play.teleporthq.io/static/svg/videoposter.svg"
+        />
+
+        {/* wrapper centrale */}
+        <div className="form-wrapper">
+          <form id="loginform" onSubmit={handleSubmit}>
+            <SignIn1 action1={<span>Sign&nbsp;In</span>} />
+            {error && <p style={{ color: 'red' }}>{error}</p>}
+          </form>
+        </div>
+      </div>
+
       {/*──────── STILI LOCALI ────────*/}
       <style jsx>{`
         .login-page {
@@ -56,7 +64,6 @@ return (
           justify-content: center;
           overflow: hidden;
         }
-
         .bg-video {
           position: absolute;
           inset: 0;
@@ -65,7 +72,6 @@ return (
           object-fit: cover;
           z-index: 0;
         }
-
         .form-wrapper {
           position: relative;
           z-index: 1;
@@ -73,7 +79,6 @@ return (
           max-width: 600px;
           padding: 2rem;
         }
-
         @media (max-width: 767px) {
           .form-wrapper {
             padding: 1rem;
