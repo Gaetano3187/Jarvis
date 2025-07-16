@@ -2,7 +2,7 @@
 import React from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import '../styles/globals.css';
+import '/styles/globals.css';
 
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
