@@ -29,7 +29,6 @@ export default function Login() {
         <title>Login - Jarvis</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
-
       <div className="login-page hud-bg">
         {/* video di sfondo */}
         <video
@@ -40,7 +39,6 @@ export default function Login() {
           playsInline
           poster="https://play.teleporthq.io/static/svg/videoposter.svg"
         />
-
         {/* wrapper centrale */}
         <div className="form-wrapper">
           <form id="loginform" onSubmit={handleSubmit}>
