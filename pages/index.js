@@ -24,30 +24,27 @@ export default function Login() {
       setError(err.message);
     }
   /*──────── UI ────────*/
-  return     <>
-      <Head>
-        <title>Login - Jarvis</title>
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-      <div className="login-page hud-bg">
-        {/* video di sfondo */}
-        <video
-          className="bg-video"
-          src="/intro.mp4"
-          autoPlay
-          muted
-          playsInline
-          poster="https://play.teleporthq.io/static/svg/videoposter.svg"
-        />
-        {/* wrapper centrale */}
-        <div className="form-wrapper">
-          <form id="loginform" onSubmit={handleSubmit}>
-            <SignIn1 action1={<span>Sign&nbsp;In</span>} />
-            {error && <p style={{ color: 'red' }}>{error}</p>}
-          </form>
-        </div>
-      </div>
+return (
+  <>
+    <Head>
+      <title>Login - Jarvis</title>
+      <link rel="icon" href="/favicon.ico" />
+    </Head>
 
+    <div className="login-page hud-bg">
+      {/* video di sfondo */}
+      <video
+        className="bg-video"
+        src="/intro.mp4"
+        autoPlay
+        muted
+        playsInline
+        poster="https://play.teleporthq.io/static/svg/videoposter.svg"
+      />
+      {/* qui puoi continuare con wrapper/form, ecc. */}
+    </div>
+  </>
+);
       {/*──────── STILI LOCALI ────────*/}
       <style jsx>{`
         .login-page {
