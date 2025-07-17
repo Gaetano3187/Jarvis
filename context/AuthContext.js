@@ -2,30 +2,30 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
-// -------------- Auth Context --------------
+// Crea il contesto – **deve** venire prima di qualsiasi uso di AuthContext
 const AuthContext = createContext();
+
+// Hook di comodo (unica definizione)
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // --- init & listener ---
+  // ─────────────── INIT + LISTENER ───────────────
   useEffect(() => {
     let isMounted = true;
 
-    // sessione al primo render
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    // 1. Sessione al primo render
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (isMounted) {
         setUser(session?.user ?? null);
         setLoading(false);
       }
-    })();
+    });
 
-    // listener login / logout
+    // 2. Listener per login / logout
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, authSession) => {
@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // --- auth actions ---
+  // ──────────────── AUTH ACTIONS ────────────────
   const signIn = async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -61,6 +61,3 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
-
-// Hook di comodo (unica definizione!)
-export const useAuth = () => useContext(AuthContext);
