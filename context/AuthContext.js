@@ -5,15 +5,12 @@ import { supabase } from '../lib/supabaseClient';
 // Context dedicato all'autenticazione
 const AuthContext = createContext();
 
-// Hook di comodo (unica definizione!)
-export const useAuth = () => useContext(AuthContext);
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  /* ─────────────── INIT + LISTENER ─────────────── */
+  // ─────────────── INIT + LISTENER ───────────────
   useEffect(() => {
     let mounted = true;
 
@@ -29,7 +26,7 @@ export const AuthProvider = ({ children }) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, authSession) => {
-      setUser(authSession?.user ?? null);
+      if (mounted) setUser(authSession?.user ?? null);
     });
 
     // cleanup
@@ -39,7 +36,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  /* ──────────────── AUTH ACTIONS ──────────────── */
+  // ──────────────── AUTH ACTIONS ────────────────
   const signIn = async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -56,10 +53,13 @@ export const AuthProvider = ({ children }) => {
     router.push('/login');
   };
 
-  /* ───────────────── CONTEXT VALUE ───────────────── */
+  // ───────────────── CONTEXT VALUE ─────────────────
   const value = { user, loading, signIn, signUp, signOut };
 
   return (
     <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>
   );
 };
+
+// Hook di comodo (una sola definizione!)
+export const useAuth = () => useContext(AuthContext);
