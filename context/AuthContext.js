@@ -2,17 +2,11 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
-/*
-  AuthContext gestisce lo stato d’autenticazione dell’intera app.
-  Espone:
-  - user      → oggetto utente (o null se non loggato)
-  - loading   → boolean in attesa di conferma sessione
-  - signIn    → (email, pw)  → login
-  - signUp    → (email, pw)  → registrazione
-  - signOut   → logout e redirect a /login
-*/
-
+// Context dedicato all'autenticazione
 const AuthContext = createContext();
+
+// Hook di comodo (unica definizione!)
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -21,11 +15,11 @@ export const AuthProvider = ({ children }) => {
 
   /* ─────────────── INIT + LISTENER ─────────────── */
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
 
-    // 1. Sessione al primo render
+    // 1. Ottieni sessione al primo render
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (isMounted) {
+      if (mounted) {
         setUser(session?.user ?? null);
         setLoading(false);
       }
@@ -40,7 +34,7 @@ export const AuthProvider = ({ children }) => {
 
     // cleanup
     return () => {
-      isMounted = false;
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -69,6 +63,3 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>
   );
 };
-
-/* Hook di comodo */
-export const useAuth = () => useContext(AuthContext);
