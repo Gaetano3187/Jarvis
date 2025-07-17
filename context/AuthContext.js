@@ -2,22 +2,21 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
-// Crea il contesto – **deve** venire prima di qualsiasi uso di AuthContext
+// ---------------------------------------------
+//  Auth Context
+// ---------------------------------------------
 const AuthContext = createContext();
-
-// Hook di comodo (unica definizione)
-export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // ─────────────── INIT + LISTENER ───────────────
+  // --- INIT + LISTENER --------------------------------
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Sessione al primo render
+    // 1. sessione al primo render
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (isMounted) {
         setUser(session?.user ?? null);
@@ -25,7 +24,7 @@ export const AuthProvider = ({ children }) => {
       }
     });
 
-    // 2. Listener per login / logout
+    // 2. listener login/logout
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, authSession) => {
@@ -38,7 +37,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // ──────────────── AUTH ACTIONS ────────────────
+  // --- AUTH ACTIONS -----------------------------------
   const signIn = async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -55,12 +54,13 @@ export const AuthProvider = ({ children }) => {
     router.push('/login');
   };
 
+  // --- RENDER -----------------------------------------
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
       {!loading && children}
     </AuthContext.Provider>
   );
-// Hook di comodo (unica definizione!)
-export const useAuth = () => useContext(AuthContext);
-
 };
+
+// Hook di comodo (unica definizione !)
+export const useAuth = () => useContext(AuthContext);
