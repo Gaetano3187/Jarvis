@@ -60,4 +60,7 @@ export const AuthProvider = ({ children }) => {
       {!loading && children}
     </AuthContext.Provider>
   );
+// Hook di comodo (unica definizione!)
+export const useAuth = () => useContext(AuthContext);
+
 };
