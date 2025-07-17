@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
-// Context dedicato all'autenticazione
+// -------------- Auth Context --------------
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
@@ -10,33 +10,35 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // ─────────────── INIT + LISTENER ───────────────
+  // --- init & listener ---
   useEffect(() => {
-    let mounted = true;
+    let isMounted = true;
 
-    // 1. Ottieni sessione al primo render
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) {
+    // sessione al primo render
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (isMounted) {
         setUser(session?.user ?? null);
         setLoading(false);
       }
-    });
+    })();
 
-    // 2. Listener per login / logout
+    // listener login / logout
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, authSession) => {
-      if (mounted) setUser(authSession?.user ?? null);
+      if (isMounted) setUser(authSession?.user ?? null);
     });
 
-    // cleanup
     return () => {
-      mounted = false;
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
-  // ──────────────── AUTH ACTIONS ────────────────
+  // --- auth actions ---
   const signIn = async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -53,13 +55,12 @@ export const AuthProvider = ({ children }) => {
     router.push('/login');
   };
 
-  // ───────────────── CONTEXT VALUE ─────────────────
-  const value = { user, loading, signIn, signUp, signOut };
-
   return (
-    <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+      {!loading && children}
+    </AuthContext.Provider>
   );
 };
 
-// Hook di comodo (una sola definizione!)
+// Hook di comodo (unica definizione!)
 export const useAuth = () => useContext(AuthContext);
