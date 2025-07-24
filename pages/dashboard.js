@@ -4,6 +4,7 @@ import Head from 'next/head'
 
 import { useTranslations } from 'next-intl'
 
+
 const Dashboard1 = (props) => {
   return (
     <>
