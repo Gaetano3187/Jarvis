@@ -19,10 +19,7 @@ const Register = () => {
   } catch (error) {
     setError(error.message);
   }      setError(error.message);
-    } else {
-      router.push('/home');
-    }
-  };
+   
 
   return (
     <Fragment>
