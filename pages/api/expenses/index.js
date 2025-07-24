@@ -1,4 +1,5 @@
-import { supabase } from '../../../import { supabase } from '../lib/supabaseClient.js';';
+import { supabase } from '../../../import { supabase } from 'lib/supabaseClient.ts
+';';
 
 export default async function handler(req, res) {
   // Recupera l'utente autenticato (token passato dall'app, semplificato)
