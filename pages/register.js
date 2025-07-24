@@ -1,8 +1,11 @@
-```jsx
 import React, { Fragment, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
+
+export const dynamic = 'force-dynamic';      // ← disabilita prerender SSG
+// in alternativa:
+// export async function getServerSideProps() { return { props: {} }; }
 
 const Register = () => {
   const router = useRouter();
@@ -58,4 +61,3 @@ const Register = () => {
 };
 
 export default Register;
-```
