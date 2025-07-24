@@ -1,7 +1,7 @@
 // pages/vestiti-ed-altro.js
 import React, { useEffect, useState } from 'react'
 import Head from 'next/head'
-import { supabase } from '../supabase/supabaseClient'
+import { supabase } from '../import { supabase } from '../lib/supabaseClient.js';'
 import withAuth from '../hoc/withAuth'
 import { askAssistant } from '../lib/assistant'
 import { parseAssistant } from '@/lib/assistant';

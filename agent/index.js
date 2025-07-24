@@ -1,4 +1,4 @@
-import { supabase } from '../supabase/supabaseClient.js';
+import { supabase } from '../import { supabase } from '../lib/supabaseClient.js';.js';
 import OpenAI from 'openai';
 import { callAssistant } from '../lib/openaiAssistant.js';
 
