@@ -4,7 +4,6 @@ import Head  from 'next/head'
 import Link  from 'next/link'
 import withAuth        from '../hoc/withAuth'
 import { supabase }    from '../lib/supabaseClient'
-import { askAssistant } from '../lib/assistant'
 
 
 const parseAssistant = async prompt => {
@@ -94,3 +93,5 @@ function CeneAperitivi () {
   }
 }
 }
+
+export default CeneAperitivi;
