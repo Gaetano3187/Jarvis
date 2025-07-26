@@ -1,5 +1,5 @@
 import { parseAssistant } from '@/lib/assistant';
-import { openai } from '@/lib/openai';            // adatta se il path è diverso
+import { openai } from '../../lib/openai';            // adatta se il path è diverso
 
 export default async function handler(req, res) {
   try {

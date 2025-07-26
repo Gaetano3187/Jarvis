@@ -82,8 +82,4 @@ function CeneAperitivi () {
     console.error(err);
     return null;
   }
-}; catch (err) {
-    console.error(err);
-    return null;
-}
 }
