@@ -1,0 +1,14 @@
+--- a/pages/_app.js
++++ b/pages/_app.js
+@@
+-     <SessionContextProvider supabaseClient={supabase} initialSession={pageProps.initialSession ||? null}>
++     <SessionContextProvider
++       supabaseClient={supabase}
++       initialSession={pageProps.initialSession ?? null}
++     >
+@@
+-         {showNav && <Navbar />}{/* Navbar visibile ovunque, tranne login */}
++         {showNav && <NavBar />}{/* Navbar visibile ovunque, tranne login */}
+@@
+-      </SessionContextProvider>thProvider>
++      </SessionContextProvider>
