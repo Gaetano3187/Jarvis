@@ -4,7 +4,7 @@ import Head  from 'next/head';
 import Link  from 'next/link';
 
 import { supabase } from '../lib/supabaseClient';
-import { parseAssistant } from '@/lib/assistant';
+import { askAssistant, parseAssistant } from '@/lib/assistant';
 
 
 /* costanti */
@@ -87,7 +87,6 @@ export default function ListeProdotti() {
   };
 
   /* ─── assistant --------------------------------------------------------- */
-   const askAssistant = askAssistant;
 
   const parseJson = (answer, fallback) => {
     try {
