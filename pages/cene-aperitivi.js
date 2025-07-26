@@ -75,11 +75,14 @@ function CeneAperitivi () {
   }
 
   const parseAssistant = async fullPrompt => {
-    try {
-      const answer = await askAssistant(fullPrompt);
-      const parsed = JSON.parse(answer);
-    return parsed;
+  try {
+    const answer = await askAssistant(fullPrompt);
+    return JSON.parse(answer);
   } catch (err) {
+    console.error(err);
+    return null;
+  }
+}; catch (err) {
     console.error(err);
     return null;
 }
