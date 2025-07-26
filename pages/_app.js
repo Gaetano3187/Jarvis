@@ -17,7 +17,7 @@ export default function MyApp({ Component, pageProps }) {
   return (
    <SessionContextProvider supabaseClient={supabase} initialSession={pageProps.initialSession ?? null}>
       <AuthProvider>
-        {showNav && <Navbar />} {/* Navbar visibile ovunque, tranne login */}
+       {showNav && <Navbar />}{/* Navbar visibile ovunque, tranne login */}
         <Component {...pageProps} />
       </AuthProvider>
     </SessionContextProvider>thProvider>
