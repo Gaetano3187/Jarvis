@@ -5,6 +5,18 @@ import Link  from 'next/link'
 import withAuth        from '../hoc/withAuth'
 import { supabase }    from '../lib/supabaseClient'
 import { askAssistant } from '../lib/assistant'
+
+
+const parseAssistant = async prompt => {
+  try {
+    const answer = await askAssistant(prompt);
+    return JSON.parse(answer);
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+};
+#ENDPA
 import { parseAssistant } from '@/lib/assistant';
 
 function CeneAperitivi () {
