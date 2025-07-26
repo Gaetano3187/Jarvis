@@ -87,7 +87,7 @@ export default function ListeProdotti() {
   };
 
   /* ─── assistant --------------------------------------------------------- */
-   const askAssistant = askAssistantAPI;
+   const askAssistant = askAssistant;
 
   const parseJson = (answer, fallback) => {
     try {
