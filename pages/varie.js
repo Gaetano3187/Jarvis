@@ -79,7 +79,7 @@ function Varie() {
 
   const parseAssistant = async (fullPrompt) => {
     try {
-      const answer = await askAssistant(fullPrompt);
+      const answer = await askAssistant(fullPrompt);;
       const parsed = JSON.parse(answer);
       await supabase
         .from('finances')

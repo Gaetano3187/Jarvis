@@ -35,6 +35,5 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nessun file audio inviato' });
     }
 
-  const response = await openai.audio.transcriptions.create({ ... });
 const risposta = await parseAssistant(response.text);
 return res.status(200).json({ text: response.text, risposta });

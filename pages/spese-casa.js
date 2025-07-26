@@ -101,7 +101,7 @@ function SpeseCasa () {
 
   const parseAssistant = async fullPrompt => {
     try {
-      const answer = await askAssistant(fullPrompt)
+      const answer = await askAssistant(fullPrompt);
       const parsed = JSON.parse(answer)
       const rows   = Array.isArray(parsed) ? parsed : [parsed]
       const insert = rows.map(r => ({

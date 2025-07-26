@@ -76,5 +76,8 @@ function CeneAperitivi () {
 
   const parseAssistant = async fullPrompt => {
     try {
-      const answer = await askAssistant(fullPrompt)
-      const parsed = JSON.parse(answer)
+      const answer = await askAssistant(fullPrompt);
+      const parsed = JSON.parse(answer);
+  }
+  }
+  }
