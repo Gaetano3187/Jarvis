@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 // components/sign-in1.js
 import React, { Fragment } from 'react'
 import PropTypes from 'prop-types'
