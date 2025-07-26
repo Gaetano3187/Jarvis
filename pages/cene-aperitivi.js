@@ -4,6 +4,7 @@ import Head  from 'next/head'
 import Link  from 'next/link'
 import withAuth        from '../hoc/withAuth'
 import { supabase }    from '../lib/supabaseClient'
+import { insertExpense } from "@/lib/dbHelpers";
 
 
 const parseAssistant = async prompt => {

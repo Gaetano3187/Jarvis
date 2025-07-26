@@ -4,6 +4,7 @@ import Head from 'next/head'
 ';'
 import withAuth from '../hoc/withAuth'
 import { askAssistant } from '../lib/assistant'
+import { insertExpense } from "@/lib/dbHelpers";
 import { parseAssistant } from '@/lib/assistant';
 
 const VestitiEdAltro = () => {
