@@ -3,6 +3,8 @@ import '../styles/globals.css';
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
+import { SessionContextProvider } from '@supabase/auth-helpers-react';
+import { supabase } from '../lib/supabaseClient';
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
@@ -13,9 +15,11 @@ export default function MyApp({ Component, pageProps }) {
   const showNav = !hideNavOn.includes(router.pathname);
 
   return (
-    <AuthProvider>
-      {showNav && <NavBar />}   {/* NavBar visibile ovunque, tranne login */}
-      <Component {...pageProps} />
-    </AuthProvider>
+   <SessionContextProvider supabaseClient={supabase} initialSession={pageProps.initialSession ?? null}>
+      <AuthProvider>
+        {showNav && <Navbar />} {/* Navbar visibile ovunque, tranne login */}
+        <Component {...pageProps} />
+      </AuthProvider>
+    </SessionContextProvider>thProvider>
   );
 }
