@@ -1,28 +1,20 @@
-// pages/_app.js
-import React from 'react'
-import Head from 'next/head'
-import { useRouter } from 'next/router'
-import '../styles/globals.css'          // unico CSS globale
-
-import { AuthProvider } from '../context/AuthContext'
-import NavBar from '../components/NavBar'   // usa il componente definitivo
+import '../styles/globals.css';
+import { AuthProvider } from '../context/AuthContext';
+import NavBar from '../components/NavBar';
+import { useRouter } from 'next/router';
 
 export default function MyApp({ Component, pageProps }) {
-  const router = useRouter()
+  const router = useRouter();
 
-  /* La barra si nasconde SOLO nella root (pagina index / login) */
-  const hideNav = router.pathname === '/'
+  // Pagine in cui NON vogliamo la NavBar
+  const hideNavOn = ['/', '/login'];   // '/' è index.js (login)
+
+  const showNav = !hideNavOn.includes(router.pathname);
 
   return (
     <AuthProvider>
-      <Head>
-        <title>Jarvis</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1" />
-      </Head>
-
-      {!hideNav && <NavBar />}
-
+      {showNav && <NavBar />}   {/* NavBar visibile ovunque, tranne login */}
       <Component {...pageProps} />
     </AuthProvider>
-  )
+  );
 }

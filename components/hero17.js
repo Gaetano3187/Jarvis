@@ -1,3 +1,4 @@
+import Script from 'next/script';
 import React, { Fragment } from 'react'
 
 import PropTypes from 'prop-types'

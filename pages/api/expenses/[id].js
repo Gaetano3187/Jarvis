@@ -1,4 +1,5 @@
-import { supabase } from '../../../supabase/supabaseClient';
+import { supabase } from '../lib/supabaseClient';\n
+';';
 
 export default async function handler(req, res) {
   const { id } = req.query;

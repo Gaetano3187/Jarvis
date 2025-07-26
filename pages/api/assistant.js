@@ -1,20 +1,16 @@
-// pages/api/assistant.js ----------------------------------------------------
-import askAssistant from '../../lib/assistant'; // ← 2 livelli su
+// pages/api/assistant.js
+import { askAssistant } from '../../lib/assistant'; // ← named import, non default
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST')
-    return res.status(405).json({ error: 'Method Not Allowed' });
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).end(`Metodo ${req.method} non consentito`);
+  }
 
   try {
-    const { prompt } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
-
-    const answer = await askAssistant(prompt);
-    return res.status(200).json({ answer });
-  } catch (error) {
-    console.error('/api/assistant error:', error);
-    return res
-      .status(500)
-      .json({ error: 'Assistant failed', details: String(error) });
+    const risposta = await askAssistant(req.body.prompt);
+    return res.status(200).json({ answer: risposta });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 }

@@ -2,18 +2,17 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
-    "lib": [
-      "DOM",
-      "DOM.Iterable",
-      "ESNext"
-    ],
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "jsx": "preserve",
+
+    /* === Percorsi e alias === */
     "baseUrl": ".",
     "paths": {
-      "src/*": [
-        "src/*"
-      ]
+      "@/*": ["*"],          // es. import { foo } from '@/lib/foo'
+      "lib/*": ["lib/*"],    // es. import { bar } from 'lib/bar'
+      "src/*": ["src/*"]     // alias già presente
     },
+
     "allowJs": true,
     "skipLibCheck": true,
     "strict": false,
@@ -24,6 +23,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true
   },
+
   "include": [
     "src",
     "components",
@@ -79,7 +79,7 @@
     "tsconfig.test-build.json",
     "tsconfig.test-dev.json",
     "tsconfig.test-prod.json",
-    "tsconfig.test.json",
+    "tsconfig.test.d.ts",
     "tsconfig.json.d.ts",
     "tsconfig.app.d.ts",
     "tsconfig.lib.d.ts",
@@ -108,11 +108,8 @@
     "tsconfig.test-types.d.ts",
     "tsconfig.test-build.d.ts",
     "tsconfig.test-dev.d.ts",
-    "tsconfig.test-prod.d.ts",
-    "tsconfig.test.d.ts"
-    
+    "tsconfig.test-prod.d.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+
+  "exclude": ["node_modules"]
 }
