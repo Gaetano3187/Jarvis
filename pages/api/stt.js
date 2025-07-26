@@ -1,39 +1,24 @@
-// pages/api/stt.js
-import OpenAI from 'openai';
-import formidable from 'formidable';
-import fs from 'fs';
 import { parseAssistant } from '@/lib/assistant';
+import { OpenAI } from 'openai';
 
-export const config = {
-  api: {
-    bodyParser: false,   // necessario per ricevere multipart/form‑data
-  },
-};
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,   // assicurati che sia presente nel .env
-});
+const openai = new OpenAI();
 
 export default async function handler(req, res) {
-  // consenti solo POST
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).end(`Metodo ${req.method} non consentito`);
+  if (req.method !== 'POST') return res.status(405).end();
+
+  const { file } = req.body;                       // adegua se usi form‑data
+  if (!file) return res.status(400).json({ error: 'Nessun file audio inviato' });
+
+  try {
+    const response = await openai.audio.transcriptions.create({
+      model: 'whisper-1',
+      file
+    });
+
+    const risposta = await parseAssistant(response.text);
+    return res.status(200).json({ text: response.text, risposta });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Errore STT' });
   }
-
-  // parse multipart/form‑data
-  const form = formidable({ multiples: false });
-
-  form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Errore nel caricamento del file audio' });
-    }
-
-    const audioFile = files.audio;
-    if (!audioFile) {
-      return res.status(400).json({ error: 'Nessun file audio inviato' });
-    }
-
-const risposta = await parseAssistant(response.text);
-return res.status(200).json({ text: response.text, risposta });
+}
