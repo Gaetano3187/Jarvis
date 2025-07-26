@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import Head  from 'next/head';
 import Link  from 'next/link';
 
-import { supabase }      from '../lib/supabaseClient';   // percorso corretto
+import { supabase } from '@/lib/supabaseClient';   // percorso corretto
 import { askAssistant } from '../lib/assistant'
 import withAuth          from '../hoc/withAuth';
 import { parseAssistant } from '@/lib/assistant';

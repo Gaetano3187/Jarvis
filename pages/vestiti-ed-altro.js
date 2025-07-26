@@ -1,10 +1,9 @@
 // pages/vestiti-ed-altro.js
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react';
 import Head from 'next/head'
-	js\nimport { supabase } from '../../../lib/supabaseClient';\n
-';'
+import { supabase } from '@/lib/supabaseClient';
 import withAuth from '../hoc/withAuth'
-import { askAssistant } from '../lib/assistant'
+import { askAssistant } from '@/lib/assistant';
 import { parseAssistant } from '@/lib/assistant';
 
 const VestitiEdAltro = () => {
