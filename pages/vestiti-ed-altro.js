@@ -17,9 +17,9 @@ const VestitiEdAltro = () => {
 
   const fetchSpese = async () => {
     const { data, error } = await supabase
-      .from('expenses')
-      .select('*')
-      .eq('categoria', 'vestiti')
+      .from('finances')
+      .select('id, description, amount, date, finance_categories(name)')
+      .eq('finance_categories.name', '"VESTITI"')
       .order('created_at', { ascending: false })
     if (!error) setSpese(data)
     else console.error(error)
@@ -29,7 +29,7 @@ const VestitiEdAltro = () => {
   const handleAdd = async (e) => {
     e.preventDefault()
     const { data, error } = await supabase
-      .from('expenses')
+      .from('finances')
       .insert([{ ...nuovaSpesa, categoria: 'vestiti' }])
       .select()
       .single()
@@ -41,7 +41,7 @@ const VestitiEdAltro = () => {
 
   /* elimina */
   const handleDelete = async (id) => {
-    const { error } = await supabase.from('expenses').delete().eq('id', id)
+    const { error } = await supabase.from('finances').delete().eq('id', id)
     if (!error) setSpese(spese.filter((s) => s.id !== id))
     else console.error(error)
   }

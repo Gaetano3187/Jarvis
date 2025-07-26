@@ -4,6 +4,7 @@ import Head  from 'next/head';
 import Link  from 'next/link';
 
 import { supabase }      from '../lib/supabaseClient';   // percorso corretto
+import { insertExpense } from '@/lib/dbHelpers';
 import { askAssistant } from '../lib/assistant'
 import withAuth          from '../hoc/withAuth';
 import { parseAssistant } from '@/lib/assistant';
@@ -23,9 +24,9 @@ function Varie() {
   const fetchSpese = async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from('expenses')
-      .select('*')
-      .eq('categoria', 'varie')
+      .from('finances')
+      .select('id, description, amount, date, finance_categories(name)')
+      .eq('finance_categories.name', '"VARIE"')
       .order('created_at', { ascending: false });
 
     if (!error) setSpese(data);
@@ -38,7 +39,7 @@ function Varie() {
   const handleAdd = async (e) => {
     e.preventDefault();
     const { data, error } = await supabase
-      .from('expenses')
+      .from('finances')
       .insert([{ ...nuovaSpesa, categoria: 'varie' }])
       .select()
       .single();
@@ -50,7 +51,7 @@ function Varie() {
   };
 
   const handleDelete = async (id) => {
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    const { error } = await supabase.from('finances').delete().eq('id', id);
     if (!error) setSpese(spese.filter((s) => s.id !== id));
     else        setError(error.message);
   };
@@ -81,7 +82,7 @@ function Varie() {
       const answer = await askAssistant(fullPrompt);
       const parsed = JSON.parse(answer);
       await supabase
-        .from('expenses')
+        .from('finances')
         .insert([{ ...parsed, categoria: 'varie' }]);
       fetchSpese();
     } catch (err) {

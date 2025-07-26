@@ -27,9 +27,9 @@ function SpeseCasa () {
   const fetchSpese = async () => {
     setLoading(true)
     const { data, error } = await supabase
-      .from('expenses')
-      .select('*')
-      .eq('categoria', 'casa')
+      .from('finances')
+      .select('id, description, amount, date, finance_categories(name)')
+      .eq('finance_categories.name', '"SPESE"')
       .order('created_at', { ascending: false })
 
     if (!error) setSpese(data)
@@ -42,7 +42,7 @@ function SpeseCasa () {
   const handleAdd = async (e) => {
     e.preventDefault()
     const { data, error } = await supabase
-      .from('expenses')
+      .from('finances')
       .insert([{ ...nuovaSpesa, categoria: 'casa' }])
       .select()
       .single()
@@ -54,7 +54,7 @@ function SpeseCasa () {
   }
 
   const handleDelete = async (id) => {
-    const { error } = await supabase.from('expenses').delete().eq('id', id)
+    const { error } = await supabase.from('finances').delete().eq('id', id)
     if (!error) setSpese(spese.filter(s => s.id !== id))
     else        setError(error.message)
   }
@@ -110,7 +110,7 @@ function SpeseCasa () {
         data        : r.data || new Date().toISOString(),
         categoria   : 'casa'
       }))
-      await supabase.from('expenses').insert(insert)
+      await supabase.from('finances').insert(insert)
       fetchSpese()
     } catch {
       setError('Risposta assistant non valida')
