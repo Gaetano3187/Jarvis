@@ -1,5 +1,5 @@
 // pages/api/scorte.js
-import { supabase } from '../../lib/supabaseClient';   // ← percorso corretto (2 livelli su)
+import { supabase } from '@/lib/supabaseClient';   // ← percorso corretto (2 livelli su)
 
 /**
  * CRUD per la tabella “inventory” (scorte).
