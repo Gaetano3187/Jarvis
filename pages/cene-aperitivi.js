@@ -81,8 +81,5 @@ function CeneAperitivi () {
     return parsed;
   } catch (err) {
     console.error(err);
-    return null;
-  }
-  }
-  }
-  }
+    return null;  }
+}
