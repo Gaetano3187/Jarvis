@@ -16,7 +16,6 @@ const parseAssistant = async prompt => {
     return null;
   }
 };
-#ENDPA
 import { parseAssistant } from '@/lib/assistant';
 
 function CeneAperitivi () {
