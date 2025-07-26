@@ -63,18 +63,18 @@ const VestitiEdAltro = () => {
         <div className="vestiti-ed-altro-container2">
           {/* Pulsanti */}
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
-            👗 Vestiti ed Altro
+             Vestiti ed Altro
           </h2>
 
           <div className="table-buttons">
             <button className="btn-manuale" onClick={() => document.getElementById('descrV').focus()}>
-              ➕ Aggiungi manualmente
+               Aggiungi manualmente
             </button>
             <button className="btn-vocale" onClick={handleVoice}>
-              🎙 Riconoscimento vocale
+               Riconoscimento vocale
             </button>
             <button className="btn-ocr" onClick={handleOCR}>
-              📷 OCR
+               OCR
             </button>
           </div>
 
@@ -92,7 +92,7 @@ const VestitiEdAltro = () => {
               required
             />
 
-            <label htmlFor="impV">Importo €</label>
+            <label htmlFor="impV">Importo </label>
             <input
               id="impV"
               type="number"
@@ -130,7 +130,7 @@ const VestitiEdAltro = () => {
                     <td>{new Date(s.data || s.created_at).toLocaleDateString()}</td>
                     <td>{Number(s.importo).toFixed(2)}</td>
                     <td>
-                      <button onClick={() => handleDelete(s.id)}>🗑</button>
+                      <button onClick={() => handleDelete(s.id)}></button>
                     </td>
                   </tr>
                 ))}
@@ -138,7 +138,7 @@ const VestitiEdAltro = () => {
             </table>
 
             {/* Totale */}
-            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+            <div className="total-box">Totale:  {totale.toFixed(2)}</div>
           </div>
         </div>
       </div>

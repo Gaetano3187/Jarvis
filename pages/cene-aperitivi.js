@@ -78,6 +78,11 @@ function CeneAperitivi () {
     try {
       const answer = await askAssistant(fullPrompt);
       const parsed = JSON.parse(answer);
+    return parsed;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
   }
   }
   }
