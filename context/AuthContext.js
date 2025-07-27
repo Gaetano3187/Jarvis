@@ -31,4 +31,4 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{ user, session, signIn }}>
       {children}
-    </AuthContext.Provider>
+    </AuthContext.Provider>)
