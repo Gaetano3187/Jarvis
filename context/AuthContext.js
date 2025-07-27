@@ -1,37 +1,34 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-} from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createContext, useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
-/* -------- contesto utenti -------- */
-export const AuthContext = createContext(null);
+export const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
 
-  /* ascolta i cambi di sessione */
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => setUser(session?.user ?? null),
+      (_event, newSession) => {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+      }
     );
 
     // sessione già presente all’avvio
-    supabase.auth.getSession().then(({ data }) =>
-      setUser(data.session?.user ?? null),
-    );
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setUser(data.session?.user ?? null);
+    });
 
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  /* helper di login */
+  const signIn = (credentials) =>
+    supabase.auth.signInWithPassword(credentials);
 
   return (
     <AuthContext.Provider value={{ user, session, signIn }}>
       {children}
     </AuthContext.Provider>
-  );
-}
-
-/* hook di comodo */
-export const useAuth = () => useContext(AuthContext);

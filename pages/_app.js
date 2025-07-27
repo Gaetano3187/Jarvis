@@ -5,7 +5,8 @@ import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 // 👉 tutto dal nuovo pacchetto unificato
-import { SessionContextProvider } from '@supabase/ssr';
+import { createBrowserClient } from '@supabase/ssr';
+import { SessionContextProvider } from '@supabase/auth-helpers-react';
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
