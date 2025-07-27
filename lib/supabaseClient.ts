@@ -16,7 +16,4 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Se hai i tipi generati, sostituisci `any` con `Database`
-export const supabase: SupabaseClient<any> = createClient(
-  supabaseUrl,
-  supabaseAnonKey
-);
+export const supabase = createClient<unknown>(supabaseUrl, supabaseAnonKey);
