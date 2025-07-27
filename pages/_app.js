@@ -7,6 +7,13 @@ import { useRouter } from 'next/router';
 
 // 👉 Nuovo pacchetto unificato
 import { createBrowserClient } from '@supabase/ssr';
+
+const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+const [supabaseClient] = useState(() =>
+  createBrowserClient(supabaseUrl, supabaseAnon)
+);
 import { SessionContextProvider } from '@supabase/auth-helpers-react';
 
 export default function MyApp({ Component, pageProps }) {
