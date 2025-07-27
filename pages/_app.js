@@ -5,16 +5,11 @@ import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 
-// 👉 Nuovo pacchetto unificato
 import { createBrowserClient } from '@supabase/ssr';
+import { SessionContextProvider } from '@supabase/auth-helpers-react';
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-const [supabaseClient] = useState(() =>
-  createBrowserClient(supabaseUrl, supabaseAnon)
-);
-import { SessionContextProvider } from '@supabase/auth-helpers-react';
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
@@ -24,7 +19,9 @@ export default function MyApp({ Component, pageProps }) {
   const showNav = !hideNavOn.includes(router.pathname);
 
   // client Supabase creato una sola volta per sessione browser
-  const [supabaseClient] = useState(() => createBrowserClient());
+  const [supabaseClient] = useState(() =>
+    createBrowserClient(supabaseUrl, supabaseAnon)
+  );
 
   return (
     <SessionContextProvider
@@ -32,7 +29,7 @@ export default function MyApp({ Component, pageProps }) {
       initialSession={pageProps.initialSession ?? null}
     >
       <AuthProvider>
-        {showNav && <NavBar />}{/* Navbar visibile ovunque, tranne login */}
+        {showNav && <NavBar />} {/* Navbar visibile ovunque, tranne login */}
         <Component {...pageProps} />
       </AuthProvider>
     </SessionContextProvider>
