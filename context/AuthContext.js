@@ -1,7 +1,10 @@
 import { createContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-export const AuthContext = createContext();
+export const useAuth = () => useContext(AuthContext);
+
+// Default export (fallback) per chi importasse senza destrutturazione
+export default useAuth;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
