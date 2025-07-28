@@ -1,5 +1,5 @@
 {
-  "name": "jarvis-assistant",
+  "name": "jarvis-assistant,
   "version": "1.0.0",
   "description": "Next.js 14 app con Supabase, OpenAI, Tailwind CSS e TeleportHQ UI",
   "author": "TeleportHQ",
@@ -12,7 +12,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@lottiefiles/lottie-player": "1.6.0","
+    "@lottiefiles/lottie-player": "1.6.0",
 
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.52.1",
