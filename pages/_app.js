@@ -4,7 +4,7 @@ import '../styles/globals.css';
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router  '
-  ;
+import { createBrowserClient, SessionContextProvider } from '@supabase/ssr';
 
 
 // 👉 tutto dal nuovo pacchetto unificato
