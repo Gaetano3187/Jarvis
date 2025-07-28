@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import '../styles/globals.css';
 
 import { AuthProvider, AuthContext } from '../context/AuthContext';
+import { useContext } from 'react';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 // 👉 tutto dal nuovo pacchetto unificato
