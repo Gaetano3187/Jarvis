@@ -1,5 +1,5 @@
 {
-  "name": "jarvis-assistant,
+  "name": "jarvis-assistant",
   "version": "1.0.0",
   "description": "Next.js 14 app con Supabase, OpenAI, Tailwind CSS e TeleportHQ UI",
   "author": "TeleportHQ",
