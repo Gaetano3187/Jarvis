@@ -1,9 +1,9 @@
 // pages/_document.js
-import { Html, Head, Main, NextScript } from 'next/document'
+import { Html, Head, Main, NextScript } from 'next/document';
 
 export default function Document() {
   return (
-    <Html lang="it">
+      <Html lang="it">
       <Head>
         {/* Meta di base */}
         <meta charSet="utf-8" />
