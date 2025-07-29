@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';   // se useContext non serve, rimuovilo
 import '../styles/globals.css';
 
-import { AuthProvider, AuthContext } from '../context/AuthContext';
-import { useContext } from 'react';
+import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
+
 // 👉 tutto dal nuovo pacchetto unificato
 import { createBrowserClient } from '@supabase/ssr';
 import { SessionContextProvider } from '@supabase/auth-helpers-react';
