@@ -31,9 +31,9 @@ export function AuthProvider({ children }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  /* Helper di login (eventualmente aggiungi signUp, signOut, ecc.) */
-  const signIn = (credentials) =>
-    supabase.auth.signInWithPassword(credentials);
+  /* Helper di login */
+const signIn = (credentials) =>
+  supabase.auth.signInWithPassword(credentials);
 
   return (
     <AuthContext.Provider value={{ user, session, signIn }}>
