@@ -16,7 +16,7 @@ const Login = () => {
     const password = e.target.password.value;
 
     try {
-      await signIn(email, password);
+     await signIn({ email, password });
       router.push('/home');
     } catch (err) {
       setError(err.message);
