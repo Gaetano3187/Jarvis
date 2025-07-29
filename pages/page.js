@@ -1,6 +1,6 @@
 import React from 'react'
 import Head from 'next/head'
-
+import { AuthProvider, AuthContext } from '../context/AuthContext';
 import { useTranslations } from 'next-intl'
 
 const Page = (props) => {
