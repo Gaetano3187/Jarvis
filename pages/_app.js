@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';   // se useContext non serve, rimuovilo
 import '../styles/globals.css';
 
-import { AuthProvider } from '../context/AuthContext';
+import { AuthProvider, AuthContext } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 
