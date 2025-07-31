@@ -42,7 +42,16 @@ function SpeseCasa () {
   /* ------------------- CRUD ------------------- */
   const handleAdd = async (e) => {
   
-  
+      e.preventDefault();
+        const user = supabase.auth.user();
+    if (!user) { setError('Sessione scaduta, effettua di nuovo il login.'); return; }
+    const { data, error } = await insertExse({{
+      userId: user.id,
+      categoryName: 'Casa',
+      description: nuovaSpesa.descrizione,
+      amount: nuovaSpesa.importo,
+      date: new Date().toISOString()
+    })e(
     if (!error) {
       setSpese([...spese, data])
       setNuovaSpesa({ descrizione: '', importo: '' })
