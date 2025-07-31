@@ -41,13 +41,8 @@ function SpeseCasa () {
 
   /* ------------------- CRUD ------------------- */
   const handleAdd = async (e) => {
-    e.preventDefault()
-    const { data, error } = await supabase
-      .from('finances')
-      .insert([{ ...nuovaSpesa, categoria: 'casa' }])
-      .select()
-      .single()
-
+  
+  
     if (!error) {
       setSpese([...spese, data])
       setNuovaSpesa({ descrizione: '', importo: '' })
