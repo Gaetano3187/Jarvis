@@ -19,7 +19,7 @@ const VestitiEdAltro = () => {
     const { data, error } = await supabase
       .from('finances')
       .select('id, description, amount, qty, spent_at, finance_categories(name)')
-      .eq('finance_categories.name', '"VESTITI"')
+      .eq('finance_categories.slug', 'vestiti')
       .order('created_at', { ascending: false })
     if (!error) setSpese(data)
     else console.error(error)

@@ -3,8 +3,8 @@ import React, { useCallback } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { askAssistant } from '../lib/assistant'
-import { parseAssistant } from '@/lib/assistant';
-/* ––– Categorie box collegate alle pagine esistenti ––– */
+import { parseAssistant } from '@/lib/assistant'
+
 const categories = [
   {
     href: '/spese-casa',
@@ -43,7 +43,6 @@ const categories = [
   },
 ]
 
-/* ––– Pagina ––– */
 const Finanze1 = () => {
   const handleAddManual = useCallback(() => {
     const voce = prompt('Descrizione e importo (es: Enel 45,60)')
@@ -66,7 +65,6 @@ const Finanze1 = () => {
       </Head>
 
       <div className="finanze1-container1">
-        {/* video sfondo */}
         <video
           src="/pagina%20finanze.mp4"
           loop
@@ -76,7 +74,6 @@ const Finanze1 = () => {
           className="finanze1-video"
         />
 
-        {/* contenuto centrale */}
         <div className="finanze1-container2">
           <section
             style={{
@@ -88,7 +85,6 @@ const Finanze1 = () => {
               fontFamily: 'Inter, sans-serif',
             }}
           >
-            {/* griglia box */}
             <div
               style={{
                 display: 'flex',
@@ -135,7 +131,6 @@ const Finanze1 = () => {
               ))}
             </div>
 
-            {/* pulsanti azione */}
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button onClick={handleAddManual} className="btn green">
                 ➕ Aggiungi
@@ -151,7 +146,6 @@ const Finanze1 = () => {
         </div>
       </div>
 
-      {/* stile Teleport originale + fix video */}
       <style jsx>{`
         .finanze1-container1 {
           width: 100%;
@@ -167,15 +161,14 @@ const Finanze1 = () => {
           width: 100%;
           height: auto;
           position: absolute;
-          pointer-events: none; /* ← fix */
-          z-index: -1;          /* ← fix */
+          pointer-events: none;
+          z-index: -1;
         }
         .finanze1-container2 {
           top: 14px;
           left: 870px;
           position: absolute;
         }
-        /* utility per i tre bottoni */
         .btn {
           padding: 1rem 2rem;
           color: #fff;
@@ -193,8 +186,6 @@ const Finanze1 = () => {
         .orange {
           background: rgba(234, 88, 12, 0.9);
         }
-
-        /* media query originali Teleport */
         @media (max-width: 1600px) {
           .finanze1-video {
             top: 0;

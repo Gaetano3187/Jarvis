@@ -1,19 +1,19 @@
 // pages/varie.js
 import React, { useEffect, useState, useRef } from 'react';
-import Head  from 'next/head';
-import Link  from 'next/link';
+import Head from 'next/head';
+import Link from 'next/link';
 
-import { supabase }      from '../lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 import { insertExpense } from '@/lib/dbHelpers';
-import { askAssistant } from '../lib/assistant'
-import withAuth          from '../hoc/withAuth';
+import { askAssistant } from '../lib/assistant';
+import withAuth from '../hoc/withAuth';
 import { parseAssistant } from '@/lib/assistant';
 
 function Varie() {
-  const [spese,      setSpese]      = useState([]);
+  const [spese, setSpese] = useState([]);
   const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' });
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const fileInputRef = useRef(null);
 
@@ -24,18 +24,18 @@ function Varie() {
     const { data, error } = await supabase
       .from('finances')
       .select('id, description, amount, qty, spent_at, finance_categories(name)')
-      .eq('finance_categories.name', '"VARIE"')
+      .eq('finance_categories.slug', 'varie')
       .order('created_at', { ascending: false });
 
     if (!error) setSpese(data);
-    else        setError(error.message);
+    else setError(error.message);
 
     setLoading(false);
   };
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setError('Sessione scaduta');
       return;
@@ -59,7 +59,7 @@ function Varie() {
   const handleDelete = async (id) => {
     const { error } = await supabase.from('finances').delete().eq('id', id);
     if (!error) setSpese(spese.filter((s) => s.id !== id));
-    else        setError(error.message);
+    else setError(error.message);
   };
 
   const handleOCR = async (file) => {
@@ -67,8 +67,7 @@ function Varie() {
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result.split(',')[1];
-      const prompt =
-        'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data, quantita}.';
+      const prompt = 'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data, quantita}.';
       await parseAssistantPrompt(`${prompt}\n${base64}`);
     };
     reader.readAsDataURL(file);
@@ -77,8 +76,7 @@ function Varie() {
   const handleVoice = async () => {
     const spoken = prompt('Parla o digita la descrizione:');
     if (!spoken) return;
-    const prompt =
-      `Estrai descrizione, importo e data da: "${spoken}" in JSON`;
+    const prompt = `Estrai descrizione, importo e data da: "${spoken}" in JSON`;
     await parseAssistantPrompt(prompt);
   };
 
@@ -221,11 +219,7 @@ function Varie() {
                     {spese.map((s) => (
                       <tr key={s.id}>
                         <td>{s.description}</td>
-                        <td>
-                          {s.spent_at
-                            ? new Date(s.spent_at).toLocaleDateString()
-                            : '-'}
-                        </td>
+                        <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
                         <td>{s.qty ?? 1}</td>
                         <td>{Number(s.amount).toFixed(2)}</td>
                         <td>
