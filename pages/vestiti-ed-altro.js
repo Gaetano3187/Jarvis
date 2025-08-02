@@ -1,7 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
 import React, { useEffect, useState } from 'react'
 import Head from 'next/head'
-';'
 import withAuth from '../hoc/withAuth'
 import { askAssistant } from '../lib/assistant'
 import { insertExpense } from "@/lib/dbHelpers";
