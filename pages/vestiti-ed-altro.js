@@ -9,7 +9,7 @@ import { parseAssistant } from '@/lib/assistant';
 
 const VestitiEdAltro = () => {
   const [spese, setSpese] = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1' })
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
 
   useEffect(() => {
     fetchSpese()
@@ -18,7 +18,7 @@ const VestitiEdAltro = () => {
   const fetchSpese = async () => {
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, date, finance_categories(name)')
+      .select('id, description, amount, qty, spent_at, finance_categories(name)')
       .eq('finance_categories.name', '"VESTITI"')
       .order('created_at', { ascending: false })
     if (!error) setSpese(data)
@@ -38,13 +38,13 @@ const VestitiEdAltro = () => {
       categoryName: 'vestiti',
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
-      date: new Date().toISOString(),
+      spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1
     })
 
     if (!error) {
       setSpese([...spese, data])
-      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1' })
+      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
     } else console.error(error)
   }
 
@@ -125,6 +125,16 @@ const VestitiEdAltro = () => {
               required
             />
 
+            <label htmlFor="spentAt">Data</label>
+            <input
+              id="spentAt"
+              type="date"
+              value={nuovaSpesa.spentAt}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
+              }
+            />
+
             <button type="submit" className="btn-manuale">
               Salva
             </button>
@@ -145,9 +155,9 @@ const VestitiEdAltro = () => {
               <tbody>
                 {spese.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.descrizione}</td>
+                    <td>{s.description}</td>
                     <td>{s.dettaglio || '-'}</td>
-                    <td>{new Date(s.data || s.created_at).toLocaleDateString()}</td>
+                    <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
                     <td>{s.qty ?? 1}</td>
                     <td>{Number(s.amount).toFixed(2)}</td>
                     <td>

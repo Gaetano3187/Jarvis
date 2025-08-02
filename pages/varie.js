@@ -11,7 +11,7 @@ import { parseAssistant } from '@/lib/assistant';
 
 function Varie() {
   const [spese,      setSpese]      = useState([]);
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1' });
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' });
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState(null);
 
@@ -23,7 +23,7 @@ function Varie() {
     setLoading(true);
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, date, finance_categories(name)')
+      .select('id, description, amount, qty, spent_at, finance_categories(name)')
       .eq('finance_categories.name', '"VARIE"')
       .order('created_at', { ascending: false });
 
@@ -46,13 +46,13 @@ function Varie() {
       categoryName: 'varie',
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
-      date: new Date().toISOString(),
+      spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1
     });
 
     if (!error) {
       setSpese([...spese, data]);
-      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1' });
+      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1', spentAt: '' });
     } else setError(error.message);
   };
 
@@ -95,7 +95,7 @@ function Varie() {
         categoryName: 'varie',
         description: r.descrizione || r.item || 'spesa',
         amount: Number(r.importo || r.prezzo || 0),
-        date: r.data || new Date().toISOString(),
+        spent_at: r.data || new Date().toISOString(),
         qty: parseInt(r.quantita || r.qty || 1, 10)
       }));
 
@@ -191,6 +191,16 @@ function Varie() {
                   required
                 />
 
+                <label htmlFor="spentAt">Data</label>
+                <input
+                  id="spentAt"
+                  type="date"
+                  value={nuovaSpesa.spentAt}
+                  onChange={(e) =>
+                    setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
+                  }
+                />
+
                 <button type="submit">Aggiungi</button>
               </form>
 
@@ -210,10 +220,10 @@ function Varie() {
                   <tbody>
                     {spese.map((s) => (
                       <tr key={s.id}>
-                        <td>{s.descrizione}</td>
+                        <td>{s.description}</td>
                         <td>
-                          {s.data
-                            ? new Date(s.data).toLocaleDateString()
+                          {s.spent_at
+                            ? new Date(s.spent_at).toLocaleDateString()
                             : '-'}
                         </td>
                         <td>{s.qty ?? 1}</td>

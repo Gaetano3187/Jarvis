@@ -11,7 +11,7 @@ import { parseAssistant } from '@/lib/assistant';
 
 function SpeseCasa () {
   const [spese, setSpese] = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', data: '', quantita: '1' })
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', spentAt: '', quantita: '1' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [recBusy, setRecBusy] = useState(false)
@@ -26,7 +26,7 @@ function SpeseCasa () {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, date, finance_categories(name)')
+      .select('id, description, amount, qty, spent_at, finance_categories(name)')
       .eq('finance_categories.name', '"SPESE"')
       .order('created_at', { ascending: false })
 
@@ -49,13 +49,13 @@ function SpeseCasa () {
       categoryName: 'casa',
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
-      date: nuovaSpesa.data || new Date().toISOString(),
+      spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1
     });
 
     if (!error) {
       setSpese([...spese, data]);
-      setNuovaSpesa({ descrizione: '', importo: '', data: '', quantita: '1' });
+      setNuovaSpesa({ descrizione: '', importo: '', spentAt: '', quantita: '1' });
     } else {
       setError(error.message);
     }
@@ -111,10 +111,10 @@ function SpeseCasa () {
       const parsed = JSON.parse(answer)
       const rows = Array.isArray(parsed) ? parsed : [parsed]
       const insert = rows.map(r => ({
-        descrizione: r.descrizione || r.item || 'spesa',
-        importo: Number(r.importo || r.prezzo || 0),
-        data: r.data || new Date().toISOString(),
-        categoria: 'casa',
+        description: r.descrizione || r.item || 'spesa',
+        amount: Number(r.importo || r.prezzo || 0),
+        spent_at: r.data || new Date().toISOString(),
+        categoryName: 'casa',
         qty: parseInt(r.quantita || r.qty || 1, 10)
       }))
       await supabase.from('finances').insert(insert)
@@ -185,8 +185,8 @@ function SpeseCasa () {
             <input
               id="data"
               type="date"
-              value={nuovaSpesa.data}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, data: e.target.value })}
+              value={nuovaSpesa.spentAt}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
             />
 
             <button type="submit" className="btn-manuale" style={{ width: 'fit-content' }}>
@@ -211,8 +211,8 @@ function SpeseCasa () {
                 <tbody>
                   {spese.map(s => (
                     <tr key={s.id}>
-                      <td>{s.descrizione}</td>
-                      <td>{s.data ? new Date(s.data).toLocaleDateString() : '-'}</td>
+                      <td>{s.description}</td>
+                      <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
                       <td>{s.qty ?? 1}</td>
                       <td>{Number(s.amount).toFixed(2)}</td>
                       <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>

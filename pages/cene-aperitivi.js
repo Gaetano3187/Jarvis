@@ -19,7 +19,7 @@ const parseAssistant = async prompt => {
 
 function CeneAperitivi () {
   const [spese,      setSpese]      = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1' })
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState(null)
 
@@ -31,7 +31,7 @@ function CeneAperitivi () {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, date, qty, finance_categories(name)')
+      .select('id, description, amount, spent_at, qty, finance_categories(name)')
       .eq('finance_categories.name', '"CENE"')
       .order('created_at', { ascending: false })
 
@@ -54,13 +54,13 @@ function CeneAperitivi () {
       categoryName: 'cene',
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
-      date: new Date().toISOString(),
+      spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1
     })
 
     if (!error) {
       setSpese([...spese, data])
-      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1' })
+      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
     } else setError(error.message)
   }
 
@@ -86,7 +86,7 @@ function CeneAperitivi () {
         categoryName: 'cene',
         description: r.descrizione || r.item || 'spesa',
         amount: Number(r.importo || r.prezzo || 0),
-        date: r.data || new Date().toISOString(),
+        spent_at: r.data || new Date().toISOString(),
         qty: parseInt(r.quantita || r.qty || 1, 10)
       }))
 
@@ -110,7 +110,7 @@ function CeneAperitivi () {
       categoryName: 'cene',
       description: r.descrizione || r.item || 'spesa',
       amount: Number(r.importo || r.prezzo || 0),
-      date: r.data || new Date().toISOString(),
+      spent_at: r.data || new Date().toISOString(),
       qty: parseInt(r.quantita || r.qty || 1, 10)
     }))
 
@@ -155,6 +155,11 @@ function CeneAperitivi () {
             onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
             required
           />
+          <input
+            type="date"
+            value={nuovaSpesa.spentAt}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+          />
           <button type="submit">Aggiungi</button>
         </form>
 
@@ -185,8 +190,8 @@ function CeneAperitivi () {
             <tbody>
               {spese.map(s => (
                 <tr key={s.id}>
-                  <td>{s.descrizione}</td>
-                  <td>{s.date ? new Date(s.date).toLocaleDateString() : '-'}</td>
+                  <td>{s.description}</td>
+                  <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
                   <td>{s.qty ?? 1}</td>
                   <td>{Number(s.amount).toFixed(2)}</td>
                   <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
