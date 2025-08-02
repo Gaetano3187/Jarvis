@@ -24,7 +24,7 @@ function Varie() {
     const { data, error } = await supabase
       .from('finances')
       .select('id, description, amount, qty, spent_at, finance_categories(name)')
-      .eq('finance_categories.slug', 'varie')
+      .eq('finance_categories.name', 'varie')
       .order('created_at', { ascending: false });
 
     if (!error) setSpese(data);

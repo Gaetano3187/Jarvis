@@ -127,85 +127,87 @@ function CeneAperitivi () {
     <>
       <Head><title>Cene e Aperitivi</title></Head>
 
-      <div className="cene-container">
-        <h2>Cene e Aperitivi</h2>
+      <div className="cene-aperitivi-container1">
+        <div className="cene-aperitivi-container2">
+          <h2>Cene e Aperitivi</h2>
 
-        <form onSubmit={handleAdd}>
-          <input
-            type="text"
-            placeholder="Descrizione"
-            value={nuovaSpesa.descrizione}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
-            required
-          />
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Importo"
-            value={nuovaSpesa.importo}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
-            required
-          />
-          <input
-            type="number"
-            step="1"
-            min="1"
-            placeholder="Quantità"
-            value={nuovaSpesa.quantita}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-            required
-          />
-          <input
-            type="date"
-            value={nuovaSpesa.spentAt}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
-          />
-          <button type="submit">Aggiungi</button>
-        </form>
+          <form onSubmit={handleAdd}>
+            <input
+              type="text"
+              placeholder="Descrizione"
+              value={nuovaSpesa.descrizione}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
+              required
+            />
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Importo"
+              value={nuovaSpesa.importo}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+              required
+            />
+            <input
+              type="number"
+              step="1"
+              min="1"
+              placeholder="Quantità"
+              value={nuovaSpesa.quantita}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
+              required
+            />
+            <input
+              type="date"
+              value={nuovaSpesa.spentAt}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+            />
+            <button type="submit">Aggiungi</button>
+          </form>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,application/pdf"
-          style={{ display: 'none' }}
-          onChange={(e) => handleOCR(e.target.files[0])}
-        />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => handleOCR(e.target.files[0])}
+          />
 
-        <button onClick={handleVoice}>🎙 Voce</button>
-        <button onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
+          <button onClick={handleVoice}>🎙 Voce</button>
+          <button onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
 
-        {loading ? (
-          <p>Caricamento…</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Descrizione</th>
-                <th>Data</th>
-                <th>Qtà</th>
-                <th>Importo €</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {spese.map(s => (
-                <tr key={s.id}>
-                  <td>{s.description}</td>
-                  <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
-                  <td>{s.qty ?? 1}</td>
-                  <td>{Number(s.amount).toFixed(2)}</td>
-                  <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
+          {loading ? (
+            <p>Caricamento…</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Descrizione</th>
+                  <th>Data</th>
+                  <th>Qtà</th>
+                  <th>Importo €</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              </thead>
+              <tbody>
+                {spese.map(s => (
+                  <tr key={s.id}>
+                    <td>{s.description}</td>
+                    <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
+                    <td>{s.qty ?? 1}</td>
+                    <td>{Number(s.amount).toFixed(2)}</td>
+                    <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
-        <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+          <div className="total-box">Totale: € {totale.toFixed(2)}</div>
 
-        {error && <p style={{ color: 'red' }}>{error}</p>}
+          {error && <p style={{ color: 'red' }}>{error}</p>}
 
-        <Link href="/home">🏠 Home</Link>
+          <Link href="/home">🏠 Home</Link>
+        </div>
       </div>
     </>
   )
