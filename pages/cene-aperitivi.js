@@ -31,7 +31,7 @@ function CeneAperitivi () {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, date, finance_categories(name)')
+      .select('id, description, amount, date, qty, finance_categories(name)')
       .eq('finance_categories.name', '"CENE"')
       .order('created_at', { ascending: false })
 
@@ -110,7 +110,83 @@ function CeneAperitivi () {
     fetchSpese()
   }
 
-  return null
+  const totale = spese.reduce(
+    (sum, s) => sum + Number(s.amount || 0) * (s.qty ?? 1),
+    0
+  )
+
+  return (
+    <>
+      <Head><title>Cene e Aperitivi</title></Head>
+
+      <div className="cene-container">
+        <h2>Cene e Aperitivi</h2>
+
+        <form onSubmit={handleAdd}>
+          <input
+            type="text"
+            placeholder="Descrizione"
+            value={nuovaSpesa.descrizione}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
+            required
+          />
+          <input
+            type="number"
+            step="0.01"
+            placeholder="Importo"
+            value={nuovaSpesa.importo}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+            required
+          />
+          <button type="submit">Aggiungi</button>
+        </form>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => handleOCR(e.target.files[0])}
+        />
+
+        <button onClick={handleVoice}>🎙 Voce</button>
+        <button onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
+
+        {loading ? (
+          <p>Caricamento…</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Descrizione</th>
+                <th>Data</th>
+                <th>Qtà</th>
+                <th>Importo €</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {spese.map(s => (
+                <tr key={s.id}>
+                  <td>{s.descrizione}</td>
+                  <td>{s.date ? new Date(s.date).toLocaleDateString() : '-'}</td>
+                  <td>{s.qty}</td>
+                  <td>{Number(s.amount).toFixed(2)}</td>
+                  <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+
+        {error && <p style={{ color: 'red' }}>{error}</p>}
+
+        <Link href="/home">🏠 Home</Link>
+      </div>
+    </>
+  )
 }
 
 export default withAuth(CeneAperitivi)
