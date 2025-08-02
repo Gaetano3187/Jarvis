@@ -1,27 +1,23 @@
-import React, { useEffect, useState, useRef } from 'react'
-import Head  from 'next/head'
-import Link  from 'next/link'
-import withAuth        from '../hoc/withAuth'
-import { supabase }    from '../lib/supabaseClient'
+// pages/spese-casa.js
+import { useEffect, useState, useRef } from 'react'
+import Head from 'next/head'
+import Link from 'next/link'
+
+import withAuth from '../hoc/withAuth'
 import { insertExpense } from "@/lib/dbHelpers";
+import { supabase } from '../lib/supabaseClient'
 import { askAssistant } from '../lib/assistant'
+import { parseAssistant } from '@/lib/assistant';
 
-const parseAssistant = async prompt => {
-  try {
-    const answer = await askAssistant(prompt);
-    return JSON.parse(answer);
-  } catch (err) {
-    console.error(err);
-    return null;
-  }
-};
+function SpeseCasa () {
+  const [spese, setSpese] = useState([])
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', spentAt: '', quantita: '1' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [recBusy, setRecBusy] = useState(false)
 
-function CeneAperitivi () {
-  const [spese,      setSpese]      = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState(null)
-
+  const mediaRecRef = useRef(null)
+  const recordedChunksRef = useRef([])
   const fileInputRef = useRef(null)
 
   useEffect(() => { fetchSpese() }, [])
@@ -30,8 +26,8 @@ function CeneAperitivi () {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, spent_at, qty, finance_categories(name)')
-      .eq('finance_categories.name', 'Cene / Aperitivi')
+      .select('id, description, amount, qty, spent_at, finance_categories(name)')
+      .eq('finance_categories.name', '"SPESE"')
       .order('created_at', { ascending: false })
 
     if (!error) setSpese(data)
@@ -41,26 +37,28 @@ function CeneAperitivi () {
   }
 
   const handleAdd = async (e) => {
-    e.preventDefault()
-    const { data: { user } } = await supabase.auth.getUser()
+    e.preventDefault();
+    const { data: { user } } = await supabase.auth.getUser();    
     if (!user) {
-      setError('Sessione scaduta')
-      return
+      setError('Sessione scaduta, effettua di nuovo il login.');
+      return;
     }
 
     const { data, error } = await insertExpense({
       userId: user.id,
-      categoryName: 'cene',
+      categoryName: 'casa',
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
       spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1
-    })
+    });
 
     if (!error) {
-      setSpese([...spese, data])
-      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
-    } else setError(error.message)
+      setSpese([...spese, data]);
+      setNuovaSpesa({ descrizione: '', importo: '', spentAt: '', quantita: '1' });
+    } else {
+      setError(error.message);
+    }
   }
 
   const handleDelete = async (id) => {
@@ -71,143 +69,276 @@ function CeneAperitivi () {
 
   const handleOCR = async file => {
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const base64 = reader.result.split(',')[1]
-      const prompt = 'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data, quantita}.'
-      const parsed = await parseAssistant(`${prompt}\n${base64}`)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user || !parsed) return
+    const formData = new FormData()
+    formData.append('image', file)
+    try {
+      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: formData })).json()
+      const sysPrompt = 'Estrarre descrizione, importo e data dal testo OCR; ritorna JSON.'
+      await parseAssistantPrompt(`${sysPrompt}\n${text}`)
+    } catch { setError('OCR fallito') }
+  }
 
+  const toggleRec = async () => {
+    if (recBusy) {
+      mediaRecRef.current?.stop()
+      setRecBusy(false)
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaRecRef.current = new MediaRecorder(stream)
+      recordedChunksRef.current = []
+      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunksRef.current.push(e.data)
+      mediaRecRef.current.onstop = processVoice
+      mediaRecRef.current.start()
+      setRecBusy(true)
+    } catch { setError('Microfono non disponibile') }
+  }
+
+  const processVoice = async () => {
+    const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
+    const fd = new FormData(); fd.append('audio', blob, 'voice.webm')
+    try {
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
+      const sysPrompt = 'Da questa frase estrai descrizione, importo, data; restituisci JSON.'
+      await parseAssistantPrompt(`${sysPrompt}\n${text}`)
+    } catch { setError('STT fallito') }
+  }
+
+  const parseAssistantPrompt = async fullPrompt => {
+    try {
+      const answer = await askAssistant(fullPrompt);
+      const parsed = JSON.parse(answer)
       const rows = Array.isArray(parsed) ? parsed : [parsed]
       const insert = rows.map(r => ({
-        userId: user.id,
-        categoryName: 'cene',
         description: r.descrizione || r.item || 'spesa',
         amount: Number(r.importo || r.prezzo || 0),
         spent_at: r.data || new Date().toISOString(),
+        categoryName: 'casa',
         qty: parseInt(r.quantita || r.qty || 1, 10)
       }))
-
       await supabase.from('finances').insert(insert)
       fetchSpese()
+    } catch {
+      setError('Risposta assistant non valida')
     }
-    reader.readAsDataURL(file)
   }
 
-  const handleVoice = async () => {
-    const spoken = prompt('Parla o digita la descrizione:')
-    if (!spoken) return
-    const prompt = `Estrai descrizione, importo e data da: "${spoken}" in JSON`
-    const parsed = await parseAssistant(prompt)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user || !parsed) return
-
-    const rows = Array.isArray(parsed) ? parsed : [parsed]
-    const insert = rows.map(r => ({
-      userId: user.id,
-      categoryName: 'cene',
-      description: r.descrizione || r.item || 'spesa',
-      amount: Number(r.importo || r.prezzo || 0),
-      spent_at: r.data || new Date().toISOString(),
-      qty: parseInt(r.quantita || r.qty || 1, 10)
-    }))
-
-    await supabase.from('finances').insert(insert)
-    fetchSpese()
-  }
-
-  const totale = spese.reduce(
-    (sum, s) => sum + Number(s.amount || 0) * (s.qty ?? 1),
-    0
-  )
+  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0) * (s.qty ?? 1), 0)
 
   return (
     <>
-      <Head><title>Cene e Aperitivi</title></Head>
+      <Head><title>Spese Casa</title></Head>
 
-      <div className="cene-container">
-        <h2>Cene e Aperitivi</h2>
+      <div className="cene-aperitivi-container1">
+        <div className="cene-aperitivi-container2">
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
+            🏠 Spese Casa
+          </h2>
 
-        <form onSubmit={handleAdd}>
-          <input
-            type="text"
-            placeholder="Descrizione"
-            value={nuovaSpesa.descrizione}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
-            required
-          />
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Importo"
-            value={nuovaSpesa.importo}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
-            required
-          />
-          <input
-            type="number"
-            step="1"
-            min="1"
-            placeholder="Quantità"
-            value={nuovaSpesa.quantita}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-            required
-          />
-          <input
-            type="date"
-            value={nuovaSpesa.spentAt}
-            onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
-          />
-          <button type="submit">Aggiungi</button>
-        </form>
+          <div className="table-buttons">
+            <button className="btn-manuale" onClick={() => fileInputRef.current?.scrollIntoView()}>
+              ➕ Aggiungi manualmente
+            </button>
+            <button className="btn-vocale" onClick={toggleRec}>
+              {recBusy ? '⏹ Stop' : '🎙 Riconoscimento vocale'}
+            </button>
+            <button className="btn-ocr" onClick={() => fileInputRef.current?.click()}>
+              📷 OCR
+            </button>
+          </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,application/pdf"
-          style={{ display: 'none' }}
-          onChange={(e) => handleOCR(e.target.files[0])}
-        />
+          <form className="input-section" onSubmit={handleAdd} ref={fileInputRef}>
+            <label htmlFor="descr">Voce di spesa</label>
+            <input
+              id="descr"
+              type="text"
+              placeholder="Es. Bolletta luce"
+              value={nuovaSpesa.descrizione}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
+              required
+            />
 
-        <button onClick={handleVoice}>🎙 Voce</button>
-        <button onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
+            <label htmlFor="importo">Importo (€)</label>
+            <input
+              id="importo"
+              type="number"
+              step="0.01"
+              placeholder="65.00"
+              value={nuovaSpesa.importo}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+              required
+            />
 
-        {loading ? (
-          <p>Caricamento…</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Descrizione</th>
-                <th>Data</th>
-                <th>Qtà</th>
-                <th>Importo €</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {spese.map(s => (
-                <tr key={s.id}>
-                  <td>{s.description}</td>
-                  <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
-                  <td>{s.qty ?? 1}</td>
-                  <td>{Number(s.amount).toFixed(2)}</td>
-                  <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+            <label htmlFor="quantita">Quantità</label>
+            <input
+              id="quantita"
+              type="number"
+              step="1"
+              min="1"
+              value={nuovaSpesa.quantita}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
+              required
+            />
 
-        <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+            <label htmlFor="data">Data (opzionale)</label>
+            <input
+              id="data"
+              type="date"
+              value={nuovaSpesa.spentAt}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+            />
 
-        {error && <p style={{ color: 'red' }}>{error}</p>}
+            <button type="submit" className="btn-manuale" style={{ width: 'fit-content' }}>
+              Aggiungi
+            </button>
+          </form>
 
-        <Link href="/home">🏠 Home</Link>
+          <div className="table-container">
+            {loading ? (
+              <p>Caricamento…</p>
+            ) : (
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Descrizione</th>
+                    <th>Data</th>
+                    <th>Qtà</th>
+                    <th>Importo €</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {spese.map(s => (
+                    <tr key={s.id}>
+                      <td>{s.description}</td>
+                      <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
+                      <td>{s.qty ?? 1}</td>
+                      <td>{Number(s.amount).toFixed(2)}</td>
+                      <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+          </div>
+
+          {error && <p style={{ color: 'red' }}>{error}</p>}
+
+          <Link href="/home" className="btn-vocale" style={{ marginTop: '1.5rem', textDecoration: 'none' }}>
+            🏠 Home
+          </Link>
+        </div>
       </div>
+
+      <style jsx global>{`
+        .cene-aperitivi-container1 {
+          width: 100%;
+          min-height: 100vh;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background: #000;
+        }
+        .cene-aperitivi-container2 {
+          width: 100%;
+          max-width: 900px;
+          padding: 1.5rem;
+          color: #fff;
+          font-family: Inter, sans-serif;
+        }
+        .table-container {
+          overflow-x: auto;
+          background: rgba(0, 0, 0, .6);
+          border-radius: 1rem;
+          padding: 1.5rem;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, .3);
+          width: 100%;
+          box-sizing: border-box;
+        }
+        table.custom-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 1rem;
+          color: #fff;
+        }
+        table.custom-table thead {
+          background: #1f2937;
+        }
+        table.custom-table th,
+        table.custom-table td {
+          padding: .75rem 1rem;
+          text-align: left;
+          border-bottom: 1px solid rgba(255, 255, 255, .1);
+        }
+        table.custom-table tbody tr:hover {
+          background: rgba(255, 255, 255, .05);
+        }
+        .total-box {
+          margin-top: 1rem;
+          background: rgba(34, 197, 94, .8);
+          color: #fff;
+          padding: 1rem;
+          border-radius: .5rem;
+          font-size: 1.25rem;
+          font-weight: 600;
+          text-align: right;
+        }
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          flex-wrap: wrap;
+        }
+        .table-buttons button {
+          padding: .75rem 1.25rem;
+          font-size: 1rem;
+          border-radius: .5rem;
+          border: none;
+          font-weight: 600;
+          cursor: pointer;
+          transition: opacity .3s ease;
+        }
+        .btn-manuale { background: #22c55e; color: #fff; }
+        .btn-vocale  { background: #10b981; color: #fff; }
+        .btn-ocr     { background: #f43f5e; color: #fff; }
+        .table-buttons button:hover { opacity: .85; }
+        .input-section {
+          background: rgba(255,255,255,.1);
+          padding: 1rem;
+          margin-bottom: 1.5rem;
+          border-radius: .5rem;
+          display: flex;
+          flex-direction: column;
+          gap: .75rem;
+        }
+        .input-section label { font-weight: 600; font-size: 1rem; }
+        .input-section input {
+          padding: .6rem;
+          border-radius: .5rem;
+          border: none;
+          font-size: 1rem;
+          width: 100%;
+          resize: vertical;
+        }
+        @media(max-width:768px){
+          .cene-aperitivi-container2{padding:1rem;}
+          .table-buttons button{font-size:.95rem;padding:.6rem 1rem;}
+          .input-section input{font-size:.95rem;}
+        }
+      `}</style>
+
+      <input
+        ref={fileInputRef}
+        hidden
+        accept="image/*,application/pdf"
+        type="file"
+        onChange={e => handleOCR(e.target.files?.[0])}
+      />
     </>
   )
 }
 
-export default withAuth(CeneAperitivi)
+export default withAuth(SpeseCasa)
