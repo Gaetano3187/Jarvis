@@ -4,7 +4,6 @@ import Head from 'next/head'
 import Link from 'next/link'
 
 import withAuth from '../hoc/withAuth'
-console.log('categoryName:', categoryName, '|', categoryName.length);
 import { insertExpense } from "@/lib/dbHelpers";
 import { supabase } from '../lib/supabaseClient'
 import { askAssistant } from '../lib/assistant'
