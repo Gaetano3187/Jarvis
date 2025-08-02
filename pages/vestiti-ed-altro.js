@@ -9,7 +9,7 @@ import { parseAssistant } from '@/lib/assistant';
 
 const VestitiEdAltro = () => {
   const [spese, setSpese] = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '' })
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1' })
 
   useEffect(() => {
     fetchSpese()
@@ -39,12 +39,12 @@ const VestitiEdAltro = () => {
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
       date: new Date().toISOString(),
-      qty: 1
+      qty: parseInt(nuovaSpesa.quantita, 10) || 1
     })
 
     if (!error) {
       setSpese([...spese, data])
-      setNuovaSpesa({ descrizione: '', importo: '' })
+      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1' })
     } else console.error(error)
   }
 
@@ -108,6 +108,19 @@ const VestitiEdAltro = () => {
               value={nuovaSpesa.importo}
               onChange={(e) =>
                 setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })
+              }
+              required
+            />
+
+            <label htmlFor="quantita">Quantità</label>
+            <input
+              id="quantita"
+              type="number"
+              min="1"
+              step="1"
+              value={nuovaSpesa.quantita}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
               }
               required
             />

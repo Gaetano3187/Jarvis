@@ -11,7 +11,7 @@ import { parseAssistant } from '@/lib/assistant';
 
 function SpeseCasa () {
   const [spese, setSpese] = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', data: '' })
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', data: '', quantita: '1' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [recBusy, setRecBusy] = useState(false)
@@ -38,7 +38,8 @@ function SpeseCasa () {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser();    if (!user) {
+    const { data: { user } } = await supabase.auth.getUser();    
+    if (!user) {
       setError('Sessione scaduta, effettua di nuovo il login.');
       return;
     }
@@ -49,12 +50,12 @@ function SpeseCasa () {
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
       date: nuovaSpesa.data || new Date().toISOString(),
-      qty: 1
+      qty: parseInt(nuovaSpesa.quantita, 10) || 1
     });
 
     if (!error) {
       setSpese([...spese, data]);
-      setNuovaSpesa({ descrizione: '', importo: '', data: '' });
+      setNuovaSpesa({ descrizione: '', importo: '', data: '', quantita: '1' });
     } else {
       setError(error.message);
     }
@@ -114,7 +115,7 @@ function SpeseCasa () {
         importo: Number(r.importo || r.prezzo || 0),
         data: r.data || new Date().toISOString(),
         categoria: 'casa',
-        qty: 1
+        qty: parseInt(r.quantita || r.qty || 1, 10)
       }))
       await supabase.from('finances').insert(insert)
       fetchSpese()
@@ -166,6 +167,17 @@ function SpeseCasa () {
               placeholder="65.00"
               value={nuovaSpesa.importo}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+              required
+            />
+
+            <label htmlFor="quantita">Quantità</label>
+            <input
+              id="quantita"
+              type="number"
+              step="1"
+              min="1"
+              value={nuovaSpesa.quantita}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
               required
             />
 

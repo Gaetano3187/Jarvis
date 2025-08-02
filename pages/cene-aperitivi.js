@@ -19,7 +19,7 @@ const parseAssistant = async prompt => {
 
 function CeneAperitivi () {
   const [spese,      setSpese]      = useState([])
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '' })
+  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1' })
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState(null)
 
@@ -55,12 +55,12 @@ function CeneAperitivi () {
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
       date: new Date().toISOString(),
-      qty: 1
+      qty: parseInt(nuovaSpesa.quantita, 10) || 1
     })
 
     if (!error) {
       setSpese([...spese, data])
-      setNuovaSpesa({ descrizione: '', importo: '' })
+      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1' })
     } else setError(error.message)
   }
 
@@ -75,18 +75,22 @@ function CeneAperitivi () {
     const reader = new FileReader()
     reader.onload = async () => {
       const base64 = reader.result.split(',')[1]
-      const prompt = 'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data}.'
+      const prompt = 'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data, quantita}.'
       const parsed = await parseAssistant(`${prompt}\n${base64}`)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user || !parsed) return
-      await insertExpense({
+
+      const rows = Array.isArray(parsed) ? parsed : [parsed]
+      const insert = rows.map(r => ({
         userId: user.id,
         categoryName: 'cene',
-        description: parsed.descrizione || parsed.item || 'spesa',
-        amount: Number(parsed.importo || parsed.prezzo || 0),
-        date: parsed.data || new Date().toISOString(),
-        qty: 1
-      })
+        description: r.descrizione || r.item || 'spesa',
+        amount: Number(r.importo || r.prezzo || 0),
+        date: r.data || new Date().toISOString(),
+        qty: parseInt(r.quantita || r.qty || 1, 10)
+      }))
+
+      await supabase.from('finances').insert(insert)
       fetchSpese()
     }
     reader.readAsDataURL(file)
@@ -99,14 +103,18 @@ function CeneAperitivi () {
     const parsed = await parseAssistant(prompt)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user || !parsed) return
-    await insertExpense({
+
+    const rows = Array.isArray(parsed) ? parsed : [parsed]
+    const insert = rows.map(r => ({
       userId: user.id,
       categoryName: 'cene',
-      description: parsed.descrizione || parsed.item || 'spesa',
-      amount: Number(parsed.importo || parsed.prezzo || 0),
-      date: parsed.data || new Date().toISOString(),
-      qty: 1
-    })
+      description: r.descrizione || r.item || 'spesa',
+      amount: Number(r.importo || r.prezzo || 0),
+      date: r.data || new Date().toISOString(),
+      qty: parseInt(r.quantita || r.qty || 1, 10)
+    }))
+
+    await supabase.from('finances').insert(insert)
     fetchSpese()
   }
 
@@ -136,6 +144,15 @@ function CeneAperitivi () {
             placeholder="Importo"
             value={nuovaSpesa.importo}
             onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+            required
+          />
+          <input
+            type="number"
+            step="1"
+            min="1"
+            placeholder="Quantità"
+            value={nuovaSpesa.quantita}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
             required
           />
           <button type="submit">Aggiungi</button>
@@ -170,7 +187,7 @@ function CeneAperitivi () {
                 <tr key={s.id}>
                   <td>{s.descrizione}</td>
                   <td>{s.date ? new Date(s.date).toLocaleDateString() : '-'}</td>
-                  <td>{s.qty}</td>
+                  <td>{s.qty ?? 1}</td>
                   <td>{Number(s.amount).toFixed(2)}</td>
                   <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
                 </tr>
