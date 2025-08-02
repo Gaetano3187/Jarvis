@@ -3,22 +3,20 @@ import React, { useEffect, useState, useRef } from 'react';
 import Head  from 'next/head';
 import Link  from 'next/link';
 
-import { supabase }      from '../lib/supabaseClient';   // percorso corretto
+import { supabase }      from '../lib/supabaseClient';
 import { insertExpense } from '@/lib/dbHelpers';
 import { askAssistant } from '../lib/assistant'
 import withAuth          from '../hoc/withAuth';
 import { parseAssistant } from '@/lib/assistant';
 
 function Varie() {
-  /* ─────────── STATE ─────────── */
   const [spese,      setSpese]      = useState([]);
   const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '' });
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState(null);
 
-  const fileInputRef = useRef(null);   // OCR hidden input
+  const fileInputRef = useRef(null);
 
-  /* ─────────── FETCH iniziale ─────────── */
   useEffect(() => { fetchSpese(); }, []);
 
   const fetchSpese = async () => {
@@ -35,14 +33,22 @@ function Varie() {
     setLoading(false);
   };
 
-  /* ─────────── CRUD ─────────── */
   const handleAdd = async (e) => {
     e.preventDefault();
-    const { data, error } = await supabase
-      .from('finances')
-      .insert([{ ...nuovaSpesa, categoria: 'varie' }])
-      .select()
-      .single();
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setError('Sessione scaduta');
+      return;
+    }
+
+    const { data, error } = await insertExpense({
+      userId: user.id,
+      categoryName: 'varie',
+      description: nuovaSpesa.descrizione,
+      amount: Number(nuovaSpesa.importo),
+      date: new Date().toISOString(),
+      qty: 1
+    });
 
     if (!error) {
       setSpese([...spese, data]);
@@ -56,7 +62,6 @@ function Varie() {
     else        setError(error.message);
   };
 
-  /* ─────────── OCR & VOCE (assistant) ─────────── */
   const handleOCR = async (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -64,7 +69,7 @@ function Varie() {
       const base64 = reader.result.split(',')[1];
       const prompt =
         'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data}.';
-      await parseAssistant(`${prompt}\n${base64}`);
+      await parseAssistantPrompt(`${prompt}\n${base64}`);
     };
     reader.readAsDataURL(file);
   };
@@ -74,16 +79,25 @@ function Varie() {
     if (!spoken) return;
     const prompt =
       `Estrai descrizione, importo e data da: "${spoken}" in JSON`;
-    await parseAssistant(prompt);
+    await parseAssistantPrompt(prompt);
   };
 
-  const parseAssistant = async (fullPrompt) => {
+  const parseAssistantPrompt = async (fullPrompt) => {
     try {
-      const answer = await askAssistant(fullPrompt);;
+      const answer = await askAssistant(fullPrompt);
       const parsed = JSON.parse(answer);
-      await supabase
-        .from('finances')
-        .insert([{ ...parsed, categoria: 'varie' }]);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      await insertExpense({
+        userId: user.id,
+        categoryName: 'varie',
+        description: parsed.descrizione || parsed.item || 'spesa',
+        amount: Number(parsed.importo || parsed.prezzo || 0),
+        date: parsed.data || new Date().toISOString(),
+        qty: 1
+      });
+
       fetchSpese();
     } catch (err) {
       console.error('Assistente: JSON non valido', err);
@@ -91,8 +105,7 @@ function Varie() {
     }
   };
 
-  /* ─────────── UI (layout Teleport invariato) ─────────── */
-  const totale = spese.reduce((sum, s) => sum + Number(s.importo || 0), 0);
+  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0), 0);
 
   return (
     <>
@@ -103,8 +116,6 @@ function Varie() {
       <div className="varie-container1">
         <div className="varie-container2">
           <div className="varie-container3">
-
-            {/* intestazione + pulsanti */}
             <div className="table-container">
               <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>
                 📁 Spese Varie
@@ -128,7 +139,6 @@ function Varie() {
                 </button>
               </div>
 
-              {/* input nascosto OCR */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -137,7 +147,6 @@ function Varie() {
                 onChange={(e) => handleOCR(e.target.files[0])}
               />
 
-              {/* form manuale */}
               <form onSubmit={handleAdd} className="input-section">
                 <label htmlFor="descrizioneVarie">Descrizione</label>
                 <input
@@ -167,7 +176,6 @@ function Varie() {
                 <button type="submit">Aggiungi</button>
               </form>
 
-              {/* tabella */}
               {loading ? (
                 <p>Caricamento…</p>
               ) : (
@@ -189,7 +197,7 @@ function Varie() {
                             ? new Date(s.data).toLocaleDateString()
                             : '-'}
                         </td>
-                        <td>{Number(s.importo).toFixed(2)}</td>
+                        <td>{Number(s.amount).toFixed(2)}</td>
                         <td>
                           <button onClick={() => handleDelete(s.id)}>🗑</button>
                         </td>
@@ -199,7 +207,6 @@ function Varie() {
                 </table>
               )}
 
-              {/* totale */}
               <div className="total-box">Totale: € {totale.toFixed(2)}</div>
 
               {error && <p style={{ color: 'red' }}>{error}</p>}
@@ -216,7 +223,6 @@ function Varie() {
         </div>
       </div>
 
-      {/* ——— STILI TELEPORT ORIGINALI + global ripresi dallo <style> precedente ——— */}
       <style jsx global>{`
         .table-container{
           overflow-x:auto;background:rgba(0,0,0,.6);border-radius:1rem;padding:1.5rem;

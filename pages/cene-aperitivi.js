@@ -5,7 +5,7 @@ import Link  from 'next/link'
 import withAuth        from '../hoc/withAuth'
 import { supabase }    from '../lib/supabaseClient'
 import { insertExpense } from "@/lib/dbHelpers";
-
+import { askAssistant } from '../lib/assistant'
 
 const parseAssistant = async prompt => {
   try {
@@ -18,16 +18,13 @@ const parseAssistant = async prompt => {
 };
 
 function CeneAperitivi () {
-  /* ------------------- state ------------------- */
   const [spese,      setSpese]      = useState([])
   const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '' })
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState(null)
 
-  /* OCR file-input nascosto */
   const fileInputRef = useRef(null)
 
-  /* ------------------- fetch iniziale ------------------- */
   useEffect(() => { fetchSpese() }, [])
 
   const fetchSpese = async () => {
@@ -44,14 +41,22 @@ function CeneAperitivi () {
     setLoading(false)
   }
 
-  /* ------------------- CRUD ------------------- */
   const handleAdd = async (e) => {
     e.preventDefault()
-    const { data, error } = await supabase
-      .from('finances')
-      .insert([{ ...nuovaSpesa, categoria: 'divertimento' }])
-      .select()
-      .single()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setError('Sessione scaduta')
+      return
+    }
+
+    const { data, error } = await insertExpense({
+      userId: user.id,
+      categoryName: 'cene',
+      description: nuovaSpesa.descrizione,
+      amount: Number(nuovaSpesa.importo),
+      date: new Date().toISOString(),
+      qty: 1
+    })
 
     if (!error) {
       setSpese([...spese, data])
@@ -65,14 +70,24 @@ function CeneAperitivi () {
     else        setError(error.message)
   }
 
-  /* ------------------- OCR & Voce ------------------- */
   const handleOCR = async file => {
     if (!file) return
     const reader = new FileReader()
     reader.onload = async () => {
       const base64 = reader.result.split(',')[1]
       const prompt = 'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data}.'
-      await parseAssistant(`${prompt}\n${base64}`)
+      const parsed = await parseAssistant(`${prompt}\n${base64}`)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || !parsed) return
+      await insertExpense({
+        userId: user.id,
+        categoryName: 'cene',
+        description: parsed.descrizione || parsed.item || 'spesa',
+        amount: Number(parsed.importo || parsed.prezzo || 0),
+        date: parsed.data || new Date().toISOString(),
+        qty: 1
+      })
+      fetchSpese()
     }
     reader.readAsDataURL(file)
   }
@@ -81,18 +96,21 @@ function CeneAperitivi () {
     const spoken = prompt('Parla o digita la descrizione:')
     if (!spoken) return
     const prompt = `Estrai descrizione, importo e data da: "${spoken}" in JSON`
-    await parseAssistant(prompt)
+    const parsed = await parseAssistant(prompt)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user || !parsed) return
+    await insertExpense({
+      userId: user.id,
+      categoryName: 'cene',
+      description: parsed.descrizione || parsed.item || 'spesa',
+      amount: Number(parsed.importo || parsed.prezzo || 0),
+      date: parsed.data || new Date().toISOString(),
+      qty: 1
+    })
+    fetchSpese()
   }
 
-  const parseAssistant = async fullPrompt => {
-  try {
-    const answer = await askAssistant(fullPrompt);
-    return JSON.parse(answer);
-  } catch (err) {
-    console.error(err);
-    return null;
-  }
-}
+  return null
 }
 
-export default CeneAperitivi;
+export default withAuth(CeneAperitivi)

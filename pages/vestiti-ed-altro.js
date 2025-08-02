@@ -11,7 +11,6 @@ const VestitiEdAltro = () => {
   const [spese, setSpese] = useState([])
   const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '' })
 
-  /* fetch iniziale */
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -26,33 +25,39 @@ const VestitiEdAltro = () => {
     else console.error(error)
   }
 
-  /* aggiunta manuale */
   const handleAdd = async (e) => {
     e.preventDefault()
-    const { data, error } = await supabase
-      .from('finances')
-      .insert([{ ...nuovaSpesa, categoria: 'vestiti' }])
-      .select()
-      .single()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('Sessione scaduta')
+      return
+    }
+
+    const { data, error } = await insertExpense({
+      userId: user.id,
+      categoryName: 'vestiti',
+      description: nuovaSpesa.descrizione,
+      amount: Number(nuovaSpesa.importo),
+      date: new Date().toISOString(),
+      qty: 1
+    })
+
     if (!error) {
       setSpese([...spese, data])
       setNuovaSpesa({ descrizione: '', importo: '' })
     } else console.error(error)
   }
 
-  /* elimina */
   const handleDelete = async (id) => {
     const { error } = await supabase.from('finances').delete().eq('id', id)
     if (!error) setSpese(spese.filter((s) => s.id !== id))
     else console.error(error)
   }
 
-  /* placeholder OCR / STT */
   const handleOCR = () => alert('TODO: OCR')
   const handleVoice = () => alert('TODO: STT')
 
-  /* totale */
-  const totale = spese.reduce((sum, s) => sum + Number(s.importo || 0), 0)
+  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0), 0)
 
   return (
     <>
@@ -62,7 +67,6 @@ const VestitiEdAltro = () => {
 
       <div className="vestiti-ed-altro-container1">
         <div className="vestiti-ed-altro-container2">
-          {/* Pulsanti */}
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
              Vestiti ed Altro
           </h2>
@@ -79,7 +83,6 @@ const VestitiEdAltro = () => {
             </button>
           </div>
 
-          {/* Form di input */}
           <form onSubmit={handleAdd} className="input-section">
             <label htmlFor="descrV">Descrizione</label>
             <input
@@ -111,7 +114,6 @@ const VestitiEdAltro = () => {
             </button>
           </form>
 
-          {/* Tabella */}
           <div className="table-container">
             <table className="custom-table">
               <thead>
@@ -129,7 +131,7 @@ const VestitiEdAltro = () => {
                     <td>{s.descrizione}</td>
                     <td>{s.dettaglio || '-'}</td>
                     <td>{new Date(s.data || s.created_at).toLocaleDateString()}</td>
-                    <td>{Number(s.importo).toFixed(2)}</td>
+                    <td>{Number(s.amount).toFixed(2)}</td>
                     <td>
                       <button onClick={() => handleDelete(s.id)}></button>
                     </td>
@@ -138,13 +140,11 @@ const VestitiEdAltro = () => {
               </tbody>
             </table>
 
-            {/* Totale */}
             <div className="total-box">Totale:  {totale.toFixed(2)}</div>
           </div>
         </div>
       </div>
 
-      {/* stile originale + utility */}
       <style jsx>{`
         .vestiti-ed-altro-container1 {
           width: 100%;
@@ -186,7 +186,6 @@ const VestitiEdAltro = () => {
           background: #f43f5e;
         }
 
-        /* input section */
         .input-section {
           background: rgba(255, 255, 255, 0.1);
           padding: 1rem;
@@ -202,7 +201,6 @@ const VestitiEdAltro = () => {
           font-size: 1rem;
         }
 
-        /* tabella */
         .table-container {
           overflow-x: auto;
           background: rgba(0, 0, 0, 0.6);

@@ -45,10 +45,11 @@ function SpeseCasa () {
 
     const { data, error } = await insertExpense({
       userId: user.id,
-      categoryName: 'Casa',
+      categoryName: 'casa',
       description: nuovaSpesa.descrizione,
-      amount: nuovaSpesa.importo,
-      date: nuovaSpesa.data || new Date().toISOString()
+      amount: Number(nuovaSpesa.importo),
+      date: nuovaSpesa.data || new Date().toISOString(),
+      qty: 1
     });
 
     if (!error) {
@@ -112,7 +113,8 @@ function SpeseCasa () {
         descrizione: r.descrizione || r.item || 'spesa',
         importo: Number(r.importo || r.prezzo || 0),
         data: r.data || new Date().toISOString(),
-        categoria: 'casa'
+        categoria: 'casa',
+        qty: 1
       }))
       await supabase.from('finances').insert(insert)
       fetchSpese()
@@ -121,7 +123,7 @@ function SpeseCasa () {
     }
   }
 
-  const totale = spese.reduce((sum, s) => sum + Number(s.importo || 0), 0)
+  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0), 0)
 
   return (
     <>
@@ -198,7 +200,7 @@ function SpeseCasa () {
                     <tr key={s.id}>
                       <td>{s.descrizione}</td>
                       <td>{s.data ? new Date(s.data).toLocaleDateString() : '-'}</td>
-                      <td>{Number(s.importo).toFixed(2)}</td>
+                      <td>{Number(s.amount).toFixed(2)}</td>
                       <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
                     </tr>
                   ))}
