@@ -26,7 +26,7 @@ function SpeseCasa () {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, date, finance_categories(name)')
+      .select('id, description, amount, qty, date, finance_categories(name)')
       .eq('finance_categories.name', '"SPESE"')
       .order('created_at', { ascending: false })
 
@@ -123,7 +123,7 @@ function SpeseCasa () {
     }
   }
 
-  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0), 0)
+  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0) * (s.qty ?? 1), 0)
 
   return (
     <>
@@ -191,6 +191,7 @@ function SpeseCasa () {
                   <tr>
                     <th>Descrizione</th>
                     <th>Data</th>
+                    <th>Qtà</th>
                     <th>Importo €</th>
                     <th></th>
                   </tr>
@@ -200,6 +201,7 @@ function SpeseCasa () {
                     <tr key={s.id}>
                       <td>{s.descrizione}</td>
                       <td>{s.data ? new Date(s.data).toLocaleDateString() : '-'}</td>
+                      <td>{s.qty ?? 1}</td>
                       <td>{Number(s.amount).toFixed(2)}</td>
                       <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
                     </tr>
