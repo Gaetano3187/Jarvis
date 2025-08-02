@@ -38,8 +38,7 @@ function SpeseCasa () {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    const user = supabase.auth.user();
-    if (!user) {
+    const { data: { user } } = await supabase.auth.getUser();    if (!user) {
       setError('Sessione scaduta, effettua di nuovo il login.');
       return;
     }
