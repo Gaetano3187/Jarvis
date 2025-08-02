@@ -18,7 +18,7 @@ export default function Login() {
     const password = e.target['thq-sign-in-1-password']?.value;
 
     try {
-      await signIn(email, password);   // Supabase auth
+     await signIn({ email, password });   // Supabase auth
       router.push('/home');            // redirect
     } catch (err) {
       setError(err.message);
