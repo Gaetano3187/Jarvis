@@ -27,7 +27,7 @@ function SpeseCasa () {
     const { data, error } = await supabase
       .from('finances')
       .select('id, description, amount, qty, spent_at, finance_categories(name)')
-      .eq('finance_categories.slug', 'casa')
+      .eq('finance_categories.name', 'Spese Casa')  // usa il nome esatto presente nel DB
       .order('created_at', { ascending: false })
 
     if (!error) setSpese(data)
