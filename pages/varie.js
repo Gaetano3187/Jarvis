@@ -1,4 +1,3 @@
-// pages/varie.js
 import React, { useEffect, useState, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -118,132 +117,130 @@ function Varie() {
 
       <div className="varie-container1">
         <div className="varie-container2">
-          <div className="varie-container3">
-            <div className="table-container">
-              <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>
-                📁 Spese Varie
-              </h2>
+          <div className="table-container">
+            <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>
+              📁 Spese Varie
+            </h2>
 
-              <div className="table-buttons">
-                <button
-                  className="btn-manuale"
-                  onClick={() => fileInputRef.current?.scrollIntoView()}
-                >
-                  ➕ Aggiungi manualmente
-                </button>
-                <button className="btn-vocale" onClick={handleVoice}>
-                  🎙 Riconoscimento vocale
-                </button>
-                <button
-                  className="btn-ocr"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  📷 OCR
-                </button>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,application/pdf"
-                style={{ display: 'none' }}
-                onChange={(e) => handleOCR(e.target.files[0])}
-              />
-
-              <form onSubmit={handleAdd} className="input-section">
-                <label htmlFor="descrizioneVarie">Descrizione</label>
-                <input
-                  id="descrizioneVarie"
-                  type="text"
-                  placeholder="Es. Spesa imprevista"
-                  value={nuovaSpesa.descrizione}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })
-                  }
-                  required
-                />
-
-                <label htmlFor="importoVarie">Importo</label>
-                <input
-                  id="importoVarie"
-                  type="number"
-                  step="0.01"
-                  placeholder="50.00"
-                  value={nuovaSpesa.importo}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })
-                  }
-                  required
-                />
-
-                <label htmlFor="quantita">Quantità</label>
-                <input
-                  id="quantita"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={nuovaSpesa.quantita}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
-                  }
-                  required
-                />
-
-                <label htmlFor="spentAt">Data</label>
-                <input
-                  id="spentAt"
-                  type="date"
-                  value={nuovaSpesa.spentAt}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
-                  }
-                />
-
-                <button type="submit">Aggiungi</button>
-              </form>
-
-              {loading ? (
-                <p>Caricamento…</p>
-              ) : (
-                <table className="custom-table">
-                  <thead>
-                    <tr>
-                      <th>Descrizione</th>
-                      <th>Data</th>
-                      <th>Qtà</th>
-                      <th>Prezzo €</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {spese.map((s) => (
-                      <tr key={s.id}>
-                        <td>{s.description}</td>
-                        <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
-                        <td>{s.qty ?? 1}</td>
-                        <td>{Number(s.amount).toFixed(2)}</td>
-                        <td>
-                          <button onClick={() => handleDelete(s.id)}>🗑</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-
-              <div className="total-box">Totale: € {totale.toFixed(2)}</div>
-
-              {error && <p style={{ color: 'red' }}>{error}</p>}
+            <div className="table-buttons">
+              <button
+                className="btn-manuale"
+                onClick={() => fileInputRef.current?.scrollIntoView()}
+              >
+                ➕ Aggiungi manualmente
+              </button>
+              <button className="btn-vocale" onClick={handleVoice}>
+                🎙 Riconoscimento vocale
+              </button>
+              <button
+                className="btn-ocr"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                📷 OCR
+              </button>
             </div>
 
-            <Link
-              href="/home"
-              className="thq-button-filled"
-              style={{ marginTop: '1.5rem', display: 'inline-block' }}
-            >
-              🏠 Home
-            </Link>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              style={{ display: 'none' }}
+              onChange={(e) => handleOCR(e.target.files[0])}
+            />
+
+            <form onSubmit={handleAdd} className="input-section">
+              <label htmlFor="descrizioneVarie">Descrizione</label>
+              <input
+                id="descrizioneVarie"
+                type="text"
+                placeholder="Es. Spesa imprevista"
+                value={nuovaSpesa.descrizione}
+                onChange={(e) =>
+                  setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })
+                }
+                required
+              />
+
+              <label htmlFor="importoVarie">Importo</label>
+              <input
+                id="importoVarie"
+                type="number"
+                step="0.01"
+                placeholder="50.00"
+                value={nuovaSpesa.importo}
+                onChange={(e) =>
+                  setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })
+                }
+                required
+              />
+
+              <label htmlFor="quantita">Quantità</label>
+              <input
+                id="quantita"
+                type="number"
+                min="1"
+                step="1"
+                value={nuovaSpesa.quantita}
+                onChange={(e) =>
+                  setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
+                }
+                required
+              />
+
+              <label htmlFor="spentAt">Data</label>
+              <input
+                id="spentAt"
+                type="date"
+                value={nuovaSpesa.spentAt}
+                onChange={(e) =>
+                  setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
+                }
+              />
+
+              <button type="submit">Aggiungi</button>
+            </form>
+
+            {loading ? (
+              <p>Caricamento…</p>
+            ) : (
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Descrizione</th>
+                    <th>Data</th>
+                    <th>Qtà</th>
+                    <th>Prezzo €</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {spese.map((s) => (
+                    <tr key={s.id}>
+                      <td>{s.description}</td>
+                      <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
+                      <td>{s.qty ?? 1}</td>
+                      <td>{Number(s.amount).toFixed(2)}</td>
+                      <td>
+                        <button onClick={() => handleDelete(s.id)}>🗑</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+
+            {error && <p style={{ color: 'red' }}>{error}</p>}
           </div>
+
+          <Link
+            href="/home"
+            className="thq-button-filled"
+            style={{ marginTop: '1.5rem', display: 'inline-block' }}
+          >
+            🏠 Home
+          </Link>
         </div>
       </div>
     </>
