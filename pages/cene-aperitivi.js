@@ -1,26 +1,27 @@
+// pages/cene-aperitivi.js
 import React, { useEffect, useState, useRef } from 'react'
-import Head  from 'next/head'
-import Link  from 'next/link'
-import withAuth        from '../hoc/withAuth'
-import { supabase }    from '../lib/supabaseClient'
-import { insertExpense } from "@/lib/dbHelpers";
+import Head from 'next/head'
+import Link from 'next/link'
+import withAuth from '../hoc/withAuth'
+import { supabase } from '../lib/supabaseClient'
+import { insertExpense } from "@/lib/dbHelpers"
 import { askAssistant } from '../lib/assistant'
 
 const parseAssistant = async prompt => {
   try {
-    const answer = await askAssistant(prompt);
-    return JSON.parse(answer);
+    const answer = await askAssistant(prompt)
+    return JSON.parse(answer)
   } catch (err) {
-    console.error(err);
-    return null;
+    console.error(err)
+    return null
   }
-};
+}
 
 function CeneAperitivi () {
-  const [spese,      setSpese]      = useState([])
+  const [spese, setSpese] = useState([])
   const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const fileInputRef = useRef(null)
 
@@ -31,11 +32,11 @@ function CeneAperitivi () {
     const { data, error } = await supabase
       .from('finances')
       .select('id, description, amount, spent_at, qty, finance_categories(name)')
-      .eq('finance_categories.name', 'Cene / Aperitivi')
+      .eq('finance_categories.slug', 'cene')
       .order('created_at', { ascending: false })
 
     if (!error) setSpese(data)
-    else        setError(error.message)
+    else setError(error.message)
 
     setLoading(false)
   }
@@ -66,7 +67,7 @@ function CeneAperitivi () {
   const handleDelete = async (id) => {
     const { error } = await supabase.from('finances').delete().eq('id', id)
     if (!error) setSpese(spese.filter(s => s.id !== id))
-    else        setError(error.message)
+    else setError(error.message)
   }
 
   const handleOCR = async file => {
@@ -126,93 +127,85 @@ function CeneAperitivi () {
     <>
       <Head><title>Cene e Aperitivi</title></Head>
 
-      <div className="cene-aperitivi-container1">
-        <div className="cene-aperitivi-container2">
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
-            🍽 Cene e Aperitivi
-          </h2>
+      <div className="cene-container">
+        <h2>Cene e Aperitivi</h2>
 
-          <form onSubmit={handleAdd} className="input-section">
-            <input
-              type="text"
-              placeholder="Descrizione"
-              value={nuovaSpesa.descrizione}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
-              required
-            />
-            <input
-              type="number"
-              step="0.01"
-              placeholder="Importo"
-              value={nuovaSpesa.importo}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
-              required
-            />
-            <input
-              type="number"
-              step="1"
-              min="1"
-              placeholder="Quantità"
-              value={nuovaSpesa.quantita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-              required
-            />
-            <input
-              type="date"
-              value={nuovaSpesa.spentAt}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
-            />
-            <button type="submit" className="btn-manuale">Aggiungi</button>
-          </form>
-
+        <form onSubmit={handleAdd}>
           <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            style={{ display: 'none' }}
-            onChange={(e) => handleOCR(e.target.files[0])}
+            type="text"
+            placeholder="Descrizione"
+            value={nuovaSpesa.descrizione}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
+            required
           />
+          <input
+            type="number"
+            step="0.01"
+            placeholder="Importo"
+            value={nuovaSpesa.importo}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+            required
+          />
+          <input
+            type="number"
+            step="1"
+            min="1"
+            placeholder="Quantità"
+            value={nuovaSpesa.quantita}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
+            required
+          />
+          <input
+            type="date"
+            value={nuovaSpesa.spentAt}
+            onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+          />
+          <button type="submit">Aggiungi</button>
+        </form>
 
-          <div className="table-buttons">
-            <button className="btn-vocale" onClick={handleVoice}>🎙 Voce</button>
-            <button className="btn-ocr" onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
-          </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => handleOCR(e.target.files[0])}
+        />
 
-          {loading ? (
-            <p>Caricamento…</p>
-          ) : (
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Descrizione</th>
-                  <th>Data</th>
-                  <th>Qtà</th>
-                  <th>Importo €</th>
-                  <th></th>
+        <button onClick={handleVoice}>🎙 Voce</button>
+        <button onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
+
+        {loading ? (
+          <p>Caricamento…</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Descrizione</th>
+                <th>Data</th>
+                <th>Qtà</th>
+                <th>Importo €</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {spese.map(s => (
+                <tr key={s.id}>
+                  <td>{s.description}</td>
+                  <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
+                  <td>{s.qty ?? 1}</td>
+                  <td>{Number(s.amount).toFixed(2)}</td>
+                  <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
                 </tr>
-              </thead>
-              <tbody>
-                {spese.map(s => (
-                  <tr key={s.id}>
-                    <td>{s.description}</td>
-                    <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
-                    <td>{s.qty ?? 1}</td>
-                    <td>{Number(s.amount).toFixed(2)}</td>
-                    <td><button onClick={() => handleDelete(s.id)}>🗑</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+              ))}
+            </tbody>
+          </table>
+        )}
 
-          <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+        <div className="total-box">Totale: € {totale.toFixed(2)}</div>
 
-          {error && <p style={{ color: 'red' }}>{error}</p>}
+        {error && <p style={{ color: 'red' }}>{error}</p>}
 
-          <Link href="/home" className="btn-vocale" style={{ marginTop: '1.5rem', textDecoration: 'none' }}>
-            🏠 Home
-          </Link>
-        </div>
+        <Link href="/home">🏠 Home</Link>
       </div>
     </>
   )
