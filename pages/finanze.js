@@ -1,4 +1,3 @@
-// pages/finanze.js
 import React, { useCallback } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'

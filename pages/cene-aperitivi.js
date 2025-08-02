@@ -32,7 +32,7 @@ function CeneAperitivi () {
     const { data, error } = await supabase
       .from('finances')
       .select('id, description, amount, spent_at, qty, finance_categories(name)')
-      .eq('finance_categories.name', '"CENE"')
+      .eq('finance_categories.name', 'Cene / Aperitivi')
       .order('created_at', { ascending: false })
 
     if (!error) setSpese(data)
