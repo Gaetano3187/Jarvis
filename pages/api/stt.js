@@ -1,33 +1,30 @@
 // pages/api/stt.js
-import * as nc from 'next-connect';
-import * as multer from 'multer';
+import multer from 'multer';
+import { Readable } from 'stream';
 import OpenAI from 'openai';
 import { parseAssistant } from '@/lib/assistant';
 
-/* ---------- next-connect & multer (compat con CJS/ESM) ---------- */
-const nextConnect = nc.default || nc;
-const Multer      = multer.default || multer;
+/* ---------- multer in-memory ---------- */
+const upload = multer({ storage: multer.memoryStorage() });
+const uploadSingle = upload.single('audio');
 
-/* ---------- multer in-memory (25 MB) ---------- */
-const upload = Multer({
-  storage: Multer.memoryStorage(),
-  limits : { fileSize: 25 * 1024 * 1024 },
-});
+/* ---------- disattiva bodyParser builtin ---------- */
+export const config = {
+  api: { bodyParser: false },
+};
 
 /* ---------- API route ---------- */
-const handler = nextConnect({
-  onError(err, req, res) {
-    console.error(err);
-    res.status(500).json({ error: 'Errore interno', details: err.message });
-  },
-  onNoMatch(req, res) {
-    res.status(405).json({ error: 'Metodo non consentito' });
-  },
-});
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
 
-handler.use(upload.single('audio'));
+  /* -- esegui multer e attendi -- */
+  await new Promise((resolve, reject) => {
+    uploadSingle(req, res, (err) => (err ? reject(err) : resolve()));
+  });
 
-handler.post(async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'File mancante' });
@@ -35,24 +32,18 @@ handler.post(async (req, res) => {
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
-    const { text } = await openai.audio.transcriptions.create({
+    const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file : req.file.buffer,
-      filename: req.file.originalname || 'audio.webm',
+      file: Readable.from(req.file.buffer),
+      filename: req.file.originalname,
     });
 
-    const risposta = parseAssistant(text);
-    res.status(200).json({ text, risposta });
+    const risposta = parseAssistant(transcription.text);
+    return res.status(200).json({ text: transcription.text, risposta });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Errore STT', details: err.message });
+    return res
+      .status(500)
+      .json({ error: 'Errore STT', details: err.message });
   }
-});
-
-export default handler;
-
-/* ---------- Next.js config ---------- */
-export const config = {
-  api: { bodyParser: false }, // multipart handled da multer
-};
- 
+}
