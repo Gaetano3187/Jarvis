@@ -1,46 +1,51 @@
 // pages/api/stt.js
 import nextConnect from 'next-connect';
 import multer from 'multer';
-import { parseAssistant } from '@/lib/assistant';
 import OpenAI from 'openai';
+import { parseAssistant } from '@/lib/assistant';
+
+/* ---------- OpenAI client ---------- */
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
 /* ---------- multer in-memory ---------- */
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+});
 
 /* ---------- API route ---------- */
-const handler = nextConnect();
+const handler = nextConnect({
+  onError(err, req, res) {
+    console.error(err);
+    res.status(500).json({ error: 'Errore STT', details: err.message });
+  },
+  onNoMatch(req, res) {
+    res.status(405).json({ error: 'Metodo non consentito' });
+  },
+});
 
 handler.use(upload.single('audio'));
 
 handler.post(async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'File mancante' });
-    }
-
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || '',
-    });
-
-    const transcription = await openai.audio.transcriptions.create({
-      model: 'whisper-1',
-      file: req.file.buffer,
-      filename: req.file.originalname,
-    });
-
-    const risposta = parseAssistant(transcription.text);
-    return res.status(200).json({ text: transcription.text, risposta });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Errore STT', details: err.message });
+  if (!req.file) {
+    return res.status(400).json({ error: 'File mancante' });
   }
+
+  /* ---------- Whisper ---------- */
+  const transcription = await openai.audio.transcriptions.create({
+    model: 'whisper-1',
+    file: req.file.buffer,
+    fileName: req.file.originalname,
+    response_format: 'text',
+  });
+
+  const risposta = parseAssistant(transcription);
+  res.status(200).json({ text: transcription, risposta });
 });
 
 export default handler;
 
 /* ---------- Next.js config ---------- */
 export const config = {
-  api: {
-    bodyParser: false, // disabilita il parser built-in per gestire multipart
-  },
+  api: { bodyParser: false }, // necessario per multipart/form-data
 };
