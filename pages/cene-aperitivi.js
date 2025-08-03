@@ -209,6 +209,85 @@ function CeneAperitivi () {
           <Link href="/home">🏠 Home</Link>
         </div>
       </div>
+      <style jsx global>{`
+  .cene-aperitivi-container1 {
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f172a;
+    padding: 2rem;
+    font-family: Inter, sans-serif;
+  }
+  .cene-aperitivi-container2 {
+    max-width: 800px;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 2rem;
+    border-radius: 1rem;
+    color: #fff;
+    box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+  input[type='text'],
+  input[type='number'],
+  input[type='date'] {
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    border: none;
+    font-size: 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  button {
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: #22c55e;
+    color: white;
+    font-weight: bold;
+    font-size: 1rem;
+    cursor: pointer;
+    margin-right: 0.5rem;
+  }
+  button:hover {
+    opacity: 0.9;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 1rem;
+    color: #fff;
+  }
+  th, td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  thead {
+    background-color: #1f2937;
+  }
+  tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+  .total-box {
+    margin-top: 1rem;
+    background: rgba(34, 197, 94, 0.8);
+    color: #fff;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    text-align: right;
+  }
+`}</style>
+
     </>
   )
 }
