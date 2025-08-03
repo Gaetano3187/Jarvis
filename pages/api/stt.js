@@ -55,3 +55,4 @@ export default handler;
 export const config = {
   api: { bodyParser: false }, // multipart handled da multer
 };
+ 
