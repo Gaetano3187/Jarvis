@@ -31,8 +31,8 @@ function CeneAperitivi () {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, spent_at, qty, finance_categories(name)')
-      .eq('finance_categories.name', 'cene')
+      .select('id, description, amount, qty, spent_at, category_id')
+      .eq('category_id', '0f8eb04a-8a1a-4899-9f29-236a5be7e9db')
       .order('created_at', { ascending: false })
 
     if (!error) setSpese(data)

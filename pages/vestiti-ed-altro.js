@@ -17,8 +17,8 @@ const VestitiEdAltro = () => {
   const fetchSpese = async () => {
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, spent_at, finance_categories(name)')
-      .eq('finance_categories.name', 'Vestiti ed Altro')
+      .select('id, description, amount, qty, spent_at, category_id')
+      .eq('category_id', '89e223d4-1ec0-4631-b0d4-52472579a04a')
       .order('created_at', { ascending: false })
     if (!error) setSpese(data)
     else console.error(error)
