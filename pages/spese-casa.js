@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabaseClient';
 import { askAssistant } from '../lib/assistant';
 
 function SpeseCasa() {
-  /* -------------------- STATE -------------------- */
+  /* ---------- STATE ---------- */
   const [spese, setSpese] = useState([]);
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
@@ -22,15 +22,16 @@ function SpeseCasa() {
   const [error, setError] = useState(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  /* -------------------- REFS -------------------- */
-  const fileInputRef   = useRef(null);
+  /* ---------- REFS ---------- */
+  const ocrInputRef    = useRef(null);
+  const formRef        = useRef(null);
   const mediaRecRef    = useRef(null);
   const recordedChunks = useRef([]);
 
-  /* -------------------- EFFECT -------------------- */
+  /* ---------- EFFECT ---------- */
   useEffect(() => { fetchSpese(); }, []);
 
-  /* -------------------- LOAD -------------------- */
+  /* ---------- LOAD ---------- */
   const fetchSpese = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -45,7 +46,7 @@ function SpeseCasa() {
     setLoading(false);
   };
 
-  /* -------------------- ADD -------------------- */
+  /* ---------- ADD ---------- */
   const handleAdd = async (e) => {
     e.preventDefault();
     const { data: { user } } = await supabase.auth.getUser();
@@ -67,34 +68,112 @@ function SpeseCasa() {
     } else setError(error.message);
   };
 
-  /* -------------------- DELETE -------------------- */
+  /* ---------- DELETE ---------- */
   const handleDelete = async (id) => {
     const { error } = await supabase.from('finances').delete().eq('id', id);
     if (!error) setSpese(spese.filter(s => s.id !== id));
     else        setError(error.message);
   };
 
-  /* -------------------- OCR & VOICE (resto invariato) -------------------- */
-  // ... handleOCR, toggleRec, processVoice, parseAssistantPrompt restano identici ...
+  /* ---------- OCR ---------- */
+  const handleOCR = async (file) => {
+    if (!file) return;
+    const fd = new FormData(); fd.append('image', file);
+    try {
+      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json();
+      const sysPrompt = 'Analizza lo scontrino e restituisci JSON con: puntoVendita, dettaglio, prezzoTotale, quantita, data';
+      await parseAssistantPrompt(`${sysPrompt}\n${text}`);
+    } catch { setError('OCR fallito'); }
+  };
 
-  /* -------------------- RENDER -------------------- */
+  /* ---------- VOICE ---------- */
+  const toggleRec = async () => {
+    if (recBusy) {
+      mediaRecRef.current?.stop();
+      setRecBusy(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecRef.current = new MediaRecorder(stream);
+      recordedChunks.current = [];
+      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunks.current.push(e.data);
+      mediaRecRef.current.onstop = processVoice;
+      mediaRecRef.current.start();
+      setRecBusy(true);
+    } catch { setError('Microfono non disponibile'); }
+  };
+
+  const processVoice = async () => {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
+    try {
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json();
+      const sysPrompt = 'Estrai puntoVendita, dettaglio, prezzoTotale, quantita, data da questa frase e restituisci JSON.';
+      await parseAssistantPrompt(`${sysPrompt}\n${text}`);
+    } catch { setError('STT fallito'); }
+  };
+
+  /* ---------- GPT PARSER ---------- */
+  const parseAssistantPrompt = async (prompt) => {
+    try {
+      const answer = await askAssistant(prompt);
+      const parsed = JSON.parse(answer);
+      const rows   = Array.isArray(parsed) ? parsed : [parsed];
+
+      const mapped = rows.map(r => ({
+        puntoVendita: r.puntoVendita || r.store   || 'Sconosciuto',
+        dettaglio:     r.dettaglio     || r.item    || 'spesa',
+        prezzoTotale:  r.prezzoTotale  || r.importo || r.prezzo || '0',
+        quantita:      r.quantita      || r.qty     || '1',
+        spentAt:       r.data          || new Date().toISOString(),
+      }));
+
+      if (mapped.length) setNuovaSpesa(mapped[0]);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const insert = mapped.map(r => ({
+        userId: user.id,
+        categoryName: 'casa',
+        description: `[${r.puntoVendita}] ${r.dettaglio}`,
+        amount: Number(r.prezzoTotale),
+        spent_at: r.spentAt,
+        qty: parseInt(r.quantita, 10),
+      }));
+
+      await supabase.from('finances').insert(insert);
+      fetchSpese();
+    } catch { setError('Risposta assistant non valida'); }
+  };
+
+  /* ---------- RENDER ---------- */
   const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0) * (s.qty ?? 1), 0);
 
   return (
     <>
       <Head><title>Spese Casa</title></Head>
 
-      <div className="cene-aperitivi-container1">
-        <div className="cene-aperitivi-container2">
+      <div className="spese-casa-container1">
+        <div className="spese-casa-container2">
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>🏠 Spese Casa</h2>
 
           <div className="table-buttons">
-            <button className="btn-manuale" onClick={() => fileInputRef.current?.scrollIntoView()}>➕ Aggiungi manualmente</button>
-            <button className="btn-vocale" onClick={toggleRec}>{recBusy ? '⏹ Stop' : '🎙 Riconoscimento vocale'}</button>
-            <button className="btn-ocr"    onClick={() => fileInputRef.current?.click()}>📷 OCR</button>
+            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>➕ Aggiungi manualmente</button>
+            <button className="btn-vocale"  onClick={toggleRec}>{recBusy ? '⏹ Stop' : '🎙 Voce'}</button>
+            <button className="btn-ocr"     onClick={() => ocrInputRef.current?.click()}>📷 OCR</button>
           </div>
 
-          <form className="input-section" onSubmit={handleAdd} ref={fileInputRef}>
+          <input
+            ref={ocrInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            style={{ display: 'none' }}
+            onChange={e => handleOCR(e.target.files?.[0])}
+          />
+
+          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label htmlFor="vendita">Punto vendita / Servizio</label>
             <input id="vendita" type="text" placeholder="Es. Enel, Supermercato XYZ"
               value={nuovaSpesa.puntoVendita}
@@ -140,7 +219,7 @@ function SpeseCasa() {
                 </thead>
                 <tbody>
                   {spese.map(s => {
-                    const m = s.description?.match(/^\\[(.*?)\\]\\s*(.*)$/);
+                    const m = s.description?.match(/^\[(.*?)\]\s*(.*)$/);
                     return (
                       <tr key={s.id}>
                         <td>{m?.[1] || '-'}</td>
@@ -165,6 +244,55 @@ function SpeseCasa() {
           </Link>
         </div>
       </div>
+
+      {/* ---------- TELEPORT STYLE ---------- */}
+      <style jsx global>{`
+        .spese-casa-container1{
+          width:100%;display:flex;min-height:100vh;align-items:center;
+          flex-direction:column;justify-content:center
+        }
+        .spese-casa-container2{display:contents}
+        .table-container{
+          overflow-x:auto;background:rgba(0,0,0,.6);border-radius:1rem;padding:1.5rem;
+          color:#fff;font-family:Inter,sans-serif;box-shadow:0 6px 16px rgba(0,0,0,.3);
+          width:100%;box-sizing:border-box
+        }
+        table.custom-table{width:100%;border-collapse:collapse;font-size:1rem;color:#fff}
+        table.custom-table thead{background-color:#1f2937}
+        table.custom-table th,table.custom-table td{
+          padding:.75rem 1rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.1)
+        }
+        table.custom-table tbody tr:hover{background-color:rgba(255,255,255,.05)}
+        .total-box{
+          margin-top:1rem;background:rgba(34,197,94,.8);color:#fff;padding:1rem;
+          border-radius:.5rem;font-size:1.25rem;font-weight:600;text-align:right
+        }
+        .table-buttons{
+          display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap
+        }
+        .table-buttons button{
+          padding:.75rem 1.25rem;font-size:1rem;border-radius:.5rem;border:none;
+          font-weight:600;cursor:pointer;transition:all .3s ease
+        }
+        .btn-manuale{background:#22c55e;color:#fff}
+        .btn-vocale{background:#10b981;color:#fff}
+        .btn-ocr{background:#f43f5e;color:#fff}
+        .table-buttons button:hover{opacity:.85}
+        .input-section{
+          background:rgba(255,255,255,.1);padding:1rem;margin-bottom:1.5rem;
+          border-radius:.5rem;display:flex;flex-direction:column;gap:.75rem
+        }
+        .input-section label{font-weight:600;font-size:1rem}
+        .input-section input,.input-section textarea{
+          padding:.6rem;border-radius:.5rem;border:none;font-size:1rem;width:100%
+        }
+        textarea{min-height:4.5rem;resize:vertical}
+        @media(max-width:768px){
+          .table-container{padding:1rem}
+          .table-buttons button{font-size:.95rem;padding:.6rem 1rem}
+          .input-section input,.input-section textarea{font-size:.95rem}
+        }
+      `}</style>
     </>
   );
 }
