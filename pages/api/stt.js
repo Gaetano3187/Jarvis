@@ -1,23 +1,24 @@
 // pages/api/stt.js
-import nextConnect from 'next-connect';
-import multer from 'multer';
+import * as nc from 'next-connect';
+import * as multer from 'multer';
 import OpenAI from 'openai';
 import { parseAssistant } from '@/lib/assistant';
 
-/* ---------- OpenAI client ---------- */
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+/* ---------- next-connect & multer (compat con CJS/ESM) ---------- */
+const nextConnect = nc.default || nc;
+const Multer      = multer.default || multer;
 
-/* ---------- multer in-memory ---------- */
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+/* ---------- multer in-memory (25 MB) ---------- */
+const upload = Multer({
+  storage: Multer.memoryStorage(),
+  limits : { fileSize: 25 * 1024 * 1024 },
 });
 
 /* ---------- API route ---------- */
 const handler = nextConnect({
   onError(err, req, res) {
     console.error(err);
-    res.status(500).json({ error: 'Errore STT', details: err.message });
+    res.status(500).json({ error: 'Errore interno', details: err.message });
   },
   onNoMatch(req, res) {
     res.status(405).json({ error: 'Metodo non consentito' });
@@ -27,25 +28,30 @@ const handler = nextConnect({
 handler.use(upload.single('audio'));
 
 handler.post(async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'File mancante' });
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'File mancante' });
+    }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+
+    const { text } = await openai.audio.transcriptions.create({
+      model: 'whisper-1',
+      file : req.file.buffer,
+      filename: req.file.originalname || 'audio.webm',
+    });
+
+    const risposta = parseAssistant(text);
+    res.status(200).json({ text, risposta });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Errore STT', details: err.message });
   }
-
-  /* ---------- Whisper ---------- */
-  const transcription = await openai.audio.transcriptions.create({
-    model: 'whisper-1',
-    file: req.file.buffer,
-    fileName: req.file.originalname,
-    response_format: 'text',
-  });
-
-  const risposta = parseAssistant(transcription);
-  res.status(200).json({ text: transcription, risposta });
 });
 
 export default handler;
 
 /* ---------- Next.js config ---------- */
 export const config = {
-  api: { bodyParser: false }, // necessario per multipart/form-data
+  api: { bodyParser: false }, // multipart handled da multer
 };
