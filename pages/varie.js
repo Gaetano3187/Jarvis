@@ -82,7 +82,7 @@ function Varie() {
   const parseAssistantPrompt = async (fullPrompt) => {
     try {
       const answer = await askAssistant(fullPrompt);
-      const parsed = JSON.parse(answer);
+      const parsed = typeof answer === 'string' ? JSON.parse(answer) : answer;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 

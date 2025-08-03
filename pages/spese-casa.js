@@ -118,7 +118,7 @@ function SpeseCasa() {
   const parseAssistantPrompt = async (prompt) => {
     try {
       const answer = await askAssistant(prompt);
-      const parsed = JSON.parse(answer);
+      const parsed = typeof answer === 'string' ? JSON.parse(answer) : answer;
       const rows   = Array.isArray(parsed) ? parsed : [parsed];
 
       const mapped = rows.map(r => ({
