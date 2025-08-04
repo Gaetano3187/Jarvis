@@ -123,7 +123,7 @@ function SpeseCasa() {
       const { answer, error: apiErr } = await res.json();
       if (apiErr) { setError(`Assistant: ${apiErr}`); return; }
 
-      const parsed  = JSON.parse(answer);
+      const parsed   = JSON.parse(answer);
       const expenses = [];
 
       if (parsed.type === 'expense' && Array.isArray(parsed.items)) {
@@ -148,6 +148,7 @@ function SpeseCasa() {
 
       if (!expenses.length) { setError('Risposta assistant non valida'); return; }
 
+      /* popola form con la prima spesa */
       setNuovaSpesa({
         puntoVendita: expenses[0].puntoVendita,
         dettaglio:    expenses[0].dettaglio,
@@ -156,6 +157,7 @@ function SpeseCasa() {
         spentAt:      expenses[0].spentAt.slice(0, 10),
       });
 
+      /* inserisce su Supabase */
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
