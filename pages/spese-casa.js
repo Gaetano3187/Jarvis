@@ -122,7 +122,8 @@ function SpeseCasa() {
       });
       const { answer, error: apiErr } = await res.json();
       if (apiErr) { setError(`Assistant: ${apiErr}`); return; }
-
+  /* 👇  LOG QUI */
+    console.log('[assistant-raw]', answer);
       const parsed   = JSON.parse(answer);
       const expenses = [];
 
