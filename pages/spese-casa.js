@@ -122,29 +122,43 @@ function SpeseCasa() {
       });
       const { answer, error: apiErr } = await res.json();
       if (apiErr) { setError(`Assistant: ${apiErr}`); return; }
-  /* 👇  LOG QUI */
-    console.log('[assistant-raw]', answer);
+
+      console.log('[assistant-raw]', answer);
+
       const parsed   = JSON.parse(answer);
       const expenses = [];
 
+      /* schema 1:  { type:'expense', items:[...] } */
       if (parsed.type === 'expense' && Array.isArray(parsed.items)) {
         parsed.items.forEach(it => expenses.push({
           puntoVendita: it.puntoVendita || it.esercente || 'Sconosciuto',
           dettaglio:    it.dettaglio    || it.descrizione || 'spesa',
-          prezzoTotale: it.prezzoTotale || it.importo     || 0,
-          quantita:     it.quantita     || 1,
-          spentAt:      it.data         || new Date().toISOString(),
+          prezzoTotale: Number(it.prezzoTotale ?? it.importo ?? 0),
+          quantita:     parseInt(it.quantita ?? 1, 10),
+          spentAt:      it.data || new Date().toISOString(),
         }));
       }
 
+      /* schema 2: array libero */
       if (!parsed.type && Array.isArray(parsed)) {
         parsed.forEach(r => expenses.push({
           puntoVendita: r.puntoVendita || r.store || 'Sconosciuto',
           dettaglio:    r.dettaglio    || r.item  || 'spesa',
-          prezzoTotale: r.prezzoTotale || r.importo || r.prezzo || 0,
-          quantita:     r.quantita     || r.qty || 1,
-          spentAt:      r.data         || new Date().toISOString(),
+          prezzoTotale: Number(r.prezzoTotale ?? r.importo ?? r.prezzo ?? 0),
+          quantita:     parseInt(r.quantita ?? r.qty ?? 1, 10),
+          spentAt:      r.data || new Date().toISOString(),
         }));
+      }
+
+      /* schema 3: oggetto singolo privo di type */
+      if (parsed && !Array.isArray(parsed) && !parsed.type) {
+        expenses.push({
+          puntoVendita: parsed.puntoVendita || parsed.esercente || 'Sconosciuto',
+          dettaglio:    parsed.dettaglio    || parsed.descrizione || 'spesa',
+          prezzoTotale: Number(parsed.prezzoTotale ?? parsed.importo ?? 0),
+          quantita:     parseInt(parsed.quantita ?? 1, 10),
+          spentAt:      parsed.data || new Date().toISOString(),
+        });
       }
 
       if (!expenses.length) { setError('Risposta assistant non valida'); return; }
@@ -166,9 +180,9 @@ function SpeseCasa() {
         userId: user.id,
         categoryName: 'casa',
         description: `[${r.puntoVendita}] ${r.dettaglio}`,
-        amount: Number(r.prezzoTotale),
+        amount: r.prezzoTotale,
         spent_at: r.spentAt,
-        qty: parseInt(r.quantita, 10),
+        qty: r.quantita,
       }));
 
       await supabase.from('finances').insert(rows);
