@@ -1,85 +1,62 @@
 // pages/api/stt.js
-import { Readable } from 'stream';
-import multer from 'multer';
-import OpenAI from 'openai';
+import multer from 'multer'
+import { Readable } from 'stream'
+import OpenAI from 'openai'
 
-// -----------------------------
-// 1. Multer: in-memory storage
-// -----------------------------
-const upload = multer({ storage: multer.memoryStorage() });
+// In-memory storage per multer
+const upload = multer({ storage: multer.memoryStorage() })
 
-// Utility per eseguire middleware dentro una API Route Next.js
+// Helper per usare multer senza next-connect
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
-    fn(req, res, (result) => (result instanceof Error ? reject(result) : resolve(result)));
-  });
+    fn(req, res, result => {
+      if (result instanceof Error) return reject(result)
+      return resolve(result)
+    })
+  })
 }
 
-// Disattiviamo il body-parser built-in
 export const config = {
-  api: { bodyParser: false, externalResolver: true },
-};
+  api: {
+    bodyParser: false,      // disabilita il parser built-in per multipart
+    externalResolver: true, // evita warning “API resolved without sending…”
+  },
+}
 
-// -------------------------------------
-// 2. Accepted audio extensions + MIME
-// -------------------------------------
-const ALLOWED_MIME = [
-  'audio/flac',
-  'audio/m4a',
-  'audio/mp3',
-  'audio/mp4',
-  'audio/mpeg',
-  'audio/mpga',
-  'audio/ogg',
-  'audio/oga',
-  'audio/wav',
-  'audio/webm',
-];
-
-// -----------------------------
-// 3. API Route handler (POST)
-// -----------------------------
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).json({ error: `Metodo ${req.method} non consentito` });
+    res.setHeader('Allow', ['POST'])
+    return res.status(405).json({ error: `Metodo ${req.method} non consentito` })
   }
 
   try {
-    // a) Estraiamo il campo "audio" dal multipart
-    await runMiddleware(req, res, upload.single('audio'));
-
+    // Applichiamo multer per parsare l’audio
+    await runMiddleware(req, res, upload.single('audio'))
     if (!req.file) {
-      return res.status(400).json({ error: 'File audio mancante (campo "audio")' });
+      return res.status(400).json({ error: 'File audio mancante' })
     }
 
-    if (!ALLOWED_MIME.includes(req.file.mimetype)) {
-      return res.status(400).json({ error: `Formato non supportato: ${req.file.mimetype}` });
-    }
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
 
-    // b) Creiamo uno stream leggibile e aggiungiamo la proprietà "path"
-    const audioStream = new Readable({
-      read() {
-        this.push(req.file.buffer);
-        this.push(null);
-      },
-    });
-    audioStream.path = req.file.originalname; // ← fondamentale per far riconoscere l’estensione
+    // Convertiamo il Buffer in uno Readable stream
+    const bufferStream = new Readable()
+    bufferStream.push(req.file.buffer)
+    bufferStream.push(null)
 
-    // c) Chiamiamo Whisper
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
-
+    // Chiediamo la trascrizione a Whisper
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file: audioStream,
-    });
+      file: bufferStream,
+      filename: req.file.originalname,
+    })
 
-    return res.status(200).json({ text: transcription.text });
+    // Restituiamo solo il testo trascritto
+    return res.status(200).json({ text: transcription.text })
   } catch (err) {
-    console.error('STT API error:', err);
+    console.error('STT API error:', err)
     return res.status(500).json({
       error: 'Errore STT',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined,
-    });
+    })
   }
 }
