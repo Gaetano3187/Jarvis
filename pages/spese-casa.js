@@ -19,7 +19,7 @@ function SpeseCasa() {
     spentAt: '',
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError]   = useState(null);
   const [recBusy, setRecBusy] = useState(false);
 
   /* ---------- REFS ---------- */
@@ -42,7 +42,6 @@ function SpeseCasa() {
 
     if (!error) setSpese(data);
     else        setError(error.message);
-
     setLoading(false);
   };
 
@@ -119,22 +118,48 @@ function SpeseCasa() {
     try {
       const answer = await askAssistant(prompt);
       const parsed = typeof answer === 'string' ? JSON.parse(answer) : answer;
-      const rows   = Array.isArray(parsed) ? parsed : [parsed];
 
-      const mapped = rows.map(r => ({
-        puntoVendita: r.puntoVendita || r.store   || 'Sconosciuto',
-        dettaglio:     r.dettaglio     || r.item    || 'spesa',
-        prezzoTotale:  r.prezzoTotale  || r.importo || r.prezzo || '0',
-        quantita:      r.quantita      || r.qty     || '1',
-        spentAt:       r.data          || new Date().toISOString(),
-      }));
+      /* ---- gestisce i nuovi schemi ---- */
+      const expenses = [];
 
-      if (mapped.length) setNuovaSpesa(mapped[0]);
+      // schema 1: { type: 'expense', items:[...] }
+      if (parsed.type === 'expense' && Array.isArray(parsed.items)) {
+        parsed.items.forEach(it => expenses.push({
+          puntoVendita: it.puntoVendita || it.esercente || 'Sconosciuto',
+          dettaglio:    it.dettaglio    || it.descrizione || 'spesa',
+          prezzoTotale: it.prezzoTotale || it.importo     || 0,
+          quantita:     it.quantita     || 1,
+          spentAt:      it.data         || new Date().toISOString(),
+        }));
+      }
 
+      // schema 2: array libero [{ ... }]
+      if (!parsed.type && Array.isArray(parsed)) {
+        parsed.forEach(r => expenses.push({
+          puntoVendita: r.puntoVendita || r.store || 'Sconosciuto',
+          dettaglio:    r.dettaglio    || r.item  || 'spesa',
+          prezzoTotale: r.prezzoTotale || r.importo || r.prezzo || 0,
+          quantita:     r.quantita     || r.qty || 1,
+          spentAt:      r.data         || new Date().toISOString(),
+        }));
+      }
+
+      if (!expenses.length) { setError('Risposta assistant non valida'); return; }
+
+      /* popola form con la prima spesa */
+      setNuovaSpesa({
+        puntoVendita: expenses[0].puntoVendita,
+        dettaglio:    expenses[0].dettaglio,
+        prezzoTotale: expenses[0].prezzoTotale,
+        quantita:     String(expenses[0].quantita),
+        spentAt:      expenses[0].spentAt.slice(0, 10),
+      });
+
+      /* inserisce su Supabase */
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const insert = mapped.map(r => ({
+      const insertRows = expenses.map(r => ({
         userId: user.id,
         categoryName: 'casa',
         description: `[${r.puntoVendita}] ${r.dettaglio}`,
@@ -143,9 +168,12 @@ function SpeseCasa() {
         qty: parseInt(r.quantita, 10),
       }));
 
-      await supabase.from('finances').insert(insert);
+      await supabase.from('finances').insert(insertRows);
       fetchSpese();
-    } catch { setError('Risposta assistant non valida'); }
+    } catch (err) {
+      console.error(err);
+      setError('Risposta assistant non valida');
+    }
   };
 
   /* ---------- RENDER ---------- */
@@ -160,9 +188,15 @@ function SpeseCasa() {
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>🏠 Spese Casa</h2>
 
           <div className="table-buttons">
-            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>➕ Aggiungi manualmente</button>
-            <button className="btn-vocale"  onClick={toggleRec}>{recBusy ? '⏹ Stop' : '🎙 Voce'}</button>
-            <button className="btn-ocr"     onClick={() => ocrInputRef.current?.click()}>📷 OCR</button>
+            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>
+              ➕ Aggiungi manualmente
+            </button>
+            <button className="btn-vocale" onClick={toggleRec}>
+              {recBusy ? '⏹ Stop' : '🎙 Voce'}
+            </button>
+            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
+              📷 OCR
+            </button>
           </div>
 
           <input
@@ -175,31 +209,57 @@ function SpeseCasa() {
 
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label htmlFor="vendita">Punto vendita / Servizio</label>
-            <input id="vendita" type="text" placeholder="Es. Enel, Supermercato XYZ"
+            <input
+              id="vendita"
+              type="text"
+              placeholder="Es. Enel, Supermercato XYZ"
               value={nuovaSpesa.puntoVendita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })} required />
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
+              required
+            />
 
             <label htmlFor="quantita">Quantità</label>
-            <input id="quantita" type="number" min="1"
+            <input
+              id="quantita"
+              type="number"
+              min="1"
               value={nuovaSpesa.quantita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })} required />
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
+              required
+            />
 
             <label htmlFor="dettaglio">Dettaglio della spesa</label>
-            <textarea id="dettaglio" placeholder="Es. Bolletta €60, Detersivo €5"
+            <textarea
+              id="dettaglio"
+              placeholder="Es. Bolletta €60, Detersivo €5"
               value={nuovaSpesa.dettaglio}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })} required />
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
+              required
+            />
 
             <label htmlFor="data">Data di acquisto</label>
-            <input id="data" type="date"
+            <input
+              id="data"
+              type="date"
               value={nuovaSpesa.spentAt}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })} required />
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+              required
+            />
 
             <label htmlFor="prezzo">Prezzo totale (€)</label>
-            <input id="prezzo" type="number" step="0.01" placeholder="65.00"
+            <input
+              id="prezzo"
+              type="number"
+              step="0.01"
+              placeholder="65.00"
               value={nuovaSpesa.prezzoTotale}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })} required />
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
+              required
+            />
 
-            <button type="submit" className="btn-manuale" style={{ width: 'fit-content' }}>Aggiungi</button>
+            <button type="submit" className="btn-manuale" style={{ width: 'fit-content' }}>
+              Aggiungi
+            </button>
           </form>
 
           <div className="table-container">
@@ -247,45 +307,30 @@ function SpeseCasa() {
 
       {/* ---------- TELEPORT STYLE ---------- */}
       <style jsx global>{`
-        .spese-casa-container1{
-          width:100%;display:flex;min-height:100vh;align-items:center;
-          flex-direction:column;justify-content:center
-        }
+        .spese-casa-container1{width:100%;display:flex;min-height:100vh;align-items:center;
+          flex-direction:column;justify-content:center}
         .spese-casa-container2{display:contents}
-        .table-container{
-          overflow-x:auto;background:rgba(0,0,0,.6);border-radius:1rem;padding:1.5rem;
-          color:#fff;font-family:Inter,sans-serif;box-shadow:0 6px 16px rgba(0,0,0,.3);
-          width:100%;box-sizing:border-box
-        }
+        .table-container{overflow-x:auto;background:rgba(0,0,0,.6);border-radius:1rem;padding:1.5rem;
+          color:#fff;font-family:Inter,sans-serif;box-shadow:0 6px 16px rgba(0,0,0,.3);width:100%;
+          box-sizing:border-box}
         table.custom-table{width:100%;border-collapse:collapse;font-size:1rem;color:#fff}
         table.custom-table thead{background-color:#1f2937}
-        table.custom-table th,table.custom-table td{
-          padding:.75rem 1rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.1)
-        }
+        table.custom-table th,table.custom-table td{padding:.75rem 1rem;text-align:left;
+          border-bottom:1px solid rgba(255,255,255,.1)}
         table.custom-table tbody tr:hover{background-color:rgba(255,255,255,.05)}
-        .total-box{
-          margin-top:1rem;background:rgba(34,197,94,.8);color:#fff;padding:1rem;
-          border-radius:.5rem;font-size:1.25rem;font-weight:600;text-align:right
-        }
-        .table-buttons{
-          display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap
-        }
-        .table-buttons button{
-          padding:.75rem 1.25rem;font-size:1rem;border-radius:.5rem;border:none;
-          font-weight:600;cursor:pointer;transition:all .3s ease
-        }
+        .total-box{margin-top:1rem;background:rgba(34,197,94,.8);color:#fff;padding:1rem;border-radius:.5rem;
+          font-size:1.25rem;font-weight:600;text-align:right}
+        .table-buttons{display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap}
+        .table-buttons button{padding:.75rem 1.25rem;font-size:1rem;border-radius:.5rem;border:none;
+          font-weight:600;cursor:pointer;transition:all .3s ease}
         .btn-manuale{background:#22c55e;color:#fff}
-        .btn-vocale{background:#10b981;color:#fff}
-        .btn-ocr{background:#f43f5e;color:#fff}
+        .btn-vocale {background:#10b981;color:#fff}
+        .btn-ocr    {background:#f43f5e;color:#fff}
         .table-buttons button:hover{opacity:.85}
-        .input-section{
-          background:rgba(255,255,255,.1);padding:1rem;margin-bottom:1.5rem;
-          border-radius:.5rem;display:flex;flex-direction:column;gap:.75rem
-        }
+        .input-section{background:rgba(255,255,255,.1);padding:1rem;margin-bottom:1.5rem;border-radius:.5rem;
+          display:flex;flex-direction:column;gap:.75rem}
         .input-section label{font-weight:600;font-size:1rem}
-        .input-section input,.input-section textarea{
-          padding:.6rem;border-radius:.5rem;border:none;font-size:1rem;width:100%
-        }
+        .input-section input,.input-section textarea{padding:.6rem;border-radius:.5rem;border:none;font-size:1rem;width:100%}
         textarea{min-height:4.5rem;resize:vertical}
         @media(max-width:768px){
           .table-container{padding:1rem}
