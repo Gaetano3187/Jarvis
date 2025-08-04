@@ -1,16 +1,10 @@
 // pages/api/assistant.js
 import OpenAI from 'openai'
 
-// riutilizziamo un singleton per il client
+// Client singleton
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? '',
 })
-
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -26,48 +20,21 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Prompt mancante' })
     }
 
-    const assistantId = process.env.OPENAI_ASSISTANT_ID
-    if (!assistantId) {
-      return res
-        .status(500)
-        .json({ error: 'OPENAI_ASSISTANT_ID non configurato nel deploy' })
-    }
-
-    // 1. create + run in one call
-    let run = await openai.beta.threads.createAndRun({
-      assistant_id: assistantId,
+    // Invia direttamente un ChatCompletion
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',   // oppure 'gpt-4o' se disponibile
+      temperature: 0,
       response_format: { type: 'json_object' },
-      thread: {
-        messages: [{ role: 'user', content: prompt }],
-      },
+      messages: [
+        {
+          role: 'system',
+          content: 'Sei Jarvis: rispondi **solo** con JSON conforme allo schema indicato dal prompt.',
+        },
+        { role: 'user', content: prompt },
+      ],
     })
 
-    // 2. estrai threadId (supporta diverse versioni SDK)
-    const threadId = run.thread_id ?? run.thread?.id
-    if (!threadId) {
-      console.error('createAndRun → nessun thread_id:', run)
-      throw new Error('thread_id mancante nella risposta di createAndRun')
-    }
-
-    // 3. polling finché non completa o timeout
-    const deadline = Date.now() + 30_000
-    while (run.status !== 'completed') {
-      if (['failed', 'expired', 'cancelled'].includes(run.status)) {
-        throw new Error(`Run terminata con stato ${run.status}`)
-      }
-      if (Date.now() > deadline) {
-        throw new Error('Assistant run timeout')
-      }
-      await new Promise((r) => setTimeout(r, 1_000))
-      run = await openai.beta.threads.runs.retrieve(threadId, run.id)
-    }
-
-    // 4. recupera l’ultimo messaggio
-    const { data: msgs } = await openai.beta.threads.messages.list(threadId, {
-      limit: 1,
-    })
-    const answer = msgs?.[0]?.content?.[0]?.text?.value?.trim() ?? ''
-
+    const answer = completion.choices?.[0]?.message?.content?.trim() ?? ''
     return res.status(200).json({ answer })
   } catch (err) {
     console.error('Assistant API error:', err)
