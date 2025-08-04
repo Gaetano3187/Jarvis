@@ -1,14 +1,14 @@
 // pages/api/assistant.js
 import OpenAI from 'openai';
 
-/* ── client singleton ────────────────────────────────────────────────── */
+/* ───────── client singleton ─────────────────────────────────────────── */
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? '',
 });
 
-/* ── API route ───────────────────────────────────────────────────────── */
+/* ───────── API route ────────────────────────────────────────────────── */
 export default async function handler(req, res) {
-  /* 1 · verifica verbo -------------------------------------------------- */
+  /* 1 · verbo HTTP ----------------------------------------------------- */
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    /* 2 · validazione input -------------------------------------------- */
+    /* 2 · validazione input ------------------------------------------- */
     const { prompt = '' } = req.body ?? {};
     if (!prompt.trim()) {
       return res.status(400).json({ error: 'Prompt mancante' });
@@ -30,24 +30,23 @@ export default async function handler(req, res) {
         .json({ error: 'OPENAI_ASSISTANT_ID non configurato nel deploy' });
     }
 
-    /* 3 · creazione + run in un’unica call ----------------------------- */
-    let run = await openai.beta.threads.createAndRun({
-      assistant_id: assistantId,
-      response_format: { type: 'json_object' },
-      thread: {
-        messages: [{ role: 'user', content: prompt }],
-      },
+    /* 3 · creazione thread + messaggio utente ------------------------- */
+    const thread = await openai.beta.threads.create();
+    const threadId = thread.id;
+
+    await openai.beta.threads.messages.create(threadId, {
+      role: 'user',
+      content: prompt,
     });
 
-    /*  → alcune versioni SDK restituiscono `thread_id`, altre `thread.id` */
-    const threadId = run.thread_id ?? run.thread?.id;
-    if (!threadId) {
-      console.error('createAndRun() ⇒ threadId mancante', run); // debug server
-      throw new Error('thread_id mancante nella risposta di createAndRun');
-    }
+    /* 4 · avvio run ---------------------------------------------------- */
+    let run = await openai.beta.threads.runs.create(threadId, {
+      assistant_id: assistantId,
+      response_format: { type: 'json_object' },
+    });
 
-    /* 4 · polling fino a completamento --------------------------------- */
-    const deadline = Date.now() + 30_000;            // timeout 30 s
+    /* 5 · polling ------------------------------------------------------ */
+    const deadline = Date.now() + 30_000; // 30 s timeout
     while (run.status !== 'completed') {
       if (['failed', 'expired', 'cancelled'].includes(run.status)) {
         throw new Error(`Run terminata con stato ${run.status}`);
@@ -60,17 +59,20 @@ export default async function handler(req, res) {
       run = await openai.beta.threads.runs.retrieve(threadId, run.id);
     }
 
-    /* 5 · estrazione risposta ----------------------------------------- */
+    /* 6 · estrazione risposta ----------------------------------------- */
     const { data: msgs } = await openai.beta.threads.messages.list(threadId, {
       limit: 1,
     });
 
     const answer =
-      msgs?.[0]?.content?.[0]?.text?.value?.trim() ?? '';
+      msgs?.[0]?.content?.[0]?.text?.value?.trim() || '';
 
     return res.status(200).json({ answer });
   } catch (err) {
+    /* log server-side */
     console.error('Assistant API error:', err);
+
+    /* risposta sintetica al front-end */
     return res.status(500).json({
       error: 'Assistant failure',
       details:
