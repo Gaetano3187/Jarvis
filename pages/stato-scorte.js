@@ -1,123 +1,189 @@
-// pages/stato-scorte.js
-import { useState, useEffect } from 'react';
+// pages/spese-casa.js
+import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+
+import withAuth from '../hoc/withAuth';
+import { insertExpense } from '@/lib/dbHelpers';
 import { supabase } from '../lib/supabaseClient';
+// import { askAssistant } from '../lib/assistant';  // ← ora la chiamata passa da /api/assistant
 
-export default function StatoScorte() {
-  const [scorte,  setScorte]  = useState([]);
-  const [critici, setCritici] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+function SpeseCasa() {
+  /* ---------- STATE ---------- */
+  const [spese, setSpese] = useState([]);
+  const [nuovaSpesa, setNuovaSpesa] = useState({
+    puntoVendita: '',
+    dettaglio: '',
+    prezzoTotale: '',
+    quantita: '1',
+    spentAt: '',
+  });
+  const [loading, setLoading]   = useState(false);
+  const [error,   setError]     = useState(null);
+  const [recBusy, setRecBusy]   = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // lista completa
-        const { data: all, error: err1 } = await supabase
-          .from('inventory')                 // <‑‑ cambia in 'scorte' se il tuo schema è diverso
-          .select('*')
-          .order('expiry_date', { ascending: true });
-        if (err1) throw err1;
+  /* ---------- REFS ---------- */
+  const ocrInputRef    = useRef(null);
+  const formRef        = useRef(null);
+  const mediaRecRef    = useRef(null);
+  const recordedChunks = useRef([]);
 
-        // prodotti in esaurimento / in scadenza
-        const { data: warn, error: err2 } = await supabase
-          .from('inventory')
-          .select('*')
-          .or('consumed_pct.gte.80,days_to_expiry.lte.10')
-          .order('days_to_expiry', { ascending: true });
-        if (err2) throw err2;
+  /* ---------- EFFECT ---------- */
+  useEffect(() => { fetchSpese(); }, []);
 
-        setScorte(all);
-        setCritici(warn);
-      } catch (e) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
+  /* ---------- LOAD ---------- */
+  const fetchSpese = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('finances')
+      .select('id, description, amount, qty, spent_at')
+      .eq('category_id', '4cfaac74-aab4-4d96-b335-6cc64de59afc')
+      .order('created_at', { ascending: false });
+
+    if (!error) setSpese(data);
+    else        setError(error.message);
+    setLoading(false);
+  };
+
+  /* ---------- ADD ---------- */
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setError('Sessione scaduta'); return; }
+
+    const description = `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`;
+    const { data, error } = await insertExpense({
+      userId: user.id,
+      categoryName: 'casa',
+      description,
+      amount: Number(nuovaSpesa.prezzoTotale),
+      spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
+      qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+    });
+
+    if (!error) {
+      setSpese([...spese, data]);
+      setNuovaSpesa({ puntoVendita: '', dettaglio: '', prezzoTotale: '', quantita: '1', spentAt: '' });
+    } else setError(error.message);
+  };
+
+  /* ---------- DELETE ---------- */
+  const handleDelete = async (id) => {
+    const { error } = await supabase.from('finances').delete().eq('id', id);
+    if (!error) setSpese(spese.filter(s => s.id !== id));
+    else        setError(error.message);
+  };
+
+  /* ---------- OCR ---------- */
+  const handleOCR = async (file) => {
+    if (!file) return;
+    const fd = new FormData(); fd.append('image', file);
+    try {
+      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json();
+      const sysPrompt = 'Analizza lo scontrino e restituisci JSON con: puntoVendita, dettaglio, prezzoTotale, quantita, data';
+      await parseAssistantPrompt(`${sysPrompt}\n${text}`);
+    } catch { setError('OCR fallito'); }
+  };
+
+  /* ---------- VOICE ---------- */
+  const toggleRec = async () => {
+    if (recBusy) {
+      mediaRecRef.current?.stop();
+      setRecBusy(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecRef.current = new MediaRecorder(stream);
+      recordedChunks.current = [];
+      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunks.current.push(e.data);
+      mediaRecRef.current.onstop = processVoice;
+      mediaRecRef.current.start();
+      setRecBusy(true);
+    } catch { setError('Microfono non disponibile'); }
+  };
+
+  const processVoice = async () => {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
+    try {
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json();
+      const sysPrompt = 'Estrai puntoVendita, dettaglio, prezzoTotale, quantita, data da questa frase e restituisci JSON.';
+      await parseAssistantPrompt(`${sysPrompt}\n${text}`);
+    } catch { setError('STT fallito'); }
+  };
+
+  /* ---------- GPT PARSER ---------- */
+  const parseAssistantPrompt = async (prompt) => {
+    try {
+      // ---- chiamata al backend /api/assistant (server-side) ----
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { answer } = await res.json();
+
+      const parsed  = JSON.parse(answer);
+      const expenses = [];
+
+      /* schema 1: { type:'expense', items:[...] } */
+      if (parsed.type === 'expense' && Array.isArray(parsed.items)) {
+        parsed.items.forEach(it => expenses.push({
+          puntoVendita: it.puntoVendita || it.esercente || 'Sconosciuto',
+          dettaglio:    it.dettaglio    || it.descrizione || 'spesa',
+          prezzoTotale: it.prezzoTotale || it.importo     || 0,
+          quantita:     it.quantita     || 1,
+          spentAt:      it.data         || new Date().toISOString(),
+        }));
       }
-    };
-    fetchData();
-  }, []);
 
-  return (
-    <>
-      <Head><title>Stato Scorte</title></Head>
+      /* schema 2: array semplice */
+      if (!parsed.type && Array.isArray(parsed)) {
+        parsed.forEach(r => expenses.push({
+          puntoVendita: r.puntoVendita || r.store || 'Sconosciuto',
+          dettaglio:    r.dettaglio    || r.item  || 'spesa',
+          prezzoTotale: r.prezzoTotale || r.importo || r.prezzo || 0,
+          quantita:     r.quantita     || r.qty || 1,
+          spentAt:      r.data         || new Date().toISOString(),
+        }));
+      }
 
-      <main className="container">
-        <h1>Stato Scorte</h1>
+      if (!expenses.length) { setError('Risposta assistant non valida'); return; }
 
-        {loading && <p>Caricamento…</p>}
-        {error   && <p style={{ color: 'red' }}>{error}</p>}
+      /* popola form con la prima spesa */
+      setNuovaSpesa({
+        puntoVendita: expenses[0].puntoVendita,
+        dettaglio:    expenses[0].dettaglio,
+        prezzoTotale: expenses[0].prezzoTotale,
+        quantita:     String(expenses[0].quantita),
+        spentAt:      expenses[0].spentAt.slice(0, 10),
+      });
 
-        {/* -------- TABELLONE COMPLETO -------- */}
-        {!loading && !error && (
-          <>
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Prodotto</th><th>Qtà</th><th>% Consumo</th><th>Scade fra (gg)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scorte.map(p => (
-                  <tr key={p.id}>
-                    <td>{p.product}</td>
-                    <td>{p.current_qty}</td>
-                    <td>{p.consumed_pct?.toFixed(0)}%</td>
-                    <td>{p.days_to_expiry}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      /* inserisce su Supabase */
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-            {/* -------- SEZIONE CRITICA -------- */}
-            <h3 style={{ marginTop: '2rem' }}>Prodotti in esaurimento / in scadenza</h3>
+      const insertRows = expenses.map(r => ({
+        userId: user.id,
+        categoryName: 'casa',
+        description: `[${r.puntoVendita}] ${r.dettaglio}`,
+        amount: Number(r.prezzoTotale),
+        spent_at: r.spentAt,
+        qty: parseInt(r.quantita, 10),
+      }));
 
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Prodotto</th><th>Qtà</th><th>% Consumo</th><th>Scade fra (gg)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {critici.map(p => (
-                  <tr key={p.id}>
-                    <td>{p.product}</td>
-                    <td>{p.current_qty}</td>
-                    <td>
-                      <div style={{ width:'100%', background:'#333', borderRadius:4 }}>
-                        <div style={{
-                          width: `${p.consumed_pct}%`,
-                          background: p.consumed_pct >= 80 ? '#ef4444' : '#22c55e',
-                          height: 8,
-                          borderRadius: 4
-                        }} />
-                      </div>
-                      {p.consumed_pct?.toFixed(0)}%
-                    </td>
-                    <td>{p.days_to_expiry}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
+      await supabase.from('finances').insert(insertRows);
+      fetchSpese();
+    } catch (err) {
+      console.error(err);
+      setError('Risposta assistant non valida');
+    }
+  };
 
-        <Link href="/" style={{ display:'inline-block', marginTop:'1.5rem' }}>
-          &larr; Torna alla Home
-        </Link>
-      </main>
-
-      {/* ---- stile tabella minimale, riutilizzabile ---- */}
-      <style jsx global>{`
-        .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font-family: Inter, sans-serif; }
-        table.custom-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        table.custom-table th, table.custom-table td {
-          padding: .65rem 1rem; border: 1px solid #ddd; text-align: left;
-        }
-        table.custom-table thead { background: #f3f4f6; }
-        table.custom-table tbody tr:nth-child(odd) { background: #fafafa; }
-      `}</style>
-    </>
-  );
+  /* ---------- RENDER ---------- */
+  /* ... TUTTO IL RESTO INVARIATO ... */
 }
+
+export default withAuth(SpeseCasa);
