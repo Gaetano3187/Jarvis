@@ -1,6 +1,5 @@
 // pages/api/stt.js
 import multer from 'multer'
-import { Readable } from 'stream'
 import OpenAI from 'openai'
 
 // In-memory storage per multer
@@ -18,8 +17,8 @@ function runMiddleware(req, res, fn) {
 
 export const config = {
   api: {
-    bodyParser: false,      // disabilita il parser built-in per multipart
-    externalResolver: true, // evita warning “API resolved senza inviare…”
+    bodyParser: false,
+    externalResolver: true,
   },
 }
 
@@ -30,32 +29,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) multer per parsare il form
+    // 1) multer parse
     await runMiddleware(req, res, upload.single('audio'))
     if (!req.file) {
       return res.status(400).json({ error: 'File audio mancante' })
     }
 
-    // 2) creiamo uno stream a partire dal buffer
-    const bufferStream = new Readable({
-      read() {
-        this.push(req.file.buffer)
-        this.push(null)
-      }
-    })
-
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
 
-    // 3) invio a Whisper: qui openai-node genera un multipart corretto
+    // 2) invio diretto del buffer
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file: bufferStream,
-      filename: req.file.originalname,  // es. "voice.webm"
+      file: req.file.buffer,
+      filename: req.file.originalname, // es. "voice.webm"
     })
 
-    // 4) restituiamo solo il testo
     return res.status(200).json({ text: transcription.text })
-
   } catch (err) {
     console.error('STT API error:', err)
     return res.status(500).json({
