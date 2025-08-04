@@ -6,7 +6,6 @@ import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import { insertExpense } from '@/lib/dbHelpers';
 import { supabase } from '../lib/supabaseClient';
-import { askAssistant } from '../lib/assistant';
 
 function SpeseCasa() {
   /* ---------- STATE ---------- */
@@ -19,7 +18,7 @@ function SpeseCasa() {
     spentAt: '',
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState(null);
+  const [error,   setError]   = useState(null);
   const [recBusy, setRecBusy] = useState(false);
 
   /* ---------- REFS ---------- */
@@ -113,16 +112,20 @@ function SpeseCasa() {
     } catch { setError('STT fallito'); }
   };
 
-  /* ---------- GPT PARSER ---------- */
+  /* ---------- GPT PARSER (via API server-side) ---------- */
   const parseAssistantPrompt = async (prompt) => {
     try {
-      const answer = await askAssistant(prompt);
-      const parsed = typeof answer === 'string' ? JSON.parse(answer) : answer;
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      const { answer, error: apiErr } = await res.json();
+      if (apiErr) { setError(`Assistant: ${apiErr}`); return; }
 
-      /* ---- gestisce i nuovi schemi ---- */
+      const parsed  = JSON.parse(answer);
       const expenses = [];
 
-      // schema 1: { type: 'expense', items:[...] }
       if (parsed.type === 'expense' && Array.isArray(parsed.items)) {
         parsed.items.forEach(it => expenses.push({
           puntoVendita: it.puntoVendita || it.esercente || 'Sconosciuto',
@@ -133,7 +136,6 @@ function SpeseCasa() {
         }));
       }
 
-      // schema 2: array libero [{ ... }]
       if (!parsed.type && Array.isArray(parsed)) {
         parsed.forEach(r => expenses.push({
           puntoVendita: r.puntoVendita || r.store || 'Sconosciuto',
@@ -146,7 +148,6 @@ function SpeseCasa() {
 
       if (!expenses.length) { setError('Risposta assistant non valida'); return; }
 
-      /* popola form con la prima spesa */
       setNuovaSpesa({
         puntoVendita: expenses[0].puntoVendita,
         dettaglio:    expenses[0].dettaglio,
@@ -155,11 +156,10 @@ function SpeseCasa() {
         spentAt:      expenses[0].spentAt.slice(0, 10),
       });
 
-      /* inserisce su Supabase */
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const insertRows = expenses.map(r => ({
+      const rows = expenses.map(r => ({
         userId: user.id,
         categoryName: 'casa',
         description: `[${r.puntoVendita}] ${r.dettaglio}`,
@@ -168,7 +168,7 @@ function SpeseCasa() {
         qty: parseInt(r.quantita, 10),
       }));
 
-      await supabase.from('finances').insert(insertRows);
+      await supabase.from('finances').insert(rows);
       fetchSpese();
     } catch (err) {
       console.error(err);
