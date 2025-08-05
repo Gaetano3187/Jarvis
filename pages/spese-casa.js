@@ -155,34 +155,49 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       if (apiErr) return setError(`Assistant: ${apiErr}`)
 
       const data = JSON.parse(answer)
-      if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
-        return setError('Risposta assistant non valida')
+  // ...dentro a parseAssistantPrompt, appena dopo il JSON.parse(answer):
+console.log('[assistant-raw-items]', data.items)  // per vedere esattamente cosa ti ritorna l'assistente
 
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+const rows = data.items.map((it) => {
+  // fallback espliciti
+  const pd = typeof it.puntoVendita === 'string' && it.puntoVendita.trim() !== ''
+    ? it.puntoVendita
+    : 'Sconosciuto'
+  const dt = typeof it.dettaglio === 'string' && it.dettaglio.trim() !== ''
+    ? it.dettaglio
+    : 'spesa'
+  const pr = Number(it.prezzoTotale)
+  // se il campo non è un numero valido, metto zero
+  const price = isNaN(pr) ? 0 : pr
 
-      const rows = data.items.map(it => {
-        let d = String(it.data).toLowerCase()
-        let spentDate
-        if (d === 'oggi') spentDate = new Date().toISOString().slice(0,10)
-        else if (d === 'ieri') {
-          const x = new Date(); x.setDate(x.getDate()-1)
-          spentDate = x.toISOString().slice(0,10)
-        } else if (d === 'domani') {
-          const x = new Date(); x.setDate(x.getDate()+1)
-          spentDate = x.toISOString().slice(0,10)
-        } else {
-          spentDate = it.data
-        }
-        return {
-          user_id: user.id,
-          category_id: CATEGORY_ID_CASA,
-          description: `[${it.puntoVendita||'Sconosciuto'}] ${it.dettaglio}`,
-          amount: Number(it.prezzoTotale||0),
-          spent_at: spentDate,
-          qty: parseInt(it.quantita||1, 10),
-        }
-      })
+  // gestione "oggi"/"ieri"/"domani"
+  let spentDateRaw = String(it.data).toLowerCase()
+  let spentAt
+  if (spentDateRaw === 'oggi') {
+    spentAt = new Date().toISOString().slice(0,10)
+  } else if (spentDateRaw === 'ieri') {
+    const d = new Date()
+    d.setDate(d.getDate()-1)
+    spentAt = d.toISOString().slice(0,10)
+  } else if (spentDateRaw === 'domani') {
+    const d = new Date()
+    d.setDate(d.getDate()+1)
+    spentAt = d.toISOString().slice(0,10)
+  } else {
+    // se il formato è già YYYY-MM-DD lo uso, altrimenti lo lascio così com’è
+    spentAt = it.data
+  }
+
+  return {
+    user_id: user.id,
+    category_id: CATEGORY_ID_CASA,
+    description: `[${pd}] ${dt}`,
+    amount: price,
+    spent_at: spentAt,
+    qty: parseInt(it.quantita, 10) || 1,
+  }
+})
+
 
       const { error: dbErr } = await supabase.from('finances').insert(rows)
       if (dbErr) return setError(dbErr.message)
