@@ -45,19 +45,12 @@ export default async function handler(req, res) {
     }
 
     // Crea un Readable stream dal buffer
-    const bufferStream = new Readable()
-    bufferStream.push(req.file.buffer)
-    bufferStream.push(null)
-
-    // Chiama Whisper via OpenAI SDK
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
-    console.log('[STT] calling Whisper…')
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file: bufferStream,
-      fileName: req.file.originalname,  // ← qui la N maiuscola!
+      file: req.file.buffer,               // il buffer grezzo
+      fileName: req.file.originalname,     // N maiuscola
       response_format: 'json',
-      language: 'it',
+      language: 'it'
     })
     console.log('[STT] whisper response=', transcription)
 
