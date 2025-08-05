@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabaseClient'
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
 function SpeseCasa() {
+  /* STATE & REFS */
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -26,6 +27,7 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
+  /* CARICAMENTO DATI */
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -44,6 +46,7 @@ function SpeseCasa() {
     setLoading(false)
   }
 
+  /* INSERIMENTO MANUALE */
   const handleAdd = async (e) => {
     e.preventDefault()
     const {
@@ -77,12 +80,17 @@ function SpeseCasa() {
     }
   }
 
+  /* DELETE */
   const handleDelete = async (id) => {
-    const { error: deleteError } = await supabase.from('finances').delete().eq('id', id)
+    const { error: deleteError } = await supabase
+      .from('finances')
+      .delete()
+      .eq('id', id)
     if (deleteError) setError(deleteError.message)
     else setSpese(spese.filter((r) => r.id !== id))
   }
 
+  /* OCR */
   const handleOCR = async (file) => {
     if (!file) return
     try {
@@ -97,6 +105,7 @@ function SpeseCasa() {
     }
   }
 
+  /* RECORDING */
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -132,6 +141,7 @@ function SpeseCasa() {
     }
   }
 
+  /* SYSTEM PROMPT */
   const buildSystemPrompt = (source, userText) => `
 **ATTENZIONE:** il testo che segue è il risultato di una trascrizione vocale.  
 Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come “ehm”, “allora”, “ok”.  
@@ -139,7 +149,7 @@ Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come �
 
 **CONTESTO:** l’utente sta annotando una **spesa domestica**. Tu sei Jarvis, un assistente che estrae da frasi in italiano i dettagli di un acquisto e restituisce **solo** JSON valido.
 
-Rispondi **esclusivamente** con JSON conforme al seguente schema, senza testo aggiuntivo:
+Rispondi **esclusivamente** con JSON conforme al seguente schema:
 
 \`\`\`json
 {
@@ -238,13 +248,232 @@ Output:
 }
 \`\`\`
 
-... (includi tutti gli esempi fino al 15 nello stesso formato) ...
+ESEMPIO 5 (non da ripetere)  
+Input: "Al benzinaio Shell ho fatto il pieno: 50 litri di benzina a 1,80 al litro"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Shell",
+      "dettaglio":"50 litri di benzina",
+      "prezzoTotale":90.00,
+      "quantita":50,
+      "data":"oggi",
+      "categoria":"trasporti",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
 
-Ora comprendi la frase seguente (source: **${source}**) e restituisci solo il JSON:
+ESEMPIO 6 (non da ripetere)  
+Input: "Ho ordinato da Just Eat 3 pizze margherita per 24 euro totali"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Just Eat",
+      "dettaglio":"3 pizze margherita",
+      "prezzoTotale":24.00,
+      "quantita":3,
+      "data":"oggi",
+      "categoria":"casa",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 7 (non da ripetere)  
+Input: "Pagato abbonamento palestra mensile di 60€ oggi"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Palestra (abbonamento)",
+      "dettaglio":"Abbonamento mensile palestra",
+      "prezzoTotale":60.00,
+      "quantita":1,
+      "data":"oggi",
+      "categoria":"salute",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 8 (non da ripetere)  
+Input: "Ho comprato un biglietto del treno Frecciarossa Roma-Milano per 79,50€ il 2 agosto 2025"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Frecciarossa",
+      "dettaglio":"Biglietto treno Roma-Milano",
+      "prezzoTotale":79.50,
+      "quantita":1,
+      "data":"2025-08-02",
+      "categoria":"trasporti",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 9 (non da ripetere)  
+Input: "Ho speso 12 euro al bar Caffè Italia per due cappuccini e due cornetti questa mattina"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Caffè Italia",
+      "dettaglio":"2 cappuccini e 2 cornetti",
+      "prezzoTotale":12.00,
+      "quantita":4,
+      "data":"oggi",
+      "categoria":"casa",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 10 – Vestiti (non da ripetere)  
+Input: "Ieri ho comprato da Zara 2 magliette a 12,99€ ciascuna"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Zara",
+      "dettaglio":"2 magliette",
+      "prezzoTotale":25.98,
+      "quantita":2,
+      "data":"ieri",
+      "categoria":"vestiti",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 11 – Vestiti (non da ripetere)  
+Input: "Ho preso un paio di jeans Levi's su Amazon a 59,90 euro il 18 aprile 2025"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Amazon",
+      "dettaglio":"1 paio di jeans Levi's",
+      "prezzoTotale":59.90,
+      "quantita":1,
+      "data":"2025-04-18",
+      "categoria":"vestiti",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 12 – Cene (non da ripetere)  
+Input: "Stasera cena al Ristorante Da Gino: conto totale 80 euro per 2 persone"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Ristorante Da Gino",
+      "dettaglio":"2 coperti (cena)",
+      "prezzoTotale":80.00,
+      "quantita":2,
+      "data":"oggi",
+      "categoria":"cene",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 13 – Cene (non da ripetere)  
+Input: "Ho speso 35,50€ per una cena da Sushi House ieri sera"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Sushi House",
+      "dettaglio":"1 cena",
+      "prezzoTotale":35.50,
+      "quantita":1,
+      "data":"ieri",
+      "categoria":"cene",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 14 – Varie (non da ripetere)  
+Input: "Ricarica telefonica Vodafone 20 euro oggi"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Vodafone",
+      "dettaglio":"Ricarica telefonica",
+      "prezzoTotale":20.00,
+      "quantita":1,
+      "data":"oggi",
+      "categoria":"varie",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+ESEMPIO 15 – Varie (non da ripetere)  
+Input: "Pagato parcheggio 4 ore al Parcheggio Centrale: 8 euro il 25 luglio 2025"  
+Output:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Parcheggio Centrale",
+      "dettaglio":"4 ore di parcheggio",
+      "prezzoTotale":8.00,
+      "quantita":4,
+      "data":"2025-07-25",
+      "categoria":"varie",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+\`\`\`
+
+Ora comprendi la frase proveniente da **${source}** e restituisci solo il JSON:
 
 "${userText.trim()}"
 `
 
+  /* CHIAMATA E PARSING GPT */
   async function parseAssistantPrompt(prompt) {
     try {
       const res = await fetch('/api/assistant', {
@@ -252,34 +481,29 @@ Ora comprendi la frase seguente (source: **${source}**) e restituisci solo il JS
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       })
-
       if (!res.ok) {
         const txt = await res.text()
         console.error('assistant error', res.status, txt)
         setError(`Assistant ${res.status}`)
         return
       }
-
       const { answer, error: apiErr } = await res.json()
       if (apiErr) {
         setError(`Assistant: ${apiErr}`)
         return
       }
-
       console.log('[assistant-raw]', answer)
       const data = JSON.parse(answer)
       if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
         setError('Risposta assistant non valida')
         return
       }
-
       const {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return
 
       const rows = data.items.map((it) => {
-        // gestisco i placeholder di data: "oggi", "ieri", "domani"
         let spentDate = it.data
         if (spentDate === 'oggi') {
           spentDate = new Date().toISOString().slice(0, 10)
@@ -323,6 +547,7 @@ Ora comprendi la frase seguente (source: **${source}**) e restituisci solo il JS
     }
   }
 
+  /* RENDER */
   const totale = spese.reduce(
     (t, r) => t + Number(r.amount || 0) * (r.qty ?? 1),
     0
@@ -336,7 +561,7 @@ Ora comprendi la frase seguente (source: **${source}**) e restituisci solo il JS
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          {/* il resto del rendering e gli stili rimangono invariati */}
+          {/* resto del JSX e stili invariati */}
         </div>
       </div>
     </>
