@@ -1,9 +1,15 @@
 // pages/api/stt.js
 import multer from 'multer'
-import { Readable } from 'stream'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { promisify } from 'util'
 import OpenAI from 'openai'
 
-// In-memory storage per multer
+const writeFile = promisify(fs.writeFile)
+const unlink   = promisify(fs.unlink)
+
+// In‐memory storage per multer
 const upload = multer({ storage: multer.memoryStorage() })
 
 function runMiddleware(req, res, fn) {
@@ -30,35 +36,36 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) multer legge il file
+    // 1) multer legge il file in memoria
     await runMiddleware(req, res, upload.single('audio'))
-    console.log('[STT] multer done, file=', {
-      originalname: req.file?.originalname,
-      mimetype: req.file?.mimetype,
-      size: req.file?.size,
-    })
     if (!req.file) {
+      console.log('[STT] no file in request')
       return res.status(400).json({ error: 'File audio mancante' })
     }
+    console.log('[STT] multer done:', req.file.originalname, req.file.mimetype, req.file.size)
 
-    // 2) trasformiamo il buffer in Readable stream
-    const bufferStream = new Readable()
-    bufferStream.push(req.file.buffer)
-    bufferStream.push(null)
+    // 2) scriviamo un file temporaneo
+    const tmpDir  = os.tmpdir()
+    const tmpPath = path.join(tmpDir, `${Date.now()}-${req.file.originalname}`)
+    await writeFile(tmpPath, req.file.buffer)
+    console.log('[STT] wrote temp file to', tmpPath)
 
     // 3) invochiamo Whisper tramite OpenAI SDK
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
     console.log('[STT] calling Whisper…')
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file: bufferStream,                     // stream vero, non buffer grezzo
-      fileName: req.file.originalname,        // la N maiuscola è importante
+      file: fs.createReadStream(tmpPath),
       response_format: 'json',
       language: 'it',
     })
     console.log('[STT] whisper response=', transcription)
 
-    // 4) torniamo il testo trascritto
+    // 4) cancelliamo il file temporaneo
+    await unlink(tmpPath)
+    console.log('[STT] removed temp file')
+
+    // 5) restituiamo la trascrizione
     return res.status(200).json({ text: transcription.text })
   } catch (err) {
     console.error('[STT] error →', err)
