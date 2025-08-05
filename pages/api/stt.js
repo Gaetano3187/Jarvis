@@ -1,6 +1,6 @@
 // pages/api/stt.js
-
 import multer from 'multer'
+import { Readable } from 'stream'
 import OpenAI from 'openai'
 
 // In-memory storage per multer
@@ -21,7 +21,7 @@ export const config = {
     bodyParser: false,      // disabilita il parser built-in per multipart
     externalResolver: true, // evita warning “API resolved without sending…”
   },
-} 
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -39,14 +39,19 @@ export default async function handler(req, res) {
     // 2️⃣ Inizializziamo il client OpenAI
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
 
-    // 3️⃣ Chiediamo la trascrizione a Whisper passandogli direttamente il Buffer
+    // 3️⃣ Convertiamo il Buffer in uno Readable stream
+    const bufferStream = new Readable()
+    bufferStream.push(req.file.buffer)
+    bufferStream.push(null)
+
+    // 4️⃣ Chiediamo la trascrizione a Whisper
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file: req.file.buffer,
+      file: bufferStream,
       filename: req.file.originalname,  // es. "voice.webm"
     })
 
-    // 4️⃣ Restituiamo solo il testo trascritto
+    // 5️⃣ Restituiamo solo il testo trascritto
     return res.status(200).json({ text: transcription.text })
   } catch (err) {
     console.error('STT API error:', err)
