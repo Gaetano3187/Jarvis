@@ -1,24 +1,21 @@
 // pages/api/stt.js
 import multer from 'multer'
-import OpenAI from 'openai'
 
-// In-memory storage per multer
 const upload = multer({ storage: multer.memoryStorage() })
 
-// Helper per usare multer senza next-connect
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {
       if (result instanceof Error) return reject(result)
-      return resolve(result)
+      resolve(result)
     })
   })
 }
 
 export const config = {
   api: {
-    bodyParser: false,      // disabilita il parser built-in per multipart
-    externalResolver: true, // evita warning “API resolved senza inviare…”
+    bodyParser: false,
+    externalResolver: true,
   },
 }
 
@@ -29,24 +26,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1️⃣ multer per parsare l’audio
+    // 1️⃣ multer per parsare multipart/form-data
     await runMiddleware(req, res, upload.single('audio'))
     if (!req.file) {
       return res.status(400).json({ error: 'File audio mancante' })
     }
 
-    // 2️⃣ client OpenAI
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
+    // 2️⃣ ricreiamo il FormData per la richiesta a OpenAI
+    const fd = new FormData()
+    fd.append('model', 'whisper-1')
+    fd.append('file', new Blob([req.file.buffer]), req.file.originalname)
 
-    // 3️⃣ passiamo il buffer e il filename con estensione
-    const transcription = await openai.audio.transcriptions.create({
-      model: 'whisper-1',
-      file: req.file.buffer,
-      filename: req.file.originalname, // es. "voice.webm"
+    // 3️⃣ fetch diretto a /v1/audio/transcriptions
+    const openaiKey = process.env.OPENAI_API_KEY
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: fd,
     })
 
-    // 4️⃣ ritorniamo solo il testo
-    return res.status(200).json({ text: transcription.text })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      console.error('Whisper error:', response.status, err)
+      return res.status(500).json({ error: 'Errore trascrizione', details: err })
+    }
+
+    const { text } = await response.json()
+    return res.status(200).json({ text })
   } catch (err) {
     console.error('STT API error:', err)
     return res.status(500).json({
