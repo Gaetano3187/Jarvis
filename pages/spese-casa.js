@@ -843,6 +843,6 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
   )
 }
 
-
+}
 
 export default withAuth(SpeseCasa)
