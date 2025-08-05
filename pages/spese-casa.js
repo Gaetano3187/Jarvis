@@ -157,36 +157,34 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
  console.log('--- assistant raw answer ---', answer)
 
       const data = JSON.parse(answer)
-  // ...dentro a parseAssistantPrompt, appena dopo il JSON.parse(answer):
-console.log('[assistant-raw-items]', data.items)  // per vedere esattamente cosa ti ritorna l'assistente
-
 const rows = data.items.map((it) => {
-  // fallback espliciti
-  const pd = typeof it.puntoVendita === 'string' && it.puntoVendita.trim() !== ''
-    ? it.puntoVendita
+  // fallback per "undefined" e stringhe vuote
+  const rawPV = String(it.puntoVendita || '').trim()
+  const pd = rawPV && rawPV.toLowerCase() !== 'undefined'
+    ? rawPV
     : 'Sconosciuto'
-  const dt = typeof it.dettaglio === 'string' && it.dettaglio.trim() !== ''
-    ? it.dettaglio
+
+  const rawDT = String(it.dettaglio || '').trim()
+  const dt = rawDT && rawDT.toLowerCase() !== 'undefined'
+    ? rawDT
     : 'spesa'
+
+  // prezzo
   const pr = Number(it.prezzoTotale)
-  // se il campo non è un numero valido, metto zero
   const price = isNaN(pr) ? 0 : pr
 
-  // gestione "oggi"/"ieri"/"domani"
+  // data: oggi, ieri, domani o ISO
   let spentDateRaw = String(it.data).toLowerCase()
   let spentAt
   if (spentDateRaw === 'oggi') {
     spentAt = new Date().toISOString().slice(0,10)
   } else if (spentDateRaw === 'ieri') {
-    const d = new Date()
-    d.setDate(d.getDate()-1)
+    const d = new Date(); d.setDate(d.getDate()-1)
     spentAt = d.toISOString().slice(0,10)
   } else if (spentDateRaw === 'domani') {
-    const d = new Date()
-    d.setDate(d.getDate()+1)
+    const d = new Date(); d.setDate(d.getDate()+1)
     spentAt = d.toISOString().slice(0,10)
   } else {
-    // se il formato è già YYYY-MM-DD lo uso, altrimenti lo lascio così com’è
     spentAt = it.data
   }
 
@@ -199,7 +197,6 @@ const rows = data.items.map((it) => {
     qty: parseInt(it.quantita, 10) || 1,
   }
 })
-
 
       const { error: dbErr } = await supabase.from('finances').insert(rows)
       if (dbErr) return setError(dbErr.message)
