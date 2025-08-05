@@ -52,14 +52,16 @@ export default async function handler(req, res) {
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
       file: bufferStream,
-      filename: req.file.originalname,
-      language: 'it',    // forza l'italiano
+      response_format: 'json',  // formato semplice
+      language: 'it'            // forza l'italiano
     })
     console.log('[STT] whisper response=', transcription)
 
     return res.status(200).json({ text: transcription.text })
   } catch (err) {
     console.error('[STT] error →', err)
+    // se disponibile, logghiamo anche la risposta di rete
+    if (err.response) console.error('[STT] response error →', err.response.data)
     return res.status(500).json({
       error: 'Errore STT',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined,
