@@ -46,7 +46,7 @@ function SpeseCasa() {
     if (error) setError(error.message)
     else setSpese(data)
     setLoading(false)
-  }
+  } 
 
   /* ------------------------- INSERIMENTO MANUALE ------------------------ */
   const handleAdd = async (e) => {
