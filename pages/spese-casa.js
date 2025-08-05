@@ -4,7 +4,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 
 import withAuth from '../hoc/withAuth'
-import TeleportLayout from '@/components/TeleportLayout'
+import TeleportLayout from '../components/TeleportLayout'
 import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
