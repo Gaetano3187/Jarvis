@@ -144,8 +144,10 @@ function SpeseCasa() {
   }
 
   /* -------------------------- SYSTEM PROMPT ----------------------------- */
-  const buildSystemPrompt = (source, userText) => {
-    return `
+ const buildSystemPrompt = (source, userText) => `
+// Non modificare né “correggere” i nomi dei luoghi o dei prodotti: usa esattamente la stringa ricevuta dallo STT.
+// Se nel testo non viene esplicitata quantità, assume 1.
+// Prendi il prezzo esattamente come fornito (non arrotondare né calcolare).
 Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
 
 ESEMPIO 1
