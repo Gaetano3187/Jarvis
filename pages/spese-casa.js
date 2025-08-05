@@ -140,83 +140,114 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
 `
   }
 
+   // ────────────────────────────────────────────────────────────────────────
+  // Funzione che chiama l’API, parsifica e inserisce su Supabase
   async function parseAssistantPrompt(prompt) {
     try {
+      // 1) Invoca il nostro endpoint
       const res = await fetch('/api/assistant', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ prompt })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
       })
+
+      // 2) Leggi e logga la risposta grezza
+      const rawBody = await res.text()
+      console.log('--- /api/assistant raw response ---', rawBody)
+
+      // 3) Se status ≠ 200, segnala errore
       if (!res.ok) {
-        const txt = await res.text()
-        return setError(`Assistant ${res.status}: ${txt}`)
+        return setError(`Assistant ${res.status}: ${rawBody}`)
       }
-      const { answer, error: apiErr } = await res.json()
-      if (apiErr) return setError(`Assistant: ${apiErr}`)
 
- console.log('--- assistant raw answer ---', answer)
+      // 4) Estrai answer ed eventuale apiErr
+      const { answer, error: apiErr } = JSON.parse(rawBody)
+      console.log('--- assistant raw answer ---', answer)
+      if (apiErr) {
+        setError(`Assistant: ${apiErr}`)
+        return
+      }
 
+      // 5) Parsifica il JSON interno e logga
       const data = JSON.parse(answer)
-const rows = data.items.map((it) => {
-  // fallback per "undefined" e stringhe vuote
-  const rawPV = String(it.puntoVendita || '').trim()
-  const pd = rawPV && rawPV.toLowerCase() !== 'undefined'
-    ? rawPV
-    : 'Sconosciuto'
+      console.log('parsed data:', data)
+      console.log('items:', data.items)
 
-  const rawDT = String(it.dettaglio || '').trim()
-  const dt = rawDT && rawDT.toLowerCase() !== 'undefined'
-    ? rawDT
-    : 'spesa'
+      // 6) Verifica struttura minima
+      if (data.type !== 'expense' ||
+          !Array.isArray(data.items) ||
+          data.items.length === 0) {
+        setError('Risposta assistant non valida')
+        return
+      }
 
-  // prezzo
-  const pr = Number(it.prezzoTotale)
-  const price = isNaN(pr) ? 0 : pr
+      // 7) Prendi l’utente da Supabase
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
 
-  // data: oggi, ieri, domani o ISO
-  let spentDateRaw = String(it.data).toLowerCase()
-  let spentAt
-  if (spentDateRaw === 'oggi') {
-    spentAt = new Date().toISOString().slice(0,10)
-  } else if (spentDateRaw === 'ieri') {
-    const d = new Date(); d.setDate(d.getDate()-1)
-    spentAt = d.toISOString().slice(0,10)
-  } else if (spentDateRaw === 'domani') {
-    const d = new Date(); d.setDate(d.getDate()+1)
-    spentAt = d.toISOString().slice(0,10)
-  } else {
-    spentAt = it.data
-  }
+      // 8) Mappa in rows con fallback e gestione date speciali
+      const rows = data.items.map(it => {
+        const rawPV = String(it.puntoVendita || '').trim().toLowerCase()
+        const pd    = (rawPV && rawPV !== 'undefined') ? it.puntoVendita : 'Sconosciuto'
+        const rawDT = String(it.dettaglio   || '').trim().toLowerCase()
+        const dt    = (rawDT && rawDT !== 'undefined')   ? it.dettaglio   : 'spesa'
+        const pr    = Number(it.prezzoTotale)
+        const price = isNaN(pr) ? 0 : pr
 
-  return {
-    user_id: user.id,
-    category_id: CATEGORY_ID_CASA,
-    description: `[${pd}] ${dt}`,
-    amount: price,
-    spent_at: spentAt,
-    qty: parseInt(it.quantita, 10) || 1,
-  }
-})
+        let dRaw = String(it.data).toLowerCase(), spentAt
+        if (dRaw === 'oggi') {
+          spentAt = new Date().toISOString().slice(0, 10)
+        } else if (dRaw === 'ieri') {
+          const d = new Date(); d.setDate(d.getDate() - 1)
+          spentAt = d.toISOString().slice(0, 10)
+        } else if (dRaw === 'domani') {
+          const d = new Date(); d.setDate(d.getDate() + 1)
+          spentAt = d.toISOString().slice(0, 10)
+        } else {
+          spentAt = it.data
+        }
 
-      const { error: dbErr } = await supabase.from('finances').insert(rows)
-      if (dbErr) return setError(dbErr.message)
+        return {
+          user_id:     user.id,
+          category_id: CATEGORY_ID_CASA,
+          description: `[${pd}] ${dt}`,
+          amount:      price,
+          spent_at:    spentAt,
+          qty:         parseInt(it.quantita, 10) || 1,
+        }
+      })
+      console.log('parsed rows:', rows)
+
+      // 9) Inserisci su Supabase e logga il risultato
+      const { data: inserted, error: insertErr } = await supabase
+        .from('finances')
+        .insert(rows)
+        .select()
+      console.log('insert result:', { inserted, insertErr })
+      if (insertErr) {
+        setError(insertErr.message)
+        return
+      }
+
+      // 10) Ricarica e pre-riempi form
       fetchSpese()
-
-      // pre-riempi form
-      const f = rows[0]
+      const f = inserted[0]
       setNuovaSpesa({
         puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
-        dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
+        dettaglio:    f.description.replace(/^\[.*?\]\s*/, ''),
         prezzoTotale: f.amount,
-        quantita: String(f.qty),
-        spentAt: f.spent_at.slice(0,10),
+        quantita:     String(f.qty),
+        spentAt:      f.spent_at.slice(0, 10),
       })
     } catch (err) {
+      console.error(err)
       setError('Risposta assistant non valida')
     }
   }
+  // ────────────────────────────────────────────────────────────────────────
 
-  const totale = spese.reduce((t, r) => t + Number(r.amount||0)*(r.qty||1), 0)
 
   return (
     <>
