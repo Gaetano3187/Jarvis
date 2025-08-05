@@ -144,9 +144,32 @@ function SpeseCasa() {
   /* -------------------------- SYSTEM PROMPT ----------------------------- */
   const buildSystemPrompt = (source, userText) => {
     return `
-Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
 
-ESEMPIO 1
+    **ATTENZIONE:** il testo che segue è il risultato di una trascrizione vocale.  
+Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come “ehm”, “allora”, “ok”.  
+**Ignora** questi artefatti e concentra l’attenzione solo sui dati di spesa.
+
+**CONTESTO:** l’utente sta annotando una **spesa domestica**. Tu sei Jarvis, un assistente che estrae da frasi in italiano i dettagli di un acquisto e restituisce **solo** JSON valido.
+
+Rispondi **esclusivamente** con JSON conforme al seguente schema, senza testo aggiuntivo:
+
+json
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": string,
+      "dettaglio": string,
+      "prezzoTotale": number,
+      "quantita": number,
+      "data": "YYYY-MM-DD" | "<ODIERNA>" | "<IERI>",
+      "categoria": string,
+      "category_id": "${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 1 (non da ripetere)
 Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
 Output:
 {
@@ -164,7 +187,7 @@ Output:
   ]
 }
 
-ESEMPIO 2
+ESEMPIO 2 (non da ripetere)
 Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
 Output:
 {
@@ -182,7 +205,7 @@ Output:
   ]
 }
 
-ESEMPIO 3
+ESEMPIO 3 (non da ripetere)
 Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
 Output:
 {
@@ -200,7 +223,7 @@ Output:
   ]
 }
 
-ESEMPIO 4
+ESEMPIO 4 (non da ripetere)
 Input: "Ho speso 45,99€ su Amazon per un paio di cuffie il 15 giugno 2025"
 Output:
 {
@@ -218,7 +241,7 @@ Output:
   ]
 }
 
-ESEMPIO 5
+ESEMPIO 5 (non da ripetere)
 Input: "Al benzinaio Shell ho fatto il pieno: 50 litri di benzina a 1,80 al litro"
 Output:
 {
@@ -236,7 +259,7 @@ Output:
   ]
 }
 
-ESEMPIO 6
+ESEMPIO 6 (non da ripetere)
 Input: "Ho ordinato da Just Eat 3 pizze margherita per 24 euro totali"
 Output:
 {
@@ -254,7 +277,7 @@ Output:
   ]
 }
 
-ESEMPIO 7
+ESEMPIO 7 (non da ripetere)
 Input: "Pagato abbonamento palestra mensile di 60€ oggi"
 Output:
 {
@@ -272,7 +295,7 @@ Output:
   ]
 }
 
-ESEMPIO 8
+ESEMPIO 8 (non da ripetere)
 Input: "Ho comprato un biglietto del treno Frecciarossa Roma-Milano per 79,50€ il 2 agosto 2025"
 Output:
 {
@@ -290,7 +313,7 @@ Output:
   ]
 }
 
-ESEMPIO 9
+ESEMPIO 9 (non da ripetere)
 Input: "Ho speso 12 euro al bar Caffè Italia per due cappuccini e due cornetti questa mattina"
 Output:
 {
@@ -308,7 +331,7 @@ Output:
   ]
 }
 
-ESEMPIO 10 – Vestiti
+ESEMPIO 10 – Vestiti (non da ripetere)
 Input: "Ieri ho comprato da Zara 2 magliette a 12,99€ ciascuna"
 Output:
 {
@@ -326,7 +349,7 @@ Output:
   ]
 }
 
-ESEMPIO 11 – Vestiti
+ESEMPIO 11 – Vestiti (non da ripetere)
 Input: "Ho preso un paio di jeans Levi's su Amazon a 59,90 euro il 18 aprile 2025"
 Output:
 {
@@ -344,7 +367,7 @@ Output:
   ]
 }
 
-ESEMPIO 12 – Cene
+ESEMPIO 12 – Cene (non da ripetere)
 Input: "Stasera cena al Ristorante Da Gino: conto totale 80 euro per 2 persone"
 Output:
 {
@@ -362,7 +385,7 @@ Output:
   ]
 }
 
-ESEMPIO 13 – Cene
+ESEMPIO 13 – Cene (non da ripetere)
 Input: "Ho speso 35,50€ per una cena da Sushi House ieri sera"
 Output:
 {
@@ -380,7 +403,7 @@ Output:
   ]
 }
 
-ESEMPIO 14 – Varie
+ESEMPIO 14 – Varie (non da ripetere)
 Input: "Ricarica telefonica Vodafone 20 euro oggi"
 Output:
 {
@@ -398,7 +421,7 @@ Output:
   ]
 }
 
-ESEMPIO 15 – Varie
+ESEMPIO 15 – Varie (non da ripetere)
 Input: "Pagato parcheggio 4 ore al Parcheggio Centrale: 8 euro il 25 luglio 2025"
 Output:
 {
