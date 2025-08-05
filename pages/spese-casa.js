@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
-
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -26,9 +25,7 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  useEffect(() => {
-    fetchSpese()
-  }, [])
+  useEffect(() => { fetchSpese() }, [])
 
   async function fetchSpese() {
     setLoading(true)
@@ -37,20 +34,18 @@ function SpeseCasa() {
       .select('id, description, amount, qty, spent_at')
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
+
     if (error) setError(error.message)
     else setSpese(data)
+
     setLoading(false)
   }
 
-  const handleAdd = async (e) => {
+  const handleAdd = async e => {
     e.preventDefault()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Sessione scaduta')
-      return
-    }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return setError('Sessione scaduta')
+
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
@@ -59,37 +54,27 @@ function SpeseCasa() {
       spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
-    const { error: insertError } = await supabase.from('finances').insert(row)
-    if (insertError) setError(insertError.message)
+
+    const { error } = await supabase.from('finances').insert(row)
+    if (error) setError(error.message)
     else {
-      setNuovaSpesa({
-        puntoVendita: '',
-        dettaglio: '',
-        prezzoTotale: '',
-        quantita: '1',
-        spentAt: '',
-      })
+      setNuovaSpesa({ puntoVendita:'', dettaglio:'', prezzoTotale:'', quantita:'1', spentAt:'' })
       fetchSpese()
     }
   }
 
-  const handleDelete = async (id) => {
-    const { error: deleteError } = await supabase
-      .from('finances')
-      .delete()
-      .eq('id', id)
-    if (deleteError) setError(deleteError.message)
-    else setSpese(spese.filter((r) => r.id !== id))
+  const handleDelete = async id => {
+    const { error } = await supabase.from('finances').delete().eq('id', id)
+    if (error) setError(error.message)
+    else setSpese(spese.filter(r => r.id !== id))
   }
 
-  const handleOCR = async (file) => {
+  const handleOCR = async file => {
     if (!file) return
     try {
       const fd = new FormData()
       fd.append('image', file)
-      const { text } = await (
-        await fetch('/api/ocr', { method: 'POST', body: fd })
-      ).json()
+      const { text } = await (await fetch('/api/ocr', { method:'POST', body:fd })).json()
       await parseAssistantPrompt(buildSystemPrompt('ocr', text))
     } catch {
       setError('OCR fallito')
@@ -105,8 +90,7 @@ function SpeseCasa() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = (e) =>
-        e.data.size && recordedChunks.current.push(e.data)
+      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunks.current.push(e.data)
       mediaRecRef.current.onstop = processVoice
       mediaRecRef.current.start()
       setRecBusy(true)
@@ -120,9 +104,7 @@ function SpeseCasa() {
     const fd = new FormData()
     fd.append('audio', blob, 'voice.webm')
     try {
-      const { text } = await (
-        await fetch('/api/stt', { method: 'POST', body: fd })
-      ).json()
+      const { text } = await (await fetch('/api/stt', { method:'POST', body:fd })).json()
       await parseAssistantPrompt(buildSystemPrompt('voice', text))
     } catch {
       setError('STT fallito')
@@ -131,81 +113,64 @@ function SpeseCasa() {
     }
   }
 
-  const buildSystemPrompt = (source, userText) => `
-ATTENZIONE: il testo seguente è una trascrizione vocale ed
-è pieno di “ehm”, ripetizioni, punteggiatura mancante.
-Ignora questi artefatti e considera solo i dati della spesa.
+  const buildSystemPrompt = (source, userText) => {
+    return `
+Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
 
-CONTESTO: annotazione di una spesa domestica.  
-Sei Jarvis, estrai **solo** JSON valido:
-
-Schema:
+ESEMPIO 1
+Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
+Output:
 {
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": string,
-      "dettaglio": string,
-      "prezzoTotale": number,
-      "quantita": number,
-      "data": "YYYY-MM-DD" | "oggi" | "ieri" | "domani",
-      "categoria": string,
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
+  "type":"expense",
+  "items":[{ "puntoVendita":"Supermercato Rossi","dettaglio":"3 pacchi di pasta Barilla","prezzoTotale":2.50,"quantita":3,"data":"2025-07-10","categoria":"casa","category_id":"${CATEGORY_ID_CASA}" }]
 }
 
-Esempi (non ripeterli):
-1) Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
-   Output: {"type":"expense","items":[{"puntoVendita":"Supermercato Rossi","dettaglio":"3 pacchi di pasta Barilla","prezzoTotale":2.5,"quantita":3,"data":"2025-07-10","categoria":"casa","category_id":"${CATEGORY_ID_CASA}"}]}
-2) Input: "Ho comprato una confezione di latte a 20 euro"
-   Output: {"type":"expense","items":[{"puntoVendita":"Sconosciuto","dettaglio":"1 confezione di latte","prezzoTotale":20,"quantita":1,"data":"oggi","categoria":"casa","category_id":"${CATEGORY_ID_CASA}"}]}
-3) Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
-   Output: {"type":"expense","items":[{"puntoVendita":"Cinema Lux","dettaglio":"2 biglietti del cinema","prezzoTotale":18,"quantita":2,"data":"ieri","categoria":"tempo libero","category_id":"${CATEGORY_ID_CASA}"}]}
+ESEMPIO 2
+Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
+Output:
+{
+  "type":"expense",
+  "items":[{ "puntoVendita":"Orsini Market","dettaglio":"1 confezione di latte","prezzoTotale":20.00,"quantita":1,"data":"oggi","categoria":"casa","category_id":"${CATEGORY_ID_CASA}" }]
+}
 
-Ora elabora la frase:
-"${userText.trim()}"
+… (includi gli esempi fino al 15) …
+
+Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
+"${userText}"
 `
+  }
 
   async function parseAssistantPrompt(prompt) {
     try {
       const res = await fetch('/api/assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ prompt })
       })
       if (!res.ok) {
         const txt = await res.text()
-        setError(`Assistant ${res.status}: ${txt}`)
-        return
+        return setError(`Assistant ${res.status}: ${txt}`)
       }
       const { answer, error: apiErr } = await res.json()
-      if (apiErr) {
-        setError(`Assistant: ${apiErr}`)
-        return
-      }
+      if (apiErr) return setError(`Assistant: ${apiErr}`)
+
       const data = JSON.parse(answer)
-      if (data.type !== 'expense' || !data.items?.length) {
-        setError('Risposta assistant non valida')
-        return
-      }
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
+        return setError('Risposta assistant non valida')
+
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const rows = data.items.map((it) => {
-        let d = it.data.toLowerCase()
+      const rows = data.items.map(it => {
+        let d = String(it.data).toLowerCase()
         let spentDate
-        if (d === 'oggi') spentDate = new Date().toISOString().slice(0, 10)
+        if (d === 'oggi') spentDate = new Date().toISOString().slice(0,10)
         else if (d === 'ieri') {
-          const x = new Date()
-          x.setDate(x.getDate() - 1)
-          spentDate = x.toISOString().slice(0, 10)
+          const x = new Date(); x.setDate(x.getDate()-1)
+          spentDate = x.toISOString().slice(0,10)
         } else if (d === 'domani') {
-          const x = new Date()
-          x.setDate(x.getDate() + 1)
-          spentDate = x.toISOString().slice(0, 10)
+          const x = new Date(); x.setDate(x.getDate()+1)
+          spentDate = x.toISOString().slice(0,10)
         } else {
           spentDate = it.data
         }
@@ -213,72 +178,132 @@ Ora elabora la frase:
           user_id: user.id,
           category_id: CATEGORY_ID_CASA,
           description: `[${it.puntoVendita||'Sconosciuto'}] ${it.dettaglio}`,
-          amount: Number(it.prezzoTotale),
+          amount: Number(it.prezzoTotale||0),
           spent_at: spentDate,
-          qty: parseInt(it.quantita, 10),
+          qty: parseInt(it.quantita||1, 10),
         }
       })
 
       const { error: dbErr } = await supabase.from('finances').insert(rows)
-      if (dbErr) {
-        setError(dbErr.message)
-        return
-      }
+      if (dbErr) return setError(dbErr.message)
       fetchSpese()
+
+      // pre-riempi form
+      const f = rows[0]
+      setNuovaSpesa({
+        puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
+        dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
+        prezzoTotale: f.amount,
+        quantita: String(f.qty),
+        spentAt: f.spent_at.slice(0,10),
+      })
     } catch (err) {
       setError('Risposta assistant non valida')
     }
   }
 
-  const totale = spese.reduce((sum, r) => sum + r.amount * (r.qty || 1), 0)
+  const totale = spese.reduce((t, r) => t + Number(r.amount||0)*(r.qty||1), 0)
 
   return (
     <>
-      <Head>
-        <title>Spese Casa</title>
-      </Head>
+      <Head><title>Spese Casa</title></Head>
+
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2>🏠 Spese Casa</h2>
-          {/* pulsanti e form ... */}
-          <div className="table-container">
-            {loading ? (
-              <p>Caricamento…</p>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Punto vendita</th>
-                    <th>Dettaglio</th>
-                    <th>Data</th>
-                    <th>Qtà</th>
-                    <th>Prezzo €</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {spese.map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.description.match(/^\[(.*?)\]/)?.[1]}</td>
-                      <td>{r.description.replace(/^\[.*?\]\s*/, '')}</td>
-                      <td>{new Date(r.spent_at).toLocaleDateString()}</td>
-                      <td>{r.qty}</td>
-                      <td>{r.amount.toFixed(2)}</td>
-                      <td>
-                        <button onClick={() => handleDelete(r.id)}>🗑</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <div>Totale: € {totale.toFixed(2)}</div>
+          <h2 style={{ marginBottom:'1rem', fontSize:'1.5rem', color:'#fff' }}>🏠 Spese Casa</h2>
+
+          <div className="table-buttons">
+            <button className="btn-manuale" onClick={()=>formRef.current?.scrollIntoView()}>➕ Aggiungi manualmente</button>
+            <button className="btn-vocale" onClick={toggleRec}>{recBusy ? '⏹ Stop' : '🎙 Voce'}</button>
+            <button className="btn-ocr" onClick={()=>ocrInputRef.current?.click()}>📷 OCR</button>
           </div>
-          {error && <p style={{ color: 'red' }}>{error}</p>}
-          <Link href="/home">🏠 Home</Link>
+
+          <input ref={ocrInputRef} type="file" accept="image/*,application/pdf" hidden onChange={e=>handleOCR(e.target.files?.[0])}/>
+
+          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
+            <label htmlFor="vendita">Punto vendita / Servizio</label>
+            <input id="vendita" value={nuovaSpesa.puntoVendita} onChange={e=>setNuovaSpesa({...nuovaSpesa,puntoVendita:e.target.value})} required/>
+
+            <label htmlFor="quantita">Quantità</label>
+            <input id="quantita" type="number" min="1" value={nuovaSpesa.quantita} onChange={e=>setNuovaSpesa({...nuovaSpesa,quantita:e.target.value})} required/>
+
+            <label htmlFor="dettaglio">Dettaglio della spesa</label>
+            <textarea id="dettaglio" value={nuovaSpesa.dettaglio} onChange={e=>setNuovaSpesa({...nuovaSpesa,dettaglio:e.target.value})} required/>
+
+            <label htmlFor="data">Data di acquisto</label>
+            <input id="data" type="date" value={nuovaSpesa.spentAt} onChange={e=>setNuovaSpesa({...nuovaSpesa,spentAt:e.target.value})} required/>
+
+            <label htmlFor="prezzo">Prezzo totale (€)</label>
+            <input id="prezzo" type="number" step="0.01" value={nuovaSpesa.prezzoTotale} onChange={e=>setNuovaSpesa({...nuovaSpesa,prezzoTotale:e.target.value})} required/>
+
+            <button className="btn-manuale" style={{ width:'fit-content' }}>Aggiungi</button>
+          </form>
+
+          <div className="table-container">
+            {loading
+              ? <p>Caricamento…</p>
+              : (
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Punto vendita</th>
+                      <th>Dettaglio</th>
+                      <th>Data</th>
+                      <th>Qtà</th>
+                      <th>Prezzo €</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {spese.map(r => {
+                      const m = r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
+                      return (
+                        <tr key={r.id}>
+                          <td>{m[1]||'-'}</td>
+                          <td>{m[2]||r.description}</td>
+                          <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : ''}</td>
+                          <td>{r.qty||1}</td>
+                          <td>{Number(r.amount).toFixed(2)}</td>
+                          <td><button onClick={()=>handleDelete(r.id)}>🗑</button></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )
+            }
+            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+          </div>
+
+          {error && <p style={{ color:'red' }}>{error}</p>}
+          <Link href="/home" className="btn-vocale" style={{ marginTop:'1.5rem', textDecoration:'none' }}>🏠 Home</Link>
         </div>
       </div>
-      {/* stili CSS globali ... */}
+
+      <style jsx global>{`
+        .spese-casa-container1 {
+          width:100%; display:flex; min-height:100vh;
+          align-items:center; justify-content:center; background:#0f172a;
+          font-family:Inter,sans-serif; padding:2rem;
+        }
+        .spese-casa-container2 {
+          max-width:800px; width:100%;
+          background:rgba(0,0,0,0.6); padding:2rem; border-radius:1rem;
+          color:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.3);
+        }
+        .table-buttons { display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+        .btn-manuale { background:#22c55e; color:#fff; }
+        .btn-vocale { background:#10b981; color:#fff; }
+        .btn-ocr { background:#f43f5e; color:#fff; }
+        input, textarea { width:100%; padding:0.6rem; border:none; border-radius:0.5rem; background:rgba(255,255,255,0.1); color:#fff; }
+        textarea { min-height:4.5rem; resize:vertical; }
+        .input-section { display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1.5rem; }
+        .custom-table { width:100%; border-collapse:collapse; }
+        .custom-table thead { background:#1f2937; }
+        .custom-table th, .custom-table td { padding:0.75rem 1rem; border-bottom:1px solid rgba(255,255,255,0.1); }
+        .custom-table tbody tr:hover { background:rgba(255,255,255,0.05); }
+        .total-box { margin-top:1rem; background:rgba(34,197,94,0.8); padding:1rem; border-radius:0.5rem; text-align:right; font-weight:600; }
+      `}</style>
     </>
   )
 }
