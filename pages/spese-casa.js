@@ -1,3 +1,4 @@
+// pages/spese-casa.js
 import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -77,7 +78,9 @@ function SpeseCasa() {
     try {
       const fd = new FormData()
       fd.append('image', file)
-      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json()
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const json = await res.json()
+      const text = json.text?.trim()
       if (!text) {
         setError('OCR non riconosciuto, riprova')
         return
@@ -111,10 +114,11 @@ function SpeseCasa() {
     const fd = new FormData()
     fd.append('audio', blob, 'voice.webm')
     try {
-      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
+      const res = await fetch('/api/stt', { method: 'POST', body: fd })
+      const json = await res.json()
+      const text = json.text?.trim()
       if (!text) {
         setError('Voce non riconosciuta, riprova')
-        setRecBusy(false)
         return
       }
       await parseAssistantPrompt(buildSystemPrompt('voice', text))
@@ -125,7 +129,9 @@ function SpeseCasa() {
     }
   }
 
-  const buildSystemPrompt = (source, userText) => `
+  /* -------------------------- SYSTEM PROMPT ----------------------------- */
+const buildSystemPrompt = (source, userText) => {
+  return `
 Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
 
 ESEMPIO 1
@@ -141,16 +147,268 @@ Output:
       "quantita":3,
       "data":"2025-07-10",
       "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
+      "category_id":"\${CATEGORY_ID_CASA}"
     }
   ]
 }
 
-… (altri esempi fino al 15) …
+ESEMPIO 2
+Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
+Output:
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Orsini Market",
+      "dettaglio":"1 confezione di latte",
+      "prezzoTotale":20.00,
+      "quantita":1,
+      "data":"<ODIERNA>",
+      "categoria":"casa",
+      "category_id":"\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
 
-Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
-"${userText}"
-`
+ESEMPIO 3
+Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Cinema Lux",
+      "dettaglio": "2 biglietti del cinema",
+      "prezzoTotale": 18.00,
+      "quantita": 2,
+      "data": "<IERI>",
+      "categoria": "tempo libero",
+      "category_id": "\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 4
+Input: "Ho speso 45,99€ su Amazon per un paio di cuffie il 15 giugno 2025"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Amazon",
+      "dettaglio": "1 paio di cuffie",
+      "prezzoTotale": 45.99,
+      "quantita": 1,
+      "data": "2025-06-15",
+      "categoria": "tecnologia",
+      "category_id": "\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 5
+Input: "Al benzinaio Shell ho fatto il pieno: 50 litri di benzina a 1,80 al litro"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Shell",
+      "dettaglio": "50 litri di benzina",
+      "prezzoTotale": 90.00,
+      "quantita": 50,
+      "data": "<ODIERNA>",
+      "categoria": "trasporti",
+      "category_id": "\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 6
+Input: "Ho ordinato da Just Eat 3 pizze margherita per 24 euro totali"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Just Eat",
+      "dettaglio": "3 pizze margherita",
+      "prezzoTotale": 24.00,
+      "quantita": 3,
+      "data": "<ODIERNA>",
+      "categoria": "casa",
+      "category_id": "\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 7
+Input: "Pagato abbonamento palestra mensile di 60€ oggi"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Palestra (abbonamento)",
+      "dettaglio": "Abbonamento mensile palestra",
+      "prezzoTotale": 60.00,
+      "quantita": 1,
+      "data": "<ODIERNA>",
+      "categoria": "salute",
+      "category_id": "\${CATEGORY_ID_VARIE}"
+    }
+  ]
+}
+
+ESEMPIO 8
+Input: "Ho comprato un biglietto del treno Frecciarossa Roma-Milano per 79,50€ il 2 agosto 2025"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Frecciarossa",
+      "dettaglio": "Biglietto treno Roma-Milano",
+      "prezzoTotale": 79.50,
+      "quantita": 1,
+      "data": "2025-08-02",
+      "categoria": "trasporti",
+      "category_id": "\${CATEGORY_ID_VARIE}"
+    }
+  ]
+}
+
+ESEMPIO 9
+Input: "Ho speso 12 euro al bar Caffè Italia per due cappuccini e due cornetti questa mattina"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Caffè Italia",
+      "dettaglio": "2 cappuccini e 2 cornetti",
+      "prezzoTotale": 12.00,
+      "quantita": 4,
+      "data": "<ODIERNA>",
+      "categoria": "casa",
+      "category_id": "\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 10 – Vestiti
+Input: "Ieri ho comprato da Zara 2 magliette a 12,99€ ciascuna"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Zara",
+      "dettaglio": "2 magliette",
+      "prezzoTotale": 25.98,
+      "quantita": 2,
+      "data": "<IERI>",
+      "categoria": "vestiti",
+      "category_id": "\${CATEGORY_ID_VESTITI}"
+    }
+  ]
+}
+
+ESEMPIO 11 – Vestiti
+Input: "Ho preso un paio di jeans Levi's su Amazon a 59,90 euro il 18 aprile 2025"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Amazon",
+      "dettaglio": "1 paio di jeans Levi's",
+      "prezzoTotale": 59.90,
+      "quantita": 1,
+      "data": "2025-04-18",
+      "categoria": "vestiti",
+      "category_id": "\${CATEGORY_ID_VESTITI}"
+    }
+  ]
+}
+
+ESEMPIO 12 – Cene
+Input: "Stasera cena al Ristorante Da Gino: conto totale 80 euro per 2 persone"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Ristorante Da Gino",
+      "dettaglio": "2 coperti (cena)",
+      "prezzoTotale": 80.00,
+      "quantita": 2,
+      "data": "<ODIERNA>",
+      "categoria": "cene",
+      "category_id": "\${CATEGORY_ID_CENE}"
+    }
+  ]
+}
+
+ESEMPIO 13 – Cene
+Input: "Ho speso 35,50€ per una cena da Sushi House ieri sera"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Sushi House",
+      "dettaglio": "1 cena",
+      "prezzoTotale": 35.50,
+      "quantita": 1,
+      "data": "<IERI>",
+      "categoria": "cene",
+      "category_id": "\${CATEGORY_ID_CENE}"
+    }
+  ]
+}
+
+ESEMPIO 14 – Varie
+Input: "Ricarica telefonica Vodafone 20 euro oggi"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Vodafone",
+      "dettaglio": "Ricarica telefonica",
+      "prezzoTotale": 20.00,
+      "quantita": 1,
+      "data": "<ODIERNA>",
+      "categoria": "varie",
+      "category_id": "\${CATEGORY_ID_VARIE}"
+    }
+  ]
+}
+
+ESEMPIO 15 – Varie
+Input: "Pagato parcheggio 4 ore al Parcheggio Centrale: 8 euro il 25 luglio 2025"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Parcheggio Centrale",
+      "dettaglio": "4 ore di parcheggio",
+      "prezzoTotale": 8.00,
+      "quantita": 4,
+      "data": "2025-07-25",
+      "categoria": "varie",
+      "category_id": "\${CATEGORY_ID_VARIE}"
+    }
+  ]
+}
+
+Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
+"\${userText}"
+  `;
+};
+
 
   async function parseAssistantPrompt(prompt) {
     try {
@@ -212,7 +470,13 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>🏠 Spese Casa</h2>
-          {/* … UI identica a prima … */}
+          <div className="table-buttons">
+            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>➕ Aggiungi manualmente</button>
+            <button className="btn-vocale" onClick={toggleRec}>{recBusy ? '⏹ Stop' : '🎙 Voce'}</button>
+            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>📷 OCR</button>
+          </div>
+          <input ref={ocrInputRef} type="file" accept="image/*,application/pdf" hidden onChange={e => handleOCR(e.target.files?.[0])} />
+          {/* … il resto della form e della tabella identici a prima … */}
         </div>
       </div>
       {/* … stili identici a quelli esistenti … */}
