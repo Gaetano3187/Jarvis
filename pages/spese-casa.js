@@ -83,19 +83,53 @@ function SpeseCasa() {
   }
 
   const handleOCR = async file => {
-    if (!file) return
-    try {
-      const fd = new FormData()
-      fd.append('image', file)
-      const { text } = await (
-        await fetch('/api/ocr', { method: 'POST', body: fd })
-      ).json()
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
-    } catch {
-      setError('OCR fallito')
-    }
-  }
+    reader.onload = async () => {
+  const base64 = reader.result.split(',')[1];
+  // 2) Costruisci un prompt ad hoc con campi dettagliati
+  const prompt = `
+Sei Jarvis. Da questa immagine OCR (base64) estrai **solo** i dati di spesa in formato JSON.
 
+Ogni spesa deve avere:
+- puntoVendita: string  
+- items: array di oggetti con:
+  - prodotto: string  
+  - prezzoUnitario: number | null  
+  - quantita: number  
+  - prezzoTotale: number  
+- data: "YYYY-MM-DD" oppure "oggi"/"ieri"/"domani"
+
+Rispondi **solo** con JSON conforme a questo schema:
+\`\`\`json
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Supermercato Rossi",
+      "prodotto": "Latte UHT",
+      "prezzoUnitario": 2.50,
+      "quantita": 1,
+      "prezzoTotale": 2.50,
+      "data": "oggi"
+    }
+    /* altri items... */
+  ]
+}
+\`\`\`
+
+IMMAGINE_BASE64:
+${base64}
+`;
+
+  try {
+    const { answer } = await askAssistant(prompt);
+    console.log('🛈 Assistant OCR:', answer);
+    // qui puoi parsare `answer` e popolare il form/lo stato come fai per la voce
+  } catch (err) {
+    console.error(err);
+    alert('OCR fallito');
+  }
+};
+reader.readAsDataURL(file);
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -808,4 +842,5 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
   )
 }
 
+}
 export default withAuth(SpeseCasa)
