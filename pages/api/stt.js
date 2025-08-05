@@ -1,11 +1,11 @@
 // pages/api/stt.js
 import multer from 'multer'
 import { Readable } from 'stream'
+import OpenAI from 'openai'
 
-// multer in-memory
+// In-memory storage per multer
 const upload = multer({ storage: multer.memoryStorage() })
 
-// helper per multer senza next-connect
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {
@@ -17,55 +17,48 @@ function runMiddleware(req, res, fn) {
 
 export const config = {
   api: {
-    bodyParser: false,      // disabilita il parser integrato
-    externalResolver: true, // sopprime warning su Vercel
+    bodyParser: false,
+    externalResolver: true,
   },
 }
 
 export default async function handler(req, res) {
+  console.log('[STT] handler start, method=', req.method)
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST'])
     return res.status(405).json({ error: `Metodo ${req.method} non consentito` })
   }
 
   try {
-    // 1) multer per parsare multipart/form-data
+    // multer
     await runMiddleware(req, res, upload.single('audio'))
+    console.log('[STT] multer done, file=', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+    })
     if (!req.file) {
+      console.log('[STT] no file in request')
       return res.status(400).json({ error: 'File audio mancante' })
     }
 
-    // 2) ricreo un FormData nativo
-    const form = new FormData()
-    form.append('model', 'whisper-1')
-    // Blob nativo di Node 18+
-    const blob = new Blob([req.file.buffer], { type: req.file.mimetype })
-    form.append('file', blob, req.file.originalname)
+    // crea stream
+    const bufferStream = new Readable()
+    bufferStream.push(req.file.buffer)
+    bufferStream.push(null)
 
-    // 3) invio alla REST API di OpenAI
-    const response = await fetch(
-      'https://api.openai.com/v1/audio/transcriptions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          // le boundary di FormData verranno aggiunte da form.getHeaders(), ma con fetch nativo
-          // non serve: fetch le gestisce automaticamente
-        },
-        body: form,
-      }
-    )
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
+    console.log('[STT] calling Whisper…')
+    const transcription = await openai.audio.transcriptions.create({
+      model: 'whisper-1',
+      file: bufferStream,
+      filename: req.file.originalname,
+    })
+    console.log('[STT] whisper response=', transcription)
 
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}))
-      console.error('Whisper error:', response.status, errBody)
-      return res.status(500).json({ error: 'Errore trascrizione', details: errBody })
-    }
-
-    const { text } = await response.json()
-    return res.status(200).json({ text })
+    return res.status(200).json({ text: transcription.text })
   } catch (err) {
-    console.error('STT API error:', err)
+    console.error('[STT] error →', err)
     return res.status(500).json({
       error: 'Errore STT',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined,
