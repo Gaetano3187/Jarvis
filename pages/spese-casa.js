@@ -130,6 +130,7 @@ ${base64}
   }
 };
 reader.readAsDataURL(file);
+
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
