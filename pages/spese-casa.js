@@ -9,7 +9,6 @@ import { supabase } from '@/lib/supabaseClient'
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
 function SpeseCasa() {
-  /* STATE & REFS */
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -27,7 +26,6 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  /* CARICAMENTO INIZIALE */
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -39,14 +37,11 @@ function SpeseCasa() {
       .select('id, description, amount, qty, spent_at')
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
-
     if (error) setError(error.message)
     else setSpese(data)
-
     setLoading(false)
   }
 
-  /* INSERIMENTO MANUALE */
   const handleAdd = async (e) => {
     e.preventDefault()
     const {
@@ -56,7 +51,6 @@ function SpeseCasa() {
       setError('Sessione scaduta')
       return
     }
-
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
@@ -65,7 +59,6 @@ function SpeseCasa() {
       spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
-
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
     else {
@@ -80,7 +73,6 @@ function SpeseCasa() {
     }
   }
 
-  /* DELETE */
   const handleDelete = async (id) => {
     const { error: deleteError } = await supabase
       .from('finances')
@@ -90,7 +82,6 @@ function SpeseCasa() {
     else setSpese(spese.filter((r) => r.id !== id))
   }
 
-  /* OCR */
   const handleOCR = async (file) => {
     if (!file) return
     try {
@@ -105,7 +96,6 @@ function SpeseCasa() {
     }
   }
 
-  /* REGISTRAZIONE VOCALE */
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -141,16 +131,15 @@ function SpeseCasa() {
     }
   }
 
-  /* PROMPT PER L’ASSISTENTE */
   const buildSystemPrompt = (source, userText) => `
-**ATTENZIONE:** il testo qui sotto è frutto di trascrizione vocale: potrebbe contenere “ehm”, errori di punteggiatura o parole ripetute.  
-**Ignora** questi artefatti e scopri solo i dati di spesa.
+ATTENZIONE: il testo seguente è una trascrizione vocale ed
+è pieno di “ehm”, ripetizioni, punteggiatura mancante.
+Ignora questi artefatti e considera solo i dati della spesa.
 
-**CONTESTO:** annotazione di una spesa domestica. Tu sei Jarvis, estrai da frasi in italiano **solo** JSON valido.
+CONTESTO: annotazione di una spesa domestica.  
+Sei Jarvis, estrai **solo** JSON valido:
 
-Rispondi **solo** con JSON conforme:
-
-\`\`\`json
+Schema:
 {
   "type": "expense",
   "items": [
@@ -165,314 +154,19 @@ Rispondi **solo** con JSON conforme:
     }
   ]
 }
-\`\`\`
 
-ESEMPIO 1 (non da ripetere)  
-Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Supermercato Rossi",
-      "dettaglio":"3 pacchi di pasta Barilla",
-      "prezzoTotale":2.50,
-      "quantita":3,
-      "data":"2025-07-10",
-      "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
+Esempi (non ripeterli):
+1) Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
+   Output: {"type":"expense","items":[{"puntoVendita":"Supermercato Rossi","dettaglio":"3 pacchi di pasta Barilla","prezzoTotale":2.5,"quantita":3,"data":"2025-07-10","categoria":"casa","category_id":"${CATEGORY_ID_CASA}"}]}
+2) Input: "Ho comprato una confezione di latte a 20 euro"
+   Output: {"type":"expense","items":[{"puntoVendita":"Sconosciuto","dettaglio":"1 confezione di latte","prezzoTotale":20,"quantita":1,"data":"oggi","categoria":"casa","category_id":"${CATEGORY_ID_CASA}"}]}
+3) Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
+   Output: {"type":"expense","items":[{"puntoVendita":"Cinema Lux","dettaglio":"2 biglietti del cinema","prezzoTotale":18,"quantita":2,"data":"ieri","categoria":"tempo libero","category_id":"${CATEGORY_ID_CASA}"}]}
 
-ESEMPIO 2 (non da ripetere)  
-Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Orsini Market",
-      "dettaglio":"1 confezione di latte",
-      "prezzoTotale":20.00,
-      "quantita":1,
-      "data":"oggi",
-      "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 3 (non da ripetere)  
-Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Cinema Lux",
-      "dettaglio":"2 biglietti del cinema",
-      "prezzoTotale":18.00,
-      "quantita":2,
-      "data":"ieri",
-      "categoria":"tempo libero",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 4 (non da ripetere)  
-Input: "Ho speso 45,99€ su Amazon per un paio di cuffie il 15 giugno 2025"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Amazon",
-      "dettaglio":"1 paio di cuffie",
-      "prezzoTotale":45.99,
-      "quantita":1,
-      "data":"2025-06-15",
-      "categoria":"tecnologia",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 5 (non da ripetere)  
-Input: "Al benzinaio Shell ho fatto il pieno: 50 litri di benzina a 1,80 al litro"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Shell",
-      "dettaglio":"50 litri di benzina",
-      "prezzoTotale":90.00,
-      "quantita":50,
-      "data":"oggi",
-      "categoria":"trasporti",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 6 (non da ripetere)  
-Input: "Ho ordinato da Just Eat 3 pizze margherita per 24 euro totali"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Just Eat",
-      "dettaglio":"3 pizze margherita",
-      "prezzoTotale":24.00,
-      "quantita":3,
-      "data":"oggi",
-      "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 7 (non da ripetere)  
-Input: "Pagato abbonamento palestra mensile di 60€ oggi"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Palestra (abbonamento)",
-      "dettaglio":"Abbonamento mensile palestra",
-      "prezzoTotale":60.00,
-      "quantita":1,
-      "data":"oggi",
-      "categoria":"salute",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 8 (non da ripetere)  
-Input: "Ho comprato un biglietto del treno Frecciarossa Roma-Milano per 79,50€ il 2 agosto 2025"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Frecciarossa",
-      "dettaglio":"Biglietto treno Roma-Milano",
-      "prezzoTotale":79.50,
-      "quantita":1,
-      "data":"2025-08-02",
-      "categoria":"trasporti",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 9 (non da ripetere)  
-Input: "Ho speso 12 euro al bar Caffè Italia per due cappuccini e due cornetti questa mattina"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Caffè Italia",
-      "dettaglio":"2 cappuccini e 2 cornetti",
-      "prezzoTotale":12.00,
-      "quantita":4,
-      "data":"oggi",
-      "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 10 – Vestiti (non da ripetere)  
-Input: "Ieri ho comprato da Zara 2 magliette a 12,99€ ciascuna"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Zara",
-      "dettaglio":"2 magliette",
-      "prezzoTotale":25.98,
-      "quantita":2,
-      "data":"ieri",
-      "categoria":"vestiti",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 11 – Vestiti (non da ripetere)  
-Input: "Ho preso un paio di jeans Levi's su Amazon a 59,90 euro il 18 aprile 2025"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Amazon",
-      "dettaglio":"1 paio di jeans Levi's",
-      "prezzoTotale":59.90,
-      "quantita":1,
-      "data":"2025-04-18",
-      "categoria":"vestiti",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 12 – Cene (non da ripetere)  
-Input: "Stasera cena al Ristorante Da Gino: conto totale 80 euro per 2 persone"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Ristorante Da Gino",
-      "dettaglio":"2 coperti (cena)",
-      "prezzoTotale":80.00,
-      "quantita":2,
-      "data":"oggi",
-      "categoria":"cene",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 13 – Cene (non da ripetere)  
-Input: "Ho speso 35,50€ per una cena da Sushi House ieri sera"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Sushi House",
-      "dettaglio":"1 cena",
-      "prezzoTotale":35.50,
-      "quantita":1,
-      "data":"ieri",
-      "categoria":"cene",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 14 – Varie (non da ripetere)  
-Input: "Ricarica telefonica Vodafone 20 euro oggi"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Vodafone",
-      "dettaglio":"Ricarica telefonica",
-      "prezzoTotale":20.00,
-      "quantita":1,
-      "data":"oggi",
-      "categoria":"varie",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-ESEMPIO 15 – Varie (non da ripetere)  
-Input: "Pagato parcheggio 4 ore al Parcheggio Centrale: 8 euro il 25 luglio 2025"  
-Output:
-\`\`\`json
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Parcheggio Centrale",
-      "dettaglio":"4 ore di parcheggio",
-      "prezzoTotale":8.00,
-      "quantita":4,
-      "data":"2025-07-25",
-      "categoria":"varie",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-\`\`\`
-
-Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
-
-"\${userText.trim()}"
+Ora elabora la frase:
+"${userText.trim()}"
 `
 
-  /* CHIAMATA E PARSING */
   async function parseAssistantPrompt(prompt) {
     try {
       const res = await fetch('/api/assistant', {
@@ -482,8 +176,7 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
       })
       if (!res.ok) {
         const txt = await res.text()
-        console.error('assistant error', res.status, txt)
-        setError(`Assistant ${res.status}`)
+        setError(`Assistant ${res.status}: ${txt}`)
         return
       }
       const { answer, error: apiErr } = await res.json()
@@ -492,7 +185,7 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
         return
       }
       const data = JSON.parse(answer)
-      if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
+      if (data.type !== 'expense' || !data.items?.length) {
         setError('Risposta assistant non valida')
         return
       }
@@ -502,24 +195,27 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
       if (!user) return
 
       const rows = data.items.map((it) => {
-        let d = String(it.data).toLowerCase().replace(/[<>]/g, '')
+        let d = it.data.toLowerCase()
         let spentDate
         if (d === 'oggi') spentDate = new Date().toISOString().slice(0, 10)
         else if (d === 'ieri') {
-          const dd = new Date(); dd.setDate(dd.getDate() - 1)
-          spentDate = dd.toISOString().slice(0, 10)
+          const x = new Date()
+          x.setDate(x.getDate() - 1)
+          spentDate = x.toISOString().slice(0, 10)
         } else if (d === 'domani') {
-          const dd = new Date(); dd.setDate(dd.getDate() + 1)
-          spentDate = dd.toISOString().slice(0, 10)
-        } else spentDate = it.data
-
+          const x = new Date()
+          x.setDate(x.getDate() + 1)
+          spentDate = x.toISOString().slice(0, 10)
+        } else {
+          spentDate = it.data
+        }
         return {
           user_id: user.id,
           category_id: CATEGORY_ID_CASA,
-          description: `[${it.puntoVendita || 'Sconosciuto'}] ${it.dettaglio || 'spesa'}`,
-          amount: Number(it.prezzoTotale || 0),
+          description: `[${it.puntoVendita||'Sconosciuto'}] ${it.dettaglio}`,
+          amount: Number(it.prezzoTotale),
           spent_at: spentDate,
-          qty: parseInt(it.quantita || 1, 10),
+          qty: parseInt(it.quantita, 10),
         }
       })
 
@@ -529,38 +225,60 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
         return
       }
       fetchSpese()
-
-      const f = rows[0]
-      setNuovaSpesa({
-        puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
-        dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
-        prezzoTotale: f.amount,
-        quantita: String(f.qty),
-        spentAt: f.spent_at.slice(0, 10),
-      })
     } catch (err) {
-      console.error(err)
       setError('Risposta assistant non valida')
     }
   }
 
-  /* RENDER */
-  const totale = spese.reduce(
-    (t, r) => t + Number(r.amount || 0) * (r.qty ?? 1),
-    0
-  )
+  const totale = spese.reduce((sum, r) => sum + r.amount * (r.qty || 1), 0)
 
   return (
     <>
       <Head>
         <title>Spese Casa</title>
       </Head>
-
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          {/* qui inserisci il tuo JSX e gli stili come prima */}
+          <h2>🏠 Spese Casa</h2>
+          {/* pulsanti e form ... */}
+          <div className="table-container">
+            {loading ? (
+              <p>Caricamento…</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Punto vendita</th>
+                    <th>Dettaglio</th>
+                    <th>Data</th>
+                    <th>Qtà</th>
+                    <th>Prezzo €</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {spese.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.description.match(/^\[(.*?)\]/)?.[1]}</td>
+                      <td>{r.description.replace(/^\[.*?\]\s*/, '')}</td>
+                      <td>{new Date(r.spent_at).toLocaleDateString()}</td>
+                      <td>{r.qty}</td>
+                      <td>{r.amount.toFixed(2)}</td>
+                      <td>
+                        <button onClick={() => handleDelete(r.id)}>🗑</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div>Totale: € {totale.toFixed(2)}</div>
+          </div>
+          {error && <p style={{ color: 'red' }}>{error}</p>}
+          <Link href="/home">🏠 Home</Link>
         </div>
       </div>
+      {/* stili CSS globali ... */}
     </>
   )
 }
