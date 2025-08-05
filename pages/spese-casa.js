@@ -154,6 +154,8 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       const { answer, error: apiErr } = await res.json()
       if (apiErr) return setError(`Assistant: ${apiErr}`)
 
+ console.log('--- assistant raw answer ---', answer)
+
       const data = JSON.parse(answer)
   // ...dentro a parseAssistantPrompt, appena dopo il JSON.parse(answer):
 console.log('[assistant-raw-items]', data.items)  // per vedere esattamente cosa ti ritorna l'assistente
