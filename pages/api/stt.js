@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // multer
+    // Esegui multer per parsare il corpo multipart/form-data
     await runMiddleware(req, res, upload.single('audio'))
     console.log('[STT] multer done, file=', {
       originalname: req.file?.originalname,
@@ -44,27 +44,28 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'File audio mancante' })
     }
 
-    // crea stream
+    // Crea un Readable stream dal buffer
     const bufferStream = new Readable()
     bufferStream.push(req.file.buffer)
     bufferStream.push(null)
 
+    // Chiama Whisper via OpenAI SDK
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
     console.log('[STT] calling Whisper…')
-
     const transcription = await openai.audio.transcriptions.create({
-
       model: 'whisper-1',
       file: bufferStream,
-     fileName: req.file.originalname,    // ← cambiamo in fileName (camelCase)
-     response_format: 'json',
+      fileName: req.file.originalname,  // ← qui la N maiuscola!
+      response_format: 'json',
       language: 'it',
-  })
+    })
     console.log('[STT] whisper response=', transcription)
 
+    // Restituisci il testo trascritto
     return res.status(200).json({ text: transcription.text })
   } catch (err) {
     console.error('[STT] error →', err)
+    // Se la risposta di rete è disponibile, loggala
     if (err.response) console.error('[STT] response error →', err.response.data)
     return res.status(500).json({
       error: 'Errore STT',
