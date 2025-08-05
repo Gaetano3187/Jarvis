@@ -27,7 +27,7 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  /* CARICAMENTO DATI */
+  /* CARICAMENTO INIZIALE */
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -105,7 +105,7 @@ function SpeseCasa() {
     }
   }
 
-  /* RECORDING */
+  /* REGISTRAZIONE VOCALE */
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -141,15 +141,14 @@ function SpeseCasa() {
     }
   }
 
-  /* SYSTEM PROMPT */
+  /* PROMPT PER L’ASSISTENTE */
   const buildSystemPrompt = (source, userText) => `
-**ATTENZIONE:** il testo che segue è il risultato di una trascrizione vocale.  
-Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come “ehm”, “allora”, “ok”.  
-**Ignora** questi artefatti e concentra l’attenzione solo sui dati di spesa.
+**ATTENZIONE:** il testo qui sotto è frutto di trascrizione vocale: potrebbe contenere “ehm”, errori di punteggiatura o parole ripetute.  
+**Ignora** questi artefatti e scopri solo i dati di spesa.
 
-**CONTESTO:** l’utente sta annotando una **spesa domestica**. Tu sei Jarvis, un assistente che estrae da frasi in italiano i dettagli di un acquisto e restituisce **solo** JSON valido.
+**CONTESTO:** annotazione di una spesa domestica. Tu sei Jarvis, estrai da frasi in italiano **solo** JSON valido.
 
-Rispondi **esclusivamente** con JSON conforme al seguente schema:
+Rispondi **solo** con JSON conforme:
 
 \`\`\`json
 {
@@ -322,7 +321,7 @@ Output:
       "quantita":1,
       "data":"2025-08-02",
       "categoria":"trasporti",
-      "category_id":"${CATEGORY_ID_VARIE}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -342,7 +341,7 @@ Output:
       "quantita":4,
       "data":"oggi",
       "categoria":"casa",
-      "category_id":"${CATEGORY_ID_VESTITI}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -362,7 +361,7 @@ Output:
       "quantita":2,
       "data":"ieri",
       "categoria":"vestiti",
-      "category_id":"${CATEGORY_ID_VESTITI}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -402,7 +401,7 @@ Output:
       "quantita":2,
       "data":"oggi",
       "categoria":"cene",
-      "category_id":"${CATEGORY_ID_CENE}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -422,7 +421,7 @@ Output:
       "quantita":1,
       "data":"ieri",
       "categoria":"cene",
-      "category_id":"${CATEGORY_ID_CENE}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -442,7 +441,7 @@ Output:
       "quantita":1,
       "data":"oggi",
       "categoria":"varie",
-      "category_id":"${CATEGORY_ID_VARIE}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -462,7 +461,7 @@ Output:
       "quantita":4,
       "data":"2025-07-25",
       "categoria":"varie",
-      "category_id":"${CATEGORY_ID_VARIE}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -473,7 +472,7 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
 "\${userText.trim()}"
 `
 
-  /* CHIAMATA E PARSING GPT */
+  /* CHIAMATA E PARSING */
   async function parseAssistantPrompt(prompt) {
     try {
       const res = await fetch('/api/assistant', {
@@ -492,7 +491,6 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
         setError(`Assistant: ${apiErr}`)
         return
       }
-      console.log('[assistant-raw]', answer)
       const data = JSON.parse(answer)
       if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
         setError('Risposta assistant non valida')
@@ -506,19 +504,15 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
       const rows = data.items.map((it) => {
         let d = String(it.data).toLowerCase().replace(/[<>]/g, '')
         let spentDate
-        if (d === 'oggi') {
-          spentDate = new Date().toISOString().slice(0, 10)
-        } else if (d === 'ieri') {
-          const dd = new Date()
-          dd.setDate(dd.getDate() - 1)
+        if (d === 'oggi') spentDate = new Date().toISOString().slice(0, 10)
+        else if (d === 'ieri') {
+          const dd = new Date(); dd.setDate(dd.getDate() - 1)
           spentDate = dd.toISOString().slice(0, 10)
         } else if (d === 'domani') {
-          const dd = new Date()
-          dd.setDate(dd.getDate() + 1)
+          const dd = new Date(); dd.setDate(dd.getDate() + 1)
           spentDate = dd.toISOString().slice(0, 10)
-        } else {
-          spentDate = it.data // assume YYYY-MM-DD
-        }
+        } else spentDate = it.data
+
         return {
           user_id: user.id,
           category_id: CATEGORY_ID_CASA,
@@ -564,7 +558,7 @@ Ora comprendi la frase proveniente da **\${source}** e restituisci solo il JSON:
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          {/* ... il resto del JSX e degli stili rimangono invariati ... */}
+          {/* qui inserisci il tuo JSX e gli stili come prima */}
         </div>
       </div>
     </>
