@@ -764,11 +764,10 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
           .input-section input,
           .input-section textarea {
             font-size: 0.95rem;
-          }
+                   }
         }
       `}</style>
     </>
   )
-}
 
 export default withAuth(SpeseCasa)
