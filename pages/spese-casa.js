@@ -487,7 +487,164 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       <Head>
         <title>Spese Casa</title>
       </Head>
-      {/* ... rest of your render as before ... */}
+
+      <div className="spese-casa-container1">
+        <div className="spese-casa-container2">
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
+            🏠 Spese Casa
+          </h2>
+
+          <div className="table-buttons">
+            <button
+              className="btn-manuale"
+              onClick={() => formRef.current?.scrollIntoView()}
+            >
+              ➕ Aggiungi manualmente
+            </button>
+            <button className="btn-vocale" onClick={toggleRec}>
+              {recBusy ? '⏹ Stop' : '🎙 Voce'}
+            </button>
+            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
+              📷 OCR
+            </button>
+          </div>
+
+          <input
+            ref={ocrInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            hidden
+            onChange={(e) => handleOCR(e.target.files?.[0])}
+          />
+
+          {/* FORM */}
+          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
+            <label htmlFor="vendita">Punto vendita / Servizio</label>
+            <input
+              id="vendita"
+              value={nuovaSpesa.puntoVendita}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })
+              }
+              required
+            />
+
+            <label htmlFor="quantita">Quantità</label>
+            <input
+              id="quantita"
+              type="number"
+              min="1"
+              value={nuovaSpesa.quantita}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
+              }
+              required
+            />
+
+            <label htmlFor="dettaglio">Dettaglio della spesa</label>
+            <textarea
+              id="dettaglio"
+              value={nuovaSpesa.dettaglio}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })
+              }
+              required
+            />
+
+            <label htmlFor="data">Data di acquisto</label>
+            <input
+              id="data"
+              type="date"
+              value={nuovaSpesa.spentAt}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
+              }
+              required
+            />
+
+            <label htmlFor="prezzo">Prezzo totale (€)</label>
+            <input
+              id="prezzo"
+              type="number"
+              step="0.01"
+              value={nuovaSpesa.prezzoTotale}
+              onChange={(e) =>
+                setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })
+              }
+              required
+            />
+
+            <button className="btn-manuale" style={{ width: 'fit-content' }}>
+              Aggiungi
+            </button>
+          </form>
+
+          {/* TABELLA */}
+          <div className="table-container">
+            {loading ? (
+              <p>Caricamento…</p>
+            ) : (
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Punto vendita</th>
+                    <th>Dettaglio</th>
+                    <th>Data</th>
+                    <th>Qtà</th>
+                    <th>Prezzo €</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {spese.map((r) => {
+                    const m = r.description?.match(/^\[(.*?)\]\s*(.*)$/)
+                    return (
+                      <tr key={r.id}>
+                        <td>{m?.[1] || '-'}</td>
+                        <td>{m?.[2] || r.description}</td>
+                        <td>
+                          {r.spent_at
+                            ? new Date(r.spent_at).toLocaleDateString()
+                            : ''}
+                        </td>
+                        <td>{r.qty ?? 1}</td>
+                        <td>{Number(r.amount).toFixed(2)}</td>
+                        <td>
+                          <button onClick={() => handleDelete(r.id)}>🗑</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+          </div>
+
+          {error && <p style={{ color: 'red' }}>{error}</p>}
+
+          <Link
+            href="/home"
+            className="btn-vocale"
+            style={{ marginTop: '1.5rem', textDecoration: 'none' }}
+          >
+            🏠 Home
+          </Link>
+        </div>
+      </div>
+
+      {/* STYLES */}
+      <style jsx global>{`
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          min-height: 100vh
+          align-items: center;
+          flex-direction: column;
+          justify-content: center;
+        }
+        /* ... rest dei tuoi stili identici a prima ... */
+      `}</style>
     </TeleportLayout>
   )
 }
