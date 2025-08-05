@@ -53,12 +53,13 @@ export default async function handler(req, res) {
     console.log('[STT] calling Whisper…')
 
     const transcription = await openai.audio.transcriptions.create({
+
       model: 'whisper-1',
       file: bufferStream,
-      filename: req.file.originalname, // <— aggiunto per riconoscere webm
-      response_format: 'json',
+     fileName: req.file.originalname,    // ← cambiamo in fileName (camelCase)
+     response_format: 'json',
       language: 'it',
-    })
+  })
     console.log('[STT] whisper response=', transcription)
 
     return res.status(200).json({ text: transcription.text })
