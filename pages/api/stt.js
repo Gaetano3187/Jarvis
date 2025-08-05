@@ -24,6 +24,7 @@ export const config = {
 
 export default async function handler(req, res) {
   console.log('[STT] handler start, method=', req.method)
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST'])
     return res.status(405).json({ error: `Metodo ${req.method} non consentito` })
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
       mimetype: req.file?.mimetype,
       size: req.file?.size,
     })
+
     if (!req.file) {
       console.log('[STT] no file in request')
       return res.status(400).json({ error: 'File audio mancante' })
@@ -49,18 +51,19 @@ export default async function handler(req, res) {
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
     console.log('[STT] calling Whisper…')
+
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
       file: bufferStream,
-      response_format: 'json',  // formato semplice
-      language: 'it'            // forza l'italiano
+      filename: req.file.originalname, // <— aggiunto per riconoscere webm
+      response_format: 'json',
+      language: 'it',
     })
     console.log('[STT] whisper response=', transcription)
 
     return res.status(200).json({ text: transcription.text })
   } catch (err) {
     console.error('[STT] error →', err)
-    // se disponibile, logghiamo anche la risposta di rete
     if (err.response) console.error('[STT] response error →', err.response.data)
     return res.status(500).json({
       error: 'Errore STT',
