@@ -53,6 +53,7 @@ export default async function handler(req, res) {
       model: 'whisper-1',
       file: bufferStream,
       filename: req.file.originalname,
+      language: 'it',    // forza l'italiano
     })
     console.log('[STT] whisper response=', transcription)
 
