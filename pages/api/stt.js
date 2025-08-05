@@ -44,11 +44,11 @@ export default async function handler(req, res) {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
     console.log('[STT] calling Whisper…')
 
-    // passiamo direttamente il Buffer e utilizziamo fileName (N maiuscola)
+    // invece di creare uno stream, passiamo direttamente il Buffer
     const transcription = await openai.audio.transcriptions.create({
       model: 'whisper-1',
-      file: req.file.buffer,
-      fileName: req.file.originalname,  // serve per riconoscere il formato
+      file: req.file.buffer,               // Buffer grezzo
+      fileName: req.file.originalname,     // N maiuscola: serve per riconoscere il formato
       response_format: 'json',
       language: 'it',
     })
