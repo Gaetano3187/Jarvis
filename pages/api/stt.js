@@ -21,7 +21,7 @@ export const config = {
     bodyParser: false,      // disabilita il parser built-in per multipart
     externalResolver: true, // evita warning “API resolved without sending…”
   },
-}
+} 
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
