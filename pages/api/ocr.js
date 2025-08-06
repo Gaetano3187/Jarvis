@@ -3,7 +3,7 @@ import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import Tesseract from 'tesseract.js'
 
-// Disabilita il body parser integrato di Next
+// Disabilitiamo il bodyParser di Next.js per gestire multipart via formidable
 export const config = {
   api: {
     bodyParser: false,
@@ -16,7 +16,6 @@ export default async function handler(req, res) {
   }
 
   const form = new IncomingForm()
-
   form.parse(req, async (err, _fields, files) => {
     if (err) {
       console.error('form.parse error:', err)
@@ -31,21 +30,28 @@ export default async function handler(req, res) {
     const imagePath = imageFile.filepath || imageFile.path
 
     try {
-      // esegue l’OCR
       const { data: { text } } = await Tesseract.recognize(
         imagePath,
         'ita',
-        { logger: m => console.log(m) }
+        {
+          logger: m => console.log('OCR:', m),
+          // prendi il core wasm dal CDN
+          corePath:
+            'https://unpkg.com/tesseract.js-core@2.1.5/tesseract-core.wasm.js',
+          // punti al repo ufficiale dei traineddata
+          langPath:
+            'https://raw.githubusercontent.com/tesseract-ocr/tessdata/main',
+        }
       )
 
-      // restituisci solo il testo raw
-      res.status(200).json({ text })
+      // restituisco il testo grezzo estratto
+      return res.status(200).json({ text })
     } catch (e) {
       console.error('OCR failed:', e)
-      res.status(500).json({ error: 'OCR failed' })
+      return res.status(500).json({ error: e.message || 'OCR failed' })
     } finally {
-      // elimina sempre il file temporaneo
-      try { fs.unlinkSync(imagePath) } catch (_) {}
+      // pulisco sempre il file temporaneo
+      try { fs.unlinkSync(imagePath) } catch (_){}
     }
   })
 }
