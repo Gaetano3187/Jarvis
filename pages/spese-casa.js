@@ -6,7 +6,6 @@ import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 import { askAssistant } from '@/lib/assistant'
 
-
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
 function SpeseCasa() {
@@ -14,8 +13,6 @@ function SpeseCasa() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [recBusy, setRecBusy] = useState(false)
-const galleryInputRef = useRef(null)
-const cameraInputRef  = useRef(null)
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
@@ -25,16 +22,10 @@ const cameraInputRef  = useRef(null)
   })
 
   const formRef = useRef(null)
-  const ocrInputRef = useRef(null)
+  const galleryInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
-   const handleOCRButtonClick = () => {
-    const useCamera = window.confirm(
-      'Vuoi scattare una foto con la fotocamera?\n\n‘OK’ → fotocamera\n‘Annulla’ → seleziona un file'
-    )
-    if (useCamera) cameraInputRef.current?.click()
-    else fileInputRef.current?.click()
-  }
 
   useEffect(() => {
     fetchSpese()
@@ -64,7 +55,7 @@ const cameraInputRef  = useRef(null)
       category_id: CATEGORY_ID_CASA,
       description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
       amount: Number(nuovaSpesa.prezzoTotale),
-      spent_at: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
+      spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
@@ -92,26 +83,19 @@ const cameraInputRef  = useRef(null)
   }
 
   // ────────────────────────────────────────────────────────── OCR
- const handleOCR = async files => {
-    const handleOCR = async files => {
-    console.log('▶️ handleOCR con file(s):', files)
-    if (!files?.length) return
-    // invio al tuo endpoint
-    const fd = new FormData()
-    files.forEach(f => fd.append('images', f, f.name))
-    const res = await fetch('/api/ocr', { method: 'POST', body: fd })
-    const { text, error: ocrErr } = await res.json()
-    if (ocrErr) {
-      console.error(ocrErr)
-      return setError('OCR fallito')
-    }
-  }
-// funzione per chiedere all’utente se aprire fotocamera o galleria
-  const triggerOCR = () => {
-    if (confirm('Scattare una foto con la fotocamera? Premi “OK” per fotocamera, “Annulla” per galleria.')) {
-      cameraInputRef.current?.click()
-    } else {
-      galleryInputRef.current?.click()
+  const handleOCR = async files => {
+    console.log('▶️ handleOCR chiamato con file(s):', files)
+    if (!files || files.length === 0) return
+    try {
+      const fd = new FormData()
+      files.forEach(f => fd.append('images', f))
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const { text } = await res.json()
+      const fileNames = files.map(f => f.name).join(', ')
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text, fileNames))
+    } catch (err) {
+      console.error(err)
+      setError('OCR fallito')
     }
   }
 
@@ -153,7 +137,7 @@ const cameraInputRef  = useRef(null)
   const buildSystemPrompt = (source, userText, fileName) => {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino.
+Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).
 
 Ogni spesa deve avere:
 - puntoVendita: string
@@ -176,6 +160,7 @@ Rispondi **solo** con JSON conforme a questo schema:
       "prezzoTotale": 20.00,
       "data": "2025-08-06"
     }
+    /* altri items... */
   ]
 }
 \`\`\`
@@ -184,17 +169,15 @@ CONTENUTO OCR (${fileName}):
 ${userText}
 `
     }
-
-    // prompt per voce/transcribe
+    // prompt per la voce
     return `
-**ATTENZIONE:** ignora "ehm", "allora", ecc.
+**ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
 Ora estrai **solo** JSON spesa (stesso schema di prima).
 
 ESEMPIO:
 Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
 Output:
-\`\`\`json
 {
   "type":"expense",
   "items":[
@@ -203,11 +186,12 @@ Output:
       "dettaglio":"3 pacchi di pasta Barilla",
       "prezzoTotale":2.50,
       "quantita":3,
-      "data":"2025-07-10"
+      "data":"2025-07-10",
+      "categoria":"casa",
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
-\`\`\`
 
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
@@ -277,41 +261,45 @@ Ora capisci la frase seguente e compila i campi:
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
-         🏠 Spese Casa
-</h2>
-<div className="table-buttons">
-  <button className="btn-vocale" onClick={toggleRec}>
-    {recBusy ? '⏹ Stop' : '🎙 Voce'}
-  </button>
+            🏠 Spese Casa
+          </h2>
 
-       <Head>…</Head>
-      <div className="table-buttons">
-        <button className="btn-vocale" onClick={toggleRec}>
-          {recBusy ? '⏹ Stop' : '🎙 Voce'}
-        </button>
-        <button className="btn-ocr" onClick={triggerOCR}>
-          📷 OCR
-        </button>
-      </div>
+          <div className="table-buttons">
+            <button className="btn-vocale" onClick={toggleRec}>
+              {recBusy ? '⏹ Stop' : '🎙 Voce'}
+            </button>
+            <button
+              className="btn-ocr"
+              onClick={() => galleryInputRef.current?.click()}
+            >
+              📁 Galleria
+            </button>
+            <button
+              className="btn-ocr"
+              onClick={() => cameraInputRef.current?.click()}
+            >
+              📷 Fotocamera
+            </button>
+          </div>
 
-      {/* input nascosti */}
-      <input
-        ref={galleryInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        hidden
-        onChange={e => handleOCR(Array.from(e.target.files || []))}
-      />
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        multiple
-        hidden
-        onChange={e => handleOCR(Array.from(e.target.files || []))}
-      />
+          {/* input nascosti */}
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={e => handleOCR(Array.from(e.target.files || []))}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            hidden
+            onChange={e => handleOCR(Array.from(e.target.files || []))}
+          />
 
           {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
@@ -388,7 +376,11 @@ Ora capisci la frase seguente e compila i campi:
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
+                        <td>
+                          {r.spent_at
+                            ? new Date(r.spent_at).toLocaleDateString()
+                            : '-'}
+                        </td>
                         <td>{r.qty}</td>
                         <td>{r.amount.toFixed(2)}</td>
                         <td>
@@ -414,7 +406,9 @@ Ora capisci la frase seguente e compila i campi:
           </Link>
         </div>
       </div>
-        .<style jsx global>{`
+
+      {/* CSS */}
+      <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
