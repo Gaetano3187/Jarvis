@@ -1,4 +1,4 @@
-// pages/api/ocr.js 
+// pages/api/ocr.js
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import { createWorker } from 'tesseract.js'
