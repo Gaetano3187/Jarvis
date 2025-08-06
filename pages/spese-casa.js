@@ -392,8 +392,6 @@ Ora capisci la frase seguente e compila i campi:
           </Link>
         </div>
       </div>
-
-      <style jsx global>{`
         .<style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
