@@ -259,8 +259,8 @@ async function parseAssistantPrompt(prompt) {
     prezzoTotale: last.amount,
     quantita:     String(last.qty),
     spentAt:      last.spent_at,
-  });
-}
+
+};
 
 
   // ───────────────────────────────────────────────────────────── RENDER
