@@ -74,14 +74,14 @@ function SpeseCasa() {
     }
   }
 
-   const handleOCR = async (file) => {
+// Gestione OCR da file immagine
+const handleOCR = async (file) => {
   if (!file) return;
 
   const reader = new FileReader();
-
   reader.onload = async () => {
+    // estrai solo la parte base64
     const base64 = reader.result.split(',')[1];
-    // 2) Costruisci un prompt ad hoc con campi dettagliati
     const prompt = `
 Sei Jarvis. Da questa immagine OCR (base64) estrai **solo** i dati di spesa in formato JSON.
 
@@ -119,17 +119,17 @@ ${base64}
     try {
       const { answer } = await askAssistant(prompt);
       console.log('🛈 Assistant OCR:', answer);
-      // qui puoi parsare `answer` e popolare il form/lo stato come fai per la voce
+      // qui puoi parsare `answer` e popolare il form/lo stato
     } catch (err) {
       console.error(err);
       alert('OCR fallito');
     }
   };
 
-  // innesca la lettura del file
   reader.readAsDataURL(file);
 };
 
+// Costruisce il system-prompt per voce ed OCR
 const buildSystemPrompt = (source, userText) => {
   return `
 Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
@@ -139,9 +139,18 @@ Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 
 Output:
 {
   "type":"expense",
-  "items":[{ "puntoVendita":"Supermercato Rossi","dettaglio":"3 pacchi di pasta Barilla","prezzoTotale":2.50,"quantita":3,"data":"2025-07-10","categoria":"casa","category_id":"${CATEGORY_ID_CASA}" }]
+  "items":[
+    {
+      "puntoVendita":"Supermercato Rossi",
+      "dettaglio":"3 pacchi di pasta Barilla",
+      "prezzoTotale":2.50,
+      "quantita":3,
+      "data":"2025-07-10",
+      "categoria":"casa",
+      "category_id":"${CATEGORY_ID_CASA}"
+    }
+  ]
 }
-
 ESEMPIO 2
 Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
 Output:
