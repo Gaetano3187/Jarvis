@@ -1,50 +1,51 @@
 // pages/api/ocr.js
 import { IncomingForm } from 'formidable'
+import Tesseract from 'tesseract.js'
 import fs from 'fs'
 import path from 'path'
-import { createWorker } from 'tesseract.js'
 
 export const config = {
   api: {
-    bodyParser: false,
+    bodyParser: false, // disabilita il parser built-in
   },
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST')
+  if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
+  }
 
   const form = new IncomingForm()
   form.parse(req, async (err, fields, files) => {
     if (err) {
-      console.error('[OCR API] parse error', err)
+      console.error('Form parse error:', err)
       return res.status(500).json({ error: 'Error parsing form' })
     }
 
-    const imagePath = files.image.filepath
-    console.log('[OCR API] imagePath:', imagePath)
+    const file = files.image
+    if (!file) {
+      return res.status(400).json({ error: 'No image uploaded' })
+    }
 
-    // crea il worker
-    const worker = createWorker({
-      logger: m => console.log('OCR:', m),
-      corePath: '/tesseract-core-simd.wasm',      // ← serve dal public/
-      workerPath: path.dirname(require.resolve('tesseract.js')) + '/dist/worker.min.js',
-      langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5/lang/',
-    })
+    const imagePath = file.filepath || file.path || file.file; // a seconda della versione di formidable
 
     try {
-      await worker.load()
-      await worker.loadLanguage('ita')
-      await worker.initialize('ita')
-      const { data: { text } } = await worker.recognize(imagePath)
-      console.log('[OCR API] testo:', text)
+      console.log('OCR: starting recognition on', imagePath)
+      const { data: { text } } = await Tesseract.recognize(
+        imagePath,
+        'ita',
+        { logger: m => console.log('OCR progress:', m) }
+      )
+      console.log('OCR: got text', text.trim().slice(0, 50) + '…')
       res.status(200).json({ text })
     } catch (e) {
-      console.error('[OCR API] riconoscimento failed', e)
-      res.status(500).json({ error: 'OCR failed' })
+      console.error('OCR error:', e)
+      res.status(500).json({ error: 'OCR failed', details: String(e) })
     } finally {
-      await worker.terminate()
-      fs.unlinkSync(imagePath)
+      // rimuovi il file temporaneo
+      try {
+        fs.unlinkSync(imagePath)
+      } catch (_) {}
     }
   })
 }
