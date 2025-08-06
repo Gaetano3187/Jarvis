@@ -130,8 +130,9 @@ ${base64}
   }
 };
 reader.readAsDataURL(file);
+ }   // <-- CHIUSURA handleOCR
 
-  const toggleRec = async () => {
+const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
       return
@@ -843,6 +844,6 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
   )
 }
 
-}
+
 
 export default withAuth(SpeseCasa)
