@@ -1,6 +1,7 @@
 // pages/api/ocr.js
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
+import sharp from 'sharp'           // ← import Sharp
 import Tesseract from 'tesseract.js'
 
 export const config = {
@@ -40,8 +41,8 @@ export default async function handler(req, res) {
         console.log('➡️ OCR file raw object:', file)
 
         const imagePath =
-          file.filepath    // formidable v3
-          || file.path     // versioni precedenti
+             file.filepath    // formidable v3
+          || file.path        // versioni precedenti
           || file._writeStream?.path
 
         console.log('📂 OCR imagePath:', imagePath)
@@ -50,34 +51,44 @@ export default async function handler(req, res) {
           return resolve()
         }
 
+        // 1) Preprocess: scala di grigi + binarizzazione
+        const preprocPath = imagePath + '-pre.jpg'
         try {
-          const {
-            data: { text }
-          } = await Tesseract.recognize(
-            imagePath,
+          await sharp(imagePath)
+            .grayscale()
+            .threshold(140)    // regola il valore se serve
+            .toFile(preprocPath)
+        } catch (prepErr) {
+          console.error('❌ preprocessing error:', prepErr)
+          // proseguo comunque sull’originale
+        }
+
+        // 2) OCR su file preprocessato (o originale se preprocessing fallito)
+        try {
+          const { data: { text } } = await Tesseract.recognize(
+            fs.existsSync(preprocPath) ? preprocPath : imagePath,
             'ita',
             {
-              // PSM 3 = segmentazione automatica del layout
-              tessedit_pageseg_mode: 3,
-              // whitelist di caratteri per i valori tipici degli scontrini
+              tessedit_pageseg_mode: Tesseract.PSM.AUTO, // layout automatico
               tessedit_char_whitelist:
                 '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,-/:€ '
             }
           )
 
-          console.log('✅ OCR result snippet:', text.trim().slice(0, 100))
+          console.log('✅ OCR snippet:', text.trim().slice(0, 100))
           combinedText += text.trim() + '\n'
         } catch (ocrErr) {
           console.error('❌ OCR recognize error:', ocrErr)
           res.status(500).json({ step: 'recognize', error: String(ocrErr) })
           return resolve()
         } finally {
-          // pulisco il file temporaneo
-          try { fs.unlinkSync(imagePath) } catch { /* ignore */ }
+          // pulisco i file temporanei
+          try { fs.unlinkSync(imagePath) } catch {}
+          try { fs.unlinkSync(preprocPath) } catch {}
         }
       }
 
-      // restituisco il testo concatenato di tutte le immagini
+      // restituisco il testo di tutte le immagini
       res.status(200).json({ text: combinedText.trim() })
       resolve()
     })
