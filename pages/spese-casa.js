@@ -244,7 +244,7 @@ async function parseAssistantPrompt(prompt) {
       spent_at:     spentAt,
       qty:          qtyToStore,
     };
-  });  // <-- non dimenticare il punto e virgola qui
+  }
 
   // inserisco su Supabase
   const { error: dbErr } = await supabase.from('finances').insert(rows);
