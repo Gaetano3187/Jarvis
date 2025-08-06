@@ -198,7 +198,7 @@ Output:
       "dettaglio":"1 confezione di latte",
       "prezzoTotale":20.00,
       "quantita":1,
-      "data":"< "YYYY-MM-DD" | "<oggi>" | 
+      "data": "<OGGI>"  
       "categoria":"casa",
       "category_id":"\${CATEGORY_ID_CASA}"
 
