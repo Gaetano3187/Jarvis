@@ -194,56 +194,72 @@ Ora capisci la frase seguente e compila i campi:
 `
   }
 
-  // ─────────────────────────────────── Parsing AI & DB insert
-  async function parseAssistantPrompt(prompt) {
+ // ─────────────────────────────────────────────── Parsing AI & DB insert
+async function parseAssistantPrompt(prompt) {
+  try {
+    // invoco l’assistant
+    const { answer, error: apiErr } = await askAssistant(prompt)
+    console.log('🤖 Assistant response:', answer, apiErr)
+    if (apiErr) throw new Error(apiErr)
+    if (!answer) throw new Error('Assistant non ha restituito nulla')
+
+    // provo a fare il parse JSON
+    let data
     try {
-      const { answer, error: apiErr } = await askAssistant(prompt)
-      if (apiErr) throw new Error(apiErr)
-
-      const data = JSON.parse(answer)
-      if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0)
-        throw new Error('Assistant response invalid')
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) throw new Error('Sessione scaduta')
-
-      const rows = data.items.map(it => {
-        let spentAt = it.data
-        if (spentAt === 'oggi') {
-          spentAt = new Date().toISOString().slice(0, 10)
-        } else if (spentAt === 'ieri') {
-          const d = new Date()
-          d.setDate(d.getDate() - 1)
-          spentAt = d.toISOString().slice(0, 10)
-        }
-        return {
-          user_id:      user.id,
-          category_id:  CATEGORY_ID_VESTITI,
-          description:  it.descrizione,
-          amount:       Number(it.prezzoTotale) || 0,
-          spent_at:     spentAt,
-          qty:          parseFloat(it.quantita) || 1,
-        }
-      })
-
-      const { error: dbErr } = await supabase.from('finances').insert(rows)
-      if (dbErr) throw dbErr
-
-      await fetchSpese()
-      const last = rows[0]
-      setNuovaSpesa({
-        descrizione: last.description,
-        importo:     last.amount,
-        quantita:    String(last.qty),
-        spentAt:     last.spent_at.slice(0, 10),
-      })
-    } catch (err) {
-      console.error(err)
-      setError(err.message)
+      data = JSON.parse(answer)
+    } catch (e) {
+      throw new Error('Risposta assistant non è JSON valido:\n' + answer)
     }
+
+    // validazione base
+    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Assistant response invalid')
+    }
+
+    // prendo l’utente
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error('Sessione scaduta')
+
+    // costruisco le righe da inserire (qty sempre 1 perché prezzoTotale è già il totale)
+    const rows = data.items.map(it => {
+      let spentAt = it.data
+      if (spentAt === 'oggi') {
+        spentAt = new Date().toISOString().slice(0, 10)
+      } else if (spentAt === 'ieri') {
+        const d = new Date()
+        d.setDate(d.getDate() - 1)
+        spentAt = d.toISOString().slice(0, 10)
+      }
+      return {
+        user_id:      user.id,
+        category_id:  CATEGORY_ID_VESTITI,
+        description:  it.descrizione,
+        amount:       Number(it.prezzoTotale) || 0,
+        spent_at:     spentAt,
+        qty:          1,
+      }
+    })
+
+    // inserisco su Supabase
+    const { error: dbErr } = await supabase.from('finances').insert(rows)
+    if (dbErr) throw dbErr
+
+    // ricarico e precompilo form
+    await fetchSpese()
+    const last = rows[0]
+    setNuovaSpesa({
+      descrizione: last.description,
+      importo:     last.amount,
+      quantita:    String(last.qty),
+      spentAt:     last.spent_at.slice(0, 10),
+    })
+  } catch (err) {
+    console.error('[parseAssistantPrompt]', err)
+    setError(err.message)
   }
+}
 
   // ─────────────────────────────────── Render
   const totale = spese.reduce((sum, s) => sum + s.amount * (s.qty || 1), 0)
