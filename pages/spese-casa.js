@@ -1,10 +1,9 @@
 // pages/spese-casa.js
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
-import { askAssistant } from '@/lib/assistant'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
@@ -22,8 +21,7 @@ function SpeseCasa() {
   })
 
   const formRef = useRef(null)
-  const galleryInputRef = useRef(null)
-  const cameraInputRef = useRef(null)
+  const ocrInputRef = useRef(null)
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
@@ -83,27 +81,15 @@ function SpeseCasa() {
   }
 
   // ────────────────────────────────────────────────────────── OCR
- const onClickOCR = () => {
-  // dialogo nativo: OK = fotocamera, Annulla = galleria
-  const usareCamera = window.confirm(
-    'Vuoi scattare una foto con la fotocamera? (OK) Oppure scegliere da galleria? (Annulla)'
-  )
-  if (usareCamera) {
-    cameraInputRef.current?.click()
-  } else {
-    galleryInputRef.current?.click()
-  }
-}
   const handleOCR = async files => {
-    console.log('▶️ handleOCR chiamato con file(s):', files)
+    console.log('▶️ handleOCR chiamato con files:', files)
     if (!files || files.length === 0) return
     try {
       const fd = new FormData()
       files.forEach(f => fd.append('images', f))
       const res = await fetch('/api/ocr', { method: 'POST', body: fd })
       const { text } = await res.json()
-      const fileNames = files.map(f => f.name).join(', ')
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text, fileNames))
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text, files[0].name))
     } catch (err) {
       console.error(err)
       setError('OCR fallito')
@@ -145,7 +131,7 @@ function SpeseCasa() {
   }
 
   // ───────────────────────────────────────────────── SYSTEM PROMPT
-  const buildSystemPrompt = (source, userText, fileName) => {
+  const buildSystemPrompt = (source, userText, fileName = '') => {
     if (source === 'ocr') {
       return `
 Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).
@@ -171,7 +157,6 @@ Rispondi **solo** con JSON conforme a questo schema:
       "prezzoTotale": 20.00,
       "data": "2025-08-06"
     }
-    /* altri items... */
   ]
 }
 \`\`\`
@@ -180,7 +165,8 @@ CONTENUTO OCR (${fileName}):
 ${userText}
 `
     }
-    // prompt per la voce
+
+    // prompt per vocale / testo libero
     return `
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
@@ -279,31 +265,13 @@ Ora capisci la frase seguente e compila i campi:
             <button className="btn-vocale" onClick={toggleRec}>
               {recBusy ? '⏹ Stop' : '🎙 Voce'}
             </button>
-            <button
-              className="btn-ocr"
-              onClick={() => galleryInputRef.current?.click()}
-            >
-              📁 Galleria
-            </button>
-            <button
-              className="btn-ocr"
-              onClick={() => cameraInputRef.current?.click()}
-            >
-              📷 Fotocamera
+            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
+              📷 OCR
             </button>
           </div>
 
-          {/* input nascosti */}
           <input
-            ref={galleryInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={e => handleOCR(Array.from(e.target.files || []))}
-          />
-          <input
-            ref={cameraInputRef}
+            ref={ocrInputRef}
             type="file"
             accept="image/*"
             capture="environment"
@@ -317,9 +285,7 @@ Ora capisci la frase seguente e compila i campi:
             <label>Punto vendita / Servizio</label>
             <input
               value={nuovaSpesa.puntoVendita}
-              onChange={e =>
-                setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })
-              }
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
               required
             />
             <label>Quantità</label>
@@ -327,26 +293,20 @@ Ora capisci la frase seguente e compila i campi:
               type="number"
               min="1"
               value={nuovaSpesa.quantita}
-              onChange={e =>
-                setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
-              }
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
               required
             />
             <label>Dettaglio della spesa</label>
             <textarea
               value={nuovaSpesa.dettaglio}
-              onChange={e =>
-                setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })
-              }
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
               required
             />
             <label>Data di acquisto</label>
             <input
               type="date"
               value={nuovaSpesa.spentAt}
-              onChange={e =>
-                setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
-              }
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
               required
             />
             <label>Prezzo totale (€)</label>
@@ -354,9 +314,7 @@ Ora capisci la frase seguente e compila i campi:
               type="number"
               step="0.01"
               value={nuovaSpesa.prezzoTotale}
-              onChange={e =>
-                setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })
-              }
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
               required
             />
             <button className="btn-manuale" style={{ width: 'fit-content' }}>
@@ -387,11 +345,7 @@ Ora capisci la frase seguente e compila i campi:
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>
-                          {r.spent_at
-                            ? new Date(r.spent_at).toLocaleDateString()
-                            : '-'}
-                        </td>
+                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
                         <td>{r.qty}</td>
                         <td>{r.amount.toFixed(2)}</td>
                         <td>
@@ -408,17 +362,14 @@ Ora capisci la frase seguente e compila i campi:
 
           {error && <p style={{ color: 'red' }}>{error}</p>}
 
-          <Link
-            href="/home"
-            className="btn-vocale"
-            style={{ marginTop: '1.5rem', textDecoration: 'none' }}
-          >
-            🏠 Home
+          <Link href="/home">
+            <a className="btn-vocale" style={{ marginTop: '1.5rem' }}>
+              🏠 Home
+            </a>
           </Link>
         </div>
       </div>
 
-      {/* CSS */}
       <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
@@ -443,7 +394,6 @@ Ora capisci la frase seguente e compila i campi:
           display: flex;
           gap: 1rem;
           margin-bottom: 1.5rem;
-          flex-wrap: wrap;
         }
         .btn-manuale {
           background: #22c55e;
@@ -456,6 +406,12 @@ Ora capisci la frase seguente e compila i campi:
         .btn-ocr {
           background: #f43f5e;
           color: #fff;
+        }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
         }
         input,
         textarea {
@@ -470,12 +426,6 @@ Ora capisci la frase seguente e compila i campi:
           min-height: 4.5rem;
           resize: vertical;
         }
-        .input-section {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-          margin-bottom: 1.5rem;
-        }
         .custom-table {
           width: 100%;
           border-collapse: collapse;
@@ -487,9 +437,6 @@ Ora capisci la frase seguente e compila i campi:
         .custom-table td {
           padding: 0.75rem 1rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .custom-table tbody tr:hover {
-          background: rgba(255, 255, 255, 0.05);
         }
         .total-box {
           margin-top: 1rem;
