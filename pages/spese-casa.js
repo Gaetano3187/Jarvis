@@ -92,20 +92,20 @@ function SpeseCasa() {
   }
 
   // ────────────────────────────────────────────────────────── OCR
-  const handleOCR = async files => {
-    console.log('▶️ handleOCR chiamato con file(s):', files)
-    if (!files || files.length === 0) return
-    try {
-      const fd = new FormData()
-      files.forEach(f => fd.append('images', f))
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
-      const { text } = await res.json()
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
-    } catch (err) {
-      console.error(err)
-      setError('OCR fallito')
-    }
-  }
+ const handleOCR = async files => {
+  console.log('▶️ handleOCR chiamato con file(s):', files)
+  if (!files || files.length === 0) return
+  // costruisco il FormData con la chiave "images"
+  const fd = new FormData()
+  files.forEach(f => fd.append('images', f))
+  // faccio la chiamata a /api/ocr
+  const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+  const { text } = await res.json()
+  // ora "text" contiene tutto il testo OCR unificato
+  console.log('OCR result:', text)
+  // qui puoi proseguire con parseAssistantPrompt(text)…
+}
+
 
   // ───────────────────────────────────────────────────── VOICE RECORDING
   const toggleRec = async () => {
