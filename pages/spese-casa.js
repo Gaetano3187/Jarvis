@@ -228,69 +228,75 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
   `;
 };
   /* ---------------------- CHIAMATA E PARSING GPT ------------------------ */
-  async function parseAssistantPrompt(prompt) {
-    try {
-      const res = await fetch('/api/assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      })
+async function parseAssistantPrompt(prompt) {
+  try {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
 
-      if (!res.ok) {
-        const txt = await res.text()
-        console.error('assistant error', res.status, txt)
-        setError(`Assistant ${res.status}`)
-        return
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Assistant ${res.status}: ${txt}`);
+    }
+
+    const { answer, error: apiErr } = await res.json();
+    if (apiErr) throw new Error(apiErr);
+
+    const data = JSON.parse(answer);
+    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Risposta assistant non valida');
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
+
+    const rows = data.items.map((it) => {
+      // normalizziamo la data
+      const dRaw = String(it.data).toLowerCase();
+      let spentAt;
+      if (dRaw === 'oggi') {
+        spentAt = new Date().toISOString().slice(0, 10);
+      } else if (dRaw === 'ieri') {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        spentAt = d.toISOString().slice(0, 10);
+      } else {
+        // presuppone sia già "YYYY-MM-DD"
+        spentAt = it.data;
       }
 
-      const { answer, error: apiErr } = await res.json()
-      if (apiErr) {
-        setError(`Assistant: ${apiErr}`)
-        return
-      }
-
-      console.log('[assistant-raw]', answer)
-      const data = JSON.parse(answer)
-      if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
-        setError('Risposta assistant non valida')
-        return
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) return
-
-      const rows = data.items.map((it) => ({
-        user_id: user.id,
+      return {
+        user_id:     user.id,
         category_id: CATEGORY_ID_CASA,
         description: `[${it.puntoVendita || 'Sconosciuto'}] ${it.dettaglio || 'spesa'}`,
-        amount: Number(it.prezzoTotale || 0),
-        spent_at: it.data || new Date().toISOString(),
-        qty: parseInt(it.quantita || 1, 10),
-      }))
+        amount:      Number(it.prezzoTotale) || 0,
+        spent_at:    spentAt,
+        qty:         parseInt(it.quantita, 10) || 1,
+      };
+    });
 
-      const { error: dbErr } = await supabase.from('finances').insert(rows)
-      if (dbErr) {
-        setError(dbErr.message)
-        return
-      }
-      fetchSpese()
+    const { error: dbErr } = await supabase.from('finances').insert(rows);
+    if (dbErr) throw new Error(dbErr.message);
 
-      /* pre-riempi il form con la prima riga */
-      const f = rows[0]
-      setNuovaSpesa({
-        puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
-        dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
-        prezzoTotale: f.amount,
-        quantita: String(f.qty),
-        spentAt: f.spent_at.slice(0, 10),
-      })
-    } catch (err) {
-      console.error(err)
-      setError('Risposta assistant non valida')
-    }
+    // ricarica la lista e pre-riempi il form
+    fetchSpese();
+    const f = rows[0];
+    setNuovaSpesa({
+      puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
+      dettaglio:    f.description.replace(/^\[.*?\]\s*/, ''),
+      prezzoTotale: f.amount,
+      quantita:     String(f.qty),
+      spentAt:      f.spent_at,
+    });
+  } catch (err) {
+    console.error(err);
+    setError(err.message || 'Risposta assistant non valida');
   }
+}
 
   /* ------------------------------ RENDER ------------------------------- */
   const totale = spese.reduce(
