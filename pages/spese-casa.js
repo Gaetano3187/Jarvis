@@ -132,18 +132,18 @@ function SpeseCasa() {
   }
 
   // ───────────────────────────────────────────────── SYSTEM PROMPT
-  const buildSystemPrompt = (source, userText) => {
-    if (source === 'ocr') {
-      return `
-Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in formato JSON.
+ const buildSystemPrompt = (source, userText, fileName) => {
+  if (source === 'ocr') {
+    return `
+Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).
 
 Ogni spesa deve avere:
-- puntoVendita: string  
-- dettaglio: string  
-- prezzoUnitario: number | null  
-- quantita: number  
-- prezzoTotale: number  
-- data: "YYYY-MM-DD" | "oggi" | "ieri"  
+- puntoVendita: string
+- dettaglio: string
+- prezzoUnitario: number | null
+- quantita: number
+- prezzoTotale: number
+- data: “YYYY-MM-DD” (estratta direttamente dal testo)
 
 Rispondi **solo** con JSON conforme a questo schema:
 \`\`\`json
@@ -151,22 +151,26 @@ Rispondi **solo** con JSON conforme a questo schema:
   "type": "expense",
   "items": [
     {
-      "puntoVendita": "Supermercato Rossi",
+      "puntoVendita": "Supermercato Orsini Market",
       "dettaglio": "1 confezione di latte",
-      "prezzoUnitario": 2.50,
+      "prezzoUnitario": 20.00,
       "quantita": 1,
-      "prezzoTotale": 2.50,
-      "data": "oggi"
+      "prezzoTotale": 20.00,
+      "data": "2025-08-06"
     }
     /* altri items... */
   ]
 }
 \`\`\`
 
-TESTO_OCR:
+CONTENUTO OCR (${fileName}):
 ${userText}
 `
-    }
+  }
+
+// ...il prompt per la voce rimane invariato
+}
+
 
     // per voice / testo libero
     return `
@@ -264,9 +268,6 @@ Ora capisci la frase seguente e compila i campi:
           </h2>
 
           <div className="table-buttons">
-            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>
-              ➕ Aggiungi manualmente
-            </button>
             <button className="btn-vocale" onClick={toggleRec}>
               {recBusy ? '⏹ Stop' : '🎙 Voce'}
             </button>
@@ -276,13 +277,14 @@ Ora capisci la frase seguente e compila i campi:
           </div>
 
           <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={e => handleOCR(e.target.files?.[0])}
-          />
-
+         ref={ocrInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"       // apre la camera su mobile
+          multiple                    // permette di selezionare più immagini
+          hidden
+        onChange={e => handleOCR(Array.from(e.target.files || []))}
+/>
           {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label>Punto vendita / Servizio</label>
