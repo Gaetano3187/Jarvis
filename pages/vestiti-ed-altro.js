@@ -1,5 +1,5 @@
 // pages/vestiti-ed-altro.js
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
@@ -9,6 +9,7 @@ import { askAssistant } from '@/lib/assistant'
 const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
 
 function VestitiEdAltro() {
+  // ─────────────────────────────────── Stati e refs
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -25,6 +26,7 @@ function VestitiEdAltro() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
+  // ─────────────────────────────────── Carica storico on mount
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -41,7 +43,7 @@ function VestitiEdAltro() {
     setLoading(false)
   }
 
-  /* ------------------------ INSERIMENTO MANUALE ------------------------ */
+  // ─────────────────────────────────── Inserimento manuale
   const handleAdd = async e => {
     e.preventDefault()
     const {
@@ -54,7 +56,7 @@ function VestitiEdAltro() {
       category_id: CATEGORY_ID_VESTITI,
       description: nuovaSpesa.descrizione,
       amount: Number(nuovaSpesa.importo),
-      spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
+      spent_at: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
@@ -66,29 +68,30 @@ function VestitiEdAltro() {
     }
   }
 
-  /* ------------------------------ DELETE -------------------------------- */
+  // ─────────────────────────────────── Elimina voce
   const handleDelete = async id => {
     const { error } = await supabase.from('finances').delete().eq('id', id)
     if (error) setError(error.message)
     else setSpese(spese.filter(s => s.id !== id))
   }
 
-  /* -------------------------------- OCR --------------------------------- */
-  const handleOCR = async file => {
-    if (!file) return
+  // ─────────────────────────────────── OCR multiplo
+  const handleOCR = async files => {
+    console.log('▶️ handleOCR chiamato con file(s):', files)
+    if (!files || files.length === 0) return
     try {
       const fd = new FormData()
-      fd.append('image', file)
-      // 1) estrai il testo via API OCR
-      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json()
-      // 2) passa il testo a GPT
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
-    } catch {
+      files.forEach(f => fd.append('images', f))
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const { text } = await res.json()
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text, files.map(f => f.name).join(', ')))
+    } catch (err) {
+      console.error(err)
       setError('OCR fallito')
     }
   }
 
-  /* ----------------------------- RECORDING ------------------------------ */
+  // ─────────────────────────────────── Registrazione audio
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -122,77 +125,84 @@ function VestitiEdAltro() {
     }
   }
 
-  /* -------------------------- SYSTEM PROMPT ----------------------------- */
-  const buildSystemPrompt = (source, userText) => {
+  // ─────────────────────────────────── Costruisci prompt
+  function buildSystemPrompt(source, userText, fileName) {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in formato JSON.
+Sei Jarvis. Da questo testo OCR estrai **tutte** le righe di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
 
-Ogni spesa deve avere:
+Per ciascuna voce estratta genera un oggetto con:
 - descrizione: string
 - prezzoUnitario: number | null
 - quantita: number
 - prezzoTotale: number
-- data: "YYYY-MM-DD" | "oggi" | "ieri"
+- data: "YYYY-MM-DD" (estratta direttamente dal testo)
 
 Rispondi **solo** con JSON conforme a questo schema:
 \`\`\`json
 {
-  "type": "expense",
-  "items": [
+  "type":"expense",
+  "items":[
     {
-      "descrizione": "1 paio di jeans",
-      "prezzoUnitario": 59.90,
-      "quantita": 1,
-      "prezzoTotale": 59.90,
-      "data": "oggi"
+      "descrizione":"1 paio di jeans",
+      "prezzoUnitario":59.90,
+      "quantita":1,
+      "prezzoTotale":59.90,
+      "data":"2025-08-18"
+    },
+    {
+      "descrizione":"2 magliette",
+      "prezzoUnitario":15.00,
+      "quantita":2,
+      "prezzoTotale":30.00,
+      "data":"2025-08-18"
     }
-    /* altri items... */
+    /* … tutte le voci … */
   ]
 }
 \`\`\`
 
-TESTO_OCR:
+CONTENUTO OCR (${fileName}):
 ${userText}
-      `
+`
     }
 
-    // voce / testo libero
+    // voce / STT
     return `
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "ok", ecc.
 
 Ora estrai **solo** JSON spesa nello stesso schema di prima.
 
 ESEMPIO:
-Input: "Ho preso un paio di jeans Levi's su Amazon a 59,90 euro il 18 aprile 2025"
+Input: "Ho comprato un paio di sneakers a 89.90 euro il 20 agosto 2025"
 Output:
 {
   "type":"expense",
   "items":[
     {
-      "descrizione":"Jeans Levi's",
-      "prezzoUnitario":59.90,
+      "descrizione":"Sneakers",
+      "prezzoUnitario":89.90,
       "quantita":1,
-      "prezzoTotale":59.90,
-      "data":"2025-04-18"
+      "prezzoTotale":89.90,
+      "data":"2025-08-20"
     }
   ]
 }
 
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
-      `
+`
   }
 
-  /* ---------------------- CHIAMATA E PARSING GPT ------------------------ */
+  // ─────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
     try {
       const { answer, error: apiErr } = await askAssistant(prompt)
       if (apiErr) throw new Error(apiErr)
 
       const data = JSON.parse(answer)
-      if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
-        throw new Error('Risposta assistant non valida')
+      if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0)
+        throw new Error('Assistant response invalid')
 
       const {
         data: { user },
@@ -201,33 +211,33 @@ Ora capisci la frase seguente e compila i campi:
 
       const rows = data.items.map(it => {
         let spentAt = it.data
-        if (it.data === 'oggi') {
+        if (spentAt === 'oggi') {
           spentAt = new Date().toISOString().slice(0, 10)
-        } else if (it.data === 'ieri') {
+        } else if (spentAt === 'ieri') {
           const d = new Date()
           d.setDate(d.getDate() - 1)
           spentAt = d.toISOString().slice(0, 10)
         }
         return {
-          user_id: user.id,
-          category_id: CATEGORY_ID_VESTITI,
-          description: it.descrizione,
-          amount: Number(it.prezzoTotale) || 0,
-          spent_at: spentAt,
-          qty: parseFloat(it.quantita) || 1,
+          user_id:      user.id,
+          category_id:  CATEGORY_ID_VESTITI,
+          description:  it.descrizione,
+          amount:       Number(it.prezzoTotale) || 0,
+          spent_at:     spentAt,
+          qty:          parseFloat(it.quantita) || 1,
         }
       })
 
       const { error: dbErr } = await supabase.from('finances').insert(rows)
       if (dbErr) throw dbErr
 
-      fetchSpese()
-      const f = rows[0]
+      await fetchSpese()
+      const last = rows[0]
       setNuovaSpesa({
-        descrizione: f.description,
-        importo: f.amount,
-        quantita: String(f.qty),
-        spentAt: f.spent_at.slice(0, 10),
+        descrizione: last.description,
+        importo:     last.amount,
+        quantita:    String(last.qty),
+        spentAt:     last.spent_at.slice(0, 10),
       })
     } catch (err) {
       console.error(err)
@@ -235,8 +245,8 @@ Ora capisci la frase seguente e compila i campi:
     }
   }
 
-  /* -------------------------------- RENDER ------------------------------- */
-  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0) * (s.qty || 1), 0)
+  // ─────────────────────────────────── Render
+  const totale = spese.reduce((sum, s) => sum + s.amount * (s.qty || 1), 0)
 
   return (
     <>
@@ -246,9 +256,7 @@ Ora capisci la frase seguente e compila i campi:
 
       <div className="vestiti-ed-altro-container1">
         <div className="vestiti-ed-altro-container2">
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
-            🛍️ Vestiti ed Altro
-          </h2>
+          <h2 className="title">🛍️ Vestiti ed Altro</h2>
 
           <div className="table-buttons">
             <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>
@@ -260,15 +268,16 @@ Ora capisci la frase seguente e compila i campi:
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
               📷 OCR
             </button>
+            <input
+              ref={ocrInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              hidden
+              onChange={e => handleOCR(Array.from(e.target.files || []))}
+            />
           </div>
-
-          <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={e => handleOCR(e.target.files?.[0])}
-          />
 
           <form ref={formRef} onSubmit={handleAdd} className="input-section">
             <label>Descrizione</label>
@@ -340,16 +349,99 @@ Ora capisci la frase seguente e compila i campi:
             <div className="total-box">Totale: € {totale.toFixed(2)}</div>
           </div>
 
-          {error && <p style={{ color: 'red' }}>{error}</p>}
+          {error && <p className="error">{error}</p>}
 
-          <Link href="/home" className="btn-vocale" style={{ marginTop: '1.5rem', textDecoration: 'none' }}>
-            🏠 Home
+          <Link href="/home">
+            <a className="btn-vocale">🏠 Home</a>
           </Link>
         </div>
       </div>
 
       <style jsx>{`
-        /* qui incolla gli stessi stili di spese-casa */
+        .vestiti-ed-altro-container1 {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          min-height: 100vh;
+          padding: 2rem;
+          font-family: Inter, sans-serif;
+        }
+        .vestiti-ed-altro-container2 {
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 800px;
+          width: 100%;
+        }
+        .title {
+          margin-bottom: 1rem;
+          font-size: 1.5rem;
+        }
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+        }
+        .btn-vocale,
+        .btn-ocr,
+        .btn-manuale {
+          background: #10b981;
+          color: #fff;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+          cursor: pointer;
+        }
+        .btn-ocr {
+          background: #f43f5e;
+        }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
+        }
+        input,
+        textarea {
+          width: 100%;
+          padding: 0.6rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
+        }
+        textarea {
+          resize: vertical;
+          min-height: 4.5rem;
+        }
+        .custom-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .custom-table th,
+        .custom-table td {
+          padding: 0.75rem 1rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-table thead {
+          background: #1f2937;
+        }
+        .total-box {
+          margin-top: 1rem;
+          background: rgba(34, 197, 94, 0.8);
+          padding: 1rem;
+          border-radius: 0.5rem;
+          text-align: right;
+          font-weight: 600;
+        }
+        .error {
+          color: #f87171;
+          margin-top: 1rem;
+        }
       `}</style>
     </>
   )
