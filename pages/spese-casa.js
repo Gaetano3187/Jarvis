@@ -83,6 +83,17 @@ function SpeseCasa() {
   }
 
   // ────────────────────────────────────────────────────────── OCR
+ const onClickOCR = () => {
+  // dialogo nativo: OK = fotocamera, Annulla = galleria
+  const usareCamera = window.confirm(
+    'Vuoi scattare una foto con la fotocamera? (OK) Oppure scegliere da galleria? (Annulla)'
+  )
+  if (usareCamera) {
+    cameraInputRef.current?.click()
+  } else {
+    galleryInputRef.current?.click()
+  }
+}
   const handleOCR = async files => {
     console.log('▶️ handleOCR chiamato con file(s):', files)
     if (!files || files.length === 0) return
