@@ -134,7 +134,7 @@ function SpeseCasa() {
   const buildSystemPrompt = (source, userText, fileName = '') => {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).
+Sei Jarvis. Da questo testo OCR estrai **tutti** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).ripeti l'operazione per ciscuna riga o voce dello scontrino. 
 
 Ogni spesa deve avere:
 - puntoVendita: string
