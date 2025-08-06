@@ -25,15 +25,14 @@ export default async function handler(req, res) {
       console.log('➡️ OCR fields:', fields)
       console.log('➡️ OCR files keys:', Object.keys(files))
 
-      // qui prendiamo files.images invece di files.image
-      let fileList = files.images
+      // prendo files.images (potrebbero essercene più di uno)
+      const fileList = files.images
       if (!fileList) {
         console.error('❌ Nessun file trovato in files.images')
         res.status(400).json({ step: 'no-file', error: 'files.images undefined' })
         return resolve()
       }
 
-      // assicuriamoci di avere sempre un array
       const images = Array.isArray(fileList) ? fileList : [fileList]
       let combinedText = ''
 
@@ -41,8 +40,8 @@ export default async function handler(req, res) {
         console.log('➡️ OCR file raw object:', file)
 
         const imagePath =
-             file.filepath    // formidable v3
-          || file.path        // versioni precedenti
+          file.filepath    // formidable v3
+          || file.path     // versioni precedenti
           || file._writeStream?.path
 
         console.log('📂 OCR imagePath:', imagePath)
@@ -52,20 +51,33 @@ export default async function handler(req, res) {
         }
 
         try {
-          const { data: { text } } = await Tesseract.recognize(imagePath, 'ita')
+          const {
+            data: { text }
+          } = await Tesseract.recognize(
+            imagePath,
+            'ita',
+            {
+              // PSM 3 = segmentazione automatica del layout
+              tessedit_pageseg_mode: 3,
+              // whitelist di caratteri per i valori tipici degli scontrini
+              tessedit_char_whitelist:
+                '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,-/:€ '
+            }
+          )
+
           console.log('✅ OCR result snippet:', text.trim().slice(0, 100))
-          combinedText += text + '\n'
+          combinedText += text.trim() + '\n'
         } catch (ocrErr) {
           console.error('❌ OCR recognize error:', ocrErr)
           res.status(500).json({ step: 'recognize', error: String(ocrErr) })
           return resolve()
         } finally {
-          // pulizia file temporaneo di questa immagine
+          // pulisco il file temporaneo
           try { fs.unlinkSync(imagePath) } catch { /* ignore */ }
         }
       }
 
-      // restituiamo il testo unificato di tutte le immagini
+      // restituisco il testo concatenato di tutte le immagini
       res.status(200).json({ text: combinedText.trim() })
       resolve()
     })
