@@ -93,19 +93,27 @@ const cameraInputRef  = useRef(null)
 
   // ────────────────────────────────────────────────────────── OCR
  const handleOCR = async files => {
-  console.log('▶️ handleOCR chiamato con file(s):', files)
-  if (!files || files.length === 0) return
-  // costruisco il FormData con la chiave "images"
-  const fd = new FormData()
-  files.forEach(f => fd.append('images', f))
-  // faccio la chiamata a /api/ocr
-  const res = await fetch('/api/ocr', { method: 'POST', body: fd })
-  const { text } = await res.json()
-  // ora "text" contiene tutto il testo OCR unificato
-  console.log('OCR result:', text)
-  // qui puoi proseguire con parseAssistantPrompt(text)…
-}
-
+    const handleOCR = async files => {
+    console.log('▶️ handleOCR con file(s):', files)
+    if (!files?.length) return
+    // invio al tuo endpoint
+    const fd = new FormData()
+    files.forEach(f => fd.append('images', f, f.name))
+    const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+    const { text, error: ocrErr } = await res.json()
+    if (ocrErr) {
+      console.error(ocrErr)
+      return setError('OCR fallito')
+    }
+  }
+// funzione per chiedere all’utente se aprire fotocamera o galleria
+  const triggerOCR = () => {
+    if (confirm('Scattare una foto con la fotocamera? Premi “OK” per fotocamera, “Annulla” per galleria.')) {
+      cameraInputRef.current?.click()
+    } else {
+      galleryInputRef.current?.click()
+    }
+  }
 
   // ───────────────────────────────────────────────────── VOICE RECORDING
   const toggleRec = async () => {
@@ -276,42 +284,34 @@ Ora capisci la frase seguente e compila i campi:
     {recBusy ? '⏹ Stop' : '🎙 Voce'}
   </button>
 
-  {/* Bottone per scegliere da galleria */}
-  <button
-    className="btn-ocr"
-    onClick={() => galleryInputRef.current?.click()}
-  >
-    📁 Scegli da galleria
-  </button>
+       <Head>…</Head>
+      <div className="table-buttons">
+        <button className="btn-vocale" onClick={toggleRec}>
+          {recBusy ? '⏹ Stop' : '🎙 Voce'}
+        </button>
+        <button className="btn-ocr" onClick={triggerOCR}>
+          📷 OCR
+        </button>
+      </div>
 
-  {/* Bottone per scattare con la camera */}
-  <button
-    className="btn-ocr"
-    onClick={() => cameraInputRef.current?.click()}
-  >
-    📷 Scatta foto
-  </button>
-</div>
-
-{/* input nascosti */}
-<input
-  ref={galleryInputRef}
-  type="file"
-  accept="image/*"
-  multiple
-  hidden
-  onChange={e => handleOCR(Array.from(e.target.files || []))}
-/>
-
-<input
-  ref={cameraInputRef}
-  type="file"
-  accept="image/*"
-  capture="environment"
-  multiple
-  hidden
-  onChange={e => handleOCR(Array.from(e.target.files || []))}
-/>
+      {/* input nascosti */}
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={e => handleOCR(Array.from(e.target.files || []))}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        hidden
+        onChange={e => handleOCR(Array.from(e.target.files || []))}
+      />
 
           {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
