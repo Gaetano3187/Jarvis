@@ -12,8 +12,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  await new Promise(resolve => {
+  await new Promise((resolve) => {
     const form = new IncomingForm({ keepExtensions: true })
+
     form.parse(req, async (err, fields, files) => {
       if (err) {
         console.error('⚠️ parse error:', err)
@@ -24,21 +25,23 @@ export default async function handler(req, res) {
       console.log('➡️ OCR fields:', fields)
       console.log('➡️ OCR files keys:', Object.keys(files))
 
-      const file = files.image || Object.values(files)[0]
+      // files.image può essere un array (se il form ha name="image" più volte)
+      let file = files.image
+      if (Array.isArray(file)) file = file[0]
+
       if (!file) {
-        console.error('❌ Nessun file trovato')
+        console.error('❌ Nessun file trovato in files.image')
         res.status(400).json({ step: 'no-file', error: 'files.image undefined' })
         return resolve()
       }
 
-      // *** Qui logghiamo l’intero oggetto file per capire le sue proprietà ***
       console.log('➡️ OCR file raw object:', file)
-      // poi tentiamo tutti i fallback più comuni:
+
+      // fallback sul path reale del file temporaneo
       const imagePath =
            file.filepath    // formidable v3
-        || file.path        // formidable v1/v2
-        || file.tempFilePath // qualche versione ibrida
-        || (file._writeStream && file._writeStream.path)
+        || file.path        // versioni precedenti
+        || file._writeStream?.path
 
       console.log('📂 OCR imagePath:', imagePath)
       if (!imagePath) {
@@ -50,7 +53,8 @@ export default async function handler(req, res) {
         const {
           data: { text }
         } = await Tesseract.recognize(imagePath, 'ita')
-        console.log('✅ OCR result snippet:', text.trim().slice(0,100))
+
+        console.log('✅ OCR result snippet:', text.trim().slice(0, 100))
         res.status(200).json({ text })
       } catch (ocrErr) {
         console.error('❌ OCR recognize error:', ocrErr)
