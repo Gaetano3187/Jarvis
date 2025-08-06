@@ -73,20 +73,16 @@ function SpeseCasa() {
     }
   }
 
-  const handleDelete = async id => {
-    const { error: deleteError } = await supabase
-      .from('finances')
-      .delete()
-      .eq('id', id)
-    if (deleteError) setError(deleteError.message)
-    else setSpese(spese.filter(r => r.id !== id))
-  }
+const handleOCR = async file => {
+  if (!file) return
 
-  const handleOCR = async file => {
-    reader.onload = async () => {
-  const base64 = reader.result.split(',')[1];
-  // 2) Costruisci un prompt ad hoc con campi dettagliati
-  const prompt = `
+  // <-- qui dichiari reader
+  const reader = new FileReader()
+
+  reader.onload = async () => {
+    const base64 = reader.result.split(',')[1]
+    // 2) Costruisci un prompt ad hoc con campi dettagliati
+    const prompt = `
 Sei Jarvis. Da questa immagine OCR (base64) estrai **solo** i dati di spesa in formato JSON.
 
 Ogni spesa deve avere:
@@ -118,54 +114,21 @@ Rispondi **solo** con JSON conforme a questo schema:
 
 IMMAGINE_BASE64:
 ${base64}
-`;
+`
 
-  try {
-    const { answer } = await askAssistant(prompt);
-    console.log('🛈 Assistant OCR:', answer);
-    // qui puoi parsare `answer` e popolare il form/lo stato come fai per la voce
-  } catch (err) {
-    console.error(err);
-    alert('OCR fallito');
-  }
-};
-reader.readAsDataURL(file);
- }   // <-- CHIUSURA handleOCR
-
-const toggleRec = async () => {
-    if (recBusy) {
-      mediaRecRef.current?.stop()
-      return
-    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaRecRef.current = new MediaRecorder(stream)
-      recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e =>
-        e.data.size && recordedChunks.current.push(e.data)
-      mediaRecRef.current.onstop = processVoice
-      mediaRecRef.current.start()
-      setRecBusy(true)
-    } catch {
-      setError('Microfono non disponibile')
+      const { answer } = await askAssistant(prompt)
+      console.log('🛈 Assistant OCR:', answer)
+      // qui puoi parsare `answer` e popolare il form/lo stato come fai per la voce
+    } catch (err) {
+      console.error(err)
+      alert('OCR fallito')
     }
   }
 
-  const processVoice = async () => {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' })
-    const fd = new FormData()
-    fd.append('audio', blob, 'voice.webm')
-    try {
-      const { text } = await (
-        await fetch('/api/stt', { method: 'POST', body: fd })
-      ).json()
-      await parseAssistantPrompt(buildSystemPrompt('voice', text))
-    } catch {
-      setError('STT fallito')
-    } finally {
-      setRecBusy(false)
-    }
-  }
+  // innesca la lettura
+  reader.readAsDataURL(file)
+}
 
   const buildSystemPrompt = (source, userText) => {
     return `
