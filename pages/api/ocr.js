@@ -11,7 +11,8 @@ export const config = {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
+  if (req.method !== 'POST')
+    console.log('→ /api/ocr ricevuta richiesta'); {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
@@ -24,6 +25,7 @@ export default async function handler(req, res) {
         err ? reject(err) : resolve({ files })
       )
     }))
+    console.log('OCR: files:', files);
   } catch (err) {
     console.error('OCR parse error:', err)
     return res.status(500).json({ error: 'Error parsing form' })
