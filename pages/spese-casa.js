@@ -70,7 +70,7 @@ function SpeseCasa() {
       fetchSpese()
     }
   }
-});
+}
   const handleDelete = async id => {
     const { error: deleteError } = await supabase
       .from('finances')
