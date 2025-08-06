@@ -134,19 +134,34 @@ function SpeseCasa() {
   const buildSystemPrompt = (source, userText, fileName = '') => {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **tutti** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).ripeti l'operazione per ciscuna riga o voce dello scontrino. 
+Sei Jarvis. Dal testo OCR qui sotto devi estrarre **tutte le righe** di spesa presenti, esattamente una per ogni prodotto/servizio sullo scontrino.
 
-Ogni spesa deve avere:
-- puntoVendita: string
-- dettaglio: string
-- prezzoUnitario: number | null
-- quantita: number
-- prezzoTotale: number
-- data: "YYYY-MM-DD" (estratta direttamente dal testo)
-
-Rispondi **solo** con JSON conforme a questo schema:
+– Mantieni l’ordine delle righe.  
+– Rispondi **solo** con JSON, niente spiegazioni.  
+– Lo schema è:
 \`\`\`json
 {
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "…",
+      "dettaglio": "…",
+      "prezzoUnitario": numero o null,
+      "quantita": numero,
+      "prezzoTotale": numero,
+      "data": "YYYY-MM-DD"
+    }
+    // …una entry per ogni riga di scontrino…
+  ]
+}
+\`\`\`
+
+TESTO OCR:
+\`\`\`
+${userText.trim()}
+\`\`\`
+`
+}
   "type": "expense",
   "items": [
     {
