@@ -394,14 +394,86 @@ Ora capisci la frase seguente e compila i campi:
       </div>
 
       <style jsx global>{`
-        .spese-casa-container1 { /* ...tue regole CSS... */ }
-        .spese-casa-container2 { /* ... */ }
-        .table-buttons { /* ... */ }
-        .btn-manuale { /* ... */ }
-        .btn-vocale { /* ... */ }
-        .btn-ocr { /* ... */ }
-        input, textarea { /* ... */ }
-        /* ...resto dei tuoi stili globali... */
+        .<style jsx global>{`
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          min-height: 100vh;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          font-family: Inter, sans-serif;
+          padding: 2rem;
+        }
+        .spese-casa-container2 {
+          max-width: 800px;
+          width: 100%;
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          flex-wrap: wrap;
+        }
+        .btn-manuale {
+          background: #22c55e;
+          color: #fff;
+        }
+        .btn-vocale {
+          background: #10b981;
+          color: #fff;
+        }
+        .btn-ocr {
+          background: #f43f5e;
+          color: #fff;
+        }
+        input,
+        textarea {
+          width: 100%;
+          padding: 0.6rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
+        }
+        textarea {
+          min-height: 4.5rem;
+          resize: vertical;
+        }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
+        }
+        .custom-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .custom-table thead {
+          background: #1f2937;
+        }
+        .custom-table th,
+        .custom-table td {
+          padding: 0.75rem 1rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-table tbody tr:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .total-box {
+          margin-top: 1rem;
+          background: rgba(34, 197, 94, 0.8);
+          padding: 1rem;
+          border-radius: 0.5rem;
+          text-align: right;
+          font-weight: 600;
+        }
       `}</style>
     </>
   )
