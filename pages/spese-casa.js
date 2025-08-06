@@ -4,6 +4,9 @@ import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
+import { askAssistant } from '@/lib/assistant'
+
+
 
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
