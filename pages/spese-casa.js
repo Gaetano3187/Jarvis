@@ -83,7 +83,8 @@ function SpeseCasa() {
 
   // ────────────────────────────────────────────────────────── OCR
   const handleOCR = async file => {
-    if (!file) return
+    console.log('▶️ handleOCR chiamato con file:', file)
+  if (!file) return
     try {
       const fd = new FormData()
       fd.append('image', file)
