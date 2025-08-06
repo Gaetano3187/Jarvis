@@ -205,6 +205,23 @@ Output:
     }
   ]
 }
+ESEMPIO 3
+Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
+Output:
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Cinema Lux",
+      "dettaglio": "2 biglietti del cinema",
+      "prezzoTotale": 18.00,
+      "quantita": 2,
+      "data": "<IERI>",
+      "categoria": "tempo libero",
+      "category_id": "\${CATEGORY_ID_CASA}"
+    }
+  ]
+}
 
 Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
 "\${userText}"
