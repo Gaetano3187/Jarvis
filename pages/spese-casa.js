@@ -2,17 +2,12 @@
 import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
-
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
-/* -------------------------------------------------------------------------- */
-/*  COMPONENTE                                                                */
-/* -------------------------------------------------------------------------- */
 function SpeseCasa() {
-  /* ---------------------------- STATE & REF ----------------------------- */
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -30,7 +25,6 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  /* -------------------------- CARICAMENTO DATI -------------------------- */
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -49,16 +43,12 @@ function SpeseCasa() {
     setLoading(false)
   }
 
-  /* ------------------------- INSERIMENTO MANUALE ------------------------ */
-  const handleAdd = async (e) => {
+  const handleAdd = async e => {
     e.preventDefault()
     const {
-      data: { user },
+      data: { user }
     } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Sessione scaduta')
-      return
-    }
+    if (!user) return setError('Sessione scaduta')
 
     const row = {
       user_id: user.id,
@@ -83,15 +73,16 @@ function SpeseCasa() {
     }
   }
 
-  /* ------------------------------ DELETE -------------------------------- */
-  const handleDelete = async (id) => {
-    const { error: deleteError } = await supabase.from('finances').delete().eq('id', id)
+  const handleDelete = async id => {
+    const { error: deleteError } = await supabase
+      .from('finances')
+      .delete()
+      .eq('id', id)
     if (deleteError) setError(deleteError.message)
-    else setSpese(spese.filter((r) => r.id !== id))
+    else setSpese(spese.filter(r => r.id !== id))
   }
 
-  /* -------------------------------- OCR --------------------------------- */
-  const handleOCR = async (file) => {
+  const handleOCR = async file => {
     if (!file) return
     try {
       const fd = new FormData()
@@ -105,7 +96,6 @@ function SpeseCasa() {
     }
   }
 
-  /* ----------------------------- RECORDING ------------------------------ */
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -115,7 +105,7 @@ function SpeseCasa() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = (e) =>
+      mediaRecRef.current.ondataavailable = e =>
         e.data.size && recordedChunks.current.push(e.data)
       mediaRecRef.current.onstop = processVoice
       mediaRecRef.current.start()
@@ -141,145 +131,134 @@ function SpeseCasa() {
     }
   }
 
-  /* -------------------------- SYSTEM PROMPT ----------------------------- */
   const buildSystemPrompt = (source, userText) => {
     return `
+Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
 
-    **ATTENZIONE:** il testo che segue è il risultato di una trascrizione vocale.  
-Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come “ehm”, “allora”, “ok”.  
-**Ignora** questi artefatti e concentra l’attenzione solo sui dati di spesa.
-
-**CONTESTO:** l’utente sta annotando una **spesa domestica**. Tu sei Jarvis, un assistente che estrae da frasi in italiano i dettagli di un acquisto e restituisce **solo** JSON valido.
-
-Rispondi **esclusivamente** con JSON conforme al seguente schema, senza testo aggiuntivo:
-
-json
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": string,
-      "dettaglio": string,
-      "prezzoTotale": number,
-      "quantita": number,
-      "data": "YYYY-MM-DD" | "<oggi>" | "<ieri>",
-      "categoria": string,
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-
-ESEMPIO 1 (non da ripetere)
+ESEMPIO 1
 Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
 Output:
 {
   "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Supermercato Rossi",
-      "dettaglio":"3 pacchi di pasta Barilla",
-      "prezzoTotale":2.50,
-      "quantita":3,
-      "data":"2025-07-10",
-      "categoria":"casa",
-      "category_id":"\${CATEGORY_ID_CASA}"
-    }
-  ]
+  "items":[{ "puntoVendita":"Supermercato Rossi","dettaglio":"3 pacchi di pasta Barilla","prezzoTotale":2.50,"quantita":3,"data":"2025-07-10","categoria":"casa","category_id":"${CATEGORY_ID_CASA}" }]
 }
 
-ESEMPIO 2 (non da ripetere)
+ESEMPIO 2
 Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
 Output:
 {
   "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Orsini Market",
-      "dettaglio":"1 confezione di latte",
-      "prezzoTotale":20.00,
-      "quantita":1,
-      "data":"<oggi>",
-      "categoria":"casa",
-      "category_id":"\${CATEGORY_ID_CASA}"
-    }
-  ]
-Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
-"\${userText}"
-`
-  }
-  /* ---------------------- CHIAMATA E PARSING GPT ------------------------ */
- async function parseAssistantPrompt(prompt) {
-  try {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Assistant ${res.status}: ${txt}`);
-    }
-
-    const { answer, error: apiErr } = await res.json();
-    if (apiErr) throw new Error(apiErr);
-
-    const data = JSON.parse(answer);
-    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
-      throw new Error('Risposta assistant non valida');
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-
-    const rows = data.items.map((it) => {
-      // normalizziamo la data
-      const dRaw = String(it.data).toLowerCase();
-      let spentAt;
-      if (dRaw === 'oggi') {
-        spentAt = new Date().toISOString().slice(0, 10);
-      } else if (dRaw === 'ieri') {
-        const d = new Date();
-        d.setDate(d.getDate() - 1);
-        spentAt = d.toISOString().slice(0, 10);
-      } else {
-        // presuppone sia già "YYYY-MM-DD"
-        spentAt = it.data;
-      }
-
-      return {
-        user_id:     user.id,
-        category_id: CATEGORY_ID_CASA,
-        description: `[${it.puntoVendita || 'Sconosciuto'}] ${it.dettaglio || 'spesa'}`,
-        amount:      Number(it.prezzoTotale) || 0,
-        spent_at:    spentAt,
-        qty:         parseInt(it.quantita, 10) || 1,
-      };
-    });
-
-    const { error: dbErr } = await supabase.from('finances').insert(rows);
-    if (dbErr) throw new Error(dbErr.message);
-
-    // ricarica la lista e pre-riempi il form
-    fetchSpese();
-    const f = rows[0];
-    setNuovaSpesa({
-      puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio:    f.description.replace(/^\[.*?\]\s*/, ''),
-      prezzoTotale: f.amount,
-      quantita:     String(f.qty),
-      spentAt:      f.spent_at,
-    });
-  } catch (err) {
-    console.error(err);
-    setError(err.message || 'Risposta assistant non valida');
-  }
+  "items":[{ "puntoVendita":"Orsini Market","dettaglio":"1 confezione di latte","prezzoTotale":20.00,"quantita":1,"data":"oggi","categoria":"casa","category_id":"${CATEGORY_ID_CASA}" }]
 }
 
+… (includi gli esempi fino al 15) …
 
-  /* ------------------------------ RENDER ------------------------------- */
+Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
+"${userText}"
+`
+  }
+
+  async function parseAssistantPrompt(prompt) {
+    try {
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+
+      const rawBody = await res.text()
+      console.log('--- /api/assistant raw response ---', rawBody)
+
+      if (!res.ok) {
+        return setError(`Assistant ${res.status}: ${rawBody}`)
+      }
+
+      const { answer, error: apiErr } = JSON.parse(rawBody)
+      console.log('--- assistant raw answer ---', answer)
+      if (apiErr) {
+        setError(`Assistant: ${apiErr}`)
+        return
+      }
+
+      const data = JSON.parse(answer)
+      console.log('parsed data:', data)
+      console.log('items:', data.items)
+
+      if (
+        data.type !== 'expense' ||
+        !Array.isArray(data.items) ||
+        data.items.length === 0
+      ) {
+        setError('Risposta assistant non valida')
+        return
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      const rows = data.items.map(it => {
+        const rawPV = String(it.puntoVendita || '').trim().toLowerCase()
+        const pd =
+          rawPV && rawPV !== 'undefined' ? it.puntoVendita : 'Sconosciuto'
+        const rawDT = String(it.dettaglio || '').trim().toLowerCase()
+        const dt = rawDT && rawDT !== 'undefined' ? it.dettaglio : 'spesa'
+        const pr = Number(it.prezzoTotale)
+        const price = isNaN(pr) ? 0 : pr
+
+        let dRaw = String(it.data).toLowerCase(),
+          spentAt
+        if (dRaw === 'oggi') {
+          spentAt = new Date().toISOString().slice(0, 10)
+        } else if (dRaw === 'ieri') {
+          const d = new Date()
+          d.setDate(d.getDate() - 1)
+          spentAt = d.toISOString().slice(0, 10)
+        } else if (dRaw === 'domani') {
+          const d = new Date()
+          d.setDate(d.getDate() + 1)
+          spentAt = d.toISOString().slice(0, 10)
+        } else {
+          spentAt = it.data
+        }
+
+        return {
+          user_id: user.id,
+          category_id: CATEGORY_ID_CASA,
+          description: `[${pd}] ${dt}`,
+          amount: price,
+          spent_at: spentAt,
+          qty: parseInt(it.quantita, 10) || 1,
+        }
+      })
+      console.log('parsed rows:', rows)
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('finances')
+        .insert(rows)
+        .select()
+      console.log('insert result:', { inserted, insertErr })
+      if (insertErr) {
+        setError(insertErr.message)
+        return
+      }
+
+      fetchSpese()
+      const f = inserted[0]
+      setNuovaSpesa({
+        puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
+        dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
+        prezzoTotale: f.amount,
+        quantita: String(f.qty),
+        spentAt: f.spent_at.slice(0, 10),
+      })
+    } catch (err) {
+      console.error(err)
+      setError('Risposta assistant non valida')
+    }
+  }
+
   const totale = spese.reduce(
     (t, r) => t + Number(r.amount || 0) * (r.qty ?? 1),
     0
@@ -293,7 +272,13 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
+          <h2
+            style={{
+              marginBottom: '1rem',
+              fontSize: '1.5rem',
+              color: '#fff',
+            }}
+          >
             🏠 Spese Casa
           </h2>
 
@@ -307,7 +292,10 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
             <button className="btn-vocale" onClick={toggleRec}>
               {recBusy ? '⏹ Stop' : '🎙 Voce'}
             </button>
-            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
+            <button
+              className="btn-ocr"
+              onClick={() => ocrInputRef.current?.click()}
+            >
               📷 OCR
             </button>
           </div>
@@ -317,17 +305,23 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
             type="file"
             accept="image/*,application/pdf"
             hidden
-            onChange={(e) => handleOCR(e.target.files?.[0])}
+            onChange={e => handleOCR(e.target.files?.[0])}
           />
 
-          {/* ------------------------ FORM ------------------------ */}
-          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
+          <form
+            className="input-section"
+            ref={formRef}
+            onSubmit={handleAdd}
+          >
             <label htmlFor="vendita">Punto vendita / Servizio</label>
             <input
               id="vendita"
               value={nuovaSpesa.puntoVendita}
-              onChange={(e) =>
-                setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })
+              onChange={e =>
+                setNuovaSpesa({
+                  ...nuovaSpesa,
+                  puntoVendita: e.target.value,
+                })
               }
               required
             />
@@ -338,8 +332,11 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
               type="number"
               min="1"
               value={nuovaSpesa.quantita}
-              onChange={(e) =>
-                setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
+              onChange={e =>
+                setNuovaSpesa({
+                  ...nuovaSpesa,
+                  quantita: e.target.value,
+                })
               }
               required
             />
@@ -348,8 +345,11 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
             <textarea
               id="dettaglio"
               value={nuovaSpesa.dettaglio}
-              onChange={(e) =>
-                setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })
+              onChange={e =>
+                setNuovaSpesa({
+                  ...nuovaSpesa,
+                  dettaglio: e.target.value,
+                })
               }
               required
             />
@@ -359,8 +359,11 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
               id="data"
               type="date"
               value={nuovaSpesa.spentAt}
-              onChange={(e) =>
-                setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
+              onChange={e =>
+                setNuovaSpesa({
+                  ...nuovaSpesa,
+                  spentAt: e.target.value,
+                })
               }
               required
             />
@@ -371,18 +374,23 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
               type="number"
               step="0.01"
               value={nuovaSpesa.prezzoTotale}
-              onChange={(e) =>
-                setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })
+              onChange={e =>
+                setNuovaSpesa({
+                  ...nuovaSpesa,
+                  prezzoTotale: e.target.value,
+                })
               }
               required
             />
 
-            <button className="btn-manuale" style={{ width: 'fit-content' }}>
+            <button
+              className="btn-manuale"
+              style={{ width: 'fit-content' }}
+            >
               Aggiungi
             </button>
           </form>
 
-          {/* ----------------------- TABELLA ---------------------- */}
           <div className="table-container">
             {loading ? (
               <p>Caricamento…</p>
@@ -399,21 +407,24 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
                   </tr>
                 </thead>
                 <tbody>
-                  {spese.map((r) => {
-                    const m = r.description?.match(/^\[(.*?)\]\s*(.*)$/)
+                  {spese.map(r => {
+                    const m =
+                      r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
                     return (
                       <tr key={r.id}>
-                        <td>{m?.[1] || '-'}</td>
-                        <td>{m?.[2] || r.description}</td>
+                        <td>{m[1] || '-'}</td>
+                        <td>{m[2] || r.description}</td>
                         <td>
                           {r.spent_at
                             ? new Date(r.spent_at).toLocaleDateString()
                             : ''}
                         </td>
-                        <td>{r.qty ?? 1}</td>
+                        <td>{r.qty || 1}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>
-                          <button onClick={() => handleDelete(r.id)}>🗑</button>
+                          <button onClick={() => handleDelete(r.id)}>
+                            🗑
+                          </button>
                         </td>
                       </tr>
                     )
@@ -421,11 +432,12 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
                 </tbody>
               </table>
             )}
-            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+            <div className="total-box">
+              Totale: € {totale.toFixed(2)}
+            </div>
           </div>
 
           {error && <p style={{ color: 'red' }}>{error}</p>}
-
           <Link
             href="/home"
             className="btn-vocale"
@@ -436,72 +448,31 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
         </div>
       </div>
 
-      {/* --------------------------- STYLE --------------------------- */}
       <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
           min-height: 100vh;
           align-items: center;
-          flex-direction: column;
           justify-content: center;
+          background: #0f172a;
+          font-family: Inter, sans-serif;
+          padding: 2rem;
         }
         .spese-casa-container2 {
-          display: contents;
-        }
-        .table-container {
-          overflow-x: auto;
+          max-width: 800px;
+          width: 100%;
           background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
           border-radius: 1rem;
-          padding: 1.5rem;
           color: #fff;
-          font-family: Inter, sans-serif;
           box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          width: 100%;
-          box-sizing: border-box;
-        }
-        table.custom-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 1rem;
-          color: #fff;
-        }
-        table.custom-table thead {
-          background: #1f2937;
-        }
-        table.custom-table th,
-        table.custom-table td {
-          padding: 0.75rem 1rem;
-          text-align: left;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        table.custom-table tbody tr:hover {
-          background: rgba(255, 255, 255, 0.05);
-        }
-        .total-box {
-          margin-top: 1rem;
-          background: rgba(34, 197, 94, 0.8);
-          color: #fff;
-          padding: 1rem;
-          border-radius: 0.5rem;
-          font-size: 1.25rem;
-          font-weight: 600;
-          text-align: right;
         }
         .table-buttons {
           display: flex;
           gap: 1rem;
           margin-bottom: 1.5rem;
           flex-wrap: wrap;
-        }
-        .table-buttons button {
-          padding: 0.75rem 1.25rem;
-          font-size: 1rem;
-          border-radius: 0.5rem;
-          border: none;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
         }
         .btn-manuale {
           background: #22c55e;
@@ -515,46 +486,47 @@ Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
           background: #f43f5e;
           color: #fff;
         }
-        .table-buttons button:hover {
-          opacity: 0.85;
-        }
-        .input-section {
-          background: rgba(255, 255, 255, 0.1);
-          padding: 1rem;
-          margin-bottom: 1.5rem;
-          border-radius: 0.5rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-        .input-section label {
-          font-weight: 600;
-          font-size: 1rem;
-        }
-        .input-section input,
-        .input-section textarea {
-          padding: 0.6rem;
-          border-radius: 0.5rem;
-          border: none;
-          font-size: 1rem;
+        input,
+        textarea {
           width: 100%;
+          padding: 0.6rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
         }
         textarea {
           min-height: 4.5rem;
           resize: vertical;
         }
-        @media (max-width: 768px) {
-          .table-container {
-            padding: 1rem;
-          }
-          .table-buttons button {
-            font-size: 0.95rem;
-            padding: 0.6rem 1rem;
-          }
-          .input-section input,
-          .input-section textarea {
-            font-size: 0.95rem;
-          }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
+        }
+        .custom-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .custom-table thead {
+          background: #1f2937;
+        }
+        .custom-table th,
+        .custom-table td {
+          padding: 0.75rem 1rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-table tbody tr:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .total-box {
+          margin-top: 1rem;
+          background: rgba(34, 197, 94, 0.8);
+          padding: 1rem;
+          border-radius: 0.5rem;
+          text-align: right;
+          font-weight: 600;
         }
       `}</style>
     </>
