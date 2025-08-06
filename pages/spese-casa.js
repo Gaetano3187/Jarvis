@@ -182,7 +182,7 @@ Output:
       "quantita":3,
       "data":"2025-07-10",
       "categoria":"casa",
-      "category_id":"\${CATEGORY_ID_CASA}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -200,7 +200,7 @@ Output:
       "quantita":1,
       "data": "YYYY-MM-DD" | "<oggi>" |
       "categoria":"casa",
-      "category_id":"\${CATEGORY_ID_CASA}"
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -218,7 +218,7 @@ Output:
       "quantita": 2,
       "data": "<IERI>",
       "categoria": "tempo libero",
-      "category_id": "\${CATEGORY_ID_CASA}"
+      "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -236,7 +236,7 @@ Output:
       "quantita": 1,
       "data": "2025-06-15",
       "categoria": "tecnologia",
-      "category_id": "\${CATEGORY_ID_CASA}"
+      "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -254,7 +254,7 @@ Output:
       "quantita": 50,
       "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "trasporti",
-      "category_id": "\${CATEGORY_ID_CASA}"
+      "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -272,7 +272,7 @@ Output:
       "quantita": 3,
       "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "casa",
-      "category_id": "\${CATEGORY_ID_CASA}"
+      "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -290,7 +290,7 @@ Output:
       "quantita": 1,
       "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "salute",
-      "category_id": "\${CATEGORY_ID_VARIE}"
+      "category_id": "${CATEGORY_ID_VARIE}"
     }
   ]
 }
@@ -308,7 +308,7 @@ Output:
       "quantita": 1,
       "data": "2025-08-02",
       "categoria": "trasporti",
-      "category_id": "\${CATEGORY_ID_VARIE}"
+      "category_id": "${CATEGORY_ID_VARIE}"
     }
   ]
 }
@@ -326,7 +326,7 @@ Output:
       "quantita": 4,
       "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "casa",
-      "category_id": "\${CATEGORY_ID_CASA}"
+      "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -344,7 +344,7 @@ Output:
       "quantita": 2,
       "data": "<IERI>",
       "categoria": "vestiti",
-      "category_id": "\${CATEGORY_ID_VESTITI}"
+      "category_id": "${CATEGORY_ID_VESTITI}"
     }
   ]
 }
@@ -362,7 +362,7 @@ Output:
       "quantita": 1,
       "data": "2025-04-18",
       "categoria": "vestiti",
-      "category_id": "\${CATEGORY_ID_VESTITI}"
+      "category_id": "${CATEGORY_ID_VESTITI}"
     }
   ]
 }
@@ -380,7 +380,7 @@ Output:
       "quantita": 2,
       "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "cene",
-      "category_id": "\${CATEGORY_ID_CENE}"
+      "category_id": "${CATEGORY_ID_CENE}"
     }
   ]
 }
@@ -398,7 +398,7 @@ Output:
       "quantita": 1,
       "data": "<IERI>",
       "categoria": "cene",
-      "category_id": "\${CATEGORY_ID_CENE}"
+      "category_id": "${CATEGORY_ID_CENE}"
     }
   ]
 }
@@ -416,7 +416,7 @@ Output:
       "quantita": 1,
       "data": "<ODIERNA>",
       "categoria": "varie",
-      "category_id": "\${CATEGORY_ID_VARIE}"
+      "category_id": "${CATEGORY_ID_VARIE}"
     }
   ]
 }
@@ -434,7 +434,7 @@ Output:
       "quantita": 4,
       "data": "2025-07-25",
       "categoria": "varie",
-      "category_id": "\${CATEGORY_ID_VARIE}"
+      "category_id": "${CATEGORY_ID_VARIE}"
     }
   ]
 }
