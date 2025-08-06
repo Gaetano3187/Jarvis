@@ -136,11 +136,11 @@ function SpeseCasa() {
 
   // ─────────────────────────────────────────────── Costruisci prompt
   function buildSystemPrompt(source, userText, fileName) {
-    if (source === 'ocr') {
-      return `
-Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non la data di inserimento).
+  if (source === 'ocr') {
+    return `
+Sei Jarvis. Da questo testo OCR estrai **tutte** le righe di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino (non la data di inserimento).
 
-Ogni spesa deve avere:
+Per ciascuna voce estratta genera un oggetto con:
 - puntoVendita: string
 - dettaglio: string
 - prezzoUnitario: number | null
@@ -160,7 +160,16 @@ Rispondi **solo** con JSON conforme a questo schema:
       "quantita": 1,
       "prezzoTotale": 20.00,
       "data": "2025-08-06"
+    },
+    {
+      "puntoVendita": "Supermercato Orsini Market",
+      "dettaglio": "2 confezioni di pane",
+      "prezzoUnitario": 1.50,
+      "quantita": 2,
+      "prezzoTotale": 3.00,
+      "data": "2025-08-06"
     }
+    /* e così via per tutte le righe… */
   ]
 }
 \`\`\`
@@ -168,9 +177,10 @@ Rispondi **solo** con JSON conforme a questo schema:
 CONTENUTO OCR (${fileName}):
 ${userText}
 `
-    }
-    // prompt per la voce
-    return `
+  }
+
+  // voce / STT rimane invariato…
+  return `
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
 Ora estrai **solo** JSON spesa (stesso schema di prima).
@@ -196,7 +206,8 @@ Output:
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
 `
-  }
+}
+
 
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
