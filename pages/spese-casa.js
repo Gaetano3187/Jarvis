@@ -70,7 +70,7 @@ function SpeseCasa() {
       fetchSpese()
     }
   }
-
+});
   const handleDelete = async id => {
     const { error: deleteError } = await supabase
       .from('finances')
@@ -197,8 +197,9 @@ Ora capisci la frase seguente e compila i campi:
 `;
 }
 
-  // ───────────────────────────────────────────────── PARSING & DB INSERT
+ // ───────────────────────────────────────────────── PARSING & DB INSERT
 async function parseAssistantPrompt(prompt) {
+  // invio a /api/assistant per far generare il JSON
   const res = await fetch('/api/assistant', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -207,19 +208,21 @@ async function parseAssistantPrompt(prompt) {
   const { answer, error: apiErr } = await res.json();
   if (!res.ok || apiErr) throw new Error(apiErr || res.status);
 
+  // controllo base sulla risposta
   const data = JSON.parse(answer);
-  if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
+  if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
     throw new Error('Assistant response invalid');
   }
 
+  // prendo l'utente corrente
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error('Sessione scaduta');
 
-  // mappiamo ogni item decidendo se il prezzo è unitario o già totale
+  // preparo le righe da inserire: prezzoTotale è già il totale, quindi qty = 1
   const rows = data.items.map(it => {
-    // calcolo data
+    // estraggo e normalizzo la data
     let spentAt = it.data;
     if (spentAt === 'oggi') {
       spentAt = new Date().toISOString().slice(0, 10);
@@ -229,64 +232,36 @@ async function parseAssistantPrompt(prompt) {
       spentAt = d.toISOString().slice(0, 10);
     }
 
-    // estraggo quantità e prezzi
-    const qtyParsed = parseFloat(it.quantita) || 1;
-    const totaleParsed = Number(it.prezzoTotale) || 0;
-    // se prezzoUnitario è definito, lo uso; altrimenti considero il prezzoTotale
-    const unitarioParsed =
-      it.prezzoUnitario != null
-        ? Number(it.prezzoUnitario)
-        : totaleParsed;
-    // se non ho prezzoUnitario, imposto qty a 1 per non moltiplicare due volte
-    const qtyToStore = it.prezzoUnitario != null ? qtyParsed : 1;
+    const totalPrice = Number(it.prezzoTotale) || 0;
+    const amountToStore = totalPrice;  // il prezzo è già il totale
+    const qtyToStore = 1;               // quindi memorizziamo sempre quantità = 1
 
     return {
-      user_id: user.id,
-      category_id: CATEGORY_ID_CASA,
-      description: `[${it.puntoVendita}] ${it.dettaglio}`,
-      amount: unitarioParsed,
-      spent_at: spentAt,
-      qty: qtyToStore,
+      user_id:      user.id,
+      category_id:  CATEGORY_ID_CASA,
+      description:  `[${it.puntoVendita}] ${it.dettaglio}`,
+      amount:       amountToStore,
+      spent_at:     spentAt,
+      qty:          qtyToStore,
     };
-  });
+  });  // <-- non dimenticare il punto e virgola qui
 
+  // inserisco su Supabase
   const { error: dbErr } = await supabase.from('finances').insert(rows);
   if (dbErr) throw dbErr;
 
-  // ricarico la lista e popolo il form con l'ultimo inserimento
-  fetchSpese();
-  const last = rows[rows.length - 1];
+  // ricarico lo storico e precompilo il form con l'ultima spesa
+  await fetchSpese();
+  const last = rows[0];
   setNuovaSpesa({
     puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-    dettaglio: last.description.replace(/^\[.*?\]\s*/, ''),
-    prezzoTotale: last.amount * last.qty,
-    quantita: String(last.qty),
-    spentAt: last.spent_at,
+    dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
+    prezzoTotale: last.amount,
+    quantita:     String(last.qty),
+    spentAt:      last.spent_at,
   });
 }
 
-  return {
-    user_id: user.id,
-    category_id: CATEGORY_ID_CASA,
-    description: `[${it.puntoVendita}] ${it.dettaglio}`,
-    amount: unitarioParsed,
-    spent_at: spentAt,
-    qty: qtyToStore,
-  }
-})
-    const { error: dbErr } = await supabase.from('finances').insert(rows)
-    if (dbErr) throw dbErr
-
-    fetchSpese()
-    const f = rows[0]
-    setNuovaSpesa({
-      puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
-      prezzoTotale: f.amount,
-      quantita: String(f.qty),
-      spentAt: f.spent_at,
-    })
-  }
 
   // ───────────────────────────────────────────────────────────── RENDER
   const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
