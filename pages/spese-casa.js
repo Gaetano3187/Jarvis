@@ -14,8 +14,8 @@ function SpeseCasa() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [recBusy, setRecBusy] = useState(false)
-  const fileInputRef = useRef(null)
-  const cameraInputRef = useRef(null)
+const galleryInputRef = useRef(null)
+const cameraInputRef  = useRef(null)
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
