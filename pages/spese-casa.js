@@ -198,36 +198,72 @@ Ora capisci la frase seguente e compila i campi:
 }
 
   // ───────────────────────────────────────────────── PARSING & DB INSERT
-  async function parseAssistantPrompt(prompt) {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    })
-    const { answer, error: apiErr } = await res.json()
-    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
-    const data = JSON.parse(answer)
-    if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
-      throw new Error('Assistant response invalid')
+async function parseAssistantPrompt(prompt) {
+  const res = await fetch('/api/assistant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  });
+  const { answer, error: apiErr } = await res.json();
+  if (!res.ok || apiErr) throw new Error(apiErr || res.status);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) throw new Error('Sessione scaduta')
+  const data = JSON.parse(answer);
+  if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
+    throw new Error('Assistant response invalid');
+  }
 
-    const rows = data.items.map(it => {
-  // estraggo i numeri
-  const qtyParsed = parseFloat(it.quantita) || 1
-  const totaleParsed = Number(it.prezzoTotale) || 0
-  const unitarioParsed =
-    it.prezzoUnitario != null
-      ? Number(it.prezzoUnitario)
-      : totaleParsed
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sessione scaduta');
 
-  // se non ho un prezzoUnitario valido, la quantità va forzata a 1
-  const qtyToStore = it.prezzoUnitario != null ? qtyParsed : 1
-  let spentAt = it.data
-  // … eventuale logica per 'oggi' / 'ieri' …
+  // mappiamo ogni item decidendo se il prezzo è unitario o già totale
+  const rows = data.items.map(it => {
+    // calcolo data
+    let spentAt = it.data;
+    if (spentAt === 'oggi') {
+      spentAt = new Date().toISOString().slice(0, 10);
+    } else if (spentAt === 'ieri') {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      spentAt = d.toISOString().slice(0, 10);
+    }
+
+    // estraggo quantità e prezzi
+    const qtyParsed = parseFloat(it.quantita) || 1;
+    const totaleParsed = Number(it.prezzoTotale) || 0;
+    // se prezzoUnitario è definito, lo uso; altrimenti considero il prezzoTotale
+    const unitarioParsed =
+      it.prezzoUnitario != null
+        ? Number(it.prezzoUnitario)
+        : totaleParsed;
+    // se non ho prezzoUnitario, imposto qty a 1 per non moltiplicare due volte
+    const qtyToStore = it.prezzoUnitario != null ? qtyParsed : 1;
+
+    return {
+      user_id: user.id,
+      category_id: CATEGORY_ID_CASA,
+      description: `[${it.puntoVendita}] ${it.dettaglio}`,
+      amount: unitarioParsed,
+      spent_at: spentAt,
+      qty: qtyToStore,
+    };
+  });
+
+  const { error: dbErr } = await supabase.from('finances').insert(rows);
+  if (dbErr) throw dbErr;
+
+  // ricarico la lista e popolo il form con l'ultimo inserimento
+  fetchSpese();
+  const last = rows[rows.length - 1];
+  setNuovaSpesa({
+    puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
+    dettaglio: last.description.replace(/^\[.*?\]\s*/, ''),
+    prezzoTotale: last.amount * last.qty,
+    quantita: String(last.qty),
+    spentAt: last.spent_at,
+  });
+}
 
   return {
     user_id: user.id,
@@ -238,17 +274,6 @@ Ora capisci la frase seguente e compila i campi:
     qty: qtyToStore,
   }
 })
-
-      return {
-        user_id: user.id,
-        category_id: CATEGORY_ID_CASA,
-        description: `[${it.puntoVendita}] ${it.dettaglio}`,
-        amount: Number(it.prezzoTotale) || 0,
-        spent_at: spentAt,
-        qty: parseFloat(it.quantita) || 1,
-      }
-    })
-
     const { error: dbErr } = await supabase.from('finances').insert(rows)
     if (dbErr) throw dbErr
 
