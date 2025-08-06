@@ -45,8 +45,9 @@ function SpeseCasa() {
 
     if (error) setError(error.message)
     else setSpese(data)
+
     setLoading(false)
-  } 
+  }
 
   /* ------------------------- INSERIMENTO MANUALE ------------------------ */
   const handleAdd = async (e) => {
@@ -62,14 +63,14 @@ function SpeseCasa() {
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
-      description: [${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio},
+      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
       amount: Number(nuovaSpesa.prezzoTotale),
       spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
-    const { error } = await supabase.from('finances').insert(row)
-    if (error) setError(error.message)
+    const { error: insertError } = await supabase.from('finances').insert(row)
+    if (insertError) setError(insertError.message)
     else {
       setNuovaSpesa({
         puntoVendita: '',
@@ -84,8 +85,8 @@ function SpeseCasa() {
 
   /* ------------------------------ DELETE -------------------------------- */
   const handleDelete = async (id) => {
-    const { error } = await supabase.from('finances').delete().eq('id', id)
-    if (error) setError(error.message)
+    const { error: deleteError } = await supabase.from('finances').delete().eq('id', id)
+    if (deleteError) setError(deleteError.message)
     else setSpese(spese.filter((r) => r.id !== id))
   }
 
@@ -106,13 +107,10 @@ function SpeseCasa() {
 
   /* ----------------------------- RECORDING ------------------------------ */
   const toggleRec = async () => {
-    // stop
     if (recBusy) {
       mediaRecRef.current?.stop()
       return
     }
-
-    // start
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
@@ -139,16 +137,39 @@ function SpeseCasa() {
     } catch {
       setError('STT fallito')
     } finally {
-      setRecBusy(false) // icona torna normale
+      setRecBusy(false)
     }
   }
 
   /* -------------------------- SYSTEM PROMPT ----------------------------- */
- const buildSystemPrompt = (source, userText) => {
-  return 
-Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
+  const buildSystemPrompt = (source, userText) => {
+    return `
 
-ESEMPIO 1
+    **ATTENZIONE:** il testo che segue è il risultato di una trascrizione vocale.  
+Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come “ehm”, “allora”, “ok”.  
+**Ignora** questi artefatti e concentra l’attenzione solo sui dati di spesa.
+
+**CONTESTO:** l’utente sta annotando una **spesa domestica**. Tu sei Jarvis, un assistente che estrae da frasi in italiano i dettagli di un acquisto e restituisce **solo** JSON valido.
+
+Rispondi **esclusivamente** con JSON conforme al seguente schema, senza testo aggiuntivo:
+
+json
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": string,
+      "dettaglio": string,
+      "prezzoTotale": number,
+      "quantita": number,
+      "data": "YYYY-MM-DD" | "<oggi>" | "<ieri>",
+      "categoria": string,
+      "category_id": "${CATEGORY_ID_CASA}"
+    }
+  ]
+}
+
+ESEMPIO 1 (non da ripetere)
 Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
 Output:
 {
@@ -161,12 +182,12 @@ Output:
       "quantita":3,
       "data":"2025-07-10",
       "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
+      "category_id":"\${CATEGORY_ID_CASA}"
     }
   ]
 }
 
-ESEMPIO 2
+ESEMPIO 2 (non da ripetere)
 Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
 Output:
 {
@@ -177,253 +198,15 @@ Output:
       "dettaglio":"1 confezione di latte",
       "prezzoTotale":20.00,
       "quantita":1,
-      "data":"<ODIERNA>",
+      "data":"<oggi>",
       "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
+      "category_id":"\${CATEGORY_ID_CASA}"
     }
   ]
-}
-
-ESEMPIO 3
-Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Cinema Lux",
-      "dettaglio": "2 biglietti del cinema",
-      "prezzoTotale": 18.00,
-      "quantita": 2,
-      "data": "<IERI>",
-      "categoria": "tempo libero",
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-
-ESEMPIO 4
-Input: "Ho speso 45,99€ su Amazon per un paio di cuffie il 15 giugno 2025"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Amazon",
-      "dettaglio": "1 paio di cuffie",
-      "prezzoTotale": 45.99,
-      "quantita": 1,
-      "data": "2025-06-15",
-      "categoria": "tecnologia",
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-
-ESEMPIO 5
-Input: "Al benzinaio Shell ho fatto il pieno: 50 litri di benzina a 1,80 al litro"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Shell",
-      "dettaglio": "50 litri di benzina",
-      "prezzoTotale": 90.00,
-      "quantita": 50,
-      "data": "<ODIERNA>",
-      "categoria": "trasporti",
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-
-ESEMPIO 6
-Input: "Ho ordinato da Just Eat 3 pizze margherita per 24 euro totali"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Just Eat",
-      "dettaglio": "3 pizze margherita",
-      "prezzoTotale": 24.00,
-      "quantita": 3,
-      "data": "<ODIERNA>",
-      "categoria": "casa",
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-
-ESEMPIO 7
-Input: "Pagato abbonamento palestra mensile di 60€ oggi"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Palestra (abbonamento)",
-      "dettaglio": "Abbonamento mensile palestra",
-      "prezzoTotale": 60.00,
-      "quantita": 1,
-      "data": "<ODIERNA>",
-      "categoria": "salute",
-      "category_id": "${CATEGORY_ID_VARIE}"
-    }
-  ]
-}
-
-ESEMPIO 8
-Input: "Ho comprato un biglietto del treno Frecciarossa Roma-Milano per 79,50€ il 2 agosto 2025"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Frecciarossa",
-      "dettaglio": "Biglietto treno Roma-Milano",
-      "prezzoTotale": 79.50,
-      "quantita": 1,
-      "data": "2025-08-02",
-      "categoria": "trasporti",
-      "category_id": "${CATEGORY_ID_VARIE}"
-    }
-  ]
-}
-
-ESEMPIO 9
-Input: "Ho speso 12 euro al bar Caffè Italia per due cappuccini e due cornetti questa mattina"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Caffè Italia",
-      "dettaglio": "2 cappuccini e 2 cornetti",
-      "prezzoTotale": 12.00,
-      "quantita": 4,
-      "data": "<ODIERNA>",
-      "categoria": "casa",
-      "category_id": "${CATEGORY_ID_CASA}"
-    }
-  ]
-}
-
-ESEMPIO 10 – Vestiti
-Input: "Ieri ho comprato da Zara 2 magliette a 12,99€ ciascuna"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Zara",
-      "dettaglio": "2 magliette",
-      "prezzoTotale": 25.98,
-      "quantita": 2,
-      "data": "<IERI>",
-      "categoria": "vestiti",
-      "category_id": "${CATEGORY_ID_VESTITI}"
-    }
-  ]
-}
-
-ESEMPIO 11 – Vestiti
-Input: "Ho preso un paio di jeans Levi's su Amazon a 59,90 euro il 18 aprile 2025"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Amazon",
-      "dettaglio": "1 paio di jeans Levi's",
-      "prezzoTotale": 59.90,
-      "quantita": 1,
-      "data": "2025-04-18",
-      "categoria": "vestiti",
-      "category_id": "${CATEGORY_ID_VESTITI}"
-    }
-  ]
-}
-
-ESEMPIO 12 – Cene
-Input: "Stasera cena al Ristorante Da Gino: conto totale 80 euro per 2 persone"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Ristorante Da Gino",
-      "dettaglio": "2 coperti (cena)",
-      "prezzoTotale": 80.00,
-      "quantita": 2,
-      "data": "<ODIERNA>",
-      "categoria": "cene",
-      "category_id": "${CATEGORY_ID_CENE}"
-    }
-  ]
-}
-
-ESEMPIO 13 – Cene
-Input: "Ho speso 35,50€ per una cena da Sushi House ieri sera"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Sushi House",
-      "dettaglio": "1 cena",
-      "prezzoTotale": 35.50,
-      "quantita": 1,
-      "data": "<IERI>",
-      "categoria": "cene",
-      "category_id": "${CATEGORY_ID_CENE}"
-    }
-  ]
-}
-
-ESEMPIO 14 – Varie
-Input: "Ricarica telefonica Vodafone 20 euro oggi"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Vodafone",
-      "dettaglio": "Ricarica telefonica",
-      "prezzoTotale": 20.00,
-      "quantita": 1,
-      "data": "<ODIERNA>",
-      "categoria": "varie",
-      "category_id": "${CATEGORY_ID_VARIE}"
-    }
-  ]
-}
-
-ESEMPIO 15 – Varie
-Input: "Pagato parcheggio 4 ore al Parcheggio Centrale: 8 euro il 25 luglio 2025"
-Output:
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Parcheggio Centrale",
-      "dettaglio": "4 ore di parcheggio",
-      "prezzoTotale": 8.00,
-      "quantita": 4,
-      "data": "2025-07-25",
-      "categoria": "varie",
-      "category_id": "${CATEGORY_ID_VARIE}"
-    }
-  ]
-}
-
-Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
-"${userText}"
-;
-};
-
-
+Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
+"\${userText}"
+`
+  }
   /* ---------------------- CHIAMATA E PARSING GPT ------------------------ */
   async function parseAssistantPrompt(prompt) {
     try {
@@ -436,13 +219,13 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       if (!res.ok) {
         const txt = await res.text()
         console.error('assistant error', res.status, txt)
-        setError(Assistant ${res.status})
+        setError(`Assistant ${res.status}`)
         return
       }
 
       const { answer, error: apiErr } = await res.json()
       if (apiErr) {
-        setError(Assistant: ${apiErr})
+        setError(`Assistant: ${apiErr}`)
         return
       }
 
@@ -461,9 +244,7 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       const rows = data.items.map((it) => ({
         user_id: user.id,
         category_id: CATEGORY_ID_CASA,
-        description: [${it.puntoVendita || 'Sconosciuto'}] ${
-          it.dettaglio || 'spesa'
-        },
+        description: `[${it.puntoVendita || 'Sconosciuto'}] ${it.dettaglio || 'spesa'}`,
         amount: Number(it.prezzoTotale || 0),
         spent_at: it.data || new Date().toISOString(),
         qty: parseInt(it.quantita || 1, 10),
@@ -649,7 +430,7 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
       </div>
 
       {/* --------------------------- STYLE --------------------------- */}
-      <style jsx global>{
+      <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
@@ -768,7 +549,7 @@ Ora capisci la frase seguente (proveniente da **${source}**) e compila i campi:
             font-size: 0.95rem;
           }
         }
-      }</style>
+      `}</style>
     </>
   )
 }
