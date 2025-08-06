@@ -162,7 +162,7 @@ json
       "dettaglio": string,
       "prezzoTotale": number,
       "quantita": number,
-      "data": "YYYY-MM-DD" | "<ODIERNA>" | "<IERI>",
+      "data": "YYYY-MM-DD" | "<oggi>" | "<IERI>",
       "categoria": string,
       "category_id": "${CATEGORY_ID_CASA}"
     }
@@ -198,7 +198,7 @@ Output:
       "dettaglio":"1 confezione di latte",
       "prezzoTotale":20.00,
       "quantita":1,
-      "data":"<ODIERNA>",
+      "data": "YYYY-MM-DD" | "<oggi>" |
       "categoria":"casa",
       "category_id":"\${CATEGORY_ID_CASA}"
     }
@@ -252,7 +252,7 @@ Output:
       "dettaglio": "50 litri di benzina",
       "prezzoTotale": 90.00,
       "quantita": 50,
-      "data": "<ODIERNA>",
+      "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "trasporti",
       "category_id": "\${CATEGORY_ID_CASA}"
     }
@@ -270,7 +270,7 @@ Output:
       "dettaglio": "3 pizze margherita",
       "prezzoTotale": 24.00,
       "quantita": 3,
-      "data": "<ODIERNA>",
+      "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "casa",
       "category_id": "\${CATEGORY_ID_CASA}"
     }
@@ -288,7 +288,7 @@ Output:
       "dettaglio": "Abbonamento mensile palestra",
       "prezzoTotale": 60.00,
       "quantita": 1,
-      "data": "<ODIERNA>",
+      "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "salute",
       "category_id": "\${CATEGORY_ID_VARIE}"
     }
@@ -324,7 +324,7 @@ Output:
       "dettaglio": "2 cappuccini e 2 cornetti",
       "prezzoTotale": 12.00,
       "quantita": 4,
-      "data": "<ODIERNA>",
+      "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "casa",
       "category_id": "\${CATEGORY_ID_CASA}"
     }
@@ -378,7 +378,7 @@ Output:
       "dettaglio": "2 coperti (cena)",
       "prezzoTotale": 80.00,
       "quantita": 2,
-      "data": "<ODIERNA>",
+      "data": "YYYY-MM-DD" | "<oggi>" |,
       "categoria": "cene",
       "category_id": "\${CATEGORY_ID_CENE}"
     }
