@@ -5,6 +5,7 @@ import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 import { askAssistant } from '@/lib/assistant'
+import { useRef } from 'react'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
@@ -13,6 +14,8 @@ function SpeseCasa() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [recBusy, setRecBusy] = useState(false)
+  const fileInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
@@ -25,6 +28,13 @@ function SpeseCasa() {
   const ocrInputRef = useRef(null)
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
+   const handleOCRButtonClick = () => {
+    const useCamera = window.confirm(
+      'Vuoi scattare una foto con la fotocamera?\n\n‘OK’ → fotocamera\n‘Annulla’ → seleziona un file'
+    )
+    if (useCamera) cameraInputRef.current?.click()
+    else fileInputRef.current?.click()
+  }
 
   useEffect(() => {
     fetchSpese()
