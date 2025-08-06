@@ -83,7 +83,7 @@ function SpeseCasa() {
 
   // ────────────────────────────────────────────────────────── OCR
   const handleOCR = async file => {
-    console.log('▶️ handleOCR chiamato con file:', file)
+    console.log('▶️ handleOCR chiamato con file:', file
   if (!file) return
     try {
       const fd = new FormData()
