@@ -170,7 +170,7 @@ Frase:
 `
   }
 
-  // parsing e inserimento DB (solo qui cambia il fallback sulla descrizione)
+  // parsing e inserimento DB (qui il fallback esteso su tutte le chiavi possibili)
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -179,6 +179,7 @@ Frase:
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+
     const data = JSON.parse(answer)
     if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0)
       throw new Error('Risposta assistant non valida')
@@ -189,6 +190,7 @@ Frase:
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
+      // normalizza data
       let spentAt = it.data
       if (spentAt === 'oggi') {
         spentAt = new Date().toISOString().slice(0, 10)
@@ -197,8 +199,14 @@ Frase:
         d.setDate(d.getDate() - 1)
         spentAt = d.toISOString().slice(0, 10)
       }
-      // qui il fallback su 'descrizione' oppure 'description'
-      const descr = it.descrizione ?? it.description ?? ''
+      // fallback su tutte le possibili chiavi di descrizione
+      const descr = (
+        it.descrizione ??
+        it.Descrizione ??
+        it.description ??
+        it.Description ??
+        ''
+      ).trim()
 
       return {
         user_id:     user.id,
@@ -288,9 +296,7 @@ Frase:
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
             />
 
-            <button type="submit" className="btn-manuale">
-              Salva
-            </button>
+            <button type="submit" className="btn-manuale">Salva</button>
           </form>
 
           <div className="table-container">
@@ -372,17 +378,14 @@ Frase:
           border-radius: 0.5rem;
           cursor: pointer;
         }
-        .btn-ocr {
-          background: #f43f5e;
-        }
+        .btn-ocr { background: #f43f5e; }
         .input-section {
           display: flex;
           flex-direction: column;
           gap: 0.75rem;
           margin-bottom: 1.5rem;
         }
-        input,
-        textarea {
+        input, textarea {
           width: 100%;
           padding: 0.6rem;
           border: none;
@@ -390,19 +393,9 @@ Frase:
           background: rgba(255, 255, 255, 0.1);
           color: #fff;
         }
-        textarea {
-          resize: vertical;
-          min-height: 4.5rem;
-        }
-        .custom-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        .custom-table thead {
-          background: #1f2937;
-        }
-        .custom-table th,
-        .custom-table td {
+        .custom-table { width: 100%; border-collapse: collapse; }
+        .custom-table thead { background: #1f2937; }
+        .custom-table th, .custom-table td {
           padding: 0.75rem 1rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
@@ -414,10 +407,7 @@ Frase:
           text-align: right;
           font-weight: 600;
         }
-        .error {
-          color: #f87171;
-          margin-top: 1rem;
-        }
+        .error { color: #f87171; margin-top: 1rem; }
       `}</style>
     </>
   )
