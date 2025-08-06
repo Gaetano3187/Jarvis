@@ -131,37 +131,23 @@ function SpeseCasa() {
   }
 
   // ───────────────────────────────────────────────── SYSTEM PROMPT
-  const buildSystemPrompt = (source, userText, fileName = '') => {
-    if (source === 'ocr') {
-      return `
-Sei Jarvis. Dal testo OCR qui sotto devi estrarre **tutte le righe** di spesa presenti, esattamente una per ogni prodotto/servizio sullo scontrino.
+const buildSystemPrompt = (source, userText, fileName) => {
+  if (source === 'ocr') {
+    // ← tutta questa parte è un’unica template literal aperta da `
+    return `
+Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).
 
-– Mantieni l’ordine delle righe.  
-– Rispondi **solo** con JSON, niente spiegazioni.  
-– Lo schema è:
+Ogni spesa deve avere:
+- puntoVendita: string
+- dettaglio: string
+- prezzoUnitario: number | null
+- quantita: number
+- prezzoTotale: number
+- data: "YYYY-MM-DD" (estratta direttamente dal testo)
+
+Rispondi **solo** con JSON conforme a questo schema:
 \`\`\`json
 {
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "…",
-      "dettaglio": "…",
-      "prezzoUnitario": numero o null,
-      "quantita": numero,
-      "prezzoTotale": numero,
-      "data": "YYYY-MM-DD"
-    }
-    // …una entry per ogni riga di scontrino…
-  ]
-}
-\`\`\`
-
-TESTO OCR:
-\`\`\`
-${userText.trim()}
-\`\`\`
-`
-}
   "type": "expense",
   "items": [
     {
@@ -172,17 +158,18 @@ ${userText.trim()}
       "prezzoTotale": 20.00,
       "data": "2025-08-06"
     }
+    /* altri items… */
   ]
 }
 \`\`\`
 
 CONTENUTO OCR (${fileName}):
 ${userText}
-`
-    }
+`;  // ← chiudo qui la template literal con back-tick
+  }
 
-    // prompt per vocale / testo libero
-    return `
+  // altrimenti, per la voce
+  return `
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
 Ora estrai **solo** JSON spesa (stesso schema di prima).
@@ -207,8 +194,8 @@ Output:
 
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
-`
-  }
+`;
+}
 
   // ───────────────────────────────────────────────── PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
