@@ -1,64 +1,66 @@
-// pages/api/ocr.js
 import { IncomingForm } from 'formidable'
-import { promises as fs } from 'fs'
+import fs from 'fs'
 import { createWorker } from 'tesseract.js'
-import coreWasm from 'tesseract.js-core/tesseract-core-simd.wasm'
 
 export const config = {
   api: {
-    bodyParser: false, // disabilita il parser built-in di Next.js
+    bodyParser: false, // disabilitiamo il parsing built-in
   },
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST')
-    console.log('→ /api/ocr ricevuta richiesta'); {
+  console.log('→ [OCR API] Ricevuta richiesta:', req.method)
+  if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // 1) parse multipart/form-data
-  let files
-  try {
-    ;({ files } = await new Promise((resolve, reject) => {
-      const form = new IncomingForm()
-      form.parse(req, (err, _fields, files) =>
-        err ? reject(err) : resolve({ files })
-      )
-    }))
-    console.log('OCR: files:', files);
-  } catch (err) {
-    console.error('OCR parse error:', err)
-    return res.status(500).json({ error: 'Error parsing form' })
-  }
+  const form = new IncomingForm()
+  form.parse(req, async (err, fields, files) => {
+    console.log('→ [OCR API] form.parse callback, err:', err)
+    console.log('→ [OCR API] files:', files)
 
-  const imagePath = files.image.filepath
+    if (err) {
+      console.error('→ [OCR API] Errore parsing form:', err)
+      return res.status(500).json({ error: 'Error parsing form', detail: err.message })
+    }
 
-  // 2) istanzio Tesseract con corePath corretta
-  const worker = createWorker({
-    corePath: coreWasm,
-    logger: m => console.log('OCR:', m),
-    gzip: false,
+    const file = files.image
+    if (!file) {
+      console.error('→ [OCR API] Nessun file ricevuto')
+      return res.status(400).json({ error: 'No image file provided' })
+    }
+
+    const imagePath = file.filepath
+    let worker
+    try {
+      worker = createWorker({
+        logger: m => console.log('   [OCR]', m),
+      })
+      console.log('→ [OCR API] Inizializzo worker')
+      await worker.load()
+      await worker.loadLanguage('ita')
+      await worker.initialize('ita')
+
+      console.log('→ [OCR API] Riconoscimento in corso…')
+      const {
+        data: { text },
+      } = await worker.recognize(imagePath)
+      console.log('→ [OCR API] Testo estratto:', text.trim().slice(0, 100), '…')
+      res.status(200).json({ text })
+    } catch (e) {
+      console.error('→ [OCR API] Errore OCR:', e)
+      res.status(500).json({ error: 'OCR failed', detail: e.message })
+    } finally {
+      if (worker) {
+        console.log('→ [OCR API] Terminazione worker')
+        await worker.terminate()
+      }
+      try {
+        fs.unlinkSync(imagePath)
+        console.log('→ [OCR API] File temporaneo rimosso')
+      } catch (e) {
+        console.warn('→ [OCR API] Impossibile rimuovere file temporaneo:', e)
+      }
+    }
   })
-
-  try {
-    await worker.load()
-    await worker.loadLanguage('ita')
-    await worker.initialize('ita')
-
-    const {
-      data: { text },
-    } = await worker.recognize(imagePath)
-
-    // 3) termina il worker e cancella il file temporaneo
-    await worker.terminate()
-    await fs.unlink(imagePath)
-
-    return res.status(200).json({ text })
-  } catch (err) {
-    console.error('OCR failed:', err)
-    // assicuriamoci sempre di terminare e pulire
-    try { await worker.terminate() } catch {}
-    try { await fs.unlink(imagePath) } catch {}
-    return res.status(500).json({ error: 'OCR failed' })
-  }
 }
