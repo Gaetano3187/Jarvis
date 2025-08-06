@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabaseClient'
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
 function SpeseCasa() {
+  // ─────────────────────────────────────────────── Stati e refs
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -25,6 +26,7 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
+  // ─────────────────────────────────────────────── Carica storico on mount
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -41,6 +43,7 @@ function SpeseCasa() {
     setLoading(false)
   }
 
+  // ─────────────────────────────────────────────── Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
     const {
@@ -53,7 +56,7 @@ function SpeseCasa() {
       category_id: CATEGORY_ID_CASA,
       description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
       amount: Number(nuovaSpesa.prezzoTotale),
-      spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
+      spent_at: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
@@ -70,7 +73,8 @@ function SpeseCasa() {
       fetchSpese()
     }
   }
-}
+
+  // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
     const { error: deleteError } = await supabase
       .from('finances')
@@ -80,23 +84,23 @@ function SpeseCasa() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ────────────────────────────────────────────────────────── OCR
+  // ─────────────────────────────────────────────── OCR multiplo
   const handleOCR = async files => {
-    console.log('▶️ handleOCR chiamato con files:', files)
+    console.log('▶️ handleOCR chiamato con file(s):', files)
     if (!files || files.length === 0) return
     try {
       const fd = new FormData()
       files.forEach(f => fd.append('images', f))
       const res = await fetch('/api/ocr', { method: 'POST', body: fd })
       const { text } = await res.json()
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text, files[0].name))
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text, files.map(f => f.name).join(', ')))
     } catch (err) {
       console.error(err)
       setError('OCR fallito')
     }
   }
 
-  // ───────────────────────────────────────────────────── VOICE RECORDING
+  // ─────────────────────────────────────────────── Registrazione audio
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -130,12 +134,11 @@ function SpeseCasa() {
     }
   }
 
-  // ───────────────────────────────────────────────── SYSTEM PROMPT
-const buildSystemPrompt = (source, userText, fileName) => {
-  if (source === 'ocr') {
-    // ← tutta questa parte è un’unica template literal aperta da `
-    return `
-Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non data di inserimento).
+  // ─────────────────────────────────────────────── Costruisci prompt
+  function buildSystemPrompt(source, userText, fileName) {
+    if (source === 'ocr') {
+      return `
+Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in JSON, **usando la data** presente sullo scontrino (non la data di inserimento).
 
 Ogni spesa deve avere:
 - puntoVendita: string
@@ -158,18 +161,16 @@ Rispondi **solo** con JSON conforme a questo schema:
       "prezzoTotale": 20.00,
       "data": "2025-08-06"
     }
-    /* altri items… */
   ]
 }
 \`\`\`
 
 CONTENUTO OCR (${fileName}):
 ${userText}
-`;  // ← chiudo qui la template literal con back-tick
-  }
-
-  // altrimenti, per la voce
-  return `
+`
+    }
+    // prompt per la voce
+    return `
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
 Ora estrai **solo** JSON spesa (stesso schema di prima).
@@ -194,76 +195,64 @@ Output:
 
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
-`;
-}
-
- // ───────────────────────────────────────────────── PARSING & DB INSERT
-async function parseAssistantPrompt(prompt) {
-  // invio a /api/assistant per far generare il JSON
-  const res = await fetch('/api/assistant', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  });
-  const { answer, error: apiErr } = await res.json();
-  if (!res.ok || apiErr) throw new Error(apiErr || res.status);
-
-  // controllo base sulla risposta
-  const data = JSON.parse(answer);
-  if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
-    throw new Error('Assistant response invalid');
+`
   }
 
-  // prendo l'utente corrente
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error('Sessione scaduta');
+  // ─────────────────────────────────────────────── Parsing AI & DB insert
+  async function parseAssistantPrompt(prompt) {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    })
+    const { answer, error: apiErr } = await res.json()
+    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
 
-  // preparo le righe da inserire: prezzoTotale è già il totale, quindi qty = 1
-  const rows = data.items.map(it => {
-    // estraggo e normalizzo la data
-    let spentAt = it.data;
-    if (spentAt === 'oggi') {
-      spentAt = new Date().toISOString().slice(0, 10);
-    } else if (spentAt === 'ieri') {
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      spentAt = d.toISOString().slice(0, 10);
+    const data = JSON.parse(answer)
+    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Assistant response invalid')
     }
 
-    const totalPrice = Number(it.prezzoTotale) || 0;
-    const amountToStore = totalPrice;  // il prezzo è già il totale
-    const qtyToStore = 1;               // quindi memorizziamo sempre quantità = 1
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error('Sessione scaduta')
 
-    return {
-      user_id:      user.id,
-      category_id:  CATEGORY_ID_CASA,
-      description:  `[${it.puntoVendita}] ${it.dettaglio}`,
-      amount:       amountToStore,
-      spent_at:     spentAt,
-      qty:          qtyToStore,
-    };
+    const rows = data.items.map(it => {
+      let spentAt = it.data
+      if (spentAt === 'oggi') {
+        spentAt = new Date().toISOString().slice(0, 10)
+      } else if (spentAt === 'ieri') {
+        const d = new Date()
+        d.setDate(d.getDate() - 1)
+        spentAt = d.toISOString().slice(0, 10)
+      }
+      const totalPrice = Number(it.prezzoTotale) || 0
+      return {
+        user_id:      user.id,
+        category_id:  CATEGORY_ID_CASA,
+        description:  `[${it.puntoVendita}] ${it.dettaglio}`,
+        amount:       totalPrice,
+        spent_at:     spentAt,
+        qty:          1,
+      }
+    })
+
+    const { error: dbErr } = await supabase.from('finances').insert(rows)
+    if (dbErr) throw dbErr
+
+    await fetchSpese()
+    const last = rows[0]
+    setNuovaSpesa({
+      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
+      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
+      prezzoTotale: last.amount,
+      quantita:     String(last.qty),
+      spentAt:      last.spent_at,
+    })
   }
 
-  // inserisco su Supabase
-  const { error: dbErr } = await supabase.from('finances').insert(rows);
-  if (dbErr) throw dbErr;
-
-  // ricarico lo storico e precompilo il form con l'ultima spesa
-  await fetchSpese();
-  const last = rows[0];
-  setNuovaSpesa({
-    puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-    dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
-    prezzoTotale: last.amount,
-    quantita:     String(last.qty),
-    spentAt:      last.spent_at,
-
-};
-
-
-  // ───────────────────────────────────────────────────────────── RENDER
+  // ─────────────────────────────────────────────── Render
   const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   return (
@@ -274,9 +263,7 @@ async function parseAssistantPrompt(prompt) {
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
-            🏠 Spese Casa
-          </h2>
+          <h2 className="title">🏠 Spese Casa</h2>
 
           <div className="table-buttons">
             <button className="btn-vocale" onClick={toggleRec}>
@@ -285,18 +272,17 @@ async function parseAssistantPrompt(prompt) {
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
               📷 OCR
             </button>
+            <input
+              ref={ocrInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              hidden
+              onChange={e => handleOCR(Array.from(e.target.files || []))}
+            />
           </div>
 
-          <input
-  ref={ocrInputRef}
-   type="file"
-  accept="image/*"
-   multiple
-  hidden
-   onChange={e => handleOCR(Array.from(e.target.files || []))}
- />
-
-          {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label>Punto vendita / Servizio</label>
             <input
@@ -333,12 +319,9 @@ async function parseAssistantPrompt(prompt) {
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
               required
             />
-            <button className="btn-manuale" style={{ width: 'fit-content' }}>
-              Aggiungi
-            </button>
+            <button className="btn-manuale">Aggiungi</button>
           </form>
 
-          {/* —————— Tabella storico —————— */}
           <div className="table-container">
             {loading ? (
               <p>Caricamento…</p>
@@ -376,52 +359,55 @@ async function parseAssistantPrompt(prompt) {
             <div className="total-box">Totale: € {totale.toFixed(2)}</div>
           </div>
 
-          {error && <p style={{ color: 'red' }}>{error}</p>}
+          {error && <p className="error">{error}</p>}
 
           <Link href="/home">
-            <a className="btn-vocale" style={{ marginTop: '1.5rem' }}>
-              🏠 Home
-            </a>
+            <a className="btn-vocale">🏠 Home</a>
           </Link>
         </div>
       </div>
 
-      <style jsx global>{`
+      <style jsx>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
-          min-height: 100vh;
           align-items: center;
           justify-content: center;
           background: #0f172a;
-          font-family: Inter, sans-serif;
+          min-height: 100vh;
           padding: 2rem;
+          font-family: Inter, sans-serif;
         }
         .spese-casa-container2 {
-          max-width: 800px;
-          width: 100%;
           background: rgba(0, 0, 0, 0.6);
           padding: 2rem;
           border-radius: 1rem;
           color: #fff;
           box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 800px;
+          width: 100%;
+        }
+        .title {
+          margin-bottom: 1rem;
+          font-size: 1.5rem;
         }
         .table-buttons {
           display: flex;
           gap: 1rem;
           margin-bottom: 1.5rem;
         }
+        .btn-vocale,
+        .btn-ocr,
         .btn-manuale {
-          background: #22c55e;
-          color: #fff;
-        }
-        .btn-vocale {
           background: #10b981;
           color: #fff;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+          cursor: pointer;
         }
         .btn-ocr {
           background: #f43f5e;
-          color: #fff;
         }
         .input-section {
           display: flex;
@@ -439,20 +425,20 @@ async function parseAssistantPrompt(prompt) {
           color: #fff;
         }
         textarea {
-          min-height: 4.5rem;
           resize: vertical;
+          min-height: 4.5rem;
         }
         .custom-table {
           width: 100%;
           border-collapse: collapse;
         }
-        .custom-table thead {
-          background: #1f2937;
-        }
         .custom-table th,
         .custom-table td {
           padding: 0.75rem 1rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-table thead {
+          background: #1f2937;
         }
         .total-box {
           margin-top: 1rem;
@@ -461,6 +447,10 @@ async function parseAssistantPrompt(prompt) {
           border-radius: 0.5rem;
           text-align: right;
           font-weight: 600;
+        }
+        .error {
+          color: #f87171;
+          margin-top: 1rem;
         }
       `}</style>
     </>
