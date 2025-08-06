@@ -4,7 +4,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
-import { askAssistant } from '@/lib/assistant'   // <-- assicurati che esista ed esporti questa funzione
+import { askAssistant } from '@/lib/assistant'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
@@ -81,23 +81,22 @@ function SpeseCasa() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ───────────────────────────────────────────────────────────────── OCR
+  // ────────────────────────────────────────────────────────── OCR
   const handleOCR = async file => {
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const base64 = reader.result.split(',')[1]
-      try {
-        await parseAssistantPrompt(buildSystemPrompt('ocr', base64))
-      } catch (err) {
-        console.error(err)
-        setError('OCR fallito')
-      }
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      // prima estrai il testo via OCR
+      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json()
+      // poi passa il testo a GPT
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
+    } catch {
+      setError('OCR fallito')
     }
-    reader.readAsDataURL(file)
   }
 
-  // ─────────────────────────────────────────────────────── VOICE RECORDING
+  // ───────────────────────────────────────────────────── VOICE RECORDING
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -122,9 +121,7 @@ function SpeseCasa() {
     const fd = new FormData()
     fd.append('audio', blob, 'voice.webm')
     try {
-      const { text } = await (
-        await fetch('/api/stt', { method: 'POST', body: fd })
-      ).json()
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
       await parseAssistantPrompt(buildSystemPrompt('voice', text))
     } catch {
       setError('STT fallito')
@@ -133,11 +130,11 @@ function SpeseCasa() {
     }
   }
 
-  // ───────────────────────────────────────────────────────── SYSTEM PROMPT
+  // ───────────────────────────────────────────────── SYSTEM PROMPT
   const buildSystemPrompt = (source, userText) => {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questa **immagine** (base64) estrai **solo** i dati di spesa in formato JSON.
+Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in formato JSON.
 
 Ogni spesa deve avere:
 - puntoVendita: string  
@@ -165,16 +162,16 @@ Rispondi **solo** con JSON conforme a questo schema:
 }
 \`\`\`
 
-IMMAGINE_BASE64:
+TESTO_OCR:
 ${userText}
 `
     }
 
-    // === voice ===
+    // per voice / testo libero
     return `
-**ATTENZIONE:** il testo che segue è trascrizione vocale, potrebbe contenere "ehm", "allora". Ignora questi artefatti.
+**ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
-Sei Jarvis, estrai **solo** JSON spesa (stesso schema di prima, ma userText è la frase).
+Ora estrai **solo** JSON spesa (stesso schema di prima).
 
 ESEMPIO:
 Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
@@ -199,7 +196,7 @@ Ora capisci la frase seguente e compila i campi:
 `
   }
 
-  // ───────────────────────────────────────────────────── PARSING & DB INSERT
+  // ───────────────────────────────────────────────── PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -218,7 +215,6 @@ Ora capisci la frase seguente e compila i campi:
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      // data field
       let spentAt = it.data
       if (it.data === 'oggi') {
         spentAt = new Date().toISOString().slice(0, 10)
@@ -241,7 +237,6 @@ Ora capisci la frase seguente e compila i campi:
     if (dbErr) throw dbErr
 
     fetchSpese()
-    // pre-riempi form con il primo item
     const f = rows[0]
     setNuovaSpesa({
       puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
@@ -252,7 +247,7 @@ Ora capisci la frase seguente e compila i campi:
     })
   }
 
-  // ───────────────────────────────────────────────────────── RENDER
+  // ───────────────────────────────────────────────────────────── RENDER
   const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   return (
@@ -376,7 +371,85 @@ Ora capisci la frase seguente e compila i campi:
       </div>
 
       <style jsx global>{`
-        /* qui tutti i tuoi stili identici a prima... */
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          min-height: 100vh;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          font-family: Inter, sans-serif;
+          padding: 2rem;
+        }
+        .spese-casa-container2 {
+          max-width: 800px;
+          width: 100%;
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          flex-wrap: wrap;
+        }
+        .btn-manuale {
+          background: #22c55e;
+          color: #fff;
+        }
+        .btn-vocale {
+          background: #10b981;
+          color: #fff;
+        }
+        .btn-ocr {
+          background: #f43f5e;
+          color: #fff;
+        }
+        input,
+        textarea {
+          width: 100%;
+          padding: 0.6rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
+        }
+        textarea {
+          min-height: 4.5rem;
+          resize: vertical;
+        }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
+        }
+        .custom-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .custom-table thead {
+          background: #1f2937;
+        }
+        .custom-table th,
+        .custom-table td {
+          padding: 0.75rem 1rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-table tbody tr:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .total-box {
+          margin-top: 1rem;
+          background: rgba(34, 197, 94, 0.8);
+          padding: 1rem;
+          border-radius: 0.5rem;
+          text-align: right;
+          font-weight: 600;
+        }
       `}</style>
     </>
   )
