@@ -216,14 +216,29 @@ Ora capisci la frase seguente e compila i campi:
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      let spentAt = it.data
-      if (it.data === 'oggi') {
-        spentAt = new Date().toISOString().slice(0, 10)
-      } else if (it.data === 'ieri') {
-        const d = new Date()
-        d.setDate(d.getDate() - 1)
-        spentAt = d.toISOString().slice(0, 10)
-      }
+  // estraggo i numeri
+  const qtyParsed = parseFloat(it.quantita) || 1
+  const totaleParsed = Number(it.prezzoTotale) || 0
+  const unitarioParsed =
+    it.prezzoUnitario != null
+      ? Number(it.prezzoUnitario)
+      : totaleParsed
+
+  // se non ho un prezzoUnitario valido, la quantità va forzata a 1
+  const qtyToStore = it.prezzoUnitario != null ? qtyParsed : 1
+  let spentAt = it.data
+  // … eventuale logica per 'oggi' / 'ieri' …
+
+  return {
+    user_id: user.id,
+    category_id: CATEGORY_ID_CASA,
+    description: `[${it.puntoVendita}] ${it.dettaglio}`,
+    amount: unitarioParsed,
+    spent_at: spentAt,
+    qty: qtyToStore,
+  }
+})
+
       return {
         user_id: user.id,
         category_id: CATEGORY_ID_CASA,
