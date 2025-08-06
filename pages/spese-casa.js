@@ -162,7 +162,7 @@ json
       "dettaglio": string,
       "prezzoTotale": number,
       "quantita": number,
-      "data": "YYYY-MM-DD" | "<oggi>" | "<IERI>",
+      "data": "YYYY-MM-DD" | "<OGGI>" | "<IERI>",
       "categoria": string,
       "category_id": "${CATEGORY_ID_CASA}"
     }
