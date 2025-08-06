@@ -269,27 +269,49 @@ Ora capisci la frase seguente e compila i campi:
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
-            🏠 Spese Casa
-          </h2>
+         🏠 Spese Casa
+</h2>
+<div className="table-buttons">
+  <button className="btn-vocale" onClick={toggleRec}>
+    {recBusy ? '⏹ Stop' : '🎙 Voce'}
+  </button>
 
-          <div className="table-buttons">
-            <button className="btn-vocale" onClick={toggleRec}>
-              {recBusy ? '⏹ Stop' : '🎙 Voce'}
-            </button>
-            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
-              📷 OCR
-            </button>
-          </div>
+  {/* Bottone per scegliere da galleria */}
+  <button
+    className="btn-ocr"
+    onClick={() => galleryInputRef.current?.click()}
+  >
+    📁 Scegli da galleria
+  </button>
 
-          <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            hidden
-            onChange={e => handleOCR(Array.from(e.target.files || []))}
-          />
+  {/* Bottone per scattare con la camera */}
+  <button
+    className="btn-ocr"
+    onClick={() => cameraInputRef.current?.click()}
+  >
+    📷 Scatta foto
+  </button>
+</div>
+
+{/* input nascosti */}
+<input
+  ref={galleryInputRef}
+  type="file"
+  accept="image/*"
+  multiple
+  hidden
+  onChange={e => handleOCR(Array.from(e.target.files || []))}
+/>
+
+<input
+  ref={cameraInputRef}
+  type="file"
+  accept="image/*"
+  capture="environment"
+  multiple
+  hidden
+  onChange={e => handleOCR(Array.from(e.target.files || []))}
+/>
 
           {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
