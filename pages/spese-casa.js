@@ -271,14 +271,13 @@ Ora capisci la frase seguente e compila i campi:
           </div>
 
           <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            hidden
-            onChange={e => handleOCR(Array.from(e.target.files || []))}
-          />
+  ref={ocrInputRef}
+   type="file"
+  accept="image/*"
+   multiple
+  hidden
+   onChange={e => handleOCR(Array.from(e.target.files || []))}
+ />
 
           {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
