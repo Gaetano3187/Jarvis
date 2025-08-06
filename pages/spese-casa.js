@@ -83,19 +83,24 @@ function SpeseCasa() {
 
   // ────────────────────────────────────────────────────────── OCR
   const handleOCR = async file => {
-   console.log('▶️ handleOCR chiamato con file:', file);
-  if (!file) return
+  function SpeseCasa() {
+  // … tutte le altre useState, useRef, fetchSpese, handleAdd, toggleRec, ecc.
+
+  // ────────────────────────────────────────────────────────── OCR
+  const handleOCR = async (files) => {
+    console.log('▶️ handleOCR chiamato con file(s):', files);
+    if (!files || files.length === 0) return;
     try {
-      const fd = new FormData()
-      fd.append('image', file)
-      // prima estrai il testo via OCR
-      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json()
-      // poi passa il testo a GPT
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
-    } catch {
-      setError('OCR fallito')
+      const fd = new FormData();
+      files.forEach(file => fd.append('images', file));
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd });
+      const { text } = await res.json();
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text));
+    } catch (err) {
+      console.error(err);
+      setError('OCR fallito');
     }
-  }
+  };  // ← **NON DIMENTICARE** questo “};” di chiusura della arrow function
 
   // ───────────────────────────────────────────────────── VOICE RECORDING
   const toggleRec = async () => {
