@@ -142,18 +142,10 @@ function SpeseCasa() {
   }
 
   /* -------------------------- SYSTEM PROMPT ----------------------------- */
-  const buildSystemPrompt = (source, userText) => {
-    return `
+const buildSystemPrompt = (source, userText) => `
+Sei Jarvis, un assistente che estrae **solo** spese domestiche da frasi in italiano e restituisce **unico** JSON valido:
 
-    **ATTENZIONE:** il testo che segue è il risultato di una trascrizione vocale.  
-Potrebbe contenere errori di punteggiatura, parole ripetute o intercalari come “ehm”, “allora”, “ok”.  
-**Ignora** questi artefatti e concentra l’attenzione solo sui dati di spesa.
-
-**CONTESTO:** l’utente sta annotando una **spesa domestica**. Tu sei Jarvis, un assistente che estrae da frasi in italiano i dettagli di un acquisto e restituisce **solo** JSON valido.
-
-Rispondi **esclusivamente** con JSON conforme al seguente schema, senza testo aggiuntivo:
-
-json
+Schema:
 {
   "type": "expense",
   "items": [
@@ -162,71 +154,44 @@ json
       "dettaglio": string,
       "prezzoTotale": number,
       "quantita": number,
-      "data": "YYYY-MM-DD" | "<OGGI>" | "<IERI>",
-      "categoria": string,
+      "data": "YYYY-MM-DD" | "oggi" | "ieri",
+      "categoria": "casa",
       "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
 
-ESEMPIO 1 (non da ripetere)
-Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
-Output:
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Supermercato Rossi",
-      "dettaglio":"3 pacchi di pasta Barilla",
-      "prezzoTotale":2.50,
-      "quantita":3,
-      "data":"2025-07-10",
-      "categoria":"casa",
-      "category_id":"\${CATEGORY_ID_CASA}"
-    }
-  ]
-}
+Regole:
+- Continua **solo** JSON, senza commenti né testo extra.
+- I numeri in decimale usano il punto (es. 2.50).
+- Se non c’è quantità esplicita, usa 1.
+- Se non c’è data, usa "oggi".
 
-ESEMPIO 2 (non da ripetere)
-Input: "Ho comprato al supermercato Orsini Market una confezione di latte a 20 euro"
+Esempio:
+Input: "Ho preso 3 bottiglie di acqua a 1.20 euro al Supermercato Rossi il 5 agosto 2025"
 Output:
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Orsini Market",
-      "dettaglio":"1 confezione di latte",
-      "prezzoTotale":20.00,
-      "quantita":1,
-      "data": "<OGGI>"  
-      "categoria":"casa",
-      "category_id":"\${CATEGORY_ID_CASA}"
-
-    }
-  ]
-}
-ESEMPIO 3
-Input: "Ieri ho acquistato 2 biglietti del cinema a 18 euro in totale al Cinema Lux"
-Output:
+\`\`\`json
 {
   "type": "expense",
   "items": [
     {
-      "puntoVendita": "Cinema Lux",
-      "dettaglio": "2 biglietti del cinema",
-      "prezzoTotale": 18.00,
-      "quantita": 2,
-      "data": "<IERI>",
-      "categoria": "tempo libero",
-      "category_id": "\${CATEGORY_ID_CASA}"
+      "puntoVendita": "Supermercato Rossi",
+      "dettaglio": "3 bottiglie di acqua",
+      "prezzoTotale": 3.60,
+      "quantita": 3,
+      "data": "2025-08-05",
+      "categoria": "casa",
+      "category_id": "${CATEGORY_ID_CASA}"
     }
   ]
 }
+\`\`\`
 
-Ora capisci la frase seguente (proveniente da **\${source}**) e compila i campi:
+Adesso estrai i dati da (\${source}):
 "\${userText}"
-  `;
-};
+`
+}
+
   /* ---------------------- CHIAMATA E PARSING GPT ------------------------ */
 async function parseAssistantPrompt(prompt) {
   try {
