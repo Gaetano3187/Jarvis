@@ -73,16 +73,15 @@ function SpeseCasa() {
     }
   }
 
-const handleOCR = async file => {
-  if (!file) return
+  const handleOCR = async file => {
+    if (!file) return
 
-  // <-- qui dichiari reader
-  const reader = new FileReader()
+    const reader = new FileReader()
 
-  reader.onload = async () => {
-    const base64 = reader.result.split(',')[1]
-    // 2) Costruisci un prompt ad hoc con campi dettagliati
-    const prompt = `
+    reader.onload = async () => {
+      const base64 = reader.result.split(',')[1]
+      // 2) Costruisci un prompt ad hoc con campi dettagliati
+      const prompt = `
 Sei Jarvis. Da questa immagine OCR (base64) estrai **solo** i dati di spesa in formato JSON.
 
 Ogni spesa deve avere:
@@ -116,22 +115,25 @@ IMMAGINE_BASE64:
 ${base64}
 `
 
-    try {
-      const { answer } = await askAssistant(prompt)
-      console.log('🛈 Assistant OCR:', answer)
-      // qui puoi parsare `answer` e popolare il form/lo stato come fai per la voce
-    } catch (err) {
-      console.error(err)
-      alert('OCR fallito')
+      try {
+        const { answer } = await askAssistant(prompt)
+        console.log('🛈 Assistant OCR:', answer)
+        // qui parsalo e popola il form/lo stato
+      } catch (err) {
+        console.error(err)
+        alert('OCR fallito')
+      }
     }
+
+    reader.readAsDataURL(file)
   }
 
-  // innesca la lettura
-  reader.readAsDataURL(file)
-}
-
   const buildSystemPrompt = (source, userText) => {
-    return `
+    return `…`
+  }
+
+  // …
+}
 Sei Jarvis. Rispondi **solo** con JSON conforme al seguente schema, senza testo extra.
 
 ESEMPIO 1
