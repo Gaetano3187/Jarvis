@@ -1,6 +1,6 @@
 // pages/api/ocr.js
 export const config = { api: { bodyParser: false } };
-export const runtime = 'nodejs'; // forziamo runtime Node
+export const runtime = 'nodejs';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
