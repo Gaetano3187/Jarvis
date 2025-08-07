@@ -3,7 +3,6 @@ import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import sharp from 'sharp'
 import Tesseract from 'tesseract.js'
-import pdfParse from 'pdf-parse'
 
 export const config = {
   api: { bodyParser: false }
@@ -50,26 +49,6 @@ export default async function handler(req, res) {
           return resolve()
         }
 
-        // Se è un PDF, prima proviamo a estrarre testo nativo
-        if (file.mimetype === 'application/pdf') {
-          try {
-            const dataBuffer = fs.readFileSync(imagePath)
-            const pdfData = await pdfParse(dataBuffer)
-            if (pdfData.text && pdfData.text.trim()) {
-              console.log('✅ PDF native text:', pdfData.text.trim().slice(0, 100))
-              combinedText += pdfData.text.trim() + '\n'
-              // cancelliamo il file PDF e passiamo al prossimo
-              fs.unlinkSync(imagePath)
-              continue
-            }
-            // altrimenti cadremo sul OCR delle immagini sottostanti
-            console.log('ℹ️ PDF senza testo nativo, passeremo a OCR per immagine')
-          } catch (pdfErr) {
-            console.error('❌ errore pdf-parse:', pdfErr)
-            // proseguiamo comunque con OCR
-          }
-        }
-
         // Preprocessing immagine
         const preprocPath = imagePath + '-pre.jpg'
         try {
@@ -79,13 +58,14 @@ export default async function handler(req, res) {
             .toFile(preprocPath)
         } catch (prepErr) {
           console.error('❌ preprocessing error:', prepErr)
-          // se fallisce, useremo l'originale
         }
 
         // OCR su immagine (preprocessed o originale)
         try {
           const sourcePath = fs.existsSync(preprocPath) ? preprocPath : imagePath
-          const { data: { text } } = await Tesseract.recognize(
+          const {
+            data: { text }
+          } = await Tesseract.recognize(
             sourcePath,
             'ita',
             {
@@ -101,7 +81,6 @@ export default async function handler(req, res) {
           res.status(500).json({ step: 'recognize', error: String(ocrErr) })
           return resolve()
         } finally {
-          // pulisco temporanei
           try { fs.unlinkSync(imagePath) } catch {}
           try { fs.unlinkSync(preprocPath) } catch {}
         }
