@@ -336,7 +336,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
       </div>
 
        <style jsx>{`
-        .spese-casa-container1 {
+        .vestiti-ed-altro-container1 {
           width: 100%;
           display: flex;
           align-items: center;
@@ -346,7 +346,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
           padding: 2rem;
           font-family: Inter, sans-serif;
         }
-        .spese-casa-container2 {
+        .vestiti-ed-altro-container2 {
           background: rgba(0, 0, 0, 0.6);
           padding: 2rem;
           border-radius: 1rem;
@@ -425,4 +425,4 @@ Ora estrai **solo** JSON spesa (stesso schema):
   )
 }
 
-export default withAuth(VestitiEdAltro)
+export default withAuth(vestiti-ed-altro)
