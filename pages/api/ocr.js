@@ -1,7 +1,6 @@
 // pages/api/ocr.js
 import formidable from 'formidable'
 import fs from 'fs'
-import { FormData } from 'undici'
 
 export const config = {
   api: {
@@ -25,14 +24,13 @@ export default async function handler(req, res) {
         else resolve(files)
       })
     })
-    // immagini caricate come campo "images"
     files = Array.isArray(parsed.images) ? parsed.images : [parsed.images]
   } catch (err) {
     console.error('formidable error:', err)
     return res.status(500).json({ error: 'Errore nel parsing del form' })
   }
 
-  // 2. Prepara la richiesta a OCR.space (puoi sostituire con la tua API)
+  // 2. Prepara la richiesta a OCR.space (o altra API OCR)
   const formData = new FormData()
   for (const file of files) {
     formData.append('file', fs.createReadStream(file.filepath), file.originalFilename)
@@ -52,7 +50,7 @@ export default async function handler(req, res) {
     if (ocrJson.IsErroredOnProcessing) {
       throw new Error(ocrJson.ErrorMessage?.join(', ') || 'OCR fallito')
     }
-    // concateniamo tutti i ParsedText
+    // Concateno tutti i testi riconosciuti
     const text = ocrJson.ParsedResults.map(r => r.ParsedText).join('\n')
     return res.status(200).json({ text })
   } catch (err) {
