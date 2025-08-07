@@ -1,9 +1,8 @@
-// pages/api/ocr.js
+// pages/api/ocr.js 
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import sharp from 'sharp'
 import { createWorker } from 'tesseract.js'
-import wasmPath from 'tesseract.js-core/tesseract-core-simd.wasm'
 
 export const config = {
   api: { bodyParser: false }
@@ -12,7 +11,7 @@ export const config = {
 // inizializza il worker una sola volta
 const workerPromise = (async () => {
   const worker = createWorker({
-    corePath: wasmPath,
+    corePath: '/tesseract-core-simd.wasm',  // ora servito da public/
     logger: m => console.log(m),
   })
   await worker.load()
@@ -26,7 +25,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const worker = await workerPromise
+  let worker
+  try {
+    worker = await workerPromise
+  } catch (err) {
+    console.error('❌ Worker initialization error:', err)
+    return res
+      .status(500)
+      .json({ error: 'OCR worker failed to initialize', detail: err.message })
+  }
+
   await new Promise((resolve) => {
     const form = new IncomingForm({ keepExtensions: true })
 
@@ -36,6 +44,9 @@ export default async function handler(req, res) {
         res.status(500).json({ step: 'parse', error: err.message })
         return resolve()
       }
+
+      console.log('➡️ OCR fields:', fields)
+      console.log('➡️ OCR files keys:', Object.keys(files))
 
       const fileList = files.images
       if (!fileList) {
@@ -53,12 +64,18 @@ export default async function handler(req, res) {
           return resolve()
         }
 
-        // preprocessing
+        // 1) Preprocessing: scala di grigi + binarizzazione
         const preproc = imagePath + '-pre.jpg'
         try {
-          await sharp(imagePath).grayscale().threshold(140).toFile(preproc)
-        } catch { /* ignoro e uso l'originale */ }
+          await sharp(imagePath)
+            .grayscale()
+            .threshold(140)
+            .toFile(preproc)
+        } catch {
+          // ignoro e userò l'originale
+        }
 
+        // 2) OCR sul file preprocessato (o sull'originale)
         const src = fs.existsSync(preproc) ? preproc : imagePath
         try {
           const { data: { text } } = await worker.recognize(src)
@@ -68,6 +85,7 @@ export default async function handler(req, res) {
           res.status(500).json({ step: 'recognize', error: String(ocrErr) })
           return resolve()
         } finally {
+          // pulisco i temporanei
           try { fs.unlinkSync(imagePath) } catch {}
           try { fs.unlinkSync(preproc) } catch {}
         }
@@ -78,3 +96,4 @@ export default async function handler(req, res) {
     })
   })
 }
+
