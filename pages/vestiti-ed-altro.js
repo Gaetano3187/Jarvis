@@ -1,4 +1,4 @@
-// pages/vestiti-ed-altro.js
+// pages/vestiti-ed-altro.js 
 import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
