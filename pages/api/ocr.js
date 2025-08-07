@@ -2,15 +2,15 @@
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import sharp from 'sharp'
-import { createWorker } from 'tesseract.js'
+import Tesseract from 'tesseract.js'
 import pdfParse from 'pdf-parse'
 
 export const config = {
   api: { bodyParser: false }
 }
 
-const worker = createWorker({
-  corePath: '/tesseract-core-simd.wasm',  // serve il WASM da public/
+const worker = Tesseract.createWorker({
+  corePath: '/tesseract-core-simd.wasm',
   logger: m => console.log('📝 Tesseract:', m)
 })
 
@@ -19,7 +19,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // inizializza il worker
   await worker.load()
   await worker.loadLanguage('ita')
   await worker.initialize('ita')
@@ -59,12 +58,11 @@ export default async function handler(req, res) {
           return resolve()
         }
 
-        // Se è un PDF, tentiamo estrazione nativa
         if (file.mimetype === 'application/pdf') {
           try {
             const dataBuffer = fs.readFileSync(imagePath)
             const pdfData = await pdfParse(dataBuffer)
-            if (pdfData.text && pdfData.text.trim()) {
+            if (pdfData.text?.trim()) {
               console.log('✅ PDF native text:', pdfData.text.trim().slice(0,100))
               combinedText += pdfData.text.trim() + '\n'
               fs.unlinkSync(imagePath)
@@ -76,7 +74,6 @@ export default async function handler(req, res) {
           }
         }
 
-        // Preprocessing immagine
         const preprocPath = imagePath + '-pre.jpg'
         try {
           await sharp(imagePath)
@@ -87,7 +84,6 @@ export default async function handler(req, res) {
           console.error('❌ preprocessing error:', prepErr)
         }
 
-        // OCR via worker
         try {
           const sourcePath = fs.existsSync(preprocPath) ? preprocPath : imagePath
           const { data: { text } } = await worker.recognize(sourcePath)
@@ -108,6 +104,5 @@ export default async function handler(req, res) {
     })
   })
 
-  // termina il worker per liberare risorse
   await worker.terminate()
 }
