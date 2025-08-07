@@ -1,18 +1,32 @@
 // pages/api/ocr.js
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
-import sharp from 'sharp'           // ← import Sharp
-import Tesseract from 'tesseract.js'
+import sharp from 'sharp'
+import { createWorker } from 'tesseract.js'
+import wasmPath from 'tesseract.js-core/tesseract-core-simd.wasm'
 
 export const config = {
   api: { bodyParser: false }
 }
+
+// inizializza il worker una sola volta
+const workerPromise = (async () => {
+  const worker = createWorker({
+    corePath: wasmPath,
+    logger: m => console.log(m),
+  })
+  await worker.load()
+  await worker.loadLanguage('ita')
+  await worker.initialize('ita')
+  return worker
+})()
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  const worker = await workerPromise
   await new Promise((resolve) => {
     const form = new IncomingForm({ keepExtensions: true })
 
@@ -23,76 +37,44 @@ export default async function handler(req, res) {
         return resolve()
       }
 
-      console.log('➡️ OCR fields:', fields)
-      console.log('➡️ OCR files keys:', Object.keys(files))
-
-      // prendo files.images (potrebbero essercene più di uno)
       const fileList = files.images
       if (!fileList) {
-        console.error('❌ Nessun file trovato in files.images')
         res.status(400).json({ step: 'no-file', error: 'files.images undefined' })
         return resolve()
       }
 
-      const images = Array.isArray(fileList) ? fileList : [fileList]
+      const uploads = Array.isArray(fileList) ? fileList : [fileList]
       let combinedText = ''
 
-      for (const file of images) {
-        console.log('➡️ OCR file raw object:', file)
-
-        const imagePath =
-             file.filepath    // formidable v3
-          || file.path        // versioni precedenti
-          || file._writeStream?.path
-
-        console.log('📂 OCR imagePath:', imagePath)
+      for (const file of uploads) {
+        const imagePath = file.filepath || file.path || file._writeStream?.path
         if (!imagePath) {
           res.status(500).json({ step: 'no-path', error: 'imagePath undefined' })
           return resolve()
         }
 
-        // 1) Preprocess: scala di grigi + binarizzazione
-        const preprocPath = imagePath + '-pre.jpg'
+        // preprocessing
+        const preproc = imagePath + '-pre.jpg'
         try {
-          await sharp(imagePath)
-            .grayscale()
-            .threshold(140)    // regola il valore se serve
-            .toFile(preprocPath)
-        } catch (prepErr) {
-          console.error('❌ preprocessing error:', prepErr)
-          // proseguo comunque sull’originale
-        }
+          await sharp(imagePath).grayscale().threshold(140).toFile(preproc)
+        } catch { /* ignoro e uso l'originale */ }
 
-        // 2) OCR su file preprocessato (o originale se preprocessing fallito)
+        const src = fs.existsSync(preproc) ? preproc : imagePath
         try {
-          const { data: { text } } = await Tesseract.recognize(
-            fs.existsSync(preprocPath) ? preprocPath : imagePath,
-            'ita',
-            {
-              tessedit_pageseg_mode: Tesseract.PSM.AUTO, // layout automatico
-              tessedit_char_whitelist:
-                '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,-/:€ '
-            }
-          )
-
-          console.log('✅ OCR snippet:', text.trim().slice(0, 100))
+          const { data: { text } } = await worker.recognize(src)
           combinedText += text.trim() + '\n'
         } catch (ocrErr) {
-          console.error('❌ OCR recognize error:', ocrErr)
+          console.error('❌ OCR error:', ocrErr)
           res.status(500).json({ step: 'recognize', error: String(ocrErr) })
           return resolve()
         } finally {
-          // pulisco i file temporanei
           try { fs.unlinkSync(imagePath) } catch {}
-          try { fs.unlinkSync(preprocPath) } catch {}
+          try { fs.unlinkSync(preproc) } catch {}
         }
       }
 
-      // restituisco il testo di tutte le immagini
       res.status(200).json({ text: combinedText.trim() })
       resolve()
     })
   })
 }
-
-
