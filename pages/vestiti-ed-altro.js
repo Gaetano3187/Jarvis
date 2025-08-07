@@ -150,8 +150,8 @@ Rispondi **solo** con JSON:
   "type":"expense",
   "items":[
     {
-      "puntoVendita":"Fiocca abbigliamento",
-      "dettaglio":"un paio di pantaloni",
+      "puntoVendita":"abbigliamento",
+      "dettaglio":"un paio di pantaloni a fiocca",
       "quantita":1,
       "prezzoTotale":100.00,
       "data":"2025-08-06"
@@ -197,7 +197,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
       let spentAt = it.data === 'oggi'
         ? new Date().toISOString().slice(0, 10)
         : it.data === 'ieri'
-          ? (() => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10) })()
+          ? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10) })()
           : it.data
 
       return {
@@ -333,18 +333,96 @@ Ora estrai **solo** JSON spesa (stesso schema).
         </div>
       </div>
 
-      {/* Stili identici a quelli di spese-casa.js */}
+      {/* Stili IDENTICI a quelli di pages/spese-casa.js */}
       <style jsx global>{`
-        .spese-casa-container1 { /* … */ }
-        .spese-casa-container2 { /* … */ }
-        .title { /* … */ }
-        .table-buttons { /* … */ }
-        .btn-vocale, .btn-ocr, .btn-manuale { /* … */ }
-        .input-section { /* … */ }
-        input, textarea { /* … */ }
-        .custom-table { /* … */ }
-        .total-box { /* … */ }
-        .error { /* … */ }
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          min-height: 100vh;
+          padding: 2rem;
+          font-family: Inter, sans-serif;
+        }
+        .spese-casa-container2 {
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 800px;
+          width: 100%;
+        }
+        .title {
+          margin-bottom: 1rem;
+          font-size: 1.5rem;
+          color: #fff;
+        }
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+        }
+        .btn-vocale,
+        .btn-ocr,
+        .btn-manuale {
+          background: #10b981;
+          color: #fff;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+          cursor: pointer;
+        }
+        .btn-ocr {
+          background: #f43f5e;
+        }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
+        }
+        input,
+        textarea {
+          width: 100%;
+          padding: 0.6rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
+        }
+        textarea {
+          resize: vertical;
+          min-height: 4.5rem;
+        }
+        .custom-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .custom-table thead {
+          background: #1f2937;
+        }
+        .custom-table th,
+        .custom-table td {
+          padding: 0.75rem 1rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-table tbody tr:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .total-box {
+          margin-top: 1rem;
+          background: rgba(34, 197, 94, 0.8);
+          padding: 1rem;
+          border-radius: 0.5rem;
+          text-align: right;
+          font-weight: 600;
+        }
+        .error {
+          color: #f87171;
+          margin-top: 1rem;
+        }
       `}</style>
     </>
   )
