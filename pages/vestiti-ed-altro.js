@@ -1,4 +1,4 @@
-// pages/vestiti-ed-altro.js 
+// pages/vestiti-ed-altro.js
 import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -335,7 +335,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
         </div>
       </div>
 
-       <style jsx>{`
+           <style jsx>{`
         .vestiti-ed-altro-container1 {
           width: 100%;
           display: flex;
