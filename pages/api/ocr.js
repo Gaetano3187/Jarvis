@@ -1,114 +1,69 @@
 // pages/api/ocr.js
-import { IncomingForm } from 'formidable'
+import formidable from 'formidable'
 import fs from 'fs'
-import sharp from 'sharp'
-
-
+import FormData from 'form-data'
 
 export const config = {
-  api: { bodyParser: false }
+  api: {
+    bodyParser: false, // disabilitiamo il parser di Next per usare formidable
+  },
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
+  if (req.method !== 'POST') return res.status(405).end()
 
-  await new Promise((resolve) => {
-    const form = new IncomingForm({ keepExtensions: true })
+  const form = new formidable.IncomingForm({ multiples: true })
+  form.parse(req, async (err, fields, files) => {
+    if (err) {
+      console.error('Form parse error:', err)
+      return res.status(500).json({ error: err.message })
+    }
 
-    form.parse(req, async (err, fields, files) => {
-      if (err) {
-        console.error('⚠️ parse error:', err)
-        res.status(500).json({ step: 'parse', error: err.message })
-        return resolve()
-      }
+    // Prendi il primo file di images
+    const imageFile = Array.isArray(files.images)
+      ? files.images[0]
+      : files.images
 
-      console.log('➡️ OCR fields:', fields)
-      console.log('➡️ OCR files keys:', Object.keys(files))
+    if (!imageFile) {
+      return res.status(400).json({ error: 'Nessuna immagine inviata' })
+    }
 
-      const fileList = files.images
-      if (!fileList) {
-        console.error('❌ Nessun file trovato in files.images')
-        res.status(400).json({ step: 'no-file', error: 'files.images undefined' })
-        return resolve()
-      }
+    // Leggi il buffer
+    const buffer = await fs.promises.readFile(imageFile.filepath)
 
-      const uploads = Array.isArray(fileList) ? fileList : [fileList]
-      let combinedText = ''
-
-      for (const file of uploads) {
-        console.log('➡️ OCR file raw object:', file)
-
-        const imagePath =
-             file.filepath    // formidable v3
-          || file.path        // versioni precedenti
-          || file._writeStream?.path
-
-        if (!imagePath) {
-          res.status(500).json({ step: 'no-path', error: 'imagePath undefined' })
-          return resolve()
-        }
-
-        // Se è un PDF, prima proviamo a estrarre testo nativo
-        if (file.mimetype === 'application/pdf') {
-          try {
-            const dataBuffer = fs.readFileSync(imagePath)
-            const pdfData = await pdfParse(dataBuffer)
-            if (pdfData.text && pdfData.text.trim()) {
-              console.log('✅ PDF native text:', pdfData.text.trim().slice(0, 100))
-              combinedText += pdfData.text.trim() + '\n'
-              // cancelliamo il file PDF e passiamo al prossimo
-              fs.unlinkSync(imagePath)
-              continue
-            }
-            // altrimenti cadremo sul OCR delle immagini sottostanti
-            console.log('ℹ️ PDF senza testo nativo, passeremo a OCR per immagine')
-          } catch (pdfErr) {
-            console.error('❌ errore pdf-parse:', pdfErr)
-            // proseguiamo comunque con OCR
-          }
-        }
-
-        // Preprocessing immagine
-        const preprocPath = imagePath + '-pre.jpg'
-        try {
-          await sharp(imagePath)
-            .grayscale()
-            .threshold(140)
-            .toFile(preprocPath)
-        } catch (prepErr) {
-          console.error('❌ preprocessing error:', prepErr)
-          // se fallisce, useremo l'originale
-        }
-
-        // OCR su immagine (preprocessed o originale)
-        try {
-          const sourcePath = fs.existsSync(preprocPath) ? preprocPath : imagePath
-          const { data: { text } } = await Tesseract.recognize(
-            sourcePath,
-            'ita',
-            {
-              tessedit_pageseg_mode: Tesseract.PSM.AUTO,
-              tessedit_char_whitelist:
-                '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,-/:€ '
-            }
-          )
-          console.log('✅ OCR snippet:', text.trim().slice(0, 100))
-          combinedText += text.trim() + '\n'
-        } catch (ocrErr) {
-          console.error('❌ OCR recognize error:', ocrErr)
-          res.status(500).json({ step: 'recognize', error: String(ocrErr) })
-          return resolve()
-        } finally {
-          // pulisco temporanei
-          try { fs.unlinkSync(imagePath) } catch {}
-          try { fs.unlinkSync(preprocPath) } catch {}
-        }
-      }
-
-      res.status(200).json({ text: combinedText.trim() })
-      resolve()
+    // Prepara la richiesta a OCR.Space
+    const ocrForm = new FormData()
+    ocrForm.append('apikey', process.env.OCR_SPACE_API_KEY)
+    ocrForm.append('language', 'ita')
+    ocrForm.append('isOverlayRequired', 'false')
+    ocrForm.append('file', buffer, {
+      filename: imageFile.originalFilename,
+      contentType: imageFile.mimetype,
     })
+
+    try {
+      const ocrRes = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        headers: ocrForm.getHeaders(),
+        body: ocrForm,
+      })
+      const json = await ocrRes.json()
+
+      if (json.IsErroredOnProcessing) {
+        console.error('OCR.Space error:', json.ErrorMessage)
+        return res.status(500).json({ error: json.ErrorMessage })
+      }
+
+      // Unisci tutti i testi estratti
+      const text = json.ParsedResults
+        .map(r => r.ParsedText)
+        .filter(Boolean)
+        .join('\n')
+
+      return res.status(200).json({ text })
+    } catch (fetchErr) {
+      console.error('Fetch OCR.Space failed:', fetchErr)
+      return res.status(500).json({ error: fetchErr.message })
+    }
   })
 }
