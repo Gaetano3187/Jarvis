@@ -2,7 +2,10 @@
 /** @type {import('next').NextConfig} */
 module.exports = {
   webpack(config) {
-    // tratta tutti i .wasm come asset/resource
+    // abilita il supporto a WebAssembly e lo tratta come asset
+    config.experiments = config.experiments || {};
+    config.experiments.asyncWebAssembly = true;
+
     config.module.rules.push({
       test: /\.wasm$/,
       type: 'asset/resource',
@@ -10,6 +13,7 @@ module.exports = {
         filename: 'static/wasm/[name].[hash][ext]',
       },
     });
+
     return config;
   },
 };
