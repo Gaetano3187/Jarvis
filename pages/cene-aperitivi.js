@@ -1,4 +1,4 @@
-// pages/cene-aperitivi.js
+// pages/cene-aperitivi.js 
 import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
