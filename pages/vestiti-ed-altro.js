@@ -1,3 +1,4 @@
+// pages/vestiti-ed-altro.js
 import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -7,7 +8,7 @@ import { supabase } from '@/lib/supabaseClient'
 const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
 
 function VestitiEdAltro() {
-  // ─────────────────────────────────────────────── Stati & refs
+  // ─────────────────────────────────────────────── Stati e refs
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -51,18 +52,24 @@ function VestitiEdAltro() {
     if (!user) return setError('Sessione scaduta')
 
     const row = {
-      user_id:      user.id,
-      category_id:  CATEGORY_ID_VESTITI,
-      description:  `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
-      amount:       Number(nuovaSpesa.prezzoTotale),
-      spent_at:     nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
-      qty:          parseInt(nuovaSpesa.quantita, 10) || 1,
+      user_id:     user.id,
+      category_id: CATEGORY_ID_VESTITI,
+      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
+      amount:      Number(nuovaSpesa.prezzoTotale),
+      spent_at:    nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
+      qty:         parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
     else {
-      setNuovaSpesa({ puntoVendita: '', dettaglio: '', quantita: '1', prezzoTotale: '', spentAt: '' })
+      setNuovaSpesa({
+        puntoVendita: '',
+        dettaglio: '',
+        quantita: '1',
+        prezzoTotale: '',
+        spentAt: '',
+      })
       fetchSpese()
     }
   }
@@ -76,7 +83,7 @@ function VestitiEdAltro() {
 
   // ─────────────────────────────────────────────── OCR multiplo
   const handleOCR = async files => {
-    if (!files || files.length === 0) return
+    if (!files?.length) return
     try {
       const fd = new FormData()
       files.forEach(f => fd.append('images', f))
@@ -99,7 +106,8 @@ function VestitiEdAltro() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunks.current.push(e.data)
+      mediaRecRef.current.ondataavailable = e =>
+        e.data.size && recordedChunks.current.push(e.data)
       mediaRecRef.current.onstop = processVoice
       mediaRecRef.current.start()
       setRecBusy(true)
@@ -137,7 +145,7 @@ Per ciascuna voce genera:
 - data: "YYYY-MM-DD"
 
 Rispondi **solo** con JSON:
-```json
+\`\`\`json
 {
   "type":"expense",
   "items":[
@@ -148,9 +156,10 @@ Rispondi **solo** con JSON:
       "prezzoTotale":100.00,
       "data":"2025-08-06"
     }
+    /* altre voci... */
   ]
 }
-```
+\`\`\`
 
 TESTO_OCR:
 ${userText}
@@ -159,7 +168,7 @@ ${userText}
     return `
 **ATTENZIONE:** il testo seguente è trascrizione vocale, ignora "ehm", "ok", ecc.
 
-Ora estrai **solo** JSON spesa (stesso schema).
+Ora estrai **solo** JSON spesa (stesso schema):
 "${userText}"
 `
   }
@@ -167,17 +176,21 @@ Ora estrai **solo** JSON spesa (stesso schema).
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
 
     const data = JSON.parse(answer)
-    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
+    if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
       throw new Error('Assistant response invalid')
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
@@ -188,12 +201,12 @@ Ora estrai **solo** JSON spesa (stesso schema).
           : it.data
 
       return {
-        user_id:      user.id,
-        category_id:  CATEGORY_ID_VESTITI,
-        description:  `[${it.puntoVendita}] ${it.dettaglio}`,
-        amount:       Number(it.prezzoTotale) || 0,
-        spent_at:     spentAt,
-        qty:          parseFloat(it.quantita) || 1,
+        user_id:     user.id,
+        category_id: CATEGORY_ID_VESTITI,
+        description: `[${it.puntoVendita}] ${it.dettaglio}`,
+        amount:      Number(it.prezzoTotale) || 0,
+        spent_at:    spentAt,
+        qty:         parseFloat(it.quantita) || 1,
       }
     })
 
@@ -270,7 +283,8 @@ Ora estrai **solo** JSON spesa (stesso schema).
             />
             <label>Prezzo totale (€)</label>
             <input
-              type="number" step="0.01"
+              type="number"
+              step="0.01"
               value={nuovaSpesa.prezzoTotale}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
               required
@@ -315,13 +329,15 @@ Ora estrai **solo** JSON spesa (stesso schema).
 
           {error && <p className="error">{error}</p>}
 
-          <Link href="/home" className="btn-vocale">🏠 Home</Link>
+          <Link href="/home">
+            <button className="btn-vocale">🏠 Home</button>
+          </Link>
         </div>
       </div>
 
       {/* Stili IDENTICI a quelli di pages/spese-casa.js */}
       <style jsx global>{`
-        /* ...stessi stili di spese-casa... */
+        /* ...stessi stili di prima... */
       `}</style>
     </>
   )
