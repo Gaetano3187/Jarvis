@@ -1,7 +1,6 @@
 // pages/api/ocr.js
 import formidable from 'formidable';
 import fs from 'fs';
-import FormData from 'form-data';
 import fetch from 'node-fetch';
 
 export const config = {
