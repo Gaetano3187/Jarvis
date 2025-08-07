@@ -9,22 +9,14 @@ export const config = {
   api: { bodyParser: false }
 }
 
-const worker = Tesseract.createWorker({
-  corePath: '/tesseract-core-simd.wasm',
-  logger: m => console.log('📝 Tesseract:', m)
-})
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  await worker.load()
-  await worker.loadLanguage('ita')
-  await worker.initialize('ita')
-
   await new Promise((resolve) => {
     const form = new IncomingForm({ keepExtensions: true })
+
     form.parse(req, async (err, fields, files) => {
       if (err) {
         console.error('⚠️ parse error:', err)
@@ -58,22 +50,27 @@ export default async function handler(req, res) {
           return resolve()
         }
 
+        // Se è un PDF, prima proviamo a estrarre testo nativo
         if (file.mimetype === 'application/pdf') {
           try {
             const dataBuffer = fs.readFileSync(imagePath)
             const pdfData = await pdfParse(dataBuffer)
-            if (pdfData.text?.trim()) {
-              console.log('✅ PDF native text:', pdfData.text.trim().slice(0,100))
+            if (pdfData.text && pdfData.text.trim()) {
+              console.log('✅ PDF native text:', pdfData.text.trim().slice(0, 100))
               combinedText += pdfData.text.trim() + '\n'
+              // cancelliamo il file PDF e passiamo al prossimo
               fs.unlinkSync(imagePath)
               continue
             }
+            // altrimenti cadremo sul OCR delle immagini sottostanti
             console.log('ℹ️ PDF senza testo nativo, passeremo a OCR per immagine')
           } catch (pdfErr) {
             console.error('❌ errore pdf-parse:', pdfErr)
+            // proseguiamo comunque con OCR
           }
         }
 
+        // Preprocessing immagine
         const preprocPath = imagePath + '-pre.jpg'
         try {
           await sharp(imagePath)
@@ -82,18 +79,29 @@ export default async function handler(req, res) {
             .toFile(preprocPath)
         } catch (prepErr) {
           console.error('❌ preprocessing error:', prepErr)
+          // se fallisce, useremo l'originale
         }
 
+        // OCR su immagine (preprocessed o originale)
         try {
           const sourcePath = fs.existsSync(preprocPath) ? preprocPath : imagePath
-          const { data: { text } } = await worker.recognize(sourcePath)
-          console.log('✅ OCR snippet:', text.trim().slice(0,100))
+          const { data: { text } } = await Tesseract.recognize(
+            sourcePath,
+            'ita',
+            {
+              tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+              tessedit_char_whitelist:
+                '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,-/:€ '
+            }
+          )
+          console.log('✅ OCR snippet:', text.trim().slice(0, 100))
           combinedText += text.trim() + '\n'
         } catch (ocrErr) {
           console.error('❌ OCR recognize error:', ocrErr)
           res.status(500).json({ step: 'recognize', error: String(ocrErr) })
           return resolve()
         } finally {
+          // pulisco temporanei
           try { fs.unlinkSync(imagePath) } catch {}
           try { fs.unlinkSync(preprocPath) } catch {}
         }
@@ -103,6 +111,4 @@ export default async function handler(req, res) {
       resolve()
     })
   })
-
-  await worker.terminate()
 }
