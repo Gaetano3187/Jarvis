@@ -335,7 +335,6 @@ Ora estrai **solo** JSON spesa (stesso schema):
         </div>
       </div>
 
-      {/* Stili IDENTICI a quelli di pages/spese-casa.js */}
        <style jsx>{`
         .spese-casa-container1 {
           width: 100%;
