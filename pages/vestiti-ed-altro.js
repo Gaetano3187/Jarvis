@@ -1,3 +1,4 @@
+// pages/vestiti-ed-altro.js
 import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -7,7 +8,7 @@ import { supabase } from '@/lib/supabaseClient'
 const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
 
 function VestitiEdAltro() {
-  // stati & refs
+  // ─────────────────────────────────────────────── Stati e refs
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -24,7 +25,7 @@ function VestitiEdAltro() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  // carica storico
+  // ─────────────────────────────────────────────── Carica storico
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -41,7 +42,7 @@ function VestitiEdAltro() {
     setLoading(false)
   }
 
-  // aggiunta manuale
+  // ─────────────────────────────────────────────── Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
     const {
@@ -66,14 +67,14 @@ function VestitiEdAltro() {
     }
   }
 
-  // elimina
+  // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
     const { error } = await supabase.from('finances').delete().eq('id', id)
     if (error) setError(error.message)
-    else setSpese(spese.filter(s => s.id !== id))
+    else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // OCR (singola o multipla immagini)
+  // ─────────────────────────────────────────────── OCR immagine
   const handleOCR = async file => {
     if (!file) return
     try {
@@ -86,7 +87,7 @@ function VestitiEdAltro() {
     }
   }
 
-  // registrazione audio
+  // ─────────────────────────────────────────────── Registrazione audio
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -120,7 +121,7 @@ function VestitiEdAltro() {
     }
   }
 
-  // costruisci prompt per GPT
+  // ─────────────────────────────────────────────── Costruisci prompt
   function buildSystemPrompt(source, userText) {
     if (source === 'ocr') {
       return `
@@ -148,9 +149,9 @@ TESTO_OCR:
 ${userText}
 `
     }
-    // trascrizione vocale
+    // voce / STT
     return `
-**ATT:** trascrizione vocale, ignora "ehm", "ok", ecc.
+**ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "ok", ecc.
 
 Ora estrai **solo** JSON spesa (stesso schema di prima).
 
@@ -169,7 +170,7 @@ Frase:
 `
   }
 
-  // parsing e inserimento DB
+  // ─────────────────────────────────────────────── Parsing & DB insert
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -179,34 +180,25 @@ Frase:
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
     const data = JSON.parse(answer)
-    if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
-      throw new Error('Risposta assistant non valida')
+    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0)
+      throw new Error('Assistant response invalid')
 
-    // utente
     const {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
-    // mappo e cerco campi alternativi per la descrizione
     const rows = data.items.map(it => {
       let spentAt = it.data
-      if (spentAt === 'oggi') spentAt = new Date().toISOString().slice(0, 10)
-      else if (spentAt === 'ieri') {
+      if (spentAt === 'oggi') {
+        spentAt = new Date().toISOString().slice(0, 10)
+      } else if (spentAt === 'ieri') {
         const d = new Date()
         d.setDate(d.getDate() - 1)
         spentAt = d.toISOString().slice(0, 10)
       }
-
-      // fallback su eventuali chiavi diverse
-      const descr = (
-        it.descrizione ??
-        it.Descrizione ??
-        it.description ??
-        it.Description ??
-        ''
-      ).trim()
-
+      // qui ci assicuriamo di leggere sempre "descrizione"
+      const descr = it.descrizione ?? it.description ?? ''
       return {
         user_id:     user.id,
         category_id: CATEGORY_ID_VESTITI,
@@ -230,8 +222,8 @@ Frase:
     })
   }
 
-  // render
-  const totale = spese.reduce((sum, s) => sum + Number(s.amount || 0) * (s.qty || 1), 0)
+  // ─────────────────────────────────────────────── Render
+  const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   return (
     <>
@@ -239,14 +231,11 @@ Frase:
         <title>Vestiti ed Altro</title>
       </Head>
 
-      <div className="vestiti-ed-altro-container1">
-        <div className="vestiti-ed-altro-container2">
+      <div className="spese-casa-container1">
+        <div className="spese-casa-container2">
           <h2 className="title">🛍️ Vestiti ed Altro</h2>
 
           <div className="table-buttons">
-            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>
-              ➕ Aggiungi manualmente
-            </button>
             <button className="btn-vocale" onClick={toggleRec}>
               {recBusy ? '⏹ Stop' : '🎙 Voce'}
             </button>
@@ -257,28 +246,20 @@ Frase:
               ref={ocrInputRef}
               type="file"
               accept="image/*"
+              capture="environment"
+              multiple
               hidden
               onChange={e => handleOCR(e.target.files?.[0])}
             />
           </div>
 
-          <form ref={formRef} className="input-section" onSubmit={handleAdd}>
+          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label>Descrizione</label>
             <input
               value={nuovaSpesa.descrizione}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
               required
             />
-
-            <label>Importo (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={nuovaSpesa.importo}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
-              required
-            />
-
             <label>Quantità</label>
             <input
               type="number"
@@ -287,15 +268,21 @@ Frase:
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
               required
             />
-
+            <label>Importo (€)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={nuovaSpesa.importo}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+              required
+            />
             <label>Data</label>
             <input
               type="date"
               value={nuovaSpesa.spentAt}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
             />
-
-            <button type="submit" className="btn-manuale">Salva</button>
+            <button className="btn-manuale">Aggiungi</button>
           </form>
 
           <div className="table-container">
@@ -313,14 +300,14 @@ Frase:
                   </tr>
                 </thead>
                 <tbody>
-                  {spese.map(s => (
-                    <tr key={s.id}>
-                      <td>{s.description}</td>
-                      <td>{new Date(s.spent_at).toLocaleDateString()}</td>
-                      <td>{s.qty}</td>
-                      <td>{s.amount.toFixed(2)}</td>
+                  {spese.map(r => (
+                    <tr key={r.id}>
+                      <td>{r.description}</td>
+                      <td>{new Date(r.spent_at).toLocaleDateString()}</td>
+                      <td>{r.qty}</td>
+                      <td>{r.amount.toFixed(2)}</td>
                       <td>
-                        <button onClick={() => handleDelete(s.id)}>🗑</button>
+                        <button onClick={() => handleDelete(r.id)}>🗑</button>
                       </td>
                     </tr>
                   ))}
@@ -333,13 +320,65 @@ Frase:
           {error && <p className="error">{error}</p>}
 
           <Link href="/home">
-            <a className="btn-vocale">🏠 Home</a>
+            <a className="btn-vocale" style={{ marginTop: '1.5rem' }}>
+              🏠 Home
+            </a>
           </Link>
         </div>
       </div>
 
-      <style jsx>{`
-        /* Stili identici a spese-casa */
+      <style jsx global>{`
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          min-height: 100vh;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          font-family: Inter, sans-serif;
+          padding: 2rem;
+        }
+        .spese-casa-container2 {
+          max-width: 800px;
+          width: 100%;
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+        .title {
+          margin-bottom: 1rem;
+          font-size: 1.5rem;
+        }
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          flex-wrap: wrap;
+        }
+        .btn-manuale { background: #22c55e; color: #fff; }
+        .btn-vocale  { background: #10b981; color: #fff; }
+        .btn-ocr     { background: #f43f5e; color: #fff; }
+        .input-section {
+          display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;
+        }
+        input, textarea {
+          width: 100%; padding: 0.6rem; border: none; border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1); color: #fff;
+        }
+        .custom-table {
+          width: 100%; border-collapse: collapse;
+        }
+        .custom-table thead { background: #1f2937; }
+        .custom-table th, .custom-table td {
+          padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .total-box {
+          margin-top: 1rem; background: rgba(34, 197, 94, 0.8);
+          padding: 1rem; border-radius: 0.5rem; text-align: right; font-weight: 600;
+        }
+        .error { color: #f87171; margin-top: 1rem; }
       `}</style>
     </>
   )
