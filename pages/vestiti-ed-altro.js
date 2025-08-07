@@ -425,4 +425,4 @@ Ora estrai **solo** JSON spesa (stesso schema):
   )
 }
 
-export default withAuth(SpeseCasa)
+export default withAuth(VestitiEdAltro)
