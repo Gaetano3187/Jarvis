@@ -4,6 +4,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
+import { vestiti } from '@/data/vestiti'; 
 
 const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
 
@@ -425,4 +426,4 @@ Ora estrai **solo** JSON spesa (stesso schema):
   )
 }
 
-export default withAuth(vestiti-ed-altro)
+export default withAuth(VestitiEdAltro)
