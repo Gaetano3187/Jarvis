@@ -1,26 +1,20 @@
 // next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  webpack(config, { isServer }) {
-    // permetti di importare .wasm facendo in modo che venga copiato in .next/static/
+  webpack(config) {
+    // gestisci i .wasm come asset/resource, così verranno emessi in /_next/static/
     config.module.rules.push({
       test: /\.wasm$/,
-      // Next >12.0 supporta asset modules, ma per compatibilità usiamo file-loader
-      type: 'javascript/auto',
-      use: [
-        {
-          loader: require.resolve('file-loader'),
-          options: {
-            publicPath: '/_next/static/wasm/',
-            outputPath: 'static/wasm/',
-            name: '[name].[hash].[ext]',
-          },
-        },
-      ],
-    });
+      type: 'asset/resource',
+      generator: {
+        // dove vengono scritti in output: .next/static/wasm/
+        filename: 'static/wasm/[name].[hash][ext]',
+        publicPath: '/_next/',
+      },
+    })
 
-    return config;
+    return config
   },
-};
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
