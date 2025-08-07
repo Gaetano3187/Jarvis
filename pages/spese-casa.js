@@ -1,13 +1,9 @@
 // pages/api/ocr.js
-import { IncomingForm } from 'formidable'
-import fs from 'fs'
-import fetch from 'node-fetch'
-
 export const config = {
   api: { bodyParser: false },
 }
 
-function buildSystemPrompt(userText, fileName) {
+function buildSystemPrompt(text, filename) {
   return `
 Sei Jarvis. Da questo testo OCR estrai **tutte** le righe di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
 
@@ -17,113 +13,98 @@ Per ciascuna voce estratta genera un oggetto con:
 - prezzoUnitario: number | null
 - quantita: number
 - prezzoTotale: number
-- data: "YYYY-MM-DD" (estratta direttamente dal testo)
+- data: "YYYY-MM-DD"
 
 Rispondi **solo** con JSON conforme a questo schema:
 \`\`\`json
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Supermercato Rossi",
-      "dettaglio": "2 confezioni di pane",
-      "prezzoUnitario": 1.50,
-      "quantita": 2,
-      "prezzoTotale": 3.00,
-      "data": "2025-08-06"
-    }
-    /* … */
-  ]
-}
+{ "type":"expense", "items":[ /* … */ ] }
 \`\`\`
 
-CONTENUTO OCR (${fileName}):
-${userText}
+CONTENUTO OCR (${filename}):
+${text}
 `
 }
 
-async function doOcr(upload) {
-  // leggi buffer e crea blob-like
-  const buffer = fs.readFileSync(upload.filepath)
-  const formData = new globalThis.FormData()
-  formData.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld')
-  formData.append('language', 'ita')
-  formData.append('isOverlayRequired', 'false')
-  formData.append('file', new Blob([buffer]), upload.originalFilename)
+async function doOcrOnFile(filepath, originalFilename) {
+  // require dentro al serverless handler
+  const fs = require('fs')
+  const FormData = require('form-data')
+
+  const buffer = fs.readFileSync(filepath)
+  const form = new FormData()
+  form.append('apikey', process.env.OCRSPACE_API_KEY || 'helloworld')
+  form.append('language', 'ita')
+  form.append('isOverlayRequired', 'false')
+  form.append('file', buffer, { filename: originalFilename })
 
   const resp = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
-    body: formData,
+    body: form,
+    headers: form.getHeaders(),
   })
-  const ocrJson = await resp.json()
-  if (ocrJson.IsErroredOnProcessing) {
-    throw new Error(ocrJson.ErrorMessage?.join?.(', ') || 'Errore OCR')
+  const json = await resp.json()
+  if (json.IsErroredOnProcessing) {
+    throw new Error(json.ErrorMessage?.join(', ') || 'Errore OCR')
   }
-  // concateno i testi
-  return (ocrJson.ParsedResults || [])
+  return (json.ParsedResults || [])
     .map(r => r.ParsedText)
     .join('\n')
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    return res.status(405).end()
   }
 
-  // 1) parse multipart
+  // parsifica multipart/form-data
   let files
   try {
-    ;({ files } = await new Promise((resolve, reject) => {
+    const { IncomingForm } = require('formidable')
+    files = await new Promise((y, n) => {
       const form = new IncomingForm({ keepExtensions: true })
-      form.parse(req, (err, _fields, files) => {
-        if (err) return reject(err)
-        resolve({ files })
-      })
-    }))
+      form.parse(req, (err, _fields, f) => (err ? n(err) : y(f)))
+    })
   } catch (err) {
-    console.error('parse error:', err)
+    console.error(err)
     return res.status(500).json({ error: err.message })
   }
 
-  // 2) raccogli gli upload
-  const uploads = Array.isArray(files.images)
-    ? files.images
-    : files.images
-      ? [files.images]
-      : []
+  // raccogli tutte le immagini
+  const imgs = []
+  if (Array.isArray(files.images)) imgs.push(...files.images)
+  else if (files.images) imgs.push(files.images)
 
-  if (uploads.length === 0) {
-    return res.status(400).json({ error: 'Nessun file nel campo "images"' })
+  if (imgs.length === 0) {
+    return res.status(400).json({ error: 'Campo "images" vuoto' })
   }
 
   try {
-    // 3) per ogni immagine: OCR → testo → prompt → assistant
     let allItems = []
-    for (const up of uploads) {
-      const rawText = await doOcr(up)
-      // pulisco file temporaneo
-      fs.unlink(up.filepath, () => {})
+    for (const img of imgs) {
+      // 1) OCR → testo
+      const text = await doOcrOnFile(img.filepath, img.originalFilename)
+      // cancello
+      require('fs').unlinkSync(img.filepath)
 
-      const prompt = buildSystemPrompt(rawText, up.originalFilename)
-      const assistRes = await fetch(`${process.env.BASE_URL || ''}/api/assistant`, {
+      // 2) prompt ad Assistant
+      const prompt = buildSystemPrompt(text, img.originalFilename)
+      const assist = await fetch(`${process.env.BASE_URL || ''}/api/assistant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       })
-      const { answer, error: asErr } = await assistRes.json()
-      if (!assistRes.ok || asErr) {
-        throw new Error(asErr || `Assistant error ${assistRes.status}`)
-      }
+      const { answer, error: e } = await assist.json()
+      if (!assist.ok || e) throw new Error(e || `Assistant ${assist.status}`)
+
       const data = JSON.parse(answer)
       if (data.type === 'expense' && Array.isArray(data.items)) {
-        allItems = allItems.concat(data.items)
+        allItems.push(...data.items)
       }
     }
 
-    // 4) restituisci direttamente il JSON da inserire nelle righe della tabella
     return res.status(200).json({ type: 'expense', items: allItems })
   } catch (err) {
-    console.error('OCR+Assistant error:', err)
+    console.error(err)
     return res.status(500).json({ error: err.message })
   }
 }
