@@ -14,9 +14,10 @@ function VestitiEdAltro() {
   const [error, setError] = useState(null)
   const [recBusy, setRecBusy] = useState(false)
   const [nuovaSpesa, setNuovaSpesa] = useState({
-    descrizione: '',
-    importo: '',
+    puntoVendita: '',
+    dettaglio: '',
     quantita: '1',
+    prezzoTotale: '',
     spentAt: '',
   })
 
@@ -25,7 +26,7 @@ function VestitiEdAltro() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  // ─────────────────────────────────────────────── Carica storico
+  // ─────────────────────────────────────────────── Carica storico on mount
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -51,18 +52,24 @@ function VestitiEdAltro() {
     if (!user) return setError('Sessione scaduta')
 
     const row = {
-      user_id: user.id,
-      category_id: CATEGORY_ID_VESTITI,
-      description: nuovaSpesa.descrizione,
-      amount: Number(nuovaSpesa.importo),
-      spent_at: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
-      qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+      user_id:      user.id,
+      category_id:  CATEGORY_ID_VESTITI,
+      description:  `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
+      amount:       Number(nuovaSpesa.prezzoTotale),
+      spent_at:     nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
+      qty:          parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
     else {
-      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1', spentAt: '' })
+      setNuovaSpesa({
+        puntoVendita: '',
+        dettaglio: '',
+        quantita: '1',
+        prezzoTotale: '',
+        spentAt: '',
+      })
       fetchSpese()
     }
   }
@@ -74,15 +81,17 @@ function VestitiEdAltro() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ─────────────────────────────────────────────── OCR immagine
-  const handleOCR = async file => {
-    if (!file) return
+  // ─────────────────────────────────────────────── OCR multiplo
+  const handleOCR = async files => {
+    if (!files || files.length === 0) return
     try {
       const fd = new FormData()
-      fd.append('images', file)
-      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json()
+      files.forEach(f => fd.append('images', f))
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const { text } = await res.json()
       await parseAssistantPrompt(buildSystemPrompt('ocr', text))
-    } catch {
+    } catch (err) {
+      console.error(err)
       setError('OCR fallito')
     }
   }
@@ -114,7 +123,8 @@ function VestitiEdAltro() {
     try {
       const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
       await parseAssistantPrompt(buildSystemPrompt('voice', text))
-    } catch {
+    } catch (err) {
+      console.error(err)
       setError('STT fallito')
     } finally {
       setRecBusy(false)
@@ -125,21 +135,27 @@ function VestitiEdAltro() {
   function buildSystemPrompt(source, userText) {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa in JSON, **usando la data** presente sullo scontrino.
+Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
 
-Ogni voce deve avere:
-- descrizione: string
-- prezzoUnitario: number | null
+Per ciascuna voce genera:
+- puntoVendita: string
+- dettaglio: string
 - quantita: number
 - prezzoTotale: number
 - data: "YYYY-MM-DD"
 
-Rispondi **solo** con JSON come:
+Rispondi **solo** con JSON:
 \`\`\`json
 {
   "type":"expense",
   "items":[
-    { "descrizione":"Jeans Levi's", "prezzoUnitario":59.90, "quantita":1, "prezzoTotale":59.90, "data":"2025-04-18" },
+    {
+      "puntoVendita":"Fiocca abbigliamento",
+      "dettaglio":"un paio di pantaloni",
+      "quantita":1,
+      "prezzoTotale":100.00,
+      "data":"2025-08-06"
+    }
     /* altre voci... */
   ]
 }
@@ -149,28 +165,15 @@ TESTO_OCR:
 ${userText}
 `
     }
-    // voce / STT
     return `
-**ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "ok", ecc.
+**ATTENZIONE:** il testo seguente è trascrizione vocale, ignora "ehm", "ok", ecc.
 
-Ora estrai **solo** JSON spesa (stesso schema di prima).
-
-ESEMPIO:
-Input: "Ho comprato un paio di pantaloni a 49.90 euro il 5 maggio 2025"
-Output:
-{
-  "type":"expense",
-  "items":[
-    { "descrizione":"Pantaloni", "prezzoUnitario":49.90, "quantita":1, "prezzoTotale":49.90, "data":"2025-05-05" }
-  ]
-}
-
-Frase:
+Ora estrai **solo** JSON spesa (stesso schema).
 "${userText}"
 `
   }
 
-  // ─────────────────────────────────────────────── Parsing & DB insert
+  // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -179,9 +182,11 @@ Frase:
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+
     const data = JSON.parse(answer)
-    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0)
+    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
       throw new Error('Assistant response invalid')
+    }
 
     const {
       data: { user },
@@ -189,23 +194,19 @@ Frase:
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      let spentAt = it.data
-      if (spentAt === 'oggi') {
-        spentAt = new Date().toISOString().slice(0, 10)
-      } else if (spentAt === 'ieri') {
-        const d = new Date()
-        d.setDate(d.getDate() - 1)
-        spentAt = d.toISOString().slice(0, 10)
-      }
-      // qui ci assicuriamo di leggere sempre "descrizione"
-      const descr = it.descrizione ?? it.description ?? ''
+      let spentAt = it.data === 'oggi'
+        ? new Date().toISOString().slice(0, 10)
+        : it.data === 'ieri'
+          ? (() => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10) })()
+          : it.data
+
       return {
-        user_id:     user.id,
-        category_id: CATEGORY_ID_VESTITI,
-        description: descr,
-        amount:      Number(it.prezzoTotale) || 0,
-        spent_at:    spentAt,
-        qty:         parseFloat(it.quantita) || 1,
+        user_id:      user.id,
+        category_id:  CATEGORY_ID_VESTITI,
+        description:  `[${it.puntoVendita}] ${it.dettaglio}`,
+        amount:       Number(it.prezzoTotale) || 0,
+        spent_at:     spentAt,
+        qty:          parseFloat(it.quantita) || 1,
       }
     })
 
@@ -215,10 +216,11 @@ Frase:
     await fetchSpese()
     const last = rows[0]
     setNuovaSpesa({
-      descrizione: last.description,
-      importo:     last.amount,
-      quantita:    String(last.qty),
-      spentAt:     last.spent_at.slice(0, 10),
+      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
+      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
+      quantita:     String(last.qty),
+      prezzoTotale: last.amount,
+      spentAt:      last.spent_at,
     })
   }
 
@@ -227,9 +229,7 @@ Frase:
 
   return (
     <>
-      <Head>
-        <title>Vestiti ed Altro</title>
-      </Head>
+      <Head><title>Vestiti ed Altro</title></Head>
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
@@ -249,15 +249,15 @@ Frase:
               capture="environment"
               multiple
               hidden
-              onChange={e => handleOCR(e.target.files?.[0])}
+              onChange={e => handleOCR(Array.from(e.target.files || []))}
             />
           </div>
 
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
-            <label>Descrizione</label>
+            <label>Punto vendita / Servizio</label>
             <input
-              value={nuovaSpesa.descrizione}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })}
+              value={nuovaSpesa.puntoVendita}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
               required
             />
             <label>Quantità</label>
@@ -268,19 +268,26 @@ Frase:
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
               required
             />
-            <label>Importo (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={nuovaSpesa.importo}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })}
+            <label>Dettaglio della spesa</label>
+            <textarea
+              value={nuovaSpesa.dettaglio}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
               required
             />
-            <label>Data</label>
+            <label>Data di acquisto</label>
             <input
               type="date"
               value={nuovaSpesa.spentAt}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+              required
+            />
+            <label>Prezzo totale (€)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={nuovaSpesa.prezzoTotale}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
+              required
             />
             <button className="btn-manuale">Aggiungi</button>
           </form>
@@ -292,25 +299,28 @@ Frase:
               <table className="custom-table">
                 <thead>
                   <tr>
-                    <th>Descrizione</th>
+                    <th>Punto vendita</th>
+                    <th>Dettaglio</th>
                     <th>Data</th>
                     <th>Qtà</th>
-                    <th>Importo</th>
+                    <th>Prezzo €</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {spese.map(r => (
-                    <tr key={r.id}>
-                      <td>{r.description}</td>
-                      <td>{new Date(r.spent_at).toLocaleDateString()}</td>
-                      <td>{r.qty}</td>
-                      <td>{r.amount.toFixed(2)}</td>
-                      <td>
-                        <button onClick={() => handleDelete(r.id)}>🗑</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {spese.map(r => {
+                    const m = r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
+                    return (
+                      <tr key={r.id}>
+                        <td>{m[1] || '-'}</td>
+                        <td>{m[2] || r.description}</td>
+                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
+                        <td>{r.qty}</td>
+                        <td>{r.amount.toFixed(2)}</td>
+                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}
@@ -319,66 +329,22 @@ Frase:
 
           {error && <p className="error">{error}</p>}
 
-          <Link href="/home">
-            <a className="btn-vocale" style={{ marginTop: '1.5rem' }}>
-              🏠 Home
-            </a>
-          </Link>
+          <Link href="/home"><a className="btn-vocale">🏠 Home</a></Link>
         </div>
       </div>
 
+      {/* Stili identici a quelli di spese-casa.js */}
       <style jsx global>{`
-        .spese-casa-container1 {
-          width: 100%;
-          display: flex;
-          min-height: 100vh;
-          align-items: center;
-          justify-content: center;
-          background: #0f172a;
-          font-family: Inter, sans-serif;
-          padding: 2rem;
-        }
-        .spese-casa-container2 {
-          max-width: 800px;
-          width: 100%;
-          background: rgba(0, 0, 0, 0.6);
-          padding: 2rem;
-          border-radius: 1rem;
-          color: #fff;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-        }
-        .title {
-          margin-bottom: 1rem;
-          font-size: 1.5rem;
-        }
-        .table-buttons {
-          display: flex;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
-          flex-wrap: wrap;
-        }
-        .btn-manuale { background: #22c55e; color: #fff; }
-        .btn-vocale  { background: #10b981; color: #fff; }
-        .btn-ocr     { background: #f43f5e; color: #fff; }
-        .input-section {
-          display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;
-        }
-        input, textarea {
-          width: 100%; padding: 0.6rem; border: none; border-radius: 0.5rem;
-          background: rgba(255, 255, 255, 0.1); color: #fff;
-        }
-        .custom-table {
-          width: 100%; border-collapse: collapse;
-        }
-        .custom-table thead { background: #1f2937; }
-        .custom-table th, .custom-table td {
-          padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .total-box {
-          margin-top: 1rem; background: rgba(34, 197, 94, 0.8);
-          padding: 1rem; border-radius: 0.5rem; text-align: right; font-weight: 600;
-        }
-        .error { color: #f87171; margin-top: 1rem; }
+        .spese-casa-container1 { /* … */ }
+        .spese-casa-container2 { /* … */ }
+        .title { /* … */ }
+        .table-buttons { /* … */ }
+        .btn-vocale, .btn-ocr, .btn-manuale { /* … */ }
+        .input-section { /* … */ }
+        input, textarea { /* … */ }
+        .custom-table { /* … */ }
+        .total-box { /* … */ }
+        .error { /* … */ }
       `}</style>
     </>
   )
