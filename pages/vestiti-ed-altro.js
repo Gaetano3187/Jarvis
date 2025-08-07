@@ -54,7 +54,7 @@ function VestitiEdAltro() {
     const row = {
       user_id:      user.id,
       category_id:  CATEGORY_ID_VESTITI,
-      description:  `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
+      description:  [${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio},
       amount:       Number(nuovaSpesa.prezzoTotale),
       spent_at:     nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
       qty:          parseInt(nuovaSpesa.quantita, 10) || 1,
@@ -134,7 +134,7 @@ function VestitiEdAltro() {
   // ─────────────────────────────────────────────── Costruisci prompt
   function buildSystemPrompt(source, userText) {
     if (source === 'ocr') {
-      return `
+      return 
 Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
 
 Per ciascuna voce genera:
@@ -145,7 +145,7 @@ Per ciascuna voce genera:
 - data: "YYYY-MM-DD"
 
 Rispondi **solo** con JSON:
-\`\`\`json
+\\\json
 {
   "type":"expense",
   "items":[
@@ -159,18 +159,18 @@ Rispondi **solo** con JSON:
     /* altre voci... */
   ]
 }
-\`\`\`
+\\\
 
 TESTO_OCR:
 ${userText}
-`
+
     }
-    return `
+    return 
 **ATTENZIONE:** il testo seguente è trascrizione vocale, ignora "ehm", "ok", ecc.
 
 Ora estrai **solo** JSON spesa (stesso schema).
 "${userText}"
-`
+
   }
 
   // ─────────────────────────────────────────────── Parsing AI & DB insert
@@ -203,7 +203,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
       return {
         user_id:      user.id,
         category_id:  CATEGORY_ID_VESTITI,
-        description:  `[${it.puntoVendita}] ${it.dettaglio}`,
+        description:  [${it.puntoVendita}] ${it.dettaglio},
         amount:       Number(it.prezzoTotale) || 0,
         spent_at:     spentAt,
         qty:          parseFloat(it.quantita) || 1,
@@ -245,7 +245,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
             <input
               ref={ocrInputRef}
               type="file"
-              accept="image/*,application/pdf"
+              accept="image/*"
               capture="environment"
               multiple
               hidden
@@ -334,7 +334,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
       </div>
 
       {/* Stili IDENTICI a quelli di pages/spese-casa.js */}
-      <style jsx global>{`
+      <style jsx global>{
         .spese-casa-container1 {
           width: 100%;
           display: flex;
@@ -423,9 +423,11 @@ Ora estrai **solo** JSON spesa (stesso schema).
           color: #f87171;
           margin-top: 1rem;
         }
-      `}</style>
+      }</style>
     </>
   )
 }
 
 export default withAuth(VestitiEdAltro)
+
+
