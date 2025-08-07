@@ -1,4 +1,3 @@
-// pages/vestiti-ed-altro.js
 import React, { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -63,13 +62,7 @@ function VestitiEdAltro() {
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
     else {
-      setNuovaSpesa({
-        puntoVendita: '',
-        dettaglio: '',
-        quantita: '1',
-        prezzoTotale: '',
-        spentAt: '',
-      })
+      setNuovaSpesa({ puntoVendita: '', dettaglio: '', quantita: '1', prezzoTotale: '', spentAt: '' })
       fetchSpese()
     }
   }
@@ -106,8 +99,7 @@ function VestitiEdAltro() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e =>
-        e.data.size && recordedChunks.current.push(e.data)
+      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunks.current.push(e.data)
       mediaRecRef.current.onstop = processVoice
       mediaRecRef.current.start()
       setRecBusy(true)
@@ -145,7 +137,7 @@ Per ciascuna voce genera:
 - data: "YYYY-MM-DD"
 
 Rispondi **solo** con JSON:
-\`\`\`json
+```json
 {
   "type":"expense",
   "items":[
@@ -156,10 +148,9 @@ Rispondi **solo** con JSON:
       "prezzoTotale":100.00,
       "data":"2025-08-06"
     }
-    /* altre voci... */
   ]
 }
-\`\`\`
+```
 
 TESTO_OCR:
 ${userText}
@@ -176,9 +167,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt })
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
@@ -188,9 +177,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
       throw new Error('Assistant response invalid')
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
@@ -283,8 +270,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
             />
             <label>Prezzo totale (€)</label>
             <input
-              type="number"
-              step="0.01"
+              type="number" step="0.01"
               value={nuovaSpesa.prezzoTotale}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
               required
@@ -317,9 +303,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
                         <td>{new Date(r.spent_at).toLocaleDateString()}</td>
                         <td>{r.qty}</td>
                         <td>{r.amount.toFixed(2)}</td>
-                        <td>
-                          <button onClick={() => handleDelete(r.id)}>🗑</button>
-                        </td>
+                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
                       </tr>
                     )
                   })}
@@ -331,7 +315,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
 
           {error && <p className="error">{error}</p>}
 
-          <Link href="/home"><a className="btn-vocale">🏠 Home</a></Link>
+          <Link href="/home" className="btn-vocale">🏠 Home</Link>
         </div>
       </div>
 
