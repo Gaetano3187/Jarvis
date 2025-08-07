@@ -1,5 +1,5 @@
 // pages/api/ocr.js
-import formidable from 'formidable'
+import { IncomingForm } from 'formidable'
 import fs from 'fs'
 
 export const config = {
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   }
 
   // 1. Parse multipart/form-data con formidable
-  const form = new formidable.IncomingForm({ keepExtensions: true })
+  const form = new IncomingForm({ keepExtensions: true })
   let files
   try {
     const parsed = await new Promise((resolve, reject) => {
@@ -24,13 +24,14 @@ export default async function handler(req, res) {
         else resolve(files)
       })
     })
+    // se arrivi più file sotto chiave "images"
     files = Array.isArray(parsed.images) ? parsed.images : [parsed.images]
   } catch (err) {
     console.error('formidable error:', err)
     return res.status(500).json({ error: 'Errore nel parsing del form' })
   }
 
-  // 2. Prepara la richiesta a OCR.space (o altra API OCR)
+  // 2. Prepara la richiesta a OCR.space
   const formData = new FormData()
   for (const file of files) {
     formData.append('file', fs.createReadStream(file.filepath), file.originalFilename)
@@ -41,16 +42,14 @@ export default async function handler(req, res) {
   try {
     const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
       method: 'POST',
-      headers: {
-        apikey: process.env.OCR_SPACE_API_KEY,
-      },
+      headers: { apikey: process.env.OCR_SPACE_API_KEY },
       body: formData,
     })
     const ocrJson = await ocrResponse.json()
     if (ocrJson.IsErroredOnProcessing) {
       throw new Error(ocrJson.ErrorMessage?.join(', ') || 'OCR fallito')
     }
-    // Concateno tutti i testi riconosciuti
+    // Unisco i testi riconosciuti
     const text = ocrJson.ParsedResults.map(r => r.ParsedText).join('\n')
     return res.status(200).json({ text })
   } catch (err) {
