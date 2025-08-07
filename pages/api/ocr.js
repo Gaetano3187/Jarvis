@@ -1,7 +1,8 @@
 // pages/api/ocr.js
+
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
-import path from 'path'
+import { Blob } from 'buffer'
 
 export const config = {
   api: { bodyParser: false },
@@ -38,14 +39,18 @@ export default async function handler(req, res) {
   formData.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld')
   formData.append('language', 'ita')
   formData.append('isOverlayRequired', 'false')
-  // allega il file come ReadStream
-  formData.append(
-    'file',
-    fs.createReadStream(upload.filepath),
-    upload.originalFilename
-  )
 
-  // 4) invoca l’API
+  //  ──> leggilo in un Buffer e avvolgilo in un Blob
+  try {
+    const buffer = await fs.promises.readFile(upload.filepath)
+    const blob = new Blob([buffer])
+    formData.append('file', blob, upload.originalFilename)
+  } catch (err) {
+    console.error('file read error:', err)
+    return res.status(500).json({ error: 'Impossibile leggere il file caricato' })
+  }
+
+  // 4) invoca l’API OCR.space
   let ocrJson
   try {
     const resp = await fetch('https://api.ocr.space/parse/image', {
@@ -63,15 +68,15 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: ocrJson.ErrorMessage })
   }
 
-  // 5) concatena tutto
+  // 5) concatena tutti i testi trovati
   const text = (ocrJson.ParsedResults || [])
     .map(r => r.ParsedText)
     .join('\n')
     .trim()
 
-  // 6) pulisci temporaneo
+  // 6) pulisci file temporaneo
   fs.unlink(upload.filepath, () => {})
 
-  // 7) restituisci
+  // 7) restituisci il risultato
   res.status(200).json({ text })
 }
