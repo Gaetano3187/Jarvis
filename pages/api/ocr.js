@@ -1,7 +1,7 @@
 // pages/api/ocr.js
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
-import FormData from 'form-data'
+import { FormData, fileFromSync } from 'undici'
 
 export const config = {
   api: { bodyParser: false },
@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // Parse multipart/form-data senza usare require()
+  // 1) parse multipart/form-data
   let files
   try {
     ;({ files } = await new Promise((resolve, reject) => {
@@ -27,20 +27,24 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message })
   }
 
-  // Prendi il primo file (o l'unico) in files.images
+  // 2) prendi il primo file in files.images
   const upload = Array.isArray(files.images) ? files.images[0] : files.images
   if (!upload) {
     return res.status(400).json({ error: 'Nessun file in images' })
   }
 
-  // Prepara la richiesta a OCR.Space
+  // 3) prepara il FormData per OCR.Space
   const formData = new FormData()
   formData.append('apikey', process.env.OCRSPACE_API_KEY || 'helloworld')
   formData.append('language', 'ita')
   formData.append('isOverlayRequired', 'false')
-  formData.append('file', fs.createReadStream(upload.filepath), upload.originalFilename)
+  formData.append(
+    'file',
+    // allega il file dal path temporaneo
+    fileFromSync(upload.filepath, upload.originalFilename)
+  )
 
-  // Chiama l’API
+  // 4) invoca l’API
   let ocrJson
   try {
     const resp = await fetch('https://api.ocr.space/parse/image', {
@@ -58,14 +62,15 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: ocrJson.ErrorMessage })
   }
 
-  // Estrai tutto il testo riconosciuto
+  // 5) concatena tutti i ParsedText
   const text = (ocrJson.ParsedResults || [])
     .map(r => r.ParsedText)
     .join('\n')
     .trim()
 
-  // Elimina il file temporaneo
+  // 6) pulisci il file temporaneo
   try { fs.unlinkSync(upload.filepath) } catch {}
 
+  // 7) restituisci il testo
   res.status(200).json({ text })
 }
