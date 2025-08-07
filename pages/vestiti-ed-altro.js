@@ -245,7 +245,7 @@ Ora estrai **solo** JSON spesa (stesso schema).
             <input
               ref={ocrInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,application/pdf"
               capture="environment"
               multiple
               hidden
