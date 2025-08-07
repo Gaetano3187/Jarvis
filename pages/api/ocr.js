@@ -1,7 +1,7 @@
 // pages/api/ocr.js
 import { IncomingForm } from 'formidable'
-import FormData from 'form-data'
-import fs from 'fs'
+import fs from 'fs/promises'
+import { Blob } from 'buffer'
 
 export const config = {
   api: {
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' })
   }
 
-  // 1) parsing con formidable
+  // 1) parse multipart con formidable
   const form = new IncomingForm({ keepExtensions: true })
   let files
   try {
@@ -24,17 +24,16 @@ export default async function handler(req, res) {
     })
     files = Array.isArray(parsed.images) ? parsed.images : [parsed.images]
   } catch (err) {
-    console.error('formidable error:', err)
+    console.error('Formidable error:', err)
     return res.status(500).json({ error: 'Errore nel parsing del form' })
   }
 
-  // 2) building del multipart con form-data
+  // 2) costruisco FormData usando Blob
   const fd = new FormData()
   for (const file of files) {
-    fd.append('file', fs.createReadStream(file.filepath), {
-      filename: file.originalFilename,
-      contentType: file.mimetype,
-    })
+    const buffer = await fs.readFile(file.filepath)
+    const blob = new Blob([buffer], { type: file.mimetype })
+    fd.append('file', blob, file.originalFilename)
   }
   fd.append('language', 'ita')
   fd.append('isOverlayRequired', 'false')
@@ -45,17 +44,16 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         apikey: process.env.OCR_SPACE_API_KEY,
-        // IMPORTANT: non impostare Content-Type a mano, lo farà form-data
+        // NOTA: Content-Type lo mette FormData automaticamente
       },
       body: fd,
     })
     const ocrJson = await ocrRes.json()
     if (ocrJson.IsErroredOnProcessing) {
-      throw new Error(
-        Array.isArray(ocrJson.ErrorMessage)
-          ? ocrJson.ErrorMessage.join(', ')
-          : ocrJson.ErrorMessage || 'OCR fallito'
-      )
+      const msg = Array.isArray(ocrJson.ErrorMessage)
+        ? ocrJson.ErrorMessage.join(', ')
+        : ocrJson.ErrorMessage || 'OCR fallito'
+      throw new Error(msg)
     }
     const text = ocrJson.ParsedResults.map(r => r.ParsedText).join('\n')
     return res.status(200).json({ text })
