@@ -1,7 +1,7 @@
 // pages/api/ocr.js
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
-import { FormData, fileFromSync } from 'undici'
+import path from 'path'
 
 export const config = {
   api: { bodyParser: false },
@@ -23,25 +23,26 @@ export default async function handler(req, res) {
       })
     }))
   } catch (err) {
-    console.error('⚠️ parse error:', err)
+    console.error('parse error:', err)
     return res.status(500).json({ error: err.message })
   }
 
   // 2) prendi il primo file in files.images
   const upload = Array.isArray(files.images) ? files.images[0] : files.images
   if (!upload) {
-    return res.status(400).json({ error: 'Nessun file in images' })
+    return res.status(400).json({ error: 'Nessun file nel campo "images"' })
   }
 
-  // 3) prepara il FormData per OCR.Space
-  const formData = new FormData()
-  formData.append('apikey', process.env.OCRSPACE_API_KEY || 'helloworld')
+  // 3) prepara il FormData nativo
+  const formData = new globalThis.FormData()
+  formData.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld')
   formData.append('language', 'ita')
   formData.append('isOverlayRequired', 'false')
+  // allega il file come ReadStream
   formData.append(
     'file',
-    // allega il file dal path temporaneo
-    fileFromSync(upload.filepath, upload.originalFilename)
+    fs.createReadStream(upload.filepath),
+    upload.originalFilename
   )
 
   // 4) invoca l’API
@@ -53,24 +54,24 @@ export default async function handler(req, res) {
     })
     ocrJson = await resp.json()
   } catch (err) {
-    console.error('⚠️ fetch error:', err)
+    console.error('fetch error:', err)
     return res.status(500).json({ error: err.message })
   }
 
   if (ocrJson.IsErroredOnProcessing) {
-    console.error('❌ OCR error:', ocrJson.ErrorMessage)
+    console.error('OCR error:', ocrJson.ErrorMessage)
     return res.status(500).json({ error: ocrJson.ErrorMessage })
   }
 
-  // 5) concatena tutti i ParsedText
+  // 5) concatena tutto
   const text = (ocrJson.ParsedResults || [])
     .map(r => r.ParsedText)
     .join('\n')
     .trim()
 
-  // 6) pulisci il file temporaneo
-  try { fs.unlinkSync(upload.filepath) } catch {}
+  // 6) pulisci temporaneo
+  fs.unlink(upload.filepath, () => {})
 
-  // 7) restituisci il testo
+  // 7) restituisci
   res.status(200).json({ text })
 }
