@@ -3,7 +3,7 @@ import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import sharp from 'sharp'
 import Tesseract from 'tesseract.js'
-import pdfParse from 'pdf-parse'
+
 
 export const config = {
   api: { bodyParser: false }
