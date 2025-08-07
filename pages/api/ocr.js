@@ -2,7 +2,7 @@
 import { IncomingForm } from 'formidable'
 import fs from 'fs'
 import sharp from 'sharp'
-import Tesseract from 'tesseract.js'
+
 
 
 export const config = {
