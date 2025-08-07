@@ -1,69 +1,62 @@
 // pages/api/ocr.js
 import formidable from 'formidable'
 import fs from 'fs'
-import FormData from 'form-data'
+import { FormData } from 'undici'
 
 export const config = {
   api: {
-    bodyParser: false, // disabilitiamo il parser di Next per usare formidable
+    bodyParser: false, // disabilitiamo il body parser di Next.js per gestire i file
   },
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end()
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST'])
+    return res.status(405).json({ error: 'Method Not Allowed' })
+  }
 
-  const form = new formidable.IncomingForm({ multiples: true })
-  form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error('Form parse error:', err)
-      return res.status(500).json({ error: err.message })
-    }
-
-    // Prendi il primo file di images
-    const imageFile = Array.isArray(files.images)
-      ? files.images[0]
-      : files.images
-
-    if (!imageFile) {
-      return res.status(400).json({ error: 'Nessuna immagine inviata' })
-    }
-
-    // Leggi il buffer
-    const buffer = await fs.promises.readFile(imageFile.filepath)
-
-    // Prepara la richiesta a OCR.Space
-    const ocrForm = new FormData()
-    ocrForm.append('apikey', process.env.OCR_SPACE_API_KEY)
-    ocrForm.append('language', 'ita')
-    ocrForm.append('isOverlayRequired', 'false')
-    ocrForm.append('file', buffer, {
-      filename: imageFile.originalFilename,
-      contentType: imageFile.mimetype,
-    })
-
-    try {
-      const ocrRes = await fetch('https://api.ocr.space/parse/image', {
-        method: 'POST',
-        headers: ocrForm.getHeaders(),
-        body: ocrForm,
+  // 1. Parse multipart/form-data con formidable
+  const form = new formidable.IncomingForm({ keepExtensions: true })
+  let files
+  try {
+    const parsed = await new Promise((resolve, reject) => {
+      form.parse(req, (err, _fields, files) => {
+        if (err) reject(err)
+        else resolve(files)
       })
-      const json = await ocrRes.json()
+    })
+    // immagini caricate come campo "images"
+    files = Array.isArray(parsed.images) ? parsed.images : [parsed.images]
+  } catch (err) {
+    console.error('formidable error:', err)
+    return res.status(500).json({ error: 'Errore nel parsing del form' })
+  }
 
-      if (json.IsErroredOnProcessing) {
-        console.error('OCR.Space error:', json.ErrorMessage)
-        return res.status(500).json({ error: json.ErrorMessage })
-      }
+  // 2. Prepara la richiesta a OCR.space (puoi sostituire con la tua API)
+  const formData = new FormData()
+  for (const file of files) {
+    formData.append('file', fs.createReadStream(file.filepath), file.originalFilename)
+  }
+  formData.append('language', 'ita')
+  formData.append('isOverlayRequired', 'false')
 
-      // Unisci tutti i testi estratti
-      const text = json.ParsedResults
-        .map(r => r.ParsedText)
-        .filter(Boolean)
-        .join('\n')
-
-      return res.status(200).json({ text })
-    } catch (fetchErr) {
-      console.error('Fetch OCR.Space failed:', fetchErr)
-      return res.status(500).json({ error: fetchErr.message })
+  try {
+    const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+      method: 'POST',
+      headers: {
+        apikey: process.env.OCR_SPACE_API_KEY,
+      },
+      body: formData,
+    })
+    const ocrJson = await ocrResponse.json()
+    if (ocrJson.IsErroredOnProcessing) {
+      throw new Error(ocrJson.ErrorMessage?.join(', ') || 'OCR fallito')
     }
-  })
+    // concateniamo tutti i ParsedText
+    const text = ocrJson.ParsedResults.map(r => r.ParsedText).join('\n')
+    return res.status(200).json({ text })
+  } catch (err) {
+    console.error('OCR API error:', err)
+    return res.status(500).json({ error: err.message || 'OCR API failed' })
+  }
 }
