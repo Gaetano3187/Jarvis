@@ -146,20 +146,8 @@ else {
 
   // ─────────────────────────────────────────────── Costruisci prompt
   function buildSystemPrompt(source, userText, fileName) {
-    // ➕ Aggiornato per includere metodo pagamento/card
-    const paymentHelp = `
-Campi aggiuntivi:
-- paymentMethod: "cash" | "card" | "transfer" (default "cash" se non indicato)
-- cardLabel: string opzionale (es: "Visa", "Revolut") quando paymentMethod="card"
-
-Regole:
-- Se nel testo compaiono "carta", "visa", "mastercard", "amex", "revolut", "bancomat", usa paymentMethod="card" e imposta cardLabel se presente.
-- Se si parla di bonifico/IBAN/SEPA, usa paymentMethod="transfer".
-- Altrimenti default "cash".
-`
-
-    if (source === 'ocr') {
-      return `
+  if (source === 'ocr') {
+    return String.raw`
 Sei Jarvis. Da questo testo OCR estrai **tutte** le righe di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino (non la data di inserimento).
 
 Per ciascuna voce estratta genera un oggetto con:
@@ -169,7 +157,6 @@ Per ciascuna voce estratta genera un oggetto con:
 - quantita: number
 - prezzoTotale: number
 - data: "YYYY-MM-DD" (estratta direttamente dal testo)
-${paymentHelp}
 
 Rispondi **solo** con JSON conforme a questo schema:
 \`\`\`json
@@ -182,28 +169,33 @@ Rispondi **solo** con JSON conforme a questo schema:
       "prezzoUnitario": 20.00,
       "quantita": 1,
       "prezzoTotale": 20.00,
-      "data": "2025-08-06",
-      "paymentMethod": "card",
-      "cardLabel": "Visa"
+      "data": "2025-08-06"
+    },
+    {
+      "puntoVendita": "Supermercato Orsini Market",
+      "dettaglio": "2 confezioni di pane",
+      "prezzoUnitario": 1.50,
+      "quantita": 2,
+      "prezzoTotale": 3.00,
+      "data": "2025-08-06"
     }
+    // …altre righe se presenti
   ]
 }
 \`\`\`
 
-CONTENUTO OCR (${fileName}):
+CONTENUTO OCR (${fileName || 'scontrino'}):
 ${userText}
 `
-    }
+  }
 
-    // voce / STT
-    return `
+  // voce / STT
+  return String.raw`
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
-
-Ora estrai **solo** JSON spesa (stesso schema di prima, includendo paymentMethod/cardLabel come da regole sotto).
-${paymentHelp}
+Ora estrai **solo** JSON spesa (stesso schema di prima).
 
 ESEMPIO:
-Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025, pagata con carta Visa"
+Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
 Output:
 {
   "type":"expense",
@@ -214,8 +206,8 @@ Output:
       "prezzoTotale":2.50,
       "quantita":3,
       "data":"2025-07-10",
-      "paymentMethod":"card",
-      "cardLabel":"Visa"
+      "categoria":"casa",
+      "category_id":"${CATEGORY_ID_CASA}"
     }
   ]
 }
@@ -223,7 +215,7 @@ Output:
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
 `
-  }
+}
 
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
