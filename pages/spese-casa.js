@@ -1,4 +1,4 @@
-// pages/spese-casa.js 
+// pages/spese-casa.js
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -6,6 +6,25 @@ import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
+
+/** Dizionario alias → nome canonico per i punti vendita */
+const STORE_ALIASES = [
+  ['orsini market', 'Orsini Market'],
+  ['orsinimarket', 'Orsini Market'],
+  ['orsini marche', 'Orsini Market'],
+  ['orsini marker', 'Orsini Market'],
+  // aggiungi qui altri alias comuni
+]
+
+function canonicalizeStoreName(raw) {
+  const s = String(raw || '').trim().toLowerCase()
+  if (!s) return ''
+  for (const [alias, canon] of STORE_ALIASES) {
+    if (s === alias) return canon
+  }
+  // capitalizza parole di default
+  return s.replace(/\s+/g, ' ').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' ')
+}
 
 function SpeseCasa() {
   const [spese, setSpese] = useState([])
@@ -37,14 +56,26 @@ function SpeseCasa() {
   // ----------------------------- API
   const fetchSpese = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('finances')
-      .select('id, description, amount, qty, spent_at, payment_method, card_label')
-      .eq('category_id', CATEGORY_ID_CASA)
-      .order('created_at', { ascending: false })
-    if (error) setError(error.message)
-    else setSpese(data || [])
-    setLoading(false)
+    setError(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessione scaduta')
+
+      const { data, error } = await supabase
+        .from('finances')
+        .select('id, user_id, description, amount, qty, spent_at, payment_method, card_label')
+        .eq('user_id', user.id)
+        .eq('category_id', CATEGORY_ID_CASA)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setSpese(data || [])
+    } catch (err) {
+      console.error(err)
+      setError(err.message || String(err))
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   // ----------------------------- Media helpers
@@ -95,7 +126,7 @@ function SpeseCasa() {
 
     setStopping(true)
 
-    // prepara promise che si risolve su onstop o timeout
+    // promise si risolve su onstop o timeout
     const p = new Promise(resolve => {
       stopWaitRef.current = { resolve }
       setTimeout(() => resolve('timeout'), 2000) // sicurezza
@@ -146,10 +177,11 @@ function SpeseCasa() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
+    const storeCanon = canonicalizeStoreName(nuovaSpesa.puntoVendita)
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
-      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+      description: `[${storeCanon}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
       qty: parseFloat(nuovaSpesa.quantita) || 1,
@@ -160,8 +192,11 @@ function SpeseCasa() {
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
-    if (insertError) setError(insertError.message)
-    else {
+    if (insertError) {
+      // 23505 → violazione unique (es. indice naturale)
+      if (insertError.code === '23505') setError('Questa spesa sembra già inserita.')
+      else setError(insertError.message)
+    } else {
       setNuovaSpesa({
         puntoVendita: '',
         dettaglio: '',
@@ -291,9 +326,7 @@ function SpeseCasa() {
       '  "nota": "string opzionale"',
       '}]}',
       '',
-      'Esempi cassa:',
-      '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
-      '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
+      'Nota: per i nomi dei negozi usa la forma più probabile e completa (es. "Orsini Market").',
       '',
     ].join('\n');
 
@@ -354,8 +387,9 @@ function SpeseCasa() {
         ? Number(it.prezzoUnitario) || 0
         : (qty ? totalPrice / qty : totalPrice)
 
+      const storeCanon = canonicalizeStoreName(it.puntoVendita)
       const parts = []
-      parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
+      parts.push(`[${storeCanon}] ${it.dettaglio}`)
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
       // normalizza payment method (transfer -> bank per coerenza UI)
@@ -375,9 +409,11 @@ function SpeseCasa() {
       }
     })
 
-    // NB: niente upsert → niente onConflict → niente errore 400
     const { error: dbErr } = await supabase.from('finances').insert(rows)
-    if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
+    if (dbErr) {
+      if (dbErr.code === '23505') throw new Error('Spesa già presente (duplicato).')
+      throw new Error(dbErr.message || 'Insert fallito')
+    }
 
     await fetchSpese()
 
