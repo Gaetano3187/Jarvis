@@ -19,6 +19,9 @@ function SpeseCasa() {
     prezzoTotale: '',
     quantita: '1',
     spentAt: '',
+    // ➕ NUOVO: metodo pagamento + label carta
+    paymentMethod: 'cash',
+    cardLabel: '',
   })
 
   const formRef = useRef(null)
@@ -35,7 +38,7 @@ function SpeseCasa() {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, spent_at')
+      .select('id, description, amount, qty, spent_at, payment_method, card_label') // ➕
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
@@ -58,6 +61,10 @@ function SpeseCasa() {
       amount: Number(nuovaSpesa.prezzoTotale),
       spent_at: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+      // ➕ NUOVO: salva metodo pagamento
+      payment_method: nuovaSpesa.paymentMethod || 'cash',
+      card_label:
+        (nuovaSpesa.paymentMethod === 'card' ? (nuovaSpesa.cardLabel || null) : null),
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
@@ -69,6 +76,8 @@ function SpeseCasa() {
         prezzoTotale: '',
         quantita: '1',
         spentAt: '',
+        paymentMethod: 'cash',
+        cardLabel: '',
       })
       fetchSpese()
     }
@@ -136,8 +145,20 @@ function SpeseCasa() {
 
   // ─────────────────────────────────────────────── Costruisci prompt
   function buildSystemPrompt(source, userText, fileName) {
-  if (source === 'ocr') {
-    return `
+    // ➕ Aggiornato per includere metodo pagamento/card
+    const paymentHelp = `
+Campi aggiuntivi:
+- paymentMethod: "cash" | "card" | "transfer" (default "cash" se non indicato)
+- cardLabel: string opzionale (es: "Visa", "Revolut") quando paymentMethod="card"
+
+Regole:
+- Se nel testo compaiono "carta", "visa", "mastercard", "amex", "revolut", "bancomat", usa paymentMethod="card" e imposta cardLabel se presente.
+- Se si parla di bonifico/IBAN/SEPA, usa paymentMethod="transfer".
+- Altrimenti default "cash".
+`
+
+    if (source === 'ocr') {
+      return `
 Sei Jarvis. Da questo testo OCR estrai **tutte** le righe di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino (non la data di inserimento).
 
 Per ciascuna voce estratta genera un oggetto con:
@@ -147,6 +168,7 @@ Per ciascuna voce estratta genera un oggetto con:
 - quantita: number
 - prezzoTotale: number
 - data: "YYYY-MM-DD" (estratta direttamente dal testo)
+${paymentHelp}
 
 Rispondi **solo** con JSON conforme a questo schema:
 \`\`\`json
@@ -159,17 +181,10 @@ Rispondi **solo** con JSON conforme a questo schema:
       "prezzoUnitario": 20.00,
       "quantita": 1,
       "prezzoTotale": 20.00,
-      "data": "2025-08-06"
-    },
-    {
-      "puntoVendita": "Supermercato Orsini Market",
-      "dettaglio": "2 confezioni di pane",
-      "prezzoUnitario": 1.50,
-      "quantita": 2,
-      "prezzoTotale": 3.00,
-      "data": "2025-08-06"
+      "data": "2025-08-06",
+      "paymentMethod": "card",
+      "cardLabel": "Visa"
     }
-    /* e così via per tutte le righe… */
   ]
 }
 \`\`\`
@@ -177,16 +192,17 @@ Rispondi **solo** con JSON conforme a questo schema:
 CONTENUTO OCR (${fileName}):
 ${userText}
 `
-  }
+    }
 
-  // voce / STT rimane invariato…
-  return `
+    // voce / STT
+    return `
 **ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
-Ora estrai **solo** JSON spesa (stesso schema di prima).
+Ora estrai **solo** JSON spesa (stesso schema di prima, includendo paymentMethod/cardLabel come da regole sotto).
+${paymentHelp}
 
 ESEMPIO:
-Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
+Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025, pagata con carta Visa"
 Output:
 {
   "type":"expense",
@@ -197,8 +213,8 @@ Output:
       "prezzoTotale":2.50,
       "quantita":3,
       "data":"2025-07-10",
-      "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
+      "paymentMethod":"card",
+      "cardLabel":"Visa"
     }
   ]
 }
@@ -206,8 +222,7 @@ Output:
 Ora capisci la frase seguente e compila i campi:
 "${userText}"
 `
-}
-
+  }
 
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
@@ -239,6 +254,9 @@ Ora capisci la frase seguente e compila i campi:
         spentAt = d.toISOString().slice(0, 10)
       }
       const totalPrice = Number(it.prezzoTotale) || 0
+      const method = (it.paymentMethod || 'cash')
+      const label = method === 'card' ? (it.cardLabel || null) : null
+
       return {
         user_id:      user.id,
         category_id:  CATEGORY_ID_CASA,
@@ -246,6 +264,8 @@ Ora capisci la frase seguente e compila i campi:
         amount:       totalPrice,
         spent_at:     spentAt,
         qty:          1,
+        payment_method: method,   // ➕
+        card_label:      label,   // ➕
       }
     })
 
@@ -260,11 +280,19 @@ Ora capisci la frase seguente e compila i campi:
       prezzoTotale: last.amount,
       quantita:     String(last.qty),
       spentAt:      last.spent_at,
+      paymentMethod: last.payment_method || 'cash',
+      cardLabel: last.card_label || '',
     })
   }
 
   // ─────────────────────────────────────────────── Render
   const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
+
+  const renderPayBadge = (r) => {
+    if (r.payment_method === 'card') return `💳 ${r.card_label || 'Carta'}`
+    if (r.payment_method === 'transfer') return '🏦 Bonifico'
+    return '💶 Contante'
+  }
 
   return (
     <>
@@ -330,6 +358,29 @@ Ora capisci la frase seguente e compila i campi:
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
               required
             />
+
+            {/* ➕ Metodo pagamento */}
+            <label>Metodo di pagamento</label>
+            <select
+              value={nuovaSpesa.paymentMethod}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, paymentMethod: e.target.value })}
+            >
+              <option value="cash">Contante (tasca)</option>
+              <option value="card">Carta</option>
+              <option value="transfer">Bonifico/Altro</option>
+            </select>
+
+            {nuovaSpesa.paymentMethod === 'card' && (
+              <>
+                <label>Nome carta (opz.)</label>
+                <input
+                  value={nuovaSpesa.cardLabel}
+                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, cardLabel: e.target.value })}
+                  placeholder="Visa, Revolut…"
+                />
+              </>
+            )}
+
             <button className="btn-manuale">Aggiungi</button>
           </form>
 
@@ -345,6 +396,7 @@ Ora capisci la frase seguente e compila i campi:
                     <th>Data</th>
                     <th>Qtà</th>
                     <th>Prezzo €</th>
+                    <th>Pag.</th>{/* ➕ */}
                     <th></th>
                   </tr>
                 </thead>
@@ -358,6 +410,7 @@ Ora capisci la frase seguente e compila i campi:
                         <td>{new Date(r.spent_at).toLocaleDateString()}</td>
                         <td>{r.qty}</td>
                         <td>{r.amount.toFixed(2)}</td>
+                        <td>{renderPayBadge(r)}</td>{/* ➕ */}
                         <td>
                           <button onClick={() => handleDelete(r.id)}>🗑</button>
                         </td>
@@ -427,7 +480,8 @@ Ora capisci la frase seguente e compila i campi:
           margin-bottom: 1.5rem;
         }
         input,
-        textarea {
+        textarea,
+        select {
           width: 100%;
           padding: 0.6rem;
           border: none;
