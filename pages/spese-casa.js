@@ -260,94 +260,55 @@ function SpeseCasa() {
   }
 
   // ───────────────────────────── PROMPT BUILDER
-  function buildSystemPrompt(source, userText, fileName) {
-    const fn = fileName || 'scontrino'
-    if (source === 'ocr') {
-      return [
-        'Sei Jarvis. Da questo testo OCR estrai tutte le righe di spesa, usando la data presente sullo scontrino.',
-        '',
-        'Per ogni voce genera un oggetto con:',
-        '- puntoVendita: string',
-        '- dettaglio: string',
-        '- prezzoUnitario: number | null',
-        '- quantita: number',
-        '- prezzoTotale: number',
-        '- data: "YYYY-MM-DD" (estratta dal testo)',
-        '',
-        'Rispondi solo con JSON conforme a questo schema:',
-        '{ "type": "expense", "items": [{ "puntoVendita": "Supermercato", "dettaglio": "Latte", "prezzoUnitario": 1.20, "quantita": 1, "prezzoTotale": 1.20, "data": "2025-08-06" }] }',
-        '',
-        'CONTENUTO OCR (' + fn + '):',
-        String(userText || '')
-      ].join('\n')
-    }
+function buildSystemPrompt(source, userText, fileName) {
+  const fn = fileName || 'scontrino';
+
+  const header = [
+    'Sei Jarvis. Puoi restituire uno dei seguenti JSON:',
+    '',
+    '1) Spese (type: "expense")',
+    '{ "type":"expense", "items":[{',
+    '  "puntoVendita": "string",',
+    '  "dettaglio": "string",',
+    '  "prezzoUnitario": number|null,',
+    '  "quantita": number,',
+    '  "uom": "string opzionale (es: kg, L, pz)",',
+    '  "prezzoTotale": number,',
+    '  "data":"YYYY-MM-DD",',
+    '  "paymentMethod":"cash|card|transfer",',
+    '  "cardLabel": "string|optional"',
+    '}]}',
+    '',
+    '2) Movimento cassa (type: "cash_move")',
+    '{ "type":"cash_move", "items":[{',
+    '  "importo": number,',
+    '  "direzione": "in|out",',
+    '  "data":"YYYY-MM-DD|oggi|ieri",',
+    '  "nota": "string opzionale"',
+    '}]}',
+    '',
+    'Esempi cassa:',
+    '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
+    '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
+    '',
+  ].join('\n');
+
+  if (source === 'ocr') {
     return [
-      'ATTENZIONE: il testo che segue è trascrizione vocale.',
-      'Estrai SOLO JSON spesa (stesso schema di prima).',
-      '',
-      'ESEMPIO:',
-      '{ "type":"expense", "items":[{ "puntoVendita":"Supermercato Rossi", "dettaglio":"Pasta Barilla", "prezzoTotale":2.50, "quantita":1, "data":"2025-07-10", "categoria":"casa", "category_id":"' + CATEGORY_ID_CASA + '" }] }',
-      '',
-      'Testo:',
+      header,
+      'Testo OCR (' + fn + '):',
       String(userText || '')
-    ].join('\n')
+    ].join('\n');
   }
 
-  // ───────────────────────────── Parse + insert in DB
-  async function parseAssistantPrompt(prompt) {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    })
-    const { answer, error: apiErr } = await res.json()
-    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+  // STT / testo libero
+  return [
+    header,
+    'Trascrizione:',
+    String(userText || '')
+  ].join('\n');
+}
 
-    const data = JSON.parse(answer)
-    if (data.type !== 'expense' || !Array.isArray(data.items) || data.items.length === 0) {
-      throw new Error('Assistant response invalid')
-    }
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) throw new Error('Sessione scaduta')
-
-    const rows = data.items.map(it => {
-      let spentAt = it.data
-      if (spentAt === 'oggi') spentAt = new Date().toISOString().slice(0, 10)
-      if (spentAt === 'ieri') {
-        const d = new Date(); d.setDate(d.getDate() - 1); spentAt = d.toISOString().slice(0, 10)
-      }
-      const totalPrice = Number(it.prezzoTotale) || 0
-      const method = (it.paymentMethod || 'cash')
-      const label = method === 'card' ? (it.cardLabel || null) : null
-
-      return {
-        user_id: user.id,
-        category_id: CATEGORY_ID_CASA,
-        description: `[${it.puntoVendita}] ${it.dettaglio}`,
-        amount: totalPrice,
-        spent_at: spentAt,
-        qty: 1,
-        payment_method: method, // cash | card | bank
-        card_label: label,
-      }
-    })
-
-    const { error: dbErr } = await supabase.from('finances').insert(rows)
-    if (dbErr) throw dbErr
-
-    await fetchSpese()
-    const last = rows[0]
-    setNuovaSpesa({
-      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio: last.description.replace(/^\[.*?\]\s*/, ''),
-      prezzoTotale: last.amount,
-      quantita: String(last.qty),
-      spentAt: last.spent_at,
-      paymentMethod: last.payment_method || 'cash',
-      cardLabel: last.card_label || '',
-    })
-  }
 
   // ───────────────────────────── UI
   const totale = (spese || []).reduce((t, r) => t + r.amount * (r.qty || 1), 0)
