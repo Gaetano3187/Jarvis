@@ -502,13 +502,23 @@ function Entrate() {
     }
   }
 
-  /* --------------------------- calcoli --------------------------- */
-  const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
-  const carryAmount = Number(carryover?.amount || 0);
-  const saldoMese = totalIncomes + carryAmount - monthExpenses;
+/* --------------------------- calcoli --------------------------- */
+const carryAmount = Number(carryover?.amount || 0);
 
-  // Saldo contante = somma di tutti i movimenti (ricariche positive, spese/uscite negative)
-  const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
+// Somma SOLO dello stipendio nel periodo corrente (payday-based)
+const stipendioCorrente = incomes
+  .filter(i => (i.source || '').toLowerCase().includes('stipendio'))
+  .reduce((t, r) => t + Number(r.amount || 0), 0);
+
+// Saldo disponibile iniziale (prima di usare contante)
+const saldoDisponibileIniziale = carryAmount + stipendioCorrente;
+
+// Contante residuo (positivo se hai ancora contanti, negativo se sei “sotto”)
+const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
+
+// Saldo attuale (quello che ti resta “spendibile” sottraendo il contante già prelevato/consumato)
+const saldoAttuale = saldoDisponibileIniziale - pocketBalance;
+
 
   /* ------------------------------ UI ------------------------------ */
   return (
@@ -521,14 +531,27 @@ function Entrate() {
 
           {/* Disponibilita */}
           <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
-            <h3>Disponibilita</h3>
-            <div className="flex-line"><span>Saldo mese disponibile:</span><b>€ {saldoMese.toFixed(2)}</b></div>
-            <div className="flex-line"><span>Soldi in tasca (restanti):</span><b>€ {pocketBalance.toFixed(2)}</b></div>
-            <p style={{ opacity: 0.8, marginTop: '0.3rem' }}>
-              Periodo corrente: <b>{startDate}</b> → <b>{endDate}</b> (payday giorno {PAYDAY_DAY})
-            </p>
-          </div>
+  <h3>Disponibilità</h3>
 
+  <div className="flex-line">
+    <span>Saldo disponibile iniziale (stipendio + rimanenza mese prec.):</span>
+    <b>€ {saldoDisponibileIniziale.toFixed(2)}</b>
+  </div>
+
+  <div className="flex-line">
+    <span>Soldi in tasca (contante residuo):</span>
+    <b>€ {pocketBalance.toFixed(2)}</b>
+  </div>
+
+  <div className="flex-line">
+    <span>Saldo attuale (disponibile − contante):</span>
+    <b>€ {saldoAttuale.toFixed(2)}</b>
+  </div>
+
+  <p style={{ opacity: 0.8, marginTop: '0.3rem' }}>
+    Periodo corrente: <b>{startDate}</b> → <b>{endDate}</b> (payday giorno {PAYDAY_DAY})
+  </p>
+</div>
           {/* Tasti OCR/Voce */}
           <div className="table-buttons">
             <button className="btn-vocale" onClick={toggleRec}>
