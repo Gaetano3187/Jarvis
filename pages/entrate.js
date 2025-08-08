@@ -99,45 +99,40 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2
       setCarryover(co || null)
 
-      // ───────── MODIFICATO: Movimenti “soldi in tasca” con join a finances (ultimi 60 gg)
+      // Movimenti “soldi in tasca” (ultimi 60 gg) — DISAMBIGUA RELAZIONI
       const since = new Date()
       since.setMonth(since.getMonth() - 2)
 
-      // Movimenti “soldi in tasca” (ultimi 60 gg) — DISAMBIGUA RELAZIONI
-const since = new Date()
-since.setMonth(since.getMonth() - 2)
-
-const { data: pc, error: e3 } = await supabase
-  .from('pocket_cash')
-  .select(`
-    id,
-    user_id,
-    created_at,
-    moved_at,
-    note,
-    delta,
-    amount,
-    direction,
-    finance_id,
-    link_finance_id,
-    finances_fid:finances!pocket_cash_finance_id_fkey (
-      id,
-      spent_at,
-      description
-    ),
-    finances_lid:finances!pocket_cash_link_finance_id_fkey (
-      id,
-      spent_at,
-      description
-    )
-  `)
-  .eq('user_id', user.id)
-  .gte('created_at', since.toISOString())
-  .order('moved_at', { ascending: false, nullsFirst: false })
-  .order('created_at', { ascending: false })
-if (e3) throw e3
-setPocket(pc || [])
-
+      const { data: pc, error: e3 } = await supabase
+        .from('pocket_cash')
+        .select(`
+          id,
+          user_id,
+          created_at,
+          moved_at,
+          note,
+          delta,
+          amount,
+          direction,
+          finance_id,
+          link_finance_id,
+          finances_fid:finances!pocket_cash_finance_id_fkey (
+            id,
+            spent_at,
+            description
+          ),
+          finances_lid:finances!pocket_cash_link_finance_id_fkey (
+            id,
+            spent_at,
+            description
+          )
+        `)
+        .eq('user_id', user.id)
+        .gte('created_at', since.toISOString())
+        .order('moved_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+      if (e3) throw e3
+      setPocket(pc || [])
 
       // Spese del periodo
       const { data: exp, error: e4 } = await supabase
@@ -346,42 +341,41 @@ setPocket(pc || [])
     }
   }
 
-  // ─────────────────────────────────────────────── Helpers Soldi in tasca (NUOVI)
+  // ─────────────────────────────────────────────── Helpers Soldi in tasca (riassunto)
   function summarizeCashRow(row) {
-  // each embed può arrivare come oggetto o array → normalizzo
-  const normalize = v => (Array.isArray(v) ? v[0] : v) || null
-  const finA = normalize(row.finances_fid)
-  const finB = normalize(row.finances_lid)
-  const fin = finA || finB
+    // each embed può arrivare come oggetto o array → normalizzo
+    const normalize = v => (Array.isArray(v) ? v[0] : v) || null
+    const finA = normalize(row.finances_fid)
+    const finB = normalize(row.finances_lid)
+    const fin = finA || finB
 
-  const iso = (row.moved_at || row.created_at || fin?.spent_at || '').slice(0, 10)
-  const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
-  const todayISO = new Date().toISOString().slice(0, 10)
+    const iso = (row.moved_at || row.created_at || fin?.spent_at || '').slice(0, 10)
+    const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
+    const todayISO = new Date().toISOString().slice(0, 10)
 
-  // importo (retro-compatibile: 'amount/direction' oppure 'delta')
-  const amt = (row.amount != null)
-    ? (row.direction === 'in' ? +Number(row.amount) : -Number(row.amount))
-    : Number(row.delta || 0)
+    // importo (retro-compatibile: 'amount/direction' oppure 'delta')
+    const amt = (row.amount != null)
+      ? (row.direction === 'in' ? +Number(row.amount) : -Number(row.amount))
+      : Number(row.delta || 0)
 
-  if (fin?.description) {
-    const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
-    const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
+    if (fin?.description) {
+      const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
+      const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
+      return {
+        label: `Punto vendita: ${store} — ${when}`,
+        dateISO: iso,
+        amount: amt,
+      }
+    }
+
+    // movimento manuale
+    const dirLabel = amt >= 0 ? 'entrata cassa' : 'uscita cassa'
     return {
-      label: `Punto vendita: ${store} — ${when}`,
+      label: `${dirLabel}${row.note ? ` — ${row.note}` : ''}`,
       dateISO: iso,
       amount: amt,
     }
   }
-
-  // movimento manuale
-  const dirLabel = amt >= 0 ? 'entrata cassa' : 'uscita cassa'
-  return {
-    label: `${dirLabel}${row.note ? ` — ${row.note}` : ''}`,
-    dateISO: iso,
-    amount: amt,
-  }
-}
-
 
   // ─────────────────────────────────────────────── Calcoli
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
