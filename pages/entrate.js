@@ -40,11 +40,13 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('month_key', monthKeyCurrent)
     .maybeSingle();
 
+  // PGRST116 = no rows; altri errori sono reali
   if (e0 && e0.code !== 'PGRST116') throw e0;
   if (existing) return;
 
+  // periodo precedente (mese calendario precedente)
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
-  const prevEnd = new Date(yy, mm - 1, 0);
+  const prevEnd = new Date(yy, mm - 1, 0); // ultimo giorno mese precedente
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
   const prevStartISO = prevStart.toISOString().slice(0, 10);
   const prevEndISO = prevEnd.toISOString().slice(0, 10);
@@ -105,10 +107,9 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  // Tabella “Soldi in tasca”: SOLO spese in contante (da finances)
-  const [cashExpenses, setCashExpenses] = useState([]);
-  // Saldo “Soldi in tasca”: somma prelievi manuali - spese contante
-  const [pocketBalance, setPocketBalance] = useState(0);
+  const [pocket, setPocket] = useState([]);
+  const [pocketTopUp, setPocketTopUp] = useState('');
+  const [onlyPocketExpenses, setOnlyPocketExpenses] = useState(true);
 
   const [monthExpenses, setMonthExpenses] = useState(0);
 
@@ -144,7 +145,6 @@ function Entrate() {
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // 1) Entrate del periodo
       const { data: inc, error: e1 } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at')
@@ -155,7 +155,6 @@ function Entrate() {
       if (e1) throw e1;
       setIncomes(inc || []);
 
-      // 2) Carryover corrente
       const { data: co, error: e2 } = await supabase
         .from('carryovers')
         .select('id, month_key, amount, note')
@@ -165,46 +164,53 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2;
       setCarryover(co || null);
 
-      // 3) Spese in contante del periodo (per tabella e per saldo)
-      const { data: cashFin, error: e3a } = await supabase
-        .from('finances')
-        .select('id, description, amount, spent_at, payment_method')
-        .eq('user_id', user.id)
-        .eq('payment_method', 'cash')
-        .gte('spent_at', startDate)
-        .lte('spent_at', endDate)
-        .order('spent_at', { ascending: false });
-      if (e3a) throw e3a;
+      // pocket cash ultimi 2 mesi (usa moved_at)
+      const since = new Date();
+      since.setMonth(since.getMonth() - 2);
 
-      // Mappa per tabella
-      const cashRows = (cashFin || []).map((f) => {
-        const iso = f.spent_at ? f.spent_at.slice(0, 10) : '';
-        return {
-          id: f.id,
-          dateISO: iso,
-          label: f.description || '-',
-          amount: -Math.abs(Number(f.amount || 0)), // sempre negativo (uscita contante)
-        };
-      });
-      setCashExpenses(cashRows);
-
-      const totalCashOut = cashRows.reduce((t, r) => t + Math.abs(Number(r.amount || 0)), 0);
-
-      // 4) Prelievi manuali del periodo (pocket_cash.delta > 0, escludendo righe collegate a finances)
-      // Nota: se non hai la colonna finance_id o delta, adegua i nomi qui sotto.
-      const { data: topups, error: e3b } = await supabase
+      const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
-        .select('id, delta, moved_at, finance_id')
+        .select(
+          id, user_id, created_at, moved_at, note, delta, amount, direction,
+          finances_fid:finances!pocket_cash_finance_id_fkey (id, spent_at, description),
+          finances_lid:finances!pocket_cash_link_finance_id_fkey (id, spent_at, description)
+        )
         .eq('user_id', user.id)
-        .is('finance_id', null)      // solo inserimenti manuali
-        .gt('delta', 0)              // solo ricariche (prelievi in tasca)
-        .gte('moved_at', startDate)
-        .lte('moved_at', endDate);
-      if (e3b) throw e3b;
+        .gte('moved_at', since.toISOString())
+        .order('moved_at', { ascending: false });
+      if (e3) throw e3;
 
-      const totalTopUps = (topups || []).reduce((t, r) => t + Number(r.delta || 0), 0);
+      const norm = (v) => (Array.isArray(v) ? v[0] : v) || null;
+      const pocketView = (pc || [])
+        .map((row) => {
+          const finA = norm(row.finances_fid);
+          const finB = norm(row.finances_lid);
+          const fin = finA || finB;
 
-      // 5) Spese totali del mese (per saldo mese disponibile in alto)
+          const eff = (row.delta != null)
+            ? Number(row.delta || 0)
+            : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
+
+          const isoFull = (fin?.spent_at || row.moved_at || row.created_at || '');
+          const iso = isoFull ? isoFull.slice(0, 10) : '';
+          const dateStr = iso ? new Date(iso).toLocaleDateString() : '-';
+
+          let label;
+          if (fin?.description) {
+            const m = fin.description.match(/^\[(.*?)\]/);
+            const store = m ? m[1] : 'N/D';
+            label = 'Punto vendita: ' + store + ' - spesa del ' + dateStr;
+          } else {
+            const dirLabel = eff >= 0 ? 'entrata cassa' : 'uscita cassa';
+            label = dirLabel + (row.note ? ' - ' + row.note : '');
+          }
+
+          return { id: row.id, dateISO: iso, label, amount: eff, hasFinance: !!fin };
+        })
+        .filter((v) => Number(v.amount) !== 0);
+
+      setPocket(pocketView);
+
       const { data: exp, error: e4 } = await supabase
         .from('finances')
         .select('amount, spent_at')
@@ -214,9 +220,6 @@ function Entrate() {
       if (e4) throw e4;
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
       setMonthExpenses(totalExp);
-
-      // 6) Saldo “Soldi in tasca”: prelievi manuali - spese cash
-      setPocketBalance(Number(totalTopUps - totalCashOut));
     } catch (err) {
       console.error(err);
       setError(err.message || String(err));
@@ -280,9 +283,8 @@ function Entrate() {
     const rows = data.items.map((it) => ({
       user_id: user.id,
       note: it.note || 'Ricarica manuale (OCR/voce)',
-      delta: Number(it.amount) || 0, // solo top-up (positivi)
+      delta: Number(it.amount) || 0, // negativo = prelievo?
       moved_at: it.date || new Date().toISOString(),
-      // niente finance_id → così rimane “manuale”
     }));
 
     const { error } = await supabase.from('pocket_cash').insert(rows);
@@ -334,7 +336,9 @@ function Entrate() {
 
   const toggleRec = async () => {
     if (recBusy) {
-      try { mediaRecRef.current?.stop(); } catch {}
+      try {
+        mediaRecRef.current?.stop();
+      } catch {}
       return;
     }
     try {
@@ -342,7 +346,9 @@ function Entrate() {
       streamRef.current = stream;
       mediaRecRef.current = new MediaRecorder(stream);
       recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
+      mediaRecRef.current.ondataavailable = (e) => {
+        if (e.data?.size) recordedChunks.current.push(e.data);
+      };
       mediaRecRef.current.onstop = processVoice;
       mediaRecRef.current.start();
       setRecBusy(true);
@@ -355,6 +361,7 @@ function Entrate() {
     const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
     const fd = new FormData();
     fd.append('audio', blob, 'voice.webm');
+
     try {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
@@ -390,6 +397,7 @@ function Entrate() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       await supabase.from('incomes').insert({
         user_id: user.id,
         source: newIncome.source || 'Entrata',
@@ -397,6 +405,7 @@ function Entrate() {
         amount: Number(newIncome.amount) || 0,
         received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
       });
+
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
     } catch (err) {
@@ -416,12 +425,14 @@ function Entrate() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       const payload = {
         user_id: user.id,
         month_key: monthKey,
         amount: Number(newCarry.amount) || 0,
         note: newCarry.note || null,
       };
+
       if (carryover?.id) {
         const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
         if (error) throw error;
@@ -429,6 +440,7 @@ function Entrate() {
         const { error } = await supabase.from('carryovers').insert(payload);
         if (error) throw error;
       }
+
       setNewCarry({ amount: '', note: '' });
       await loadAll();
     } catch (err) {
@@ -442,8 +454,10 @@ function Entrate() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       const delta = Number(pocketTopUp);
       if (!delta) return;
+
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
         note: 'Ricarica manuale',
@@ -451,6 +465,7 @@ function Entrate() {
         moved_at: new Date().toISOString(),
       });
       if (error) throw error;
+
       setPocketTopUp('');
       await loadAll();
     } catch (err) {
@@ -463,8 +478,10 @@ function Entrate() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       const { error } = await supabase.from('pocket_cash').delete().eq('user_id', user.id);
       if (error) throw error;
+
       await loadAll();
     } catch (err) {
       setError(err.message || String(err));
@@ -475,6 +492,9 @@ function Entrate() {
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
   const carryAmount = Number(carryover?.amount || 0);
   const saldoMese = totalIncomes + carryAmount - monthExpenses;
+  const pocketBalance = pocket.reduce((t, r) => t + Number(r.amount || 0), 0);
+
+  const pocketTableRows = onlyPocketExpenses ? pocket.filter((m) => m.amount < 0) : pocket;
 
   /* ------------------------------ UI ------------------------------ */
   return (
@@ -579,7 +599,7 @@ function Entrate() {
               step="0.01"
               value={newCarry.amount}
               onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-              placeholder={`Importo € per ${monthKey}`}
+              placeholder={Importo € per ${monthKey}}
               required
             />
             <input
@@ -611,13 +631,6 @@ function Entrate() {
             <input
               type="number"
               step="0.01"
-              value={newCarry.topup} // non usato in state separato, ma evitiamo warning: gestito da pocketTopUp
-              style={{ display: 'none' }}
-              readOnly
-            />
-            <input
-              type="number"
-              step="0.01"
               value={pocketTopUp}
               onChange={(e) => setPocketTopUp(e.target.value)}
               placeholder="Ricarica / Prelievo €"
@@ -626,9 +639,17 @@ function Entrate() {
             <button className="btn-manuale">+ Aggiungi</button>
             <button type="button" onClick={handleClearPocket} style={{ background: '#ef4444' }}>Ripulisci</button>
 
+            <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <input
+                type="checkbox"
+                checked={onlyPocketExpenses}
+                onChange={(e) => setOnlyPocketExpenses(e.target.checked)}
+              />
+              Solo spese contante
+            </label>
+
             <p style={{ opacity: 0.8, marginTop: '0.5rem', flexBasis: '100%' }}>
-              Le spese in contante vengono scalate automaticamente (trigger su finances) e appaiono qui sotto.
-              I prelievi manuali non vengono elencati in tabella, ma aggiornano il saldo in alto.
+              Le spese in contante vengono scalate automaticamente (trigger su finances).
             </p>
           </form>
 
@@ -642,18 +663,15 @@ function Entrate() {
                 </tr>
               </thead>
               <tbody>
-                {cashExpenses.map((m) => (
+                {pocketTableRows.map((m) => (
                   <tr key={m.id}>
                     <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-'}</td>
                     <td>{m.label}</td>
                     <td style={{ textAlign: 'right' }}>
-                      {m.amount < 0 ? '-' : ''} {Math.abs(m.amount).toFixed(2)}
+                      {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
                     </td>
                   </tr>
                 ))}
-                {cashExpenses.length === 0 && (
-                  <tr><td colSpan="3" style={{ opacity: 0.7 }}>Nessuna spesa in contante nel periodo.</td></tr>
-                )}
               </tbody>
             </table>
           )}
@@ -666,7 +684,7 @@ function Entrate() {
         </div>
       </div>
 
-      <style jsx global>{`
+      <style jsx global>{
         .spese-casa-container1 {
           width: 100%;
           display: flex;
@@ -707,9 +725,11 @@ function Entrate() {
         .flex-line { display: flex; justify-content: space-between; margin: .3rem 0; }
         .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
         .error { color: #f87171; margin-top: 1rem; }
-      `}</style>
+      }</style>
     </>
   );
 }
 
 export default withAuth(Entrate);
+
+
