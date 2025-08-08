@@ -509,25 +509,49 @@ function buildIncomePrompt(source, userText) {
         </div>
       </div>
 
-      {/* Stili riusati */}
-      <style jsx global>{`
-        .spese-casa-container1 {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #0f172a;
-          min-height: 100vh;
-          padding: 2rem;
-          font-family: Inter, sans-serif;
-        }
-        .spese-casa-container2 {
-          background: rgba(0, 0, 0, 0.6);
-          padding: 2rem;
-          border-radius: 1rem;
-          color: #fff;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          max-width: 1000px;
-          width: 100%;
-        }
-        .title { margin-bottom: 1rem; font-size: 1.5rem;
+     <style jsx global>{`
+  .spese-casa-container1 {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f172a;
+    min-height: 100vh;
+    padding: 2rem;
+    font-family: Inter, sans-serif;
+  }
+  .spese-casa-container2 {
+    background: rgba(0, 0, 0, 0.6);
+    padding: 2rem;
+    border-radius: 1rem;
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    max-width: 1000px;
+    width: 100%;
+  }
+  .title { margin-bottom: 1rem; font-size: 1.5rem; }
+
+  .table-buttons { display: flex; gap: .5rem; margin: .5rem 0 1rem; }
+  .btn-vocale, .btn-ocr, .btn-manuale {
+    background: #22c55e; border: 0; padding: .5rem .75rem; border-radius: .5rem; cursor: pointer;
+  }
+  .btn-ocr { background: #06b6d4; }
+  .btn-manuale { background: #6366f1; }
+
+  .input-section {
+    display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: .75rem 0 1rem;
+  }
+  .input-section label { opacity: .85; }
+  .input-section input { padding: .5rem; border-radius: .5rem; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06); color: #fff; }
+
+  .custom-table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
+  .custom-table th, .custom-table td { border-bottom: 1px solid rgba(255,255,255,.12); padding: .5rem; text-align: left; }
+
+  .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
+  .error { color: #f87171; margin-top: 1rem; }
+`}</style>
+    </>
+  )
+}
+
+export default withAuth(Entrate)
