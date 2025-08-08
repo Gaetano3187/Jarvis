@@ -162,7 +162,7 @@ export async function analizzaScontrinoOCR({
 
   const [finErr, scorteErr, listaErr] = await Promise.all([
     supabase.from('expenses').insert(finanzaRows),
-    supabase.from('scorte').upsert(scorteRows, { onConflict: 'nome_prodotto' }),
+    supabase.from('scorte').insert(scorteRows, { onConflict: 'nome_prodotto' }),
     supabase.from('shopping_list').insert(listaRows),
   ]).then((res) => res.map((r) => r.error));
 
