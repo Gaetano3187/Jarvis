@@ -105,9 +105,7 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  // Movimenti pocket (grezzi per saldo), e righe tabella (solo spese cash collegate)
-  const [pocketMovs, setPocketMovs] = useState([]);
-  const [pocketRows, setPocketRows] = useState([]);
+  const [pocketRows, setPocketRows] = useState([]); // righe estratto conto contante
   const [pocketTopUp, setPocketTopUp] = useState('');
 
   const [monthExpenses, setMonthExpenses] = useState(0);
@@ -161,7 +159,9 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2;
       setCarryover(co || null);
 
-      // pocket cash ultimi 2 mesi (usa moved_at)
+      // Carico tutti i movimenti "soldi in tasca" (ultimi 2 mesi), inclusi:
+      // - ricariche/prelievi manuali (delta / amount+direction)
+      // - spese contanti collegate da finances (join via FK)
       const since = new Date();
       since.setMonth(since.getMonth() - 2);
 
@@ -169,63 +169,54 @@ function Entrate() {
         .from('pocket_cash')
         .select(`
           id, user_id, created_at, moved_at, note, delta, amount, direction,
-          finances_fid:finances!pocket_cash_finance_id_fkey (id, spent_at, description),
-          finances_lid:finances!pocket_cash_link_finance_id_fkey (id, spent_at, description)
+          finances_fid:finances!pocket_cash_finance_id_fkey (id, spent_at, description, amount),
+          finances_lid:finances!pocket_cash_link_finance_id_fkey (id, spent_at, description, amount)
         `)
         .eq('user_id', user.id)
         .gte('moved_at', since.toISOString())
         .order('moved_at', { ascending: false });
       if (e3) throw e3;
 
-      const norm = (v) => (Array.isArray(v) ? v[0] : v) || null;
+      const one = (v) => (Array.isArray(v) ? v[0] : v) || null;
 
-      // Mappa tutti i movimenti per il saldo (top del box)
-      const movs = (pc || [])
+      const rows = (pc || [])
         .map((row) => {
-          const finA = norm(row.finances_fid);
-          const finB = norm(row.finances_lid);
-          const fin = finA || finB;
+          const fin = one(row.finances_fid) || one(row.finances_lid);
 
+          // valore effettivo del movimento sul contante
           const eff = (row.delta != null)
             ? Number(row.delta || 0)
             : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
 
           const isoFull = (fin?.spent_at || row.moved_at || row.created_at || '');
-          const iso = isoFull ? isoFull.slice(0, 10) : '';
+          const dateISO = isoFull ? isoFull.slice(0, 10) : '';
+
+          // Label:
+          // - se è legato ad una spesa, mostro punto vendita e info essenziali
+          // - altrimenti uso la nota oppure "Movimento contante"
+          let label;
+          if (fin?.description) {
+            const m = fin.description.match(/^\[(.*?)\]\s*(.*)$/);
+            const store = m ? m[1] : 'N/D';
+            const dett = m ? m[2] : fin.description;
+            label = `Spesa in contante • ${store} • ${dett}`;
+          } else {
+            label = row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti');
+          }
 
           return {
             id: row.id,
-            dateISO: iso,
-            amount: eff,
-            note: row.note || null,
-            hasFinance: !!fin,
-            finDesc: fin?.description || null,
+            dateISO,
+            label,
+            amount: Number(eff || 0), // + ricarica / - spesa
           };
         })
-        .filter((v) => Number.isFinite(v.amount) && v.amount !== 0);
-
-      setPocketMovs(movs);
-
-      // Righe tabella: SOLO spese in contante provenienti da finances (cioè collegate)
-      const rows = movs
-        .filter((m) => m.hasFinance && m.amount < 0)
-        .map((m) => {
-          // label = punto vendita dalla descrizione [Store]
-          let label = m.finDesc || '';
-          const mStore = label.match(/^\[(.*?)\]/);
-          const store = mStore ? mStore[1] : 'N/D';
-          const dateStr = m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-';
-          return {
-            id: m.id,
-            dateISO: m.dateISO,
-            label: `Punto vendita: ${store} - spesa del ${dateStr}`,
-            amount: m.amount, // negativo
-          };
-        });
+        .filter((r) => Number.isFinite(r.amount) && r.amount !== 0)
+        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
       setPocketRows(rows);
 
-      // Spese del periodo (tutte, per saldo mese)
+      // Spese totali del periodo per saldo mese (tutte le spese)
       const { data: exp, error: e4 } = await supabase
         .from('finances')
         .select('amount, spent_at')
@@ -243,18 +234,18 @@ function Entrate() {
     }
   }
 
-  /* ---------------------- Assistant prompts (ASCII safe) ---------------------- */
+  /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildPocketPrompt(userText) {
     const example = JSON.stringify({
       type: 'pocket_topup',
-      items: [{ amount: 200.0, note: 'prelievo contante da stipendio', date: 'YYYY-MM-DD' }],
+      items: [{ amount: 200.0, note: 'ricarica contanti', date: 'YYYY-MM-DD' }],
     });
     const none = JSON.stringify({ type: 'none' });
     return [
-      'Sei Jarvis. Capisci se il testo indica un PRELIEVO o RICARICA di contante "in tasca".',
+      'Sei Jarvis. Capisci se il testo indica un MOVIMENTO di contante (ricarica o uscita).',
       'Se si, rispondi SOLO con JSON:',
       example,
-      'Se non e un prelievo, restituisci ' + none + '.',
+      'Se non e un movimento contante, restituisci ' + none + '.',
       '',
       'Testo:',
       userText,
@@ -265,10 +256,10 @@ function Entrate() {
     const today = new Date().toISOString().slice(0, 10);
     const example = JSON.stringify({
       type: 'income',
-      items: [{ source: 'Stipendio', description: 'Stipendio ACME', amount: 1500, receivedAt: today }],
+      items: [{ source: 'Stipendio', description: 'Stipendio', amount: 1500, receivedAt: today }],
     });
     return [
-      'Sei Jarvis. Estrai ENTRATE economiche (stipendi, provvigioni, rimborsi).',
+      'Sei Jarvis. Estrai ENTRATE economiche.',
       'Rispondi SOLO con JSON:',
       example,
       '',
@@ -289,7 +280,6 @@ function Entrate() {
   }
 
   async function parseAssistantForPocket(userText) {
-    // Manteniamo il top-up in DB per il saldo, ma NON lo mostriamo in tabella (filtrato sopra)
     const data = await callAssistant(buildPocketPrompt(userText));
     if (data.type !== 'pocket_topup' || !Array.isArray(data.items) || !data.items.length) return false;
 
@@ -298,8 +288,8 @@ function Entrate() {
 
     const rows = data.items.map((it) => ({
       user_id: user.id,
-      note: it.note || 'Ricarica manuale (OCR/voce)',
-      delta: Number(it.amount) || 0,
+      note: it.note || 'Movimento contante (OCR/voce)',
+      delta: Number(it.amount) || 0, // >0 ricarica, <0 uscita
       moved_at: it.date || new Date().toISOString(),
     }));
 
@@ -328,7 +318,6 @@ function Entrate() {
     return true;
   }
 
-  /* --------------------------- OCR / VOCE handlers --------------------------- */
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
@@ -352,9 +341,7 @@ function Entrate() {
 
   const toggleRec = async () => {
     if (recBusy) {
-      try {
-        mediaRecRef.current?.stop();
-      } catch {}
+      try { mediaRecRef.current?.stop(); } catch {}
       return;
     }
     try {
@@ -362,6 +349,7 @@ function Entrate() {
       streamRef.current = stream;
       mediaRecRef.current = new MediaRecorder(stream);
       recordedChunks.current = [];
+      mediaRecRefRef;
       mediaRecRef.current.ondataavailable = (e) => {
         if (e.data?.size) recordedChunks.current.push(e.data);
       };
@@ -474,10 +462,9 @@ function Entrate() {
       const delta = Number(pocketTopUp);
       if (!delta) return;
 
-      // Inseriamo il top-up per aggiornare il saldo (ma NON verrà mostrato in tabella)
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
-        note: 'Ricarica manuale',
+        note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
         delta,
         moved_at: new Date().toISOString(),
       });
@@ -510,8 +497,8 @@ function Entrate() {
   const carryAmount = Number(carryover?.amount || 0);
   const saldoMese = totalIncomes + carryAmount - monthExpenses;
 
-  // Saldo “Soldi in tasca” = top-up (delta > 0) – spese in contante (movimenti negativi linkati dal trigger)
-  const pocketBalance = pocketMovs.reduce((t, r) => t + Number(r.amount || 0), 0);
+  // Saldo contante = somma di tutti i movimenti (ricariche positive, spese/uscite negative)
+  const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
 
   /* ------------------------------ UI ------------------------------ */
   return (
@@ -650,15 +637,14 @@ function Entrate() {
               step="0.01"
               value={pocketTopUp}
               onChange={(e) => setPocketTopUp(e.target.value)}
-              placeholder="Ricarica / Prelievo €"
+              placeholder="Ricarica (+) / Uscita (-) €"
               required
             />
             <button className="btn-manuale">+ Aggiungi</button>
             <button type="button" onClick={handleClearPocket} style={{ background: '#ef4444' }}>Ripulisci</button>
 
             <p style={{ opacity: 0.8, marginTop: '0.5rem', flexBasis: '100%' }}>
-              In tabella vedi SOLO le spese pagate in contante provenienti dalle altre pagine.
-              I prelievi manuali aggiornano solo il saldo in alto.
+              Qui vedi tutte le ricariche/uscite e le spese in contante registrate nelle altre sezioni.
             </p>
           </form>
 
@@ -667,7 +653,7 @@ function Entrate() {
               <thead>
                 <tr>
                   <th>Data</th>
-                  <th>Descrizione (riassunto)</th>
+                  <th>Descrizione</th>
                   <th style={{ textAlign: 'right' }}>Importo €</th>
                 </tr>
               </thead>
@@ -677,7 +663,7 @@ function Entrate() {
                     <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-'}</td>
                     <td>{m.label}</td>
                     <td style={{ textAlign: 'right' }}>
-                      - {Math.abs(m.amount).toFixed(2)}
+                      {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
                     </td>
                   </tr>
                 ))}
