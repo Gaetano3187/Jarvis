@@ -11,7 +11,7 @@ const PAYDAY_DAY = 10
 // ───────────────────────────────────────────────────────── helpers
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear()
-  const m = today.getMonth() // 0..11
+  const m = today.getMonth()
   const d = today.getDate()
 
   const thisPayday = new Date(y, m, paydayDay)
@@ -27,7 +27,7 @@ function computeCurrentPayPeriod(today, paydayDay) {
 
   const startDate = start.toISOString().slice(0, 10)
   const endDate = end.toISOString().slice(0, 10)
-  const monthKey = end.toISOString().slice(0, 7) // YYYY-MM
+  const monthKey = end.toISOString().slice(0, 7)
   return { startDate, endDate, monthKey }
 }
 
@@ -49,7 +49,7 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null)
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' })
 
-  // Soldi in tasca
+  // Soldi in tasca (view riassunta)
   const [pocket, setPocket] = useState([])
   const [pocketTopUp, setPocketTopUp] = useState('')
 
@@ -99,7 +99,7 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2
       setCarryover(co || null)
 
-      // Movimenti “soldi in tasca” (ultimi 60 gg) — disambigua relazioni, NIENTE moved_at
+      // ───────── SOLDI IN TASCA — carico, poi filtro “zero” e riassumo
       const since = new Date()
       since.setMonth(since.getMonth() - 2)
 
@@ -130,7 +130,38 @@ function Entrate() {
         .gte('created_at', since.toISOString())
         .order('created_at', { ascending: false })
       if (e3) throw e3
-      setPocket(pc || [])
+
+      const normalize = v => (Array.isArray(v) ? v[0] : v) || null
+      const pocketView = (pc || [])
+        .map(row => {
+          const finA = normalize(row.finances_fid)
+          const finB = normalize(row.finances_lid)
+          const fin = finA || finB
+
+          // importo effettivo: usa delta se presente, altrimenti amount± con direction
+          const eff = (row.delta != null)
+            ? Number(row.delta || 0)
+            : (row.amount != null ? (row.direction === 'in' ? +1 : -1) * Number(row.amount || 0) : 0)
+
+          const iso = (fin?.spent_at || row.created_at || '').slice(0, 10)
+          const todayISO = new Date().toISOString().slice(0, 10)
+          const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
+
+          let label
+          if (fin?.description) {
+            const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
+            const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
+            label = `Punto vendita: ${store} — ${when}`
+          } else {
+            const dirLabel = eff >= 0 ? 'entrata cassa' : 'uscita cassa'
+            label = `${dirLabel}${row.note ? ` — ${row.note}` : ''}`
+          }
+
+          return { id: row.id, dateISO: iso, label, amount: eff }
+        })
+        .filter(v => Number(v.amount) !== 0) // elimina righe a 0
+
+      setPocket(pocketView)
 
       // Spese del periodo
       const { data: exp, error: e4 } = await supabase
@@ -209,7 +240,7 @@ function Entrate() {
     }
   }
 
-  // ─────────────────────────────────────────────── Top-up “Soldi in tasca” (retro-compatibile)
+  // ─────────────────────────────────────────────── Top-up “Soldi in tasca”
   async function handleTopUpPocket(e) {
     e.preventDefault()
     setError(null)
@@ -218,7 +249,6 @@ function Entrate() {
       if (!user) throw new Error('Sessione scaduta')
       const delta = Number(pocketTopUp)
       if (!delta) return
-      // Mantengo l'inserimento con 'delta' per compatibilità.
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
         note: 'Ricarica manuale',
@@ -232,32 +262,25 @@ function Entrate() {
     }
   }
 
-  // ─────────────────────────────────────────────── Prompt builder (OCR / Voce)
+  // ─────────────────────────────────────────────── Prompt builder / OCR / Voce
   function buildIncomePrompt(source, userText) {
     const today = new Date().toISOString().slice(0, 10)
-
     if (source === 'ocr') {
       return [
         'Sei Jarvis. Dal testo OCR qui sotto estrai **entrate economiche** (stipendi, provvigioni, rimborsi).',
-        'Per ogni entrata genera i campi: source (string), description (string), amount (number, euro), receivedAt (YYYY-MM-DD).',
-        'Rispondi SOLO con JSON, ad es.:',
-        '{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"' + today + '"}]}',
-        '',
-        'TESTO:',
-        userText
+        'Per ogni entrata: source, description, amount (EUR), receivedAt (YYYY-MM-DD).',
+        'Rispondi SOLO con JSON:',
+        `{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"${today}"}]}`,
+        '', 'TESTO:', userText
       ].join('\n')
     }
-
     return [
-      'Trascrizione vocale: estrai ENTRATE e rispondi SOLO con JSON nel formato:',
-      '{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni","amount":250,"receivedAt":"' + today + '"}]}',
-      '',
-      'TESTO:',
-      userText
+      'Trascrizione vocale: estrai ENTRATE e rispondi SOLO con JSON:',
+      `{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni","amount":250,"receivedAt":"${today}"}]}`,
+      '', 'TESTO:', userText
     ].join('\n')
   }
 
-  // ─────────────────────────────────────────────── Parsing risposta assistant
   async function parseAssistant(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -288,7 +311,6 @@ function Entrate() {
     await loadAll()
   }
 
-  // ─────────────────────────────────────────────── OCR (Entrate)
   async function handleOCR(files) {
     if (!files?.length) return
     try {
@@ -303,7 +325,6 @@ function Entrate() {
     }
   }
 
-  // ─────────────────────────────────────────────── Voce (Entrate)
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -313,9 +334,7 @@ function Entrate() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e => {
-        if (e.data.size) recordedChunks.current.push(e.data)
-      }
+      mediaRecRef.current.ondataavailable = e => { if (e.data.size) recordedChunks.current.push(e.data) }
       mediaRecRef.current.onstop = processVoice
       mediaRecRef.current.start()
       setRecBusy(true)
@@ -339,53 +358,11 @@ function Entrate() {
     }
   }
 
-  // ─────────────────────────────────────────────── Helpers Soldi in tasca (riassunto)
-  function summarizeCashRow(row) {
-    // each embed può arrivare come oggetto o array → normalizzo
-    const normalize = v => (Array.isArray(v) ? v[0] : v) || null
-    const finA = normalize(row.finances_fid)
-    const finB = normalize(row.finances_lid)
-    const fin = finA || finB
-
-    const iso = (row.created_at || fin?.spent_at || '').slice(0, 10)
-    const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
-    const todayISO = new Date().toISOString().slice(0, 10)
-
-    // importo (retro-compatibile: 'amount/direction' oppure 'delta')
-    const amt = (row.amount != null)
-      ? (row.direction === 'in' ? +Number(row.amount) : -Number(row.amount))
-      : Number(row.delta || 0)
-
-    if (fin?.description) {
-      const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
-      const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
-      return {
-        label: `Punto vendita: ${store} — ${when}`,
-        dateISO: iso,
-        amount: amt,
-      }
-    }
-
-    // movimento manuale
-    const dirLabel = amt >= 0 ? 'entrata cassa' : 'uscita cassa'
-    return {
-      label: `${dirLabel}${row.note ? ` — ${row.note}` : ''}`,
-      dateISO: iso,
-      amount: amt,
-    }
-  }
-
   // ─────────────────────────────────────────────── Calcoli
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
   const carryAmount = Number(carryover?.amount || 0)
   const saldoMese = totalIncomes + carryAmount - monthExpenses
-
-  // saldo tasca retro-compatibile: somma delta, altrimenti somma (+in, -out)
-  const pocketBalance = pocket.reduce((t, r) => {
-    if (r.delta != null) return t + Number(r.delta || 0)
-    const val = Number(r.amount || 0) * (r.direction === 'in' ? +1 : -1)
-    return t + val
-  }, 0)
+  const pocketBalance = pocket.reduce((t, r) => t + Number(r.amount || 0), 0)
 
   // ─────────────────────────────────────────────── UI
   return (
@@ -513,7 +490,7 @@ function Entrate() {
             </table>
           )}
 
-          {/* TABELLA 3 — SOLDI IN TASCA (MODIFICATA) */}
+          {/* TABELLA 3 — SOLDI IN TASCA (riassunti, senza zeri) */}
           <h3 style={{ marginTop: '2rem' }}>3) Soldi in tasca</h3>
           <form className="input-section" onSubmit={handleTopUpPocket}>
             <label>Ricarica/Immissione (€)</label>
@@ -541,18 +518,15 @@ function Entrate() {
                 </tr>
               </thead>
               <tbody>
-                {pocket.map(m => {
-                  const s = summarizeCashRow(m)
-                  return (
-                    <tr key={m.id}>
-                      <td>{s.dateISO ? new Date(s.dateISO).toLocaleDateString() : '-'}</td>
-                      <td>{s.label}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        {s.amount >= 0 ? '+' : '−'} {Math.abs(s.amount).toFixed(2)}
-                      </td>
-                    </tr>
-                  )
-                })}
+                {pocket.map(m => (
+                  <tr key={m.id}>
+                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-'}</td>
+                    <td>{m.label}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {m.amount >= 0 ? '+' : '−'} {Math.abs(m.amount).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
