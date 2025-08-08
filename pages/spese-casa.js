@@ -55,35 +55,37 @@ function SpeseCasa() {
     if (!user) return setError('Sessione scaduta')
 
     const row = {
-  user_id: user.id,
-  category_id: CATEGORY_ID_CASA,
-  description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
-  amount: Number(nuovaSpesa.prezzoTotale) || 0,
-  spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
-  qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+      user_id: user.id,
+      category_id: CATEGORY_ID_CASA,
+      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+      amount: Number(nuovaSpesa.prezzoTotale) || 0,
+      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
+      qty: parseInt(nuovaSpesa.quantita, 10) || 1,
 
-  // ➕ Metodo pagamento (default: contante)
-  payment_method: (nuovaSpesa.paymentMethod || 'cash'), // 'cash' | 'card' | 'bank'
-  card_label:
-    (nuovaSpesa.paymentMethod === 'card'
-      ? (nuovaSpesa.cardLabel?.trim() || null)
-      : null),
-}
+      // ➕ Metodo pagamento (default: contante)
+      payment_method: (nuovaSpesa.paymentMethod || 'cash'), // 'cash' | 'card' | 'transfer'
+      card_label:
+        (nuovaSpesa.paymentMethod === 'card'
+          ? (nuovaSpesa.cardLabel?.trim() || null)
+          : null),
+    }
 
-const { error: insertError } = await supabase.from('finances').insert(row)
-if (insertError) setError(insertError.message)
-else {
-  setNuovaSpesa({
-    puntoVendita: '',
-    dettaglio: '',
-    prezzoTotale: '',
-    quantita: '1',
-    spentAt: '',
-    paymentMethod: 'cash',
-    cardLabel: '',
-  })
-  fetchSpese()
-}
+    const { error: insertError } = await supabase.from('finances').insert(row)
+    if (insertError) setError(insertError.message)
+    else {
+      setNuovaSpesa({
+        puntoVendita: '',
+        dettaglio: '',
+        prezzoTotale: '',
+        quantita: '1',
+        spentAt: '',
+        paymentMethod: 'cash',
+        cardLabel: '',
+      })
+      fetchSpese()
+    }
+  } // ←← CHIUDE handleAdd (mancava)
+
   // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
     const { error: deleteError } = await supabase
@@ -144,67 +146,66 @@ else {
     }
   }
 
-// ─────────────────────────────────────────────── Costruisci prompt (versione parser-safe)
-function buildSystemPrompt(source, userText, fileName) {
-  const fn = fileName || 'scontrino';
-  if (source === 'ocr') {
+  // ─────────────────────────────────────────────── Costruisci prompt (versione parser-safe)
+  function buildSystemPrompt(source, userText, fileName) {
+    const fn = fileName || 'scontrino';
+    if (source === 'ocr') {
+      return [
+        'Sei Jarvis. Da questo testo OCR estrai tutte le righe di spesa, usando la data presente sullo scontrino.',
+        '',
+        'Per ogni voce genera un oggetto con:',
+        '- puntoVendita: string',
+        '- dettaglio: string',
+        '- prezzoUnitario: number | null',
+        '- quantita: number',
+        '- prezzoTotale: number',
+        '- data: "YYYY-MM-DD" (estratta dal testo)',
+        '',
+        'Rispondi solo con JSON conforme a questo schema:',
+        '{',
+        '  "type": "expense",',
+        '  "items": [',
+        '    {',
+        '      "puntoVendita": "Supermercato Orsini Market",',
+        '      "dettaglio": "1 confezione di latte",',
+        '      "prezzoUnitario": 20.00,',
+        '      "quantita": 1,',
+        '      "prezzoTotale": 20.00,',
+        '      "data": "2025-08-06"',
+        '    }',
+        '  ]',
+        '}',
+        '',
+        'CONTENUTO OCR (' + fn + '):',
+        String(userText || '')
+      ].join('\n');
+    }
+
+    // voce / STT
     return [
-      'Sei Jarvis. Da questo testo OCR estrai tutte le righe di spesa, usando la data presente sullo scontrino.',
+      'ATTENZIONE: il testo che segue è trascrizione vocale, ignora intercalari.',
+      'Estrai SOLO JSON spesa (stesso schema di prima).',
       '',
-      'Per ogni voce genera un oggetto con:',
-      '- puntoVendita: string',
-      '- dettaglio: string',
-      '- prezzoUnitario: number | null',
-      '- quantita: number',
-      '- prezzoTotale: number',
-      '- data: "YYYY-MM-DD" (estratta dal testo)',
-      '',
-      'Rispondi solo con JSON conforme a questo schema:',
+      'ESEMPIO:',
+      'Input: Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025',
+      'Output:',
       '{',
-      '  "type": "expense",',
-      '  "items": [',
-      '    {',
-      '      "puntoVendita": "Supermercato Orsini Market",',
-      '      "dettaglio": "1 confezione di latte",',
-      '      "prezzoUnitario": 20.00,',
-      '      "quantita": 1,',
-      '      "prezzoTotale": 20.00,',
-      '      "data": "2025-08-06"',
-      '    }',
-      '  ]',
+      '  "type":"expense",',
+      '  "items":[{',
+      '    "puntoVendita":"Supermercato Rossi",',
+      '    "dettaglio":"3 pacchi di pasta Barilla",',
+      '    "prezzoTotale":2.50,',
+      '    "quantita":3,',
+      '    "data":"2025-07-10",',
+      '    "categoria":"casa",',
+      '    "category_id":"' + CATEGORY_ID_CASA + '"',
+      '  }]',
       '}',
       '',
-      'CONTENUTO OCR (' + fn + '):',
+      'Testo:',
       String(userText || '')
     ].join('\n');
   }
-
-  // voce / STT
-  return [
-    'ATTENZIONE: il testo che segue è trascrizione vocale, ignora intercalari.',
-    'Estrai SOLO JSON spesa (stesso schema di prima).',
-    '',
-    'ESEMPIO:',
-    'Input: Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025',
-    'Output:',
-    '{',
-    '  "type":"expense",',
-    '  "items":[{',
-    '    "puntoVendita":"Supermercato Rossi",',
-    '    "dettaglio":"3 pacchi di pasta Barilla",',
-    '    "prezzoTotale":2.50,',
-    '    "quantita":3,',
-    '    "data":"2025-07-10",',
-    '    "categoria":"casa",',
-    '    "category_id":"' + CATEGORY_ID_CASA + '"',
-    '  }]',
-    '}',
-    '',
-    'Testo:',
-    String(userText || '')
-  ].join('\n');
-}
-
 
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
@@ -407,7 +408,7 @@ function buildSystemPrompt(source, userText, fileName) {
 
           {error && <p className="error">{error}</p>}
 
-          <Link href="/home">
+          <Link href="/home" legacyBehavior>
             <a className="btn-vocale">🏠 Home</a>
           </Link>
         </div>
