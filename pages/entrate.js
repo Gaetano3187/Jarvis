@@ -163,19 +163,19 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2
       setCarryover(co || null)
 
-      // SOLDI IN TASCA — ultimi 2 mesi
+      // SOLDI IN TASCA — ultimi 2 mesi (usa moved_at)
       const since = new Date()
       since.setMonth(since.getMonth() - 2)
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
         .select(`
-          id, user_id, created_at, note, delta, amount, direction,
+          id, user_id, created_at, moved_at, note, delta, amount, direction,
           finances_fid:finances!pocket_cash_finance_id_fkey (id, spent_at, description),
           finances_lid:finances!pocket_cash_link_finance_id_fkey (id, spent_at, description)
         `)
         .eq('user_id', user.id)
-        .gte('created_at', since.toISOString())
-        .order('created_at', { ascending: false })
+        .gte('moved_at', since.toISOString())
+        .order('moved_at', { ascending: false })
       if (e3) throw e3
 
       const normalize = v => (Array.isArray(v) ? v[0] : v) || null
@@ -190,7 +190,7 @@ function Entrate() {
             ? Number(row.delta || 0)
             : (row.amount != null ? (row.direction === 'in' ? +1 : -1) * Number(row.amount || 0) : 0)
 
-          const iso = (fin?.spent_at || row.created_at || '').slice(0, 10)
+          const iso = (fin?.spent_at || row.moved_at || row.created_at || '').slice(0, 10)
           const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
 
           let label
@@ -273,7 +273,7 @@ function Entrate() {
       user_id: user.id,
       note: it.note || 'Ricarica manuale (OCR/voce)',
       delta: Number(it.amount) || 0,
-      created_at: it.date || new Date().toISOString(),
+      moved_at: it.date || new Date().toISOString(), // ← usa moved_at
     }))
     const { error } = await supabase.from('pocket_cash').insert(rows)
     if (error) throw error
@@ -431,7 +431,8 @@ function Entrate() {
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
         note: 'Ricarica manuale',
-        delta
+        delta,
+        moved_at: new Date().toISOString(), // ← usa moved_at
       })
       if (error) throw error
       setPocketTopUp('')
@@ -495,206 +496,4 @@ function Entrate() {
               capture="environment"
               multiple
               hidden
-              onChange={(e) => handleOCR(Array.from(e.target.files || []))}
-            />
-          </div>
-
-          {/* SEZIONE 1 — ENTRATE */}
-          <h3>1) Entrate del periodo</h3>
-          <form className="input-section" onSubmit={handleAddIncome}>
-            <input
-              value={newIncome.source}
-              onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })}
-              placeholder="Fonte"
-              required
-            />
-            <input
-              value={newIncome.description}
-              onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
-              placeholder="Descrizione"
-              required
-            />
-            <input
-              type="date"
-              value={newIncome.receivedAt}
-              onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })}
-              required
-            />
-            <input
-              type="number"
-              step="0.01"
-              value={newIncome.amount}
-              onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
-              placeholder="Importo €"
-              required
-            />
-            <button className="btn-manuale">Aggiungi</button>
-          </form>
-
-          {loading ? <p>Caricamento…</p> : (
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Fonte</th>
-                  <th>Descrizione</th>
-                  <th>Data</th>
-                  <th>Importo €</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {incomes.map(i => (
-                  <tr key={i.id}>
-                    <td>{i.source || '-'}</td>
-                    <td>{i.description}</td>
-                    <td>{new Date(i.received_at).toLocaleDateString()}</td>
-                    <td>{Number(i.amount).toFixed(2)}</td>
-                    <td><button onClick={() => handleDeleteIncome(i.id)}>🗑</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {/* SEZIONE 2 — CARRYOVER */}
-          <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
-          <form className="input-section" onSubmit={handleSaveCarryover}>
-            <input
-              type="number"
-              step="0.01"
-              value={newCarry.amount}
-              onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-              placeholder={`Importo € per ${monthKey}`}
-              required
-            />
-            <input
-              value={newCarry.note}
-              onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })}
-              placeholder="Nota (opzionale)"
-            />
-            <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
-          </form>
-
-          {carryover && (
-            <table className="custom-table">
-              <thead>
-                <tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{carryover.month_key}</td>
-                  <td>{Number(carryover.amount).toFixed(2)}</td>
-                  <td>{carryover.note || '-'}</td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-
-          {/* SEZIONE 3 — SOLDI IN TASCA */}
-          <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
-          <form className="input-section" onSubmit={handleTopUpPocket}>
-            <input
-              type="number"
-              step="0.01"
-              value={pocketTopUp}
-              onChange={(e) => setPocketTopUp(e.target.value)}
-              placeholder="Ricarica / Prelievo €"
-              required
-            />
-            <button className="btn-manuale">+ Aggiungi</button>
-            <button type="button" onClick={handleClearPocket} style={{ background: '#ef4444' }}>🗑 Ripulisci</button>
-
-            {/* Toggle filtro */}
-            <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              <input
-                type="checkbox"
-                checked={onlyPocketExpenses}
-                onChange={e => setOnlyPocketExpenses(e.target.checked)}
-              />
-              Solo spese contante
-            </label>
-
-            <p style={{ opacity: .8, marginTop: '.5rem', flexBasis: '100%' }}>
-              Le spese in contante vengono scalate automaticamente (trigger su <code>finances</code>).
-            </p>
-          </form>
-
-          {loading ? <p>Caricamento…</p> : (
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Descrizione (riassunto)</th>
-                  <th style={{ textAlign: 'right' }}>Importo €</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pocketTableRows.map(m => (
-                  <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-'}</td>
-                    <td>{m.label}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      {m.amount >= 0 ? '+' : '−'} {Math.abs(m.amount).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {error && <p className="error">{error}</p>}
-
-          <Link href="/home">
-            <button className="btn-vocale" style={{ marginTop: '1rem' }}>🏠 Home</button>
-          </Link>
-        </div>
-      </div>
-
-      {/* Stili riusati */}
-      <style jsx global>{`
-        .spese-casa-container1 {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #0f172a;
-          min-height: 100vh;
-          padding: 2rem;
-          font-family: Inter, sans-serif;
-        }
-        .spese-casa-container2 {
-          background: rgba(0, 0, 0, 0.6);
-          padding: 2rem;
-          border-radius: 1rem;
-          color: #fff;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          max-width: 1000px;
-          width: 100%;
-        }
-        .title { margin-bottom: .5rem; font-size: 1.5rem; }
-
-        .table-buttons { display: flex; gap: .5rem; margin: .25rem 0 1rem; }
-        .btn-vocale, .btn-ocr, .btn-manuale {
-          background: #6366f1; border: 0; padding: .4rem .6rem; border-radius: .5rem; cursor: pointer; color: #fff;
-        }
-        .btn-ocr { background: #06b6d4; }
-
-        .input-section {
-          display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0;
-        }
-        .input-section input {
-          padding: .4rem; border-radius: .5rem; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06); color: #fff;
-        }
-
-        .custom-table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
-        .custom-table th, .custom-table td { border-bottom: 1px solid rgba(255,255,255,.12); padding: .5rem; text-align: left; }
-
-        .flex-line { display: flex; justify-content: space-between; margin: .3rem 0; }
-        .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
-        .error { color: #f87171; margin-top: 1rem; }
-      `}</style>
-    </>
-  )
-}
-
-export default withAuth(Entrate)
+              onChange={(e
