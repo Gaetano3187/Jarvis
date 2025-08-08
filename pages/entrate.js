@@ -99,7 +99,7 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2
       setCarryover(co || null)
 
-      // Movimenti “soldi in tasca” (ultimi 60 gg) — DISAMBIGUA RELAZIONI
+      // Movimenti “soldi in tasca” (ultimi 60 gg) — disambigua relazioni, NIENTE moved_at
       const since = new Date()
       since.setMonth(since.getMonth() - 2)
 
@@ -109,7 +109,6 @@ function Entrate() {
           id,
           user_id,
           created_at,
-          moved_at,
           note,
           delta,
           amount,
@@ -129,7 +128,6 @@ function Entrate() {
         `)
         .eq('user_id', user.id)
         .gte('created_at', since.toISOString())
-        .order('moved_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
       if (e3) throw e3
       setPocket(pc || [])
@@ -349,7 +347,7 @@ function Entrate() {
     const finB = normalize(row.finances_lid)
     const fin = finA || finB
 
-    const iso = (row.moved_at || row.created_at || fin?.spent_at || '').slice(0, 10)
+    const iso = (row.created_at || fin?.spent_at || '').slice(0, 10)
     const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
     const todayISO = new Date().toISOString().slice(0, 10)
 
