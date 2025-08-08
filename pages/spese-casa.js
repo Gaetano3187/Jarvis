@@ -1,9 +1,10 @@
-// pages/spese-casa.js 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+// pages/spese-casa.js
+import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
+import { askAssistant } from '@/lib/assistant'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
@@ -11,152 +12,50 @@ function SpeseCasa() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-
-  const [recBusy, setRecBusy] = useState(false)      // true = sta registrando
-  const [stopping, setStopping] = useState(false)    // true = fermo in corso (attendi)
-
+  const [recBusy, setRecBusy] = useState(false)
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
     prezzoTotale: '',
     quantita: '1',
     spentAt: '',
-    paymentMethod: 'cash',
-    cardLabel: '',
   })
 
   const formRef = useRef(null)
   const ocrInputRef = useRef(null)
-
   const mediaRecRef = useRef(null)
-  const streamRef = useRef(null)
   const recordedChunks = useRef([])
-  const mimeRef = useRef('')
-  const stopWaitRef = useRef(null) // promise di attesa stop
 
-  // ----------------------------- API
-  const fetchSpese = useCallback(async () => {
+  useEffect(() => {
+    fetchSpese()
+  }, [])
+
+  async function fetchSpese() {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, spent_at, payment_method, card_label')
+      .select('id, description, amount, qty, spent_at')
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
-    else setSpese(data || [])
+    else setSpese(data)
     setLoading(false)
-  }, [])
+  }
 
-  // ----------------------------- Media helpers
-  const stopTracks = useCallback(() => {
-    try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
-    streamRef.current = null
-  }, [])
-
-  const processVoice = useCallback(async () => {
-    try {
-      if (!recordedChunks.current.length) {
-        setError('Registrazione vuota, riprova.')
-        return
-      }
-      const mime = mimeRef.current || (recordedChunks.current[0]?.type || 'audio/webm')
-      const ext = mime.includes('mp4') ? 'm4a'
-        : mime.includes('ogg') ? 'ogg'
-        : 'webm'
-
-      const blob = new Blob(recordedChunks.current, { type: mime })
-      const fd = new FormData()
-      fd.append('audio', blob, `voice.${ext}`)
-
-      const resp = await fetch('/api/stt', { method: 'POST', body: fd })
-      const json = await resp.json().catch(() => ({}))
-      if (!resp.ok || !json?.text) throw new Error('STT fallito')
-
-      await parseAssistantPrompt(buildSystemPrompt('voice', json.text))
-    } catch (err) {
-      console.error(err)
-      setError('STT fallito')
-    } finally {
-      recordedChunks.current = []
-    }
-  }, [])
-
-  const stopRecording = useCallback(async (sync = false) => {
-    if (!mediaRecRef.current) {
-      stopTracks()
-      setRecBusy(false)
-      return
-    }
-    if (mediaRecRef.current.state !== 'recording') {
-      stopTracks()
-      setRecBusy(false)
-      return
-    }
-
-    setStopping(true)
-
-    // prepara promise che si risolve su onstop o timeout
-    const p = new Promise(resolve => {
-      stopWaitRef.current = { resolve }
-      setTimeout(() => resolve('timeout'), 2000) // sicurezza
-    })
-
-    try {
-      mediaRecRef.current.stop()
-    } catch {
-      stopWaitRef.current?.resolve?.()
-    }
-
-    if (!sync) {
-      await p
-    }
-
-    // cleanup
-    mediaRecRef.current = null
-    stopTracks()
-    setStopping(false)
-  }, [stopTracks])
-
-  // ----------------------------- Mount/Unmount
-  useEffect(() => {
-    fetchSpese()
-
-    // auto-stop se si cambia scheda o si lascia la pagina
-    const handleVisibility = () => { if (document.hidden) stopRecording() }
-    const handleBeforeUnload = () => { stopRecording(true) } // best effort sync
-
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('beforeunload', handleBeforeUnload)
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      stopRecording(true)
-    }
-  }, [fetchSpese, stopRecording])
-
-  // ----------------------------- Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
-    setError(null)
-
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) return setError('Sessione scaduta')
-
-    const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
-    const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
-      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
-      amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
-      qty: parseFloat(nuovaSpesa.quantita) || 1,
-      payment_method: method, // cash | card | bank
-      card_label: (method === 'card'
-        ? (nuovaSpesa.cardLabel?.trim() || null)
-        : null),
+      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
+      amount: Number(nuovaSpesa.prezzoTotale),
+      spent_at: nuovaSpesa.spentAt || new Date().toISOString(),
+      qty: parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
@@ -168,16 +67,12 @@ function SpeseCasa() {
         prezzoTotale: '',
         quantita: '1',
         spentAt: '',
-        paymentMethod: 'cash',
-        cardLabel: '',
       })
       fetchSpese()
     }
   }
 
-  // ----------------------------- Elimina
   const handleDelete = async id => {
-    setError(null)
     const { error: deleteError } = await supabase
       .from('finances')
       .delete()
@@ -186,147 +81,123 @@ function SpeseCasa() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ----------------------------- OCR
-  const handleOCR = async files => {
-    setError(null)
-    if (!files || files.length === 0) return
+  // ────────────────────────────────────────────────────────── OCR
+  const handleOCR = async file => {
+   console.log('▶️ handleOCR chiamato con file:', file);
+  if (!file) return
     try {
       const fd = new FormData()
-      files.forEach(f => fd.append('images', f))
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
-      const { text, error: ocrErr } = await res.json()
-      if (!res.ok || ocrErr) throw new Error(ocrErr || 'OCR fallito')
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text, files.map(f => f.name).join(', ')))
-    } catch (err) {
-      console.error(err)
+      fd.append('image', file)
+      // prima estrai il testo via OCR
+      const { text } = await (await fetch('/api/ocr', { method: 'POST', body: fd })).json()
+      // poi passa il testo a GPT
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
+    } catch {
       setError('OCR fallito')
     }
   }
 
-  // ----------------------------- START/STOP REC
+  // ───────────────────────────────────────────────────── VOICE RECORDING
   const toggleRec = async () => {
-    setError(null)
-    if (stopping) return // evita rimbalzi durante lo stop
-
     if (recBusy) {
-      await stopRecording()
+      mediaRecRef.current?.stop()
       return
     }
-
-    // già attivo?
-    if (mediaRecRef.current && mediaRecRef.current.state === 'recording') return
-
-    if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
-      setError('Questo browser non supporta la registrazione audio.')
-      return
-    }
-
-    const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/ogg;codecs=opus',
-      'audio/ogg'
-    ]
-    let chosen = ''
-    for (const c of candidates) {
-      if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break }
-    }
-    mimeRef.current = chosen
-
     try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      const mr = new MediaRecorder(streamRef.current, chosen ? { mimeType: chosen } : undefined)
-      mediaRecRef.current = mr
-
-      mr.addEventListener('dataavailable', e => {
-        if (e.data && e.data.size) recordedChunks.current.push(e.data)
-      })
-
-      // onstop → processVoice
-      mr.addEventListener('stop', () => {
-        // risolve la promise di stop (se in attesa)
-        stopWaitRef.current?.resolve?.()
-        processVoice().finally(() => {
-          setRecBusy(false)
-        })
-      }, { once: true })
-
-      mr.start()
+      mediaRecRef.current.ondataavailable = e =>
+        e.data.size && recordedChunks.current.push(e.data)
+      mediaRecRef.current.onstop = processVoice
+      mediaRecRef.current.start()
       setRecBusy(true)
-    } catch (err) {
-      console.error(err)
+    } catch {
       setError('Microfono non disponibile')
-      stopTracks()
+    }
+  }
+
+  const processVoice = async () => {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' })
+    const fd = new FormData()
+    fd.append('audio', blob, 'voice.webm')
+    try {
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
+      await parseAssistantPrompt(buildSystemPrompt('voice', text))
+    } catch {
+      setError('STT fallito')
+    } finally {
       setRecBusy(false)
     }
   }
 
-  // ----------------------------- PROMPT BUILDER
-  function buildSystemPrompt(source, userText, fileName) {
-    const fn = fileName || 'scontrino';
-
-    const header = [
-      'Sei Jarvis. Puoi restituire uno dei seguenti JSON:',
-      '',
-      '1) Spese (type: "expense")',
-      '{ "type":"expense", "items":[{',
-      '  "puntoVendita": "string",',
-      '  "dettaglio": "string",',
-      '  "prezzoUnitario": number|null,',
-      '  "quantita": number,',
-      '  "uom": "string opzionale (es: kg, L, pz)",',
-      '  "prezzoTotale": number,',
-      '  "data":"YYYY-MM-DD",',
-      '  "paymentMethod":"cash|card|transfer",',
-      '  "cardLabel": "string|optional"',
-      '}]}',
-      '',
-      '2) Movimento cassa (type: "cash_move")',
-      '{ "type":"cash_move", "items":[{',
-      '  "importo": number,',
-      '  "direzione": "in|out",',
-      '  "data":"YYYY-MM-DD|oggi|ieri",',
-      '  "nota": "string opzionale"',
-      '}]}',
-      '',
-      'Esempi cassa:',
-      '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
-      '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
-      '',
-    ].join('\n');
-
+  // ───────────────────────────────────────────────── SYSTEM PROMPT
+  const buildSystemPrompt = (source, userText) => {
     if (source === 'ocr') {
-      return [
-        header,
-        'Testo OCR (' + fn + '):',
-        String(userText || '')
-      ].join('\n');
+      return `
+Sei Jarvis. Da questo testo OCR estrai **solo** i dati di spesa in formato JSON.
+
+Ogni spesa deve avere:
+- puntoVendita: string  
+- dettaglio: string  
+- prezzoUnitario: number | null  
+- quantita: number  
+- prezzoTotale: number  
+- data: "YYYY-MM-DD" | "oggi" | "ieri"  
+
+Rispondi **solo** con JSON conforme a questo schema:
+\`\`\`json
+{
+  "type": "expense",
+  "items": [
+    {
+      "puntoVendita": "Supermercato Rossi",
+      "dettaglio": "1 confezione di latte",
+      "prezzoUnitario": 2.50,
+      "quantita": 1,
+      "prezzoTotale": 2.50,
+      "data": "oggi"
+    }
+    /* altri items... */
+  ]
+}
+\`\`\`
+
+TESTO_OCR:
+${userText}
+`
     }
 
-    // STT / testo libero
-    return [
-      header,
-      'Trascrizione:',
-      String(userText || '')
-    ].join('\n');
-  }
+    // per voice / testo libero
+    return `
+**ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
 
-  // ----------------------------- Helpers
-  function normDate(v) {
-    const s = String(v || '').trim().toLowerCase()
-    if (s === 'oggi') return new Date().toISOString().slice(0, 10)
-    if (s === 'ieri') {
-      const d = new Date()
-      d.setDate(d.getDate() - 1)
-      return d.toISOString().slice(0, 10)
+Ora estrai **solo** JSON spesa (stesso schema di prima).
+
+ESEMPIO:
+Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
+Output:
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"Supermercato Rossi",
+      "dettaglio":"3 pacchi di pasta Barilla",
+      "prezzoTotale":2.50,
+      "quantita":3,
+      "data":"2025-07-10",
+      "categoria":"casa",
+      "category_id":"${CATEGORY_ID_CASA}"
     }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-    return new Date().toISOString().slice(0, 10)
+  ]
+}
+
+Ora capisci la frase seguente e compila i campi:
+"${userText}"
+`
   }
 
-  // ----------------------------- PARSING & DB INSERT
+  // ───────────────────────────────────────────────── PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -335,105 +206,84 @@ function SpeseCasa() {
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
-
     const data = JSON.parse(answer)
-
-    // In questa pagina gestiamo SOLO le spese
     if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
       throw new Error('Assistant response invalid')
 
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      const spentAt = normDate(it.data)
-      const totalPrice = Number(it.prezzoTotale) || 0
-      const qty = parseFloat(it.quantita) || 1
-      const uom = (it.uom || '').trim()
-      const unitPrice = it.prezzoUnitario != null
-        ? Number(it.prezzoUnitario) || 0
-        : (qty ? totalPrice / qty : totalPrice)
-
-      const parts = []
-      parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
-      parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
-
-      // normalizza payment method (transfer -> bank per coerenza UI)
-      const methodRaw = (it.paymentMethod || 'cash')
-      const method = methodRaw === 'transfer' ? 'bank' : methodRaw
-      const label  = method === 'card' ? (it.cardLabel || null) : null
-
+      let spentAt = it.data
+      if (it.data === 'oggi') {
+        spentAt = new Date().toISOString().slice(0, 10)
+      } else if (it.data === 'ieri') {
+        const d = new Date()
+        d.setDate(d.getDate() - 1)
+        spentAt = d.toISOString().slice(0, 10)
+      }
       return {
         user_id: user.id,
         category_id: CATEGORY_ID_CASA,
-        description: parts.join(' '),
-        amount: totalPrice,
+        description: `[${it.puntoVendita}] ${it.dettaglio}`,
+        amount: Number(it.prezzoTotale) || 0,
         spent_at: spentAt,
-        qty: qty,
-        payment_method: method,
-        card_label: label,
+        qty: parseFloat(it.quantita) || 1,
       }
     })
 
-    // NB: niente upsert → niente onConflict → niente errore 400
     const { error: dbErr } = await supabase.from('finances').insert(rows)
-    if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
+    if (dbErr) throw dbErr
 
-    await fetchSpese()
-
-    // Precompila il form con l’ultima spesa inserita (comodo per correzioni rapide)
-    const last = rows[0]
+    fetchSpese()
+    const f = rows[0]
     setNuovaSpesa({
-      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
-      prezzoTotale: String(last.amount ?? ''),
-      quantita:     String(last.qty ?? '1'),
-      spentAt:      last.spent_at ?? '',
-      paymentMethod: last.payment_method || 'cash',
-      cardLabel: last.card_label || '',
+      puntoVendita: f.description.match(/^\[(.*?)\]/)?.[1] || '',
+      dettaglio: f.description.replace(/^\[.*?\]\s*/, ''),
+      prezzoTotale: f.amount,
+      quantita: String(f.qty),
+      spentAt: f.spent_at,
     })
   }
 
-  // ----------------------------- UI
-  const totale = (spese || []).reduce((t, r) => t + (Number(r.amount) || 0), 0)
-
-  const renderPayBadge = (r) => {
-    if (r.payment_method === 'card') return `💳 ${r.card_label || 'Carta'}`
-    if (r.payment_method === 'bank') return '🏦 Bonifico'
-    return '💶 Contante'
-  }
+  // ───────────────────────────────────────────────────────────── RENDER
+  const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   return (
     <>
-      <Head><title>Spese Casa</title></Head>
+      <Head>
+        <title>Spese Casa</title>
+      </Head>
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 className="title">🏠 Spese Casa</h2>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#fff' }}>
+            🏠 Spese Casa
+          </h2>
 
           <div className="table-buttons">
-            <button
-              className="btn-vocale"
-              onClick={toggleRec}
-              disabled={stopping}
-              title={stopping ? 'Chiusura microfono…' : ''}
-            >
-              {recBusy && !stopping ? '⏹ Stop' : (stopping ? '…' : '🎙 Voce')}
+            <button className="btn-manuale" onClick={() => formRef.current?.scrollIntoView()}>
+              ➕ Aggiungi manualmente
+            </button>
+            <button className="btn-vocale" onClick={toggleRec}>
+              {recBusy ? '⏹ Stop' : '🎙 Voce'}
             </button>
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
               📷 OCR
             </button>
-            <input
-              ref={ocrInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              hidden
-              onChange={e => handleOCR(Array.from(e.target.files || []))}
-            />
           </div>
 
+          <input
+            ref={ocrInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={e => handleOCR(e.target.files?.[0])}
+          />
+
+          {/* —————— Form manuale —————— */}
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label>Punto vendita / Servizio</label>
             <input
@@ -470,31 +320,12 @@ function SpeseCasa() {
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
               required
             />
-
-            <label>Metodo di pagamento</label>
-            <select
-              value={nuovaSpesa.paymentMethod}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, paymentMethod: e.target.value })}
-            >
-              <option value="cash">Contante (tasca)</option>
-              <option value="card">Carta</option>
-              <option value="bank">Bonifico/Altro</option>
-            </select>
-
-            {nuovaSpesa.paymentMethod === 'card' && (
-              <>
-                <label>Nome carta (opz.)</label>
-                <input
-                  value={nuovaSpesa.cardLabel}
-                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, cardLabel: e.target.value })}
-                  placeholder="Visa, Revolut…"
-                />
-              </>
-            )}
-
-            <button className="btn-manuale">Aggiungi</button>
+            <button className="btn-manuale" style={{ width: 'fit-content' }}>
+              Aggiungi
+            </button>
           </form>
 
+          {/* —————— Tabella storico —————— */}
           <div className="table-container">
             {loading ? (
               <p>Caricamento…</p>
@@ -507,21 +338,19 @@ function SpeseCasa() {
                     <th>Data</th>
                     <th>Qtà</th>
                     <th>Prezzo €</th>
-                    <th>Pag.</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(spese || []).map(r => {
-                    const m = r.description?.match?.(/^\[(.*?)\]\s*(.*)$/) || []
+                  {spese.map(r => {
+                    const m = r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
                     return (
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
+                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
                         <td>{r.qty}</td>
-                        <td>{Number(r.amount).toFixed(2)}</td>
-                        <td>{renderPayBadge(r)}</td>
+                        <td>{r.amount.toFixed(2)}</td>
                         <td>
                           <button onClick={() => handleDelete(r.id)}>🗑</button>
                         </td>
@@ -534,54 +363,54 @@ function SpeseCasa() {
             <div className="total-box">Totale: € {totale.toFixed(2)}</div>
           </div>
 
-          {error && <p className="error">{error}</p>}
+          {error && <p style={{ color: 'red' }}>{error}</p>}
 
-          <Link href="/home" className="btn-vocale">🏠 Home</Link>
+          <Link href="/home" className="btn-vocale" style={{ marginTop: '1.5rem', textDecoration: 'none' }}>
+            🏠 Home
+          </Link>
         </div>
       </div>
 
-      <style jsx>{`
+      <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
+          min-height: 100vh;
           align-items: center;
           justify-content: center;
           background: #0f172a;
-          min-height: 100vh;
-          padding: 2rem;
           font-family: Inter, sans-serif;
+          padding: 2rem;
         }
         .spese-casa-container2 {
+          max-width: 800px;
+          width: 100%;
           background: rgba(0, 0, 0, 0.6);
           padding: 2rem;
           border-radius: 1rem;
           color: #fff;
           box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          max-width: 800px;
-          width: 100%;
         }
-        .title { margin-bottom: 1rem; font-size: 1.5rem; }
-        .table-buttons { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-        .btn-vocale, .btn-ocr, .btn-manuale {
-          display: inline-block;
-          text-align: center;
+        .table-buttons {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          flex-wrap: wrap;
+        }
+        .btn-manuale {
+          background: #22c55e;
+          color: #fff;
+        }
+        .btn-vocale {
           background: #10b981;
           color: #fff;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 0.5rem;
-          cursor: pointer;
-          text-decoration: none;
         }
-        .btn-ocr { background: #f43f5e; }
-        .btn-vocale[disabled] { opacity: 0.6; cursor: not-allowed; }
-        .input-section {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-          margin-bottom: 1.5rem;
+        .btn-ocr {
+          background: #f43f5e;
+          color: #fff;
         }
-        input, textarea, select {
+        input,
+        textarea {
           width: 100%;
           padding: 0.6rem;
           border: none;
@@ -589,13 +418,31 @@ function SpeseCasa() {
           background: rgba(255, 255, 255, 0.1);
           color: #fff;
         }
-        textarea { resize: vertical; min-height: 4.5rem; }
-        .custom-table { width: 100%; border-collapse: collapse; }
-        .custom-table th, .custom-table td {
+        textarea {
+          min-height: 4.5rem;
+          resize: vertical;
+        }
+        .input-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1.5rem;
+        }
+        .custom-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .custom-table thead {
+          background: #1f2937;
+        }
+        .custom-table th,
+        .custom-table td {
           padding: 0.75rem 1rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .custom-table thead { background: #1f2937; }
+        .custom-table tbody tr:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
         .total-box {
           margin-top: 1rem;
           background: rgba(34, 197, 94, 0.8);
@@ -604,7 +451,6 @@ function SpeseCasa() {
           text-align: right;
           font-weight: 600;
         }
-        .error { color: #f87171; margin-top: 1rem; }
       `}</style>
     </>
   )
