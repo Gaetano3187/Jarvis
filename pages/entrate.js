@@ -140,8 +140,8 @@ function Entrate() {
 
     await ensureCarryoverAuto(user.id, monthKey);
 
-    // Intervallo: [startDate, endExclusive)
-    const endExclusive = new Date(new Date(endDate).getTime() + 24*60*60*1000).toISOString();
+    // Intervallo chiuso/aperto: [startDate, endExclusive)
+    const endExclusive = new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
 
     // 1) Entrate del periodo
     const { data: inc, error: e1 } = await supabase
@@ -166,7 +166,7 @@ function Entrate() {
 
     // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
 
-    // 3a) Movimenti manuali pocket_cash nel periodo corrente
+    // 3a) Movimenti manuali pocket_cash nel periodo
     const { data: pc, error: e3 } = await supabase
       .from('pocket_cash')
       .select('id, created_at, moved_at, note, delta, amount, direction')
@@ -193,7 +193,7 @@ function Entrate() {
       };
     });
 
-    // 3b) Spese in contante dalle altre pagine (finances)
+    // 3b) Spese in contante registrate nelle altre pagine (finances)
     const { data: finCash, error: e4 } = await supabase
       .from('finances')
       .select('id, description, amount, spent_at')
@@ -213,11 +213,11 @@ function Entrate() {
         id: `fin-${f.id}`,
         dateISO,
         label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-        amount: -Math.abs(Number(f.amount) || 0), // spesa = uscita
+        amount: -Math.abs(Number(f.amount) || 0),
       };
     });
 
-    // 3c) Unione e ordinamento
+    // 3c) Unione, filtro e ordinamento
     const rows = [...manualRows, ...cashRows]
       .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
       .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
@@ -243,7 +243,6 @@ function Entrate() {
     setLoading(false);
   }
 }
-
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildPocketPrompt(userText) {
