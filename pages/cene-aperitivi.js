@@ -39,11 +39,11 @@ function CeneAperitivi() {
       .eq('category_id', CATEGORY_ID_CENE)
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
-    else setSpese(data)
+    else setSpese(data || [])
     setLoading(false)
   }
 
-  // Aggiungi manuale
+  // Aggiungi manuale (una riga)
   const handleAdd = async e => {
     e.preventDefault()
     const {
@@ -55,7 +55,7 @@ function CeneAperitivi() {
       user_id:     user.id,
       category_id: CATEGORY_ID_CENE,
       description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
-      amount:      Number(nuovaSpesa.prezzoTotale),
+      amount:      Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at:    nuovaSpesa.spentAt || new Date().toISOString().slice(0,10),
       qty:         parseInt(nuovaSpesa.quantita, 10) || 1,
     }
@@ -131,17 +131,23 @@ function CeneAperitivi() {
     }
   }
 
-  // Costruisci prompt per il bot
+  // Prompt "receipt": voce unica con righe + totale
   function buildSystemPrompt(source, userText) {
-    if (source === 'ocr') {
-      return `
-Sei Jarvis. Dal testo OCR estrai uno **scontrino unico** con:
+    const header =
+      source === 'ocr'
+        ? 'Sei Jarvis. Dal testo OCR estrai uno scontrino unico.'
+        : 'Sei Jarvis. Dal dettato vocale estrai uno scontrino unico (ignora “ehm”, “ok”, ecc.).'
+
+    return `
+${header}
+
+Devi produrre:
 - puntoVendita (string)
-- data (YYYY-MM-DD)
-- lineItems: array di { desc (string), qty (number, default 1), price (number in EUR) }
+- data (YYYY-MM-DD, usa quella sullo scontrino o oggi se assente)
+- lineItems: array di { desc (string), qty (number, default 1), price (number in EUR per unità) }
 - total (number in EUR). Se non c'è, calcola tu somma (qty * price).
 
-Rispondi **solo** JSON:
+Rispondi **solo** JSON, senza testo extra:
 \`\`\`json
 {
   "type":"receipt",
@@ -155,36 +161,12 @@ Rispondi **solo** JSON:
 }
 \`\`\`
 
-TESTO_OCR:
+TESTO_INPUT:
 ${userText}
-`
-}
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Ristorante Il Cortile",
-      "dettaglio":"Cena per due persone",
-      "quantita":2,
-      "prezzoTotale":100.00,
-      "data":"2025-08-06"
-    }
-  ]
-}
-\`\`\`
-
-TESTO_OCR:
-${userText}
-`
-    }
-    return `
-**ATTENZIONE:** il testo seguente è trascrizione vocale, ignora "ehm", "ok", ecc.
-
-Ora estrai **solo** JSON spesa (stesso schema):
-"${userText}"
-`
+`.trim()
   }
 
-  // Parsing AI & DB insert
+  // Parsing AI & DB insert (una riga con dettaglio)
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -195,7 +177,43 @@ Ora estrai **solo** JSON spesa (stesso schema):
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
 
     const data = JSON.parse(answer)
-    if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
+
+    // Helper € con virgola
+    const eur = n => (Number(n || 0).toFixed(2)).replace('.', ',')
+
+    let puntoVendita = ''
+    let spentAt = new Date().toISOString().slice(0,10)
+    let total = 0
+    let descr = ''
+
+    if (data.type === 'receipt' && Array.isArray(data.lineItems)) {
+      puntoVendita = data.puntoVendita || ''
+      spentAt = data.data || spentAt
+
+      const rows = data.lineItems.map(li => {
+        const qty = Number(li.qty || 1)
+        const lineTotal = qty * Number(li.price || 0)
+        return `${li.desc?.trim() || 'Voce'}${qty>1 ? ` x${qty}`:''} ${eur(lineTotal)} €`
+      })
+      const calc = data.lineItems.reduce((s, li) => s + (Number(li.qty || 1) * Number(li.price || 0)), 0)
+      total = Number(data.total || calc)
+      descr = `${rows.join('; ')}; Totale scontrino: ${eur(total)} €`
+    } else if (data.type === 'expense' && Array.isArray(data.items) && data.items.length) {
+      // Fallback compatibile: raggruppa tutto in UNA riga
+      const rows = []
+      total = 0
+      let candidatePV = ''
+      data.items.forEach(it => {
+        const q = Number(it.quantita || 1)
+        const price = Number(it.prezzoTotale || 0) // totale voce
+        total += price
+        if (it.data) spentAt = it.data
+        if (!candidatePV && it.puntoVendita) candidatePV = it.puntoVendita
+        rows.push(`${(it.dettaglio || 'Voce').trim()}${q>1 ? ` x${q}`:''} ${eur(price)} €`)
+      })
+      puntoVendita = candidatePV
+      descr = `${rows.join('; ')}; Totale scontrino: ${eur(total)} €`
+    } else {
       throw new Error('Assistant response invalid')
     }
 
@@ -204,34 +222,25 @@ Ora estrai **solo** JSON spesa (stesso schema):
     } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
-    const rows = data.items.map(it => {
-      const spentAt = it.data === 'oggi'
-        ? new Date().toISOString().slice(0, 10)
-        : it.data === 'ieri'
-          ? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10) })()
-          : it.data
+    const row = {
+      user_id:      user.id,
+      category_id:  CATEGORY_ID_CENE,
+      description:  `[${puntoVendita || 'Cena/Aperitivo'}] ${descr}`,
+      amount:       Number(total) || 0,
+      spent_at:     spentAt,
+      qty:          1,
+    }
 
-      return {
-        user_id:      user.id,
-        category_id:  CATEGORY_ID_CENE,
-        description:  `[${it.puntoVendita}] ${it.dettaglio}`,
-        amount:       Number(it.prezzoTotale) || 0,
-        spent_at:     spentAt,
-        qty:          parseFloat(it.quantita) || 1,
-      }
-    })
-
-    const { error: dbErr } = await supabase.from('finances').insert(rows)
+    const { error: dbErr } = await supabase.from('finances').insert(row)
     if (dbErr) throw dbErr
 
     await fetchSpese()
-    const last = rows[0]
     setNuovaSpesa({
-      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
-      quantita:     String(last.qty),
-      prezzoTotale: last.amount,
-      spentAt:      last.spent_at,
+      puntoVendita: puntoVendita || '',
+      dettaglio:    descr,
+      quantita:     '1',
+      prezzoTotale: Number(total) || 0,
+      spentAt:      spentAt,
     })
   }
 
