@@ -1,10 +1,16 @@
+// pages/finanze.js
 import React, { useCallback } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
-import { askAssistant } from '../lib/assistant'
-import { parseAssistant } from '@/lib/assistant'
 
 const categories = [
+  {
+    href: '/entrate',
+    bg: '#16a34a',
+    emoji: '💶',
+    title: 'Entrate & Saldi',
+    subtitle: 'Stipendi, carryover, tasca',
+  },
   {
     href: '/spese-casa',
     bg: '#2563eb',
@@ -153,6 +159,8 @@ const Finanze1 = () => {
           align-items: center;
           flex-direction: column;
           justify-content: center;
+          position: relative;
+          overflow: hidden;
         }
         .finanze1-video {
           top: -36px;
@@ -175,16 +183,13 @@ const Finanze1 = () => {
           font-size: 1.1rem;
           font-weight: 600;
           box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+          border: 0;
+          cursor: pointer;
         }
-        .green {
-          background: rgba(34, 197, 94, 0.9);
-        }
-        .blue {
-          background: rgba(59, 130, 246, 0.9);
-        }
-        .orange {
-          background: rgba(234, 88, 12, 0.9);
-        }
+        .green { background: rgba(34, 197, 94, 0.9); }
+        .blue { background: rgba(59, 130, 246, 0.9); }
+        .orange { background: rgba(234, 88, 12, 0.9); }
+
         @media (max-width: 1600px) {
           .finanze1-video {
             top: 0;
@@ -201,41 +206,35 @@ const Finanze1 = () => {
           }
         }
         @media (max-width: 1200px) {
-          .finanze1-video {
-            pointer-events: none;
-            z-index: -1;
-          }
+          .finanze1-video { pointer-events: none; z-index: -1; }
           .finanze1-container2 {
             top: 0;
             left: 0;
             right: 0;
             width: 768px;
             margin: auto;
+            position: relative;
           }
         }
         @media (max-width: 991px) {
-          .finanze1-video {
-            pointer-events: none;
-            z-index: -1;
-          }
+          .finanze1-video { pointer-events: none; z-index: -1; }
           .finanze1-container2 {
             top: 0;
             left: 0;
             right: 0;
             width: 613px;
             margin: auto;
+            position: relative;
           }
         }
         @media (max-width: 767px) {
-          .finanze1-video {
-            pointer-events: none;
-            z-index: -1;
-          }
+          .finanze1-video { pointer-events: none; z-index: -1; }
           .finanze1-container2 {
             top: 15px;
             left: 140px;
             width: 469px;
             height: 926px;
+            position: relative;
           }
         }
         @media (max-width: 479px) {
@@ -253,6 +252,7 @@ const Finanze1 = () => {
             height: 897px;
             margin: auto;
             align-self: stretch;
+            position: relative;
           }
         }
       `}</style>
