@@ -5,220 +5,207 @@ import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
+/**
+ * Impostazione giorno di accredito stipendio (1..28).
+ * Esempio: 10 = il mese “contabile” va dal 10 (incluso) al 9 del mese successivo.
+ * Puoi trasformarlo in un campo salvato per utente, per ora lo lasciamo costante.
+ */
+const PAYDAY_DAY = 10
+
 function Entrate() {
-  // ─────────────────────────────────────────────── Stati e refs
-  const [entrate, setEntrate] = useState([])
-  const [spese, setSpese] = useState([])
-  const [pocket, setPocket] = useState({ current_amount: 0 })
-  const [pocketLog, setPocketLog] = useState([])
+  // ─────────────────────────────────────────────── Stati
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [recBusy, setRecBusy] = useState(false)
 
-  const [nuovaEntrata, setNuovaEntrata] = useState({
-    source: '',
+  // Entrate
+  const [incomes, setIncomes] = useState([])
+  const [newIncome, setNewIncome] = useState({
+    source: 'Stipendio',
     description: '',
     amount: '',
     receivedAt: '',
-    isSalary: false,
   })
 
-  const [nuoviContanti, setNuoviContanti] = useState('') // input "soldi in tasca"
+  // Carryover (rimanenze/perdite)
+  const [carryover, setCarryover] = useState(null) // importo unico per il mese corrente
+  const [newCarry, setNewCarry] = useState({ amount: '', note: '' })
 
+  // Soldi in tasca (movimenti)
+  const [pocket, setPocket] = useState([])
+  const [pocketTopUp, setPocketTopUp] = useState('') // ricarica manuale rapida
+
+  // Spese del mese (per calcolo saldo)
+  const [monthExpenses, setMonthExpenses] = useState(0)
+
+  // OCR / VOCE
   const ocrInputRef = useRef(null)
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
+  const [recBusy, setRecBusy] = useState(false)
 
-  // ─────────────────────────────────────────────── Mount
+  // Periodo corrente determinato da PAYDAY_DAY
+  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY)
+
+  // ─────────────────────────────────────────────── Load dati
   useEffect(() => {
-    refreshAll()
-  }, [])
+    loadAll()
+  }, [monthKey])
 
-  async function refreshAll() {
+  async function loadAll() {
+    setLoading(true)
+    setError(null)
     try {
-      setLoading(true)
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Sessione scaduta')
 
-      const [inc, fin, pc, pcl] = await Promise.all([
-        supabase
-          .from('incomes')
-          .select('id, description, source, amount, received_at, is_salary')
-          .order('received_at', { ascending: false }),
-        supabase
-          .from('finances')
-          .select('id, description, amount, spent_at')
-          .order('spent_at', { ascending: false }),
-        supabase
-          .from('pocket_cash')
-          .select('current_amount')
-          .single(),
-        supabase
-          .from('pocket_cash_log')
-          .select('id, change_amount, balance_after, reason, happened_at')
-          .order('happened_at', { ascending: false }),
-      ])
+      // 1) Entrate nel periodo
+      const { data: inc, error: e1 } = await supabase
+        .from('incomes')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('received_at', startDate)
+        .lte('received_at', endDate)
+        .order('received_at', { ascending: false })
+      if (e1) throw e1
+      setIncomes(inc || [])
 
-      if (inc.error) throw inc.error
-      if (fin.error) throw fin.error
-      if (pc.error && pc.error.code !== 'PGRST116') throw pc.error // PGRST116 = no rows
-      if (pcl.error) throw pcl.error
+      // 2) Carryover per il mese corrente
+      const { data: co, error: e2 } = await supabase
+        .from('carryovers')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('month_key', monthKey)
+        .maybeSingle()
+      if (e2 && e2.code !== 'PGRST116') throw e2
+      setCarryover(co || null)
 
-      setEntrate(inc.data || [])
-      setSpese(fin.data || [])
-      setPocket(pc.data || { current_amount: 0 })
-      setPocketLog(pcl.data || [])
-    } catch (e) {
-      console.error(e)
-      setError(e.message || String(e))
+      // 3) Movimenti soldi in tasca (ultimo 60 giorni per non sovraccaricare)
+      const since = new Date()
+      since.setMonth(since.getMonth() - 2)
+      const { data: pc, error: e3 } = await supabase
+        .from('pocket_cash')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('created_at', since.toISOString())
+        .order('created_at', { ascending: false })
+      if (e3) throw e3
+      setPocket(pc || [])
+
+      // 4) Spese del periodo (finances)
+      const { data: exp, error: e4 } = await supabase
+        .from('finances')
+        .select('amount, spent_at')
+        .eq('user_id', user.id)
+        .gte('spent_at', startDate)
+        .lte('spent_at', endDate)
+      if (e4) throw e4
+      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0)
+      setMonthExpenses(totalExp)
+    } catch (err) {
+      console.error(err)
+      setError(err.message || String(err))
     } finally {
       setLoading(false)
     }
   }
 
-  // ─────────────────────────────────────────────── Helpers calcolo saldo
-  function getCurrentSalaryCycle() {
-    // ultimo stipendio <= oggi
-    const today = new Date().toISOString().slice(0, 10)
-    const stipendi = (entrate || [])
-      .filter(e => e.is_salary)
-      .sort((a, b) => new Date(b.received_at) - new Date(a.received_at))
-    const currentSalary = stipendi.find(s => s.received_at <= today)
-    return currentSalary || null
-  }
-
-  function sumAmounts(rows, field = 'amount') {
-    return (rows || []).reduce((t, r) => t + Number(r?.[field] || 0), 0)
-  }
-
-  function computeBalances() {
-    const salary = getCurrentSalaryCycle()
-    if (!salary) {
-      return {
-        saldoMese: 0,
-        spesePeriodo: 0,
-        rimanenzePregresse: sumAmounts(entrate) - sumAmounts(spese),
-        anchorDate: null,
-        salaryAmount: 0,
-      }
-    }
-    const start = salary.received_at // giorno stipendio
-    const today = new Date().toISOString().slice(0, 10)
-
-    const spesePeriodo = spese.filter(
-      s => s.spent_at >= start && s.spent_at <= today
-    )
-    const spesePrima = spese.filter(s => s.spent_at < start)
-    const entratePrima = entrate.filter(i => i.received_at < start)
-
-    const rimanenzePregresse =
-      sumAmounts(entratePrima) - sumAmounts(spesePrima)
-
-    const saldoMese =
-      Number(salary.amount || 0) - sumAmounts(spesePeriodo) + rimanenzePregresse
-
-    return {
-      saldoMese,
-      spesePeriodo: sumAmounts(spesePeriodo),
-      rimanenzePregresse,
-      anchorDate: start,
-      salaryAmount: Number(salary.amount || 0),
-    }
-  }
-
-  const {
-    saldoMese,
-    spesePeriodo,
-    rimanenzePregresse,
-    anchorDate,
-    salaryAmount,
-  } = computeBalances()
-
-  // ─────────────────────────────────────────────── Aggiungi entrata (manuale)
-  const handleAddIncome = async e => {
+  // ─────────────────────────────────────────────── Aggiungi Entrata (manuale)
+  async function handleAddIncome(e) {
     e.preventDefault()
+    setError(null)
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Sessione scaduta')
 
       const row = {
         user_id: user.id,
-        description: nuovaEntrata.description || (nuovaEntrata.isSalary ? 'Stipendio' : 'Entrata'),
-        source: nuovaEntrata.source || (nuovaEntrata.isSalary ? 'stipendio' : 'varia'),
-        amount: Number(nuovaEntrata.amount) || 0,
-        received_at: nuovaEntrata.receivedAt || new Date().toISOString().slice(0, 10),
-        is_salary: !!nuovaEntrata.isSalary,
+        source: newIncome.source || 'Entrata',
+        description: newIncome.description || newIncome.source || 'Entrata',
+        amount: Number(newIncome.amount) || 0,
+        received_at: newIncome.receivedAt || new Date().toISOString().slice(0,10),
       }
-      const { error } = await supabase.from('incomes').insert(row)
-      if (error) throw error
+      const { error: errInc } = await supabase.from('incomes').insert(row)
+      if (errInc) throw errInc
 
-      setNuovaEntrata({
-        source: '',
-        description: '',
-        amount: '',
-        receivedAt: '',
-        isSalary: false,
-      })
-      await refreshAll()
-    } catch (e) {
-      setError(e.message || String(e))
+      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' })
+      await loadAll()
+    } catch (err) {
+      setError(err.message || String(err))
     }
   }
 
-  // ─────────────────────────────────────────────── Soldi in tasca: set iniziale
-  const handleSetPocketCash = async e => {
+  // ─────────────────────────────────────────────── Cancella Entrata
+  async function handleDeleteIncome(id) {
+    const { error: e } = await supabase.from('incomes').delete().eq('id', id)
+    if (e) return setError(e.message)
+    setIncomes(incomes.filter(i => i.id !== id))
+  }
+
+  // ─────────────────────────────────────────────── Aggiungi/aggiorna Carryover del mese
+  async function handleSaveCarryover(e) {
     e.preventDefault()
+    setError(null)
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Sessione scaduta')
-
-      const startAmount = Number(nuoviContanti) || 0
-
-      // upsert pocket_cash
-      const { data: pcData, error: pcErr } = await supabase
-        .from('pocket_cash')
-        .upsert({ user_id: user.id, current_amount: startAmount }, { onConflict: 'user_id' })
-        .select()
-        .single()
-      if (pcErr) throw pcErr
-
-      // log "inizializzazione"
-      const { error: logErr } = await supabase.from('pocket_cash_log').insert({
+      const payload = {
         user_id: user.id,
-        change_amount: startAmount,              // positivo
-        balance_after: pcData.current_amount,
-        reason: 'Inizializzazione soldi in tasca',
-      })
-      if (logErr) throw logErr
-
-      setNuoviContanti('')
-      await refreshAll()
-    } catch (e) {
-      setError(e.message || String(e))
+        month_key: monthKey,
+        amount: Number(newCarry.amount) || 0,
+        note: newCarry.note || null,
+      }
+      if (carryover?.id) {
+        const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('carryovers').insert(payload)
+        if (error) throw error
+      }
+      setNewCarry({ amount: '', note: '' })
+      await loadAll()
+    } catch (err) {
+      setError(err.message || String(err))
     }
   }
 
-  // ─────────────────────────────────────────────── OCR / VOCE (riusiamo i tuoi endpoint)
-  const handleOCR = async files => {
+  // ─────────────────────────────────────────────── Ricarica “Soldi in tasca”
+  async function handleTopUpPocket(e) {
+    e.preventDefault()
+    setError(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessione scaduta')
+      const delta = Number(pocketTopUp)
+      if (!delta) return
+      const { error } = await supabase.from('pocket_cash').insert({
+        user_id: user.id,
+        note: 'Ricarica manuale',
+        delta,
+      })
+      if (error) throw error
+      setPocketTopUp('')
+      await loadAll()
+    } catch (err) {
+      setError(err.message || String(err))
+    }
+  }
+
+  // ─────────────────────────────────────────────── OCR multiplo (Entrate)
+  const handleOCR = async (files) => {
     if (!files?.length) return
     try {
       const fd = new FormData()
       files.forEach(f => fd.append('images', f))
       const res = await fetch('/api/ocr', { method: 'POST', body: fd })
       const { text } = await res.json()
-      await parseAssistantToIncome(buildSystemPrompt('ocr', text))
+      await parseAssistant(buildIncomePrompt('ocr', text))
     } catch (err) {
       console.error(err)
       setError('OCR fallito')
     }
   }
 
+  // ─────────────────────────────────────────────── Registrazione audio (Entrate)
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -244,7 +231,7 @@ function Entrate() {
     fd.append('audio', blob, 'voice.webm')
     try {
       const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
-      await parseAssistantToIncome(buildSystemPrompt('voice', text))
+      await parseAssistant(buildIncomePrompt('voice', text))
     } catch (err) {
       console.error(err)
       setError('STT fallito')
@@ -253,45 +240,38 @@ function Entrate() {
     }
   }
 
-  function buildSystemPrompt(source, userText) {
-    const schema = `
-Rispondi SOLO con JSON:
-\`\`\`json
-{
-  "type":"income",
-  "items":[
-    {
-      "source":"stipendio | provvigione | rimborso | ...",
-      "description":"testo libero",
-      "amount": 123.45,
-      "receivedAt": "YYYY-MM-DD",
-      "isSalary": false
-    }
-  ]
-}
-\`\`\`
-`
+  // ─────────────────────────────────────────────── Prompt & parsing (Entrate)
+  function buildIncomePrompt(source, userText) {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Dal testo OCR estrai tutte le ENTRATE (non le spese).
-Se individui uno stipendio, imposta "isSalary": true. La data è quella riportata nel documento.
-${schema}
+Sei Jarvis. Dal testo OCR qui sotto estrai **entrate economiche** (stipendi, provvigioni, rimborsi).
+Per ogni entrata genera:
+- source: string (es. "Stipendio", "Provvigioni", "Bonus")
+- description: string breve (es. "Stipendio ACME Srl")
+- amount: number (positivo, in euro)
+- receivedAt: "YYYY-MM-DD"
 
-TESTO_OCR:
+Rispondi **solo** con JSON:
+\`\`\`json
+{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"2025-06-10"}]}
+\`\`\`
+
+TESTO:
 ${userText}
 `
     }
     return `
-Trascrizione vocale dell'ENTRATA. Estrai i campi secondo lo schema.
-Se è lo stipendio del mese, usa "isSalary": true. Se manca la data, usa oggi.
-${schema}
+**Trascrizione vocale**: estrai ENTRATE nel formato JSON seguente.
+\`\`\`json
+{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni maggio","amount":250,"receivedAt":"${new Date().toISOString().slice(0,10)}"}]}
+\`\`\`
 
-TESTO_VOCE:
+TESTO:
 ${userText}
 `
   }
 
-  async function parseAssistantToIncome(prompt) {
+  async function parseAssistant(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -305,40 +285,48 @@ ${userText}
       throw new Error('Assistant response invalid')
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => ({
       user_id: user.id,
+      source: it.source || 'Entrata',
       description: it.description || it.source || 'Entrata',
-      source: it.source || 'varia',
       amount: Number(it.amount) || 0,
       received_at: it.receivedAt || new Date().toISOString().slice(0,10),
-      is_salary: !!it.isSalary,
     }))
-    const { error: dbErr } = await supabase.from('incomes').insert(rows)
-    if (dbErr) throw dbErr
-    await refreshAll()
+
+    const { error } = await supabase.from('incomes').insert(rows)
+    if (error) throw error
+    await loadAll()
   }
 
-  // ─────────────────────────────────────────────── Render
+  // ─────────────────────────────────────────────── Calcoli
+  const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
+  const carryAmount = Number(carryover?.amount || 0)
+  const saldoMese = totalIncomes + carryAmount - monthExpenses
+
+  const pocketBalance = pocket.reduce((t, r) => t + Number(r.delta || 0), 0)
+
+  // ─────────────────────────────────────────────── UI
   return (
     <>
-      <Head><title>Entrate & Saldo</title></Head>
+      <Head><title>Entrate & Saldi</title></Head>
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 className="title">💰 Entrate & Saldo</h2>
+          <h2 className="title">💶 Entrate & Saldi</h2>
+          <p style={{ opacity: .85, marginTop: -8 }}>
+            Periodo corrente: <b>{startDate}</b> → <b>{endDate}</b> (payday giorno {PAYDAY_DAY})
+          </p>
 
-          {/* Pulsanti come le altre pagine */}
+          {/* Pulsanti OCR / Voce per ENTRATE */}
           <div className="table-buttons">
             <button className="btn-vocale" onClick={toggleRec}>
               {recBusy ? '⏹ Stop' : '🎙 Voce'}
             </button>
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
-              📷 OCR
+              📷 OCR Entrate
             </button>
             <input
               ref={ocrInputRef}
@@ -351,90 +339,10 @@ ${userText}
             />
           </div>
 
-          {/* 1) TABELLA ENTRATE + RIMANENZE/PERDITE PREGRESSE */}
-          <h3 style={{margin:'0 0 .5rem'}}>Entrate</h3>
+          {/* TABELLA 1 — ENTRATE */}
+          <h3 style={{ marginTop: '1rem' }}>1) Entrate del periodo</h3>
           <form className="input-section" onSubmit={handleAddIncome}>
             <label>Fonte</label>
             <input
-              value={nuovaEntrata.source}
-              onChange={e => setNuovaEntrata({ ...nuovaEntrata, source: e.target.value })}
-              placeholder="stipendio, provvigione…"
-            />
-            <label>Descrizione</label>
-            <input
-              value={nuovaEntrata.description}
-              onChange={e => setNuovaEntrata({ ...nuovaEntrata, description: e.target.value })}
-              placeholder="Entrata di giugno"
-              required
-            />
-            <label>Importo (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={nuovaEntrata.amount}
-              onChange={e => setNuovaEntrata({ ...nuovaEntrata, amount: e.target.value })}
-              required
-            />
-            <label>Data</label>
-            <input
-              type="date"
-              value={nuovaEntrata.receivedAt}
-              onChange={e => setNuovaEntrata({ ...nuovaEntrata, receivedAt: e.target.value })}
-              required
-            />
-            <label style={{display:'flex',gap:'.5rem',alignItems:'center'}}>
-              <input
-                type="checkbox"
-                checked={nuovaEntrata.isSalary}
-                onChange={e => setNuovaEntrata({ ...nuovaEntrata, isSalary: e.target.checked })}
-              />
-              Questa è lo stipendio (inizio ciclo)
-            </label>
-            <button className="btn-manuale">Aggiungi entrata</button>
-          </form>
-
-          {loading ? <p>Caricamento…</p> : (
-            <table className="custom-table" style={{marginBottom:'1rem'}}>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Fonte</th>
-                  <th>Descrizione</th>
-                  <th>Importo €</th>
-                  <th>Stipendio</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entrate.map(e => (
-                  <tr key={e.id}>
-                    <td>{new Date(e.received_at).toLocaleDateString()}</td>
-                    <td>{e.source || '-'}</td>
-                    <td>{e.description}</td>
-                    <td>{Number(e.amount).toFixed(2)}</td>
-                    <td>{e.is_salary ? '✓' : ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <div className="total-box">
-            Rimanenze/Perdite pregresse: <b>{rimanenzePregresse.toFixed(2)} €</b>
-          </div>
-
-          {/* 2) INPUT "SOLDI IN TASCA" */}
-          <h3 style={{margin:'1.5rem 0 .5rem'}}>💼 Soldi in tasca</h3>
-          <form className="input-section" onSubmit={handleSetPocketCash}>
-            <label>Imposta/aggiorna cifra iniziale (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={nuoviContanti}
-              onChange={e => setNuoviContanti(e.target.value)}
-              placeholder="es. 200"
-              required
-            />
-            <button className="btn-manuale">Salva</button>
-          </form>
-
-          {/* 3) LOG MOVIMENTI SOLDI IN TASCA */}
-          <table className="custom-table
+              value={newIncome.source}
+              onChange={e => setNewIncome
