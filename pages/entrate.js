@@ -210,6 +210,62 @@ function Entrate() {
     }
   }
 
+  // ─────────────────────────────────────────────── Prompt builder (OCR / Voce)
+  function buildIncomePrompt(source, userText) {
+    const today = new Date().toISOString().slice(0, 10)
+
+    if (source === 'ocr') {
+      return [
+        'Sei Jarvis. Dal testo OCR qui sotto estrai **entrate economiche** (stipendi, provvigioni, rimborsi).',
+        'Per ogni entrata genera i campi: source (string), description (string), amount (number, euro), receivedAt (YYYY-MM-DD).',
+        'Rispondi SOLO con JSON, ad es.:',
+        '{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"' + today + '"}]}',
+        '',
+        'TESTO:',
+        userText
+      ].join('\n')
+    }
+
+    return [
+      'Trascrizione vocale: estrai ENTRATE e rispondi SOLO con JSON nel formato:',
+      '{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni","amount":250,"receivedAt":"' + today + '"}]}',
+      '',
+      'TESTO:',
+      userText
+    ].join('\n')
+  }
+
+  // ─────────────────────────────────────────────── Parsing risposta assistant
+  async function parseAssistant(prompt) {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    })
+    const { answer, error: apiErr } = await res.json()
+    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+
+    const data = JSON.parse(answer)
+    if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) {
+      throw new Error('Assistant response invalid')
+    }
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Sessione scaduta')
+
+    const rows = data.items.map(it => ({
+      user_id: user.id,
+      source: it.source || 'Entrata',
+      description: it.description || it.source || 'Entrata',
+      amount: Number(it.amount) || 0,
+      received_at: it.receivedAt || new Date().toISOString().slice(0, 10),
+    }))
+
+    const { error } = await supabase.from('incomes').insert(rows)
+    if (error) throw error
+    await loadAll()
+  }
+
   // ─────────────────────────────────────────────── OCR (Entrate)
   async function handleOCR(files) {
     if (!files?.length) return
@@ -261,61 +317,6 @@ function Entrate() {
     }
   }
 
-  // ─────────────────────────────────────────────── Prompt & parsing Entrate
-  function buildIncomePrompt(source, userText) {
-    const today = new Date().toISOString().slice(0, 10)
-
-    if (source === 'ocr') {
-      return [
-        'Sei Jarvis. Dal testo OCR qui sotto estrai **entrate economiche** (stipendi, provvigioni, rimborsi).',
-        'Per ogni entrata genera i campi: source (string), description (string), amount (number, euro), receivedAt (YYYY-MM-DD).',
-        'Rispondi SOLO con JSON, ad es.:',
-        '{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"' + today + '"}]}',
-        '',
-        'TESTO:',
-        userText
-      ].join('\n')
-    }
-
-    return [
-      'Trascrizione vocale: estrai ENTRATE e rispondi SOLO con JSON nel formato:',
-      '{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni","amount":250,"receivedAt":"' + today + '"}]}',
-      '',
-      'TESTO:',
-      userText
-    ].join('\n')
-  }
-
-  async function parseAssistant(prompt) {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    })
-    const { answer, error: apiErr } = await res.json()
-    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
-
-    const data = JSON.parse(answer)
-    if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) {
-      throw new Error('Assistant response invalid')
-    }
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) throw new Error('Sessione scaduta')
-
-    const rows = data.items.map(it => ({
-      user_id: user.id,
-      source: it.source || 'Entrata',
-      description: it.description || it.source || 'Entrata',
-      amount: Number(it.amount) || 0,
-      received_at: it.receivedAt || new Date().toISOString().slice(0, 10),
-    }))
-
-    const { error } = await supabase.from('incomes').insert(rows)
-    if (error) throw error
-    await loadAll()
-  }
-
   // ─────────────────────────────────────────────── Calcoli
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
   const carryAmount = Number(carryover?.amount || 0)
@@ -359,3 +360,200 @@ function Entrate() {
             <input
               value={newIncome.source}
               onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })}
+              placeholder="Stipendio, Provvigioni…"
+              required
+            />
+            <label>Descrizione</label>
+            <input
+              value={newIncome.description}
+              onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
+              placeholder="Stipendio ACME Srl"
+              required
+            />
+            <label>Data accredito</label>
+            <input
+              type="date"
+              value={newIncome.receivedAt}
+              onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })}
+              required
+            />
+            <label>Importo (€)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={newIncome.amount}
+              onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
+              required
+            />
+            <button className="btn-manuale">Aggiungi entrata</button>
+          </form>
+
+          {loading ? <p>Caricamento…</p> : (
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Fonte</th>
+                  <th>Descrizione</th>
+                  <th>Data</th>
+                  <th>Importo €</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {incomes.map(i => (
+                  <tr key={i.id}>
+                    <td>{i.source || '-'}</td>
+                    <td>{i.description}</td>
+                    <td>{new Date(i.received_at).toLocaleDateString()}</td>
+                    <td>{Number(i.amount).toFixed(2)}</td>
+                    <td><button onClick={() => handleDeleteIncome(i.id)}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* TABELLA 2 — CARRYOVER */}
+          <h3 style={{ marginTop: '2rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
+          <form className="input-section" onSubmit={handleSaveCarryover}>
+            <label>Importo (€) per {monthKey} (positivo=avanzo, negativo=perdita)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={newCarry.amount}
+              onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
+              placeholder={carryover ? String(carryAmount) : '0'}
+              required
+            />
+            <label>Nota (opzionale)</label>
+            <input
+              value={newCarry.note}
+              onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })}
+              placeholder={carryover?.note || 'es. “riporto mese precedente”'}
+            />
+            <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'} carryover</button>
+          </form>
+
+          {carryover && (
+            <table className="custom-table">
+              <thead>
+                <tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{carryover.month_key}</td>
+                  <td>{Number(carryover.amount).toFixed(2)}</td>
+                  <td>{carryover.note || '-'}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          {/* TABELLA 3 — SOLDI IN TASCA */}
+          <h3 style={{ marginTop: '2rem' }}>3) Soldi in tasca</h3>
+          <form className="input-section" onSubmit={handleTopUpPocket}>
+            <label>Ricarica/Immissione (€)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={pocketTopUp}
+              onChange={(e) => setPocketTopUp(e.target.value)}
+              placeholder="es. 200.00"
+              required
+            />
+            <button className="btn-manuale">Aggiungi movimento +</button>
+            <p style={{ opacity: .8, marginTop: '.5rem' }}>
+              Le spese vengono scalate automaticamente (trigger su <code>finances</code>).
+            </p>
+          </form>
+
+          {loading ? <p>Caricamento…</p> : (
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Nota</th>
+                  <th>Variazione</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pocket.map(m => (
+                  <tr key={m.id}>
+                    <td>{new Date(m.created_at).toLocaleString()}</td>
+                    <td>{m.note || '-'}</td>
+                    <td>{Number(m.delta).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* RIEPILOGO FINALE */}
+          <div className="total-box" style={{ marginTop: '2rem' }}>
+            <div><b>Entrate periodo:</b> € {totalIncomes.toFixed(2)}</div>
+            <div><b>Carryover {monthKey}:</b> € {carryAmount.toFixed(2)}</div>
+            <div><b>Spese dal {startDate} al {endDate}:</b> € {monthExpenses.toFixed(2)}</div>
+            <hr style={{ borderColor: 'rgba(255,255,255,0.3)' }} />
+            <div style={{ fontSize: '1.2rem' }}>
+              <b>Saldo mese disponibile:</b> € {saldoMese.toFixed(2)}
+            </div>
+            <div style={{ fontSize: '1.2rem' }}>
+              <b>Soldi in tasca (restanti):</b> € {pocketBalance.toFixed(2)}
+            </div>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          <Link href="/home">
+            <button className="btn-vocale" style={{ marginTop: '1rem' }}>🏠 Home</button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Stili riusati */}
+      <style jsx global>{`
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          min-height: 100vh;
+          padding: 2rem;
+          font-family: Inter, sans-serif;
+        }
+        .spese-casa-container2 {
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 1000px;
+          width: 100%;
+        }
+        .title { margin-bottom: 1rem; font-size: 1.5rem; }
+
+        .table-buttons { display: flex; gap: .5rem; margin: .5rem 0 1rem; }
+        .btn-vocale, .btn-ocr, .btn-manuale {
+          background: #22c55e; border: 0; padding: .5rem .75rem; border-radius: .5rem; cursor: pointer;
+        }
+        .btn-ocr { background: #06b6d4; }
+        .btn-manuale { background: #6366f1; }
+
+        .input-section {
+          display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: .75rem 0 1rem;
+        }
+        .input-section label { opacity: .85; }
+        .input-section input { padding: .5rem; border-radius: .5rem; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06); color: #fff; }
+
+        .custom-table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
+        .custom-table th, .custom-table td { border-bottom: 1px solid rgba(255,255,255,.12); padding: .5rem; text-align: left; }
+
+        .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
+        .error { color: #f87171; margin-top: 1rem; }
+      `}</style>
+    </>
+  )
+}
+
+export default withAuth(Entrate)
