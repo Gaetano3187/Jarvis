@@ -70,6 +70,9 @@ function SpeseCasa() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return setError('Sessione scaduta')
 
+    const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
+    const method = methodRaw === 'transfer' ? 'bank' : methodRaw
+
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
@@ -77,8 +80,8 @@ function SpeseCasa() {
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
-      payment_method: (nuovaSpesa.paymentMethod || 'cash'), // cash | card | bank
-      card_label: (nuovaSpesa.paymentMethod === 'card'
+      payment_method: method, // cash | card | bank
+      card_label: (method === 'card'
         ? (nuovaSpesa.cardLabel?.trim() || null)
         : null),
     }
@@ -260,55 +263,69 @@ function SpeseCasa() {
   }
 
   // ───────────────────────────── PROMPT BUILDER
-function buildSystemPrompt(source, userText, fileName) {
-  const fn = fileName || 'scontrino';
+  function buildSystemPrompt(source, userText, fileName) {
+    const fn = fileName || 'scontrino';
 
-  const header = [
-    'Sei Jarvis. Puoi restituire uno dei seguenti JSON:',
-    '',
-    '1) Spese (type: "expense")',
-    '{ "type":"expense", "items":[{',
-    '  "puntoVendita": "string",',
-    '  "dettaglio": "string",',
-    '  "prezzoUnitario": number|null,',
-    '  "quantita": number,',
-    '  "uom": "string opzionale (es: kg, L, pz)",',
-    '  "prezzoTotale": number,',
-    '  "data":"YYYY-MM-DD",',
-    '  "paymentMethod":"cash|card|transfer",',
-    '  "cardLabel": "string|optional"',
-    '}]}',
-    '',
-    '2) Movimento cassa (type: "cash_move")',
-    '{ "type":"cash_move", "items":[{',
-    '  "importo": number,',
-    '  "direzione": "in|out",',
-    '  "data":"YYYY-MM-DD|oggi|ieri",',
-    '  "nota": "string opzionale"',
-    '}]}',
-    '',
-    'Esempi cassa:',
-    '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
-    '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
-    '',
-  ].join('\n');
+    const header = [
+      'Sei Jarvis. Puoi restituire uno dei seguenti JSON:',
+      '',
+      '1) Spese (type: "expense")',
+      '{ "type":"expense", "items":[{',
+      '  "puntoVendita": "string",',
+      '  "dettaglio": "string",',
+      '  "prezzoUnitario": number|null,',
+      '  "quantita": number,',
+      '  "uom": "string opzionale (es: kg, L, pz)",',
+      '  "prezzoTotale": number,',
+      '  "data":"YYYY-MM-DD",',
+      '  "paymentMethod":"cash|card|transfer",',
+      '  "cardLabel": "string|optional"',
+      '}]}',
+      '',
+      '2) Movimento cassa (type: "cash_move")',
+      '{ "type":"cash_move", "items":[{',
+      '  "importo": number,',
+      '  "direzione": "in|out",',
+      '  "data":"YYYY-MM-DD|oggi|ieri",',
+      '  "nota": "string opzionale"',
+      '}]}',
+      '',
+      'Esempi cassa:',
+      '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
+      '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
+      '',
+    ].join('\n');
 
-  if (source === 'ocr') {
+    if (source === 'ocr') {
+      return [
+        header,
+        'Testo OCR (' + fn + '):',
+        String(userText || '')
+      ].join('\n');
+    }
+
+    // STT / testo libero
     return [
       header,
-      'Testo OCR (' + fn + '):',
+      'Trascrizione:',
       String(userText || '')
     ].join('\n');
   }
 
-  // STT / testo libero
-  return [
-    header,
-    'Trascrizione:',
-    String(userText || '')
-  ].join('\n');
-}
-   }
+  // ───────────────────────────── Helpers
+  function normDate(v) {
+    const s = String(v || '').trim().toLowerCase()
+    if (s === 'oggi') return new Date().toISOString().slice(0, 10)
+    if (s === 'ieri') {
+      const d = new Date()
+      d.setDate(d.getDate() - 1)
+      return d.toISOString().slice(0, 10)
+    }
+    // se è già YYYY-MM-DD valido
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+    // fallback: oggi
+    return new Date().toISOString().slice(0, 10)
+  }
 
   // ───────────────────────────────────────────────── PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
@@ -319,7 +336,10 @@ function buildSystemPrompt(source, userText, fileName) {
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+
     const data = JSON.parse(answer)
+
+    // Gestiamo SOLO le spese in questa pagina
     if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
       throw new Error('Assistant response invalid')
 
@@ -328,37 +348,53 @@ function buildSystemPrompt(source, userText, fileName) {
     } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
-   const rows = data.items.map(it => {
-  const spentAt = normDate(it.data);
-  const totalPrice = Number(it.prezzoTotale) || 0;
-  const qty = parseFloat(it.quantita) || 1;
-  // unità di misura se presente
-  const uom = (it.uom || '').trim(); // es: 'kg', 'L', 'pz'
-  // prezzo unitario: usa il campo se c’è, altrimenti calcola
-  const unitPrice = it.prezzoUnitario != null
-    ? Number(it.prezzoUnitario) || 0
-    : (qty ? totalPrice / qty : totalPrice);
+    const rows = data.items.map(it => {
+      const spentAt = normDate(it.data)
+      const totalPrice = Number(it.prezzoTotale) || 0
+      const qty = parseFloat(it.quantita) || 1
+      const uom = (it.uom || '').trim() // es: 'kg', 'L', 'pz'
+      const unitPrice = it.prezzoUnitario != null
+        ? Number(it.prezzoUnitario) || 0
+        : (qty ? totalPrice / qty : totalPrice)
 
-  // arricchisco la description per storicizzare uom senza toccare il DB
-  // formato: [Store] Dettaglio • €X.xx × QTY UOM = €TOT
-  const parts = [];
-  parts.push(`[${it.puntoVendita}] ${it.dettaglio}`);
-  parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`);
+      const parts = []
+      parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
+      parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
-  const method = (it.paymentMethod || 'cash');
-  const label  = method === 'card' ? (it.cardLabel || null) : null;
+      // normalizza payment method (transfer -> bank per coerenza UI)
+      const methodRaw = (it.paymentMethod || 'cash')
+      const method = methodRaw === 'transfer' ? 'bank' : methodRaw
+      const label  = method === 'card' ? (it.cardLabel || null) : null
 
-  return {
-    user_id: user.id,
-    category_id: CATEGORY_ID_CASA,
-    description: parts.join(' '),
-    amount: totalPrice,
-    spent_at: spentAt,
-    qty: qty,
-    payment_method: method,
-    card_label: label,
-  };
-});
+      return {
+        user_id: user.id,
+        category_id: CATEGORY_ID_CASA,
+        description: parts.join(' '),
+        amount: totalPrice,
+        spent_at: spentAt,
+        qty: qty,
+        payment_method: method,
+        card_label: label,
+      }
+    })
+
+    const { error: dbErr } = await supabase.from('finances').insert(rows)
+    if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
+
+    await fetchSpese()
+
+    // Precompila il form con l’ultima spesa inserita (comodo per correzioni rapide)
+    const last = rows[0]
+    setNuovaSpesa({
+      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
+      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
+      prezzoTotale: String(last.amount ?? ''),
+      quantita:     String(last.qty ?? '1'),
+      spentAt:      last.spent_at ?? '',
+      paymentMethod: last.payment_method || 'cash',
+      cardLabel: last.card_label || '',
+    })
+  }
 
   // ───────────────────────────── UI
   const totale = (spese || []).reduce((t, r) => t + r.amount * (r.qty || 1), 0)
@@ -490,19 +526,7 @@ function buildSystemPrompt(source, userText, fileName) {
                         <td>{renderPayBadge(r)}</td>
                         <td>
                           <button onClick={() => handleDelete(r.id)}>🗑</button>
-                 
-              <td>
-  {(() => {
-    const m = r.description.match(/×\s*([\d.,]+)(?:\s+([A-Za-z]+))?\s*=/);
-    if (m) {
-      const q = m[1];
-      const u = m[2] || '';
-      return `${q}${u ? ' ' + u : ''}`;
-    }
-    return r.qty;
-  })()}
-</td>
-
+                        </td>
                       </tr>
                     )
                   })}
