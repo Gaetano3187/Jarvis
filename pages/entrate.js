@@ -505,18 +505,16 @@ function Entrate() {
 /* --------------------------- calcoli --------------------------- */
 const carryAmount = Number(carryover?.amount || 0);
 
-// Somma SOLO dello stipendio nel periodo corrente (payday-based)
-const stipendioCorrente = incomes
-  .filter(i => (i.source || '').toLowerCase().includes('stipendio'))
-  .reduce((t, r) => t + Number(r.amount || 0), 0);
+// Somma di tutte le entrate del periodo corrente
+const entrateTotaliPeriodo = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
 
-// Saldo disponibile iniziale (prima di usare contante)
-const saldoDisponibileIniziale = carryAmount + stipendioCorrente;
+// Saldo disponibile iniziale (tutte le entrate + carryover)
+const saldoDisponibileIniziale = carryAmount + entrateTotaliPeriodo;
 
-// Contante residuo (positivo se hai ancora contanti, negativo se sei “sotto”)
+// Contante residuo (positivo se ancora disponibile)
 const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
 
-// Saldo attuale (quello che ti resta “spendibile” sottraendo il contante già prelevato/consumato)
+// Saldo attuale (quanto resta spendibile sottraendo contante già prelevato/consumato)
 const saldoAttuale = saldoDisponibileIniziale - pocketBalance;
 
 
