@@ -262,35 +262,29 @@ function Entrate() {
   }
 
   // ─────────────────────────────────────────────── Prompt & parsing Entrate
-  function buildIncomePrompt(source, userText) {
-    if (source === 'ocr') {
-      return `
-Sei Jarvis. Dal testo OCR qui sotto estrai **entrate economiche** (stipendi, provvigioni, rimborsi).
-Per ogni entrata genera:
-- source: string (es. "Stipendio", "Provvigioni", "Bonus")
-- description: string breve (es. "Stipendio ACME Srl")
-- amount: number (positivo, in euro)
-- receivedAt: "YYYY-MM-DD"
+function buildIncomePrompt(source, userText) {
+  const today = new Date().toISOString().slice(0, 10)
 
-Rispondi **solo** con JSON:
-\\\`\\\`\\\`json
-{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"${new Date().toISOString().slice(0,10)}"}]}
-\\\`\\\`\\\`
-
-TESTO:
-${userText}
-`
-    }
-    return `
-**Trascrizione vocale**: estrai ENTRATE nel formato JSON seguente.
-\\\`\\\`\\\`json
-{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni","amount":250,"receivedAt":"${new Date().toISOString().slice(0,10)}"}]}
-\\\`\\\`\\\`
-
-TESTO:
-${userText}
-`
+  if (source === 'ocr') {
+    return [
+      'Sei Jarvis. Dal testo OCR qui sotto estrai **entrate economiche** (stipendi, provvigioni, rimborsi).',
+      'Per ogni entrata genera i campi: source (string), description (string), amount (number, euro), receivedAt (YYYY-MM-DD).',
+      'Rispondi SOLO con JSON, ad es.:',
+      '{"type":"income","items":[{"source":"Stipendio","description":"Stipendio ACME","amount":1500,"receivedAt":"' + today + '"}]}',
+      '',
+      'TESTO:',
+      userText
+    ].join('\n')
   }
+
+  return [
+    'Trascrizione vocale: estrai ENTRATE e rispondi SOLO con JSON nel formato:',
+    '{"type":"income","items":[{"source":"Provvigioni","description":"Provvigioni","amount":250,"receivedAt":"' + today + '"}]}',
+    '',
+    'TESTO:',
+    userText
+  ].join('\n')
+}
 
   async function parseAssistant(prompt) {
     const res = await fetch('/api/assistant', {
