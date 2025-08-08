@@ -55,7 +55,7 @@ function Varie() {
     const row = {
       user_id:     user.id,
       category_id: CATEGORY_ID_VARIE,
-      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
+      description: `[${nuovaSpesa.puntoVendita || 'Sconosciuto'}] ${nuovaSpesa.dettaglio}`,
       amount:      Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at:    nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
       qty:         parseInt(nuovaSpesa.quantita, 10) || 1,
@@ -132,15 +132,16 @@ function Varie() {
     }
   }
 
-  // ─────────────────────────────────────────────── Costruisci prompt (identico a Vestiti)
+  // ─────────────────────────────────────────────── Costruisci prompt (come Vestiti, ma senza valori “fissi”)
   function buildSystemPrompt(source, userText) {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
+Sei Jarvis. Dal testo OCR estrai **tutte** le voci di spesa (anche multiple) usando la **data** presente sullo scontrino.
+Il campo **puntoVendita** deve essere il **nome dell'esercizio/insegna** letto sullo scontrino (es. CONAD, COOP, MediaWorld, ecc.). **Non** usare parole generiche come "Varie" o la categoria.
 
 Per ciascuna voce genera:
-- puntoVendita: string
-- dettaglio: string
+- puntoVendita: string (insegna/negozio dall'intestazione o intestazione fiscale)
+- dettaglio: string (descrizione sintetica della voce o del totale)
 - quantita: number
 - prezzoTotale: number
 - data: "YYYY-MM-DD"
@@ -151,13 +152,12 @@ Rispondi **solo** con JSON:
   "type":"expense",
   "items":[
     {
-      "puntoVendita":"varie",
-      "dettaglio":"descrizione sintetica dell'acquisto",
+      "puntoVendita":"CONAD",
+      "dettaglio":"Spesa casalinghi e minuteria",
       "quantita":1,
       "prezzoTotale":9.99,
       "data":"2025-08-06"
     }
-    /* altre voci... */
   ]
 }
 \`\`\`
@@ -166,11 +166,13 @@ TESTO_OCR:
 ${userText}
 `
     }
+    // VOCE
     return `
-**ATTENZIONE:** il testo seguente è trascrizione vocale, ignora "ehm", "ok", ecc.
+**ATTENZIONE:** il testo seguente è trascrizione vocale, ignora intercalari.
+Estrai JSON nello stesso schema sopra. Il **puntoVendita** deve essere il negozio citato; se non è detto, lascialo vuoto.
 
-Ora estrai **solo** JSON spesa (stesso schema):
-"${userText}"
+TESTO_VOCE:
+${userText}
 `
   }
 
@@ -195,16 +197,19 @@ Ora estrai **solo** JSON spesa (stesso schema):
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      let spentAt = it.data === 'oggi'
-        ? new Date().toISOString().slice(0, 10)
-        : it.data === 'ieri'
-          ? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10) })()
-          : it.data
+      const spentAt =
+        it.data === 'oggi'
+          ? new Date().toISOString().slice(0, 10)
+          : it.data === 'ieri'
+            ? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10) })()
+            : it.data
+
+      const pv = String(it.puntoVendita || '').trim() || 'Sconosciuto'
 
       return {
         user_id:     user.id,
         category_id: CATEGORY_ID_VARIE,
-        description: `[${it.puntoVendita}] ${it.dettaglio}`,
+        description: `[${pv}] ${it.dettaglio}`,
         amount:      Number(it.prezzoTotale) || 0,
         spent_at:    spentAt,
         qty:         parseFloat(it.quantita) || 1,
