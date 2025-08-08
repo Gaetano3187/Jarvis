@@ -145,8 +145,8 @@ function Entrate() {
       .from('incomes')
       .select('id, source, description, amount, received_at')
       .eq('user_id', user.id)
-      .gte('received_at', startDate)
-      .lte('received_at', endDate)
+      .gte('moved_at', `${startDate}T00:00:00.000Z`)
+  .lte('moved_at', `${endDate}T23:59:59.999Z`)
       .order('received_at', { ascending: false });
     if (e1) throw e1;
     setIncomes(inc || []);
