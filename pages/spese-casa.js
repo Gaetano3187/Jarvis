@@ -95,6 +95,8 @@ export default async function handler(req, res) {
         results.find(r => r.error)?.error || 'OCR fallito su tutti i file',
     })
   }
-
   res.status(200).json({ text: joined })
+}export async function getServerSideProps() {
+  return { props: {} };
 }
+
