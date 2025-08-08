@@ -138,31 +138,84 @@ function Entrate() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
-    await ensureCarryoverAuto(user.id, monthKey);
+    /** 
+ * Ricalcola sempre il carryover del mese corrente
+ * come residuo del mese precedente (entrate + carryover precedente - uscite)
+ */
+async function ensureCarryoverAuto(userId, monthKeyCurrent) {
+  // Calcola mese precedente
+  const [yy, mm] = monthKeyCurrent.split('-').map(Number);
+  const prevEnd = new Date(yy, mm - 1, 0); // ultimo giorno mese precedente
+  const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
 
-    // Intervallo chiuso/aperto: [startDate, endExclusive)
-    const endExclusive = new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const prevStartISO = prevStart.toISOString().slice(0, 10);
+  const prevEndISO   = prevEnd.toISOString().slice(0, 10);
+  const prevKey      = prevEnd.toISOString().slice(0, 7);
 
-    // 1) Entrate del periodo
-    const { data: inc, error: e1 } = await supabase
-      .from('incomes')
-      .select('id, source, description, amount, received_at')
-      .eq('user_id', user.id)
-      .gte('received_at', startDate)
-      .lt('received_at', endExclusive)
-      .order('received_at', { ascending: false });
-    if (e1) throw e1;
-    setIncomes(inc || []);
+  // Entrate mese precedente
+  const { data: incPrev, error: e1 } = await supabase
+    .from('incomes')
+    .select('amount')
+    .eq('user_id', userId)
+    .gte('received_at', prevStartISO)
+    .lte('received_at', prevEndISO);
+  if (e1) throw e1;
 
-    // 2) Carryover del mese
-    const { data: co, error: e2 } = await supabase
+  // Uscite mese precedente
+  const { data: expPrev, error: e2 } = await supabase
+    .from('finances')
+    .select('amount')
+    .eq('user_id', userId)
+    .gte('spent_at', prevStartISO)
+    .lte('spent_at', prevEndISO);
+  if (e2) throw e2;
+
+  // Carryover del mese ancora precedente
+  const { data: coPrev, error: e3 } = await supabase
+    .from('carryovers')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('month_key', prevKey)
+    .maybeSingle();
+  if (e3 && e3.code !== 'PGRST116') throw e3;
+
+  // Calcolo saldo del mese precedente
+  const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+  const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+  const prevCarry = Number(coPrev?.amount || 0);
+
+  const saldoPrevBase = totalInc + prevCarry - totalExp;
+
+  // Aggiorna o crea carryover mese corrente
+  const { data: existing, error: e4 } = await supabase
+    .from('carryovers')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('month_key', monthKeyCurrent)
+    .maybeSingle();
+  if (e4 && e4.code !== 'PGRST116') throw e4;
+
+  if (existing) {
+    const { error: e5 } = await supabase
       .from('carryovers')
-      .select('id, month_key, amount, note')
-      .eq('user_id', user.id)
-      .eq('month_key', monthKey)
-      .maybeSingle();
-    if (e2 && e2.code !== 'PGRST116') throw e2;
-    setCarryover(co || null);
+      .update({
+        amount: Number(saldoPrevBase.toFixed(2)),
+        note: 'Ricalcolo automatico da mese precedente'
+      })
+      .eq('id', existing.id);
+    if (e5) throw e5;
+  } else {
+    const { error: e6 } = await supabase
+      .from('carryovers')
+      .insert({
+        user_id: userId,
+        month_key: monthKeyCurrent,
+        amount: Number(saldoPrevBase.toFixed(2)),
+        note: 'Auto-carryover da mese precedente'
+      });
+    if (e6) throw e6;
+  }
+}
 
     // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
 
@@ -309,24 +362,32 @@ function Entrate() {
   }
 
   async function parseAssistantForIncome(userText) {
-    const data = await callAssistant(buildIncomePrompt(userText));
-    if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
+  const data = await callAssistant(buildIncomePrompt(userText));
+  if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sessione scaduta');
 
-    const rows = data.items.map((it) => ({
+  for (const it of data.items) {
+    const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
+
+    await supabase.from('incomes').insert({
       user_id: user.id,
       source: it.source || 'Entrata',
       description: it.description || it.source || 'Entrata',
       amount: Number(it.amount) || 0,
-      received_at: it.receivedAt || new Date().toISOString().slice(0, 10),
-    }));
+      received_at: dataIncasso
+    });
 
-    const { error } = await supabase.from('incomes').insert(rows);
-    if (error) throw error;
-    return true;
+    // 🔹 Se la data incasso non è nel periodo corrente, aggiorna carryover mese corrente
+    if (dataIncasso < startDate || dataIncasso >= endDate) {
+      await ensureCarryoverAuto(user.id, monthKey);
+    }
   }
+
+  return true;
+}
+
 
   async function handleOCR(files) {
     if (!files?.length) return;
@@ -387,22 +448,33 @@ function Entrate() {
         return loadAll();
       }
 
-      const handledIncome = await parseAssistantForIncome(text).catch(() => false);
-      if (handledIncome) {
-        setRecBusy(false);
-        streamRef.current?.getTracks?.().forEach((t) => t.stop());
-        return loadAll();
-      }
+     async function parseAssistantForIncome(userText) {
+  const data = await callAssistant(buildIncomePrompt(userText));
+  if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
 
-      setError('Nessun dato riconosciuto dalla voce');
-    } catch (err) {
-      console.error(err);
-      setError('STT fallito');
-    } finally {
-      setRecBusy(false);
-      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sessione scaduta');
+
+  for (const it of data.items) {
+    const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
+
+    await supabase.from('incomes').insert({
+      user_id: user.id,
+      source: it.source || 'Entrata',
+      description: it.description || it.source || 'Entrata',
+      amount: Number(it.amount) || 0,
+      received_at: dataIncasso
+    });
+
+    // 🔹 Se la data incasso non è nel periodo corrente, aggiorna carryover mese corrente
+    if (dataIncasso < startDate || dataIncasso >= endDate) {
+      await ensureCarryoverAuto(user.id, monthKey);
     }
-  };
+  }
+
+  return true;
+}
+
 
   /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
