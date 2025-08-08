@@ -1,5 +1,5 @@
 // pages/spese-casa.js
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
@@ -34,6 +34,90 @@ function SpeseCasa() {
   const mimeRef = useRef('')
   const stopWaitRef = useRef(null) // promise di attesa stop
 
+  // ----------------------------- API
+  const fetchSpese = useCallback(async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('finances')
+      .select('id, description, amount, qty, spent_at, payment_method, card_label')
+      .eq('category_id', CATEGORY_ID_CASA)
+      .order('created_at', { ascending: false })
+    if (error) setError(error.message)
+    else setSpese(data || [])
+    setLoading(false)
+  }, [])
+
+  // ----------------------------- Media helpers
+  const stopTracks = useCallback(() => {
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
+    streamRef.current = null
+  }, [])
+
+  const processVoice = useCallback(async () => {
+    try {
+      if (!recordedChunks.current.length) {
+        setError('Registrazione vuota, riprova.')
+        return
+      }
+      const mime = mimeRef.current || (recordedChunks.current[0]?.type || 'audio/webm')
+      const ext = mime.includes('mp4') ? 'm4a'
+        : mime.includes('ogg') ? 'ogg'
+        : 'webm'
+
+      const blob = new Blob(recordedChunks.current, { type: mime })
+      const fd = new FormData()
+      fd.append('audio', blob, `voice.${ext}`)
+
+      const resp = await fetch('/api/stt', { method: 'POST', body: fd })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok || !json?.text) throw new Error('STT fallito')
+
+      await parseAssistantPrompt(buildSystemPrompt('voice', json.text))
+    } catch (err) {
+      console.error(err)
+      setError('STT fallito')
+    } finally {
+      recordedChunks.current = []
+    }
+  }, [])
+
+  const stopRecording = useCallback(async (sync = false) => {
+    if (!mediaRecRef.current) {
+      stopTracks()
+      setRecBusy(false)
+      return
+    }
+    if (mediaRecRef.current.state !== 'recording') {
+      stopTracks()
+      setRecBusy(false)
+      return
+    }
+
+    setStopping(true)
+
+    // prepara promise che si risolve su onstop o timeout
+    const p = new Promise(resolve => {
+      stopWaitRef.current = { resolve }
+      setTimeout(() => resolve('timeout'), 2000) // sicurezza
+    })
+
+    try {
+      mediaRecRef.current.stop()
+    } catch {
+      stopWaitRef.current?.resolve?.()
+    }
+
+    if (!sync) {
+      await p
+    }
+
+    // cleanup
+    mediaRecRef.current = null
+    stopTracks()
+    setStopping(false)
+  }, [stopTracks])
+
+  // ----------------------------- Mount/Unmount
   useEffect(() => {
     fetchSpese()
 
@@ -49,24 +133,13 @@ function SpeseCasa() {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       stopRecording(true)
     }
-  }, [])
+  }, [fetchSpese, stopRecording])
 
-  async function fetchSpese() {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('finances')
-      .select('id, description, amount, qty, spent_at, payment_method, card_label')
-      .eq('category_id', CATEGORY_ID_CASA)
-      .order('created_at', { ascending: false })
-    if (error) setError(error.message)
-    else setSpese(data || [])
-    setLoading(false)
-  }
-
-  // ───────────────────────────── Aggiungi manuale
+  // ----------------------------- Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
     setError(null)
+
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return setError('Sessione scaduta')
 
@@ -79,7 +152,7 @@ function SpeseCasa() {
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
-      qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+      qty: parseFloat(nuovaSpesa.quantita) || 1,
       payment_method: method, // cash | card | bank
       card_label: (method === 'card'
         ? (nuovaSpesa.cardLabel?.trim() || null)
@@ -102,7 +175,7 @@ function SpeseCasa() {
     }
   }
 
-  // ───────────────────────────── Elimina
+  // ----------------------------- Elimina
   const handleDelete = async id => {
     setError(null)
     const { error: deleteError } = await supabase
@@ -113,7 +186,7 @@ function SpeseCasa() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ───────────────────────────── OCR
+  // ----------------------------- OCR
   const handleOCR = async files => {
     setError(null)
     if (!files || files.length === 0) return
@@ -130,7 +203,7 @@ function SpeseCasa() {
     }
   }
 
-  // ───────────────────────────── START/STOP REC
+  // ----------------------------- START/STOP REC
   const toggleRec = async () => {
     setError(null)
     if (stopping) return // evita rimbalzi durante lo stop
@@ -169,7 +242,7 @@ function SpeseCasa() {
 
       mr.addEventListener('dataavailable', e => {
         if (e.data && e.data.size) recordedChunks.current.push(e.data)
-      }, { once: false })
+      })
 
       // onstop → processVoice
       mr.addEventListener('stop', () => {
@@ -190,79 +263,7 @@ function SpeseCasa() {
     }
   }
 
-  async function stopRecording(sync = false) {
-    if (!mediaRecRef.current) {
-      stopTracks()
-      setRecBusy(false)
-      return
-    }
-    if (mediaRecRef.current.state !== 'recording') {
-      stopTracks()
-      setRecBusy(false)
-      return
-    }
-
-    setStopping(true)
-
-    // prepara promise che si risolve su onstop o timeout
-    const p = new Promise(resolve => {
-      stopWaitRef.current = { resolve }
-      // timeout di sicurezza: se onstop non arriva, forziamo cleanup
-      setTimeout(() => resolve('timeout'), 2000)
-    })
-
-    try {
-      mediaRecRef.current.stop() // può lanciare
-    } catch {
-      // se fallisce lo stop, procedi a cleanup comunque
-      stopWaitRef.current?.resolve?.()
-    }
-
-    if (!sync) {
-      await p
-    }
-
-    // cleanup comune
-    mediaRecRef.current = null
-    stopTracks()
-    setStopping(false)
-  }
-
-  function stopTracks() {
-    try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
-    streamRef.current = null
-  }
-
-  // ───────────────────────────── POST-REC: STT
-  const processVoice = async () => {
-    try {
-      if (!recordedChunks.current.length) {
-        setError('Registrazione vuota, riprova.')
-        return
-      }
-      const mime = mimeRef.current || (recordedChunks.current[0]?.type || 'audio/webm')
-      const ext = mime.includes('mp4') ? 'm4a'
-        : mime.includes('ogg') ? 'ogg'
-        : 'webm'
-
-      const blob = new Blob(recordedChunks.current, { type: mime })
-      const fd = new FormData()
-      fd.append('audio', blob, `voice.${ext}`)
-
-      const resp = await fetch('/api/stt', { method: 'POST', body: fd })
-      const json = await resp.json().catch(() => ({}))
-      if (!resp.ok || !json?.text) throw new Error('STT fallito')
-
-      await parseAssistantPrompt(buildSystemPrompt('voice', json.text))
-    } catch (err) {
-      console.error(err)
-      setError('STT fallito')
-    } finally {
-      recordedChunks.current = []
-    }
-  }
-
-  // ───────────────────────────── PROMPT BUILDER
+  // ----------------------------- PROMPT BUILDER
   function buildSystemPrompt(source, userText, fileName) {
     const fn = fileName || 'scontrino';
 
@@ -312,7 +313,7 @@ function SpeseCasa() {
     ].join('\n');
   }
 
-  // ───────────────────────────── Helpers
+  // ----------------------------- Helpers
   function normDate(v) {
     const s = String(v || '').trim().toLowerCase()
     if (s === 'oggi') return new Date().toISOString().slice(0, 10)
@@ -321,13 +322,11 @@ function SpeseCasa() {
       d.setDate(d.getDate() - 1)
       return d.toISOString().slice(0, 10)
     }
-    // se è già YYYY-MM-DD valido
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-    // fallback: oggi
     return new Date().toISOString().slice(0, 10)
   }
 
-  // ───────────────────────────────────────────────── PARSING & DB INSERT
+  // ----------------------------- PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -339,20 +338,18 @@ function SpeseCasa() {
 
     const data = JSON.parse(answer)
 
-    // Gestiamo SOLO le spese in questa pagina
+    // In questa pagina gestiamo SOLO le spese
     if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
       throw new Error('Assistant response invalid')
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
       const spentAt = normDate(it.data)
       const totalPrice = Number(it.prezzoTotale) || 0
       const qty = parseFloat(it.quantita) || 1
-      const uom = (it.uom || '').trim() // es: 'kg', 'L', 'pz'
+      const uom = (it.uom || '').trim()
       const unitPrice = it.prezzoUnitario != null
         ? Number(it.prezzoUnitario) || 0
         : (qty ? totalPrice / qty : totalPrice)
@@ -378,6 +375,7 @@ function SpeseCasa() {
       }
     })
 
+    // NB: niente upsert → niente onConflict → niente errore 400
     const { error: dbErr } = await supabase.from('finances').insert(rows)
     if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
 
@@ -396,8 +394,8 @@ function SpeseCasa() {
     })
   }
 
-  // ───────────────────────────── UI
-  const totale = (spese || []).reduce((t, r) => t + r.amount * (r.qty || 1), 0)
+  // ----------------------------- UI
+  const totale = (spese || []).reduce((t, r) => t + (Number(r.amount) || 0), 0)
 
   const renderPayBadge = (r) => {
     if (r.payment_method === 'card') return `💳 ${r.card_label || 'Carta'}`
