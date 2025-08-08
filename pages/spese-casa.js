@@ -55,34 +55,35 @@ function SpeseCasa() {
     if (!user) return setError('Sessione scaduta')
 
     const row = {
-      user_id: user.id,
-      category_id: CATEGORY_ID_CASA,
-      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
-      amount: Number(nuovaSpesa.prezzoTotale),
-      spent_at: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
-      qty: parseInt(nuovaSpesa.quantita, 10) || 1,
-      // ➕ NUOVO: salva metodo pagamento
-      payment_method: nuovaSpesa.paymentMethod || 'cash',
-      card_label:
-        (nuovaSpesa.paymentMethod === 'card' ? (nuovaSpesa.cardLabel || null) : null),
-    }
+  user_id: user.id,
+  category_id: CATEGORY_ID_CASA,
+  description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+  amount: Number(nuovaSpesa.prezzoTotale) || 0,
+  spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
+  qty: parseInt(nuovaSpesa.quantita, 10) || 1,
 
-    const { error: insertError } = await supabase.from('finances').insert(row)
-    if (insertError) setError(insertError.message)
-    else {
-      setNuovaSpesa({
-        puntoVendita: '',
-        dettaglio: '',
-        prezzoTotale: '',
-        quantita: '1',
-        spentAt: '',
-        paymentMethod: 'cash',
-        cardLabel: '',
-      })
-      fetchSpese()
-    }
-  }
+  // ➕ Metodo pagamento (default: contante)
+  payment_method: (nuovaSpesa.paymentMethod || 'cash'), // 'cash' | 'card' | 'bank'
+  card_label:
+    (nuovaSpesa.paymentMethod === 'card'
+      ? (nuovaSpesa.cardLabel?.trim() || null)
+      : null),
+}
 
+const { error: insertError } = await supabase.from('finances').insert(row)
+if (insertError) setError(insertError.message)
+else {
+  setNuovaSpesa({
+    puntoVendita: '',
+    dettaglio: '',
+    prezzoTotale: '',
+    quantita: '1',
+    spentAt: '',
+    paymentMethod: 'cash',
+    cardLabel: '',
+  })
+  fetchSpese()
+}
   // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
     const { error: deleteError } = await supabase
