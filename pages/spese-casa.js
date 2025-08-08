@@ -11,7 +11,10 @@ function SpeseCasa() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [recBusy, setRecBusy] = useState(false)
+
+  const [recBusy, setRecBusy] = useState(false)      // true = sta registrando
+  const [stopping, setStopping] = useState(false)    // true = fermo in corso (attendi)
+
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
@@ -24,28 +27,29 @@ function SpeseCasa() {
 
   const formRef = useRef(null)
   const ocrInputRef = useRef(null)
+
   const mediaRecRef = useRef(null)
-  const recordedChunks = useRef([])
   const streamRef = useRef(null)
+  const recordedChunks = useRef([])
   const mimeRef = useRef('')
+  const stopWaitRef = useRef(null) // promise di attesa stop
 
   useEffect(() => {
     fetchSpese()
+
+    // auto-stop se si cambia scheda o si lascia la pagina
+    const handleVisibility = () => { if (document.hidden) stopRecording() }
+    const handleBeforeUnload = () => { stopRecording(true) } // best effort sync
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
     return () => {
-      // cleanup in caso si lasci la pagina registrando
-      try {
-        mediaRecRef.current?.stop?.()
-      } catch {}
-      stopTracks()
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      stopRecording(true)
     }
   }, [])
-
-  function stopTracks() {
-    try {
-      streamRef.current?.getTracks?.().forEach(t => t.stop())
-    } catch {}
-    streamRef.current = null
-  }
 
   async function fetchSpese() {
     setLoading(true)
@@ -59,6 +63,7 @@ function SpeseCasa() {
     setLoading(false)
   }
 
+  // ───────────────────────────── Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
     setError(null)
@@ -94,6 +99,7 @@ function SpeseCasa() {
     }
   }
 
+  // ───────────────────────────── Elimina
   const handleDelete = async id => {
     setError(null)
     const { error: deleteError } = await supabase
@@ -104,6 +110,7 @@ function SpeseCasa() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
+  // ───────────────────────────── OCR
   const handleOCR = async files => {
     setError(null)
     if (!files || files.length === 0) return
@@ -113,32 +120,31 @@ function SpeseCasa() {
       const res = await fetch('/api/ocr', { method: 'POST', body: fd })
       const { text, error: ocrErr } = await res.json()
       if (!res.ok || ocrErr) throw new Error(ocrErr || 'OCR fallito')
-      await parseAssistantPrompt(
-        buildSystemPrompt('ocr', text, files.map(f => f.name).join(', '))
-      )
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text, files.map(f => f.name).join(', ')))
     } catch (err) {
       console.error(err)
       setError('OCR fallito')
     }
   }
 
+  // ───────────────────────────── START/STOP REC
   const toggleRec = async () => {
     setError(null)
+    if (stopping) return // evita rimbalzi durante lo stop
+
     if (recBusy) {
-      // stop esplicito
-      try {
-        mediaRecRef.current?.stop()
-      } catch {}
+      await stopRecording()
       return
     }
 
-    // support check
+    // già attivo?
+    if (mediaRecRef.current && mediaRecRef.current.state === 'recording') return
+
     if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
       setError('Questo browser non supporta la registrazione audio.')
       return
     }
 
-    // scegli un mime supportato
     const candidates = [
       'audio/webm;codecs=opus',
       'audio/webm',
@@ -150,17 +156,28 @@ function SpeseCasa() {
     for (const c of candidates) {
       if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break }
     }
-    mimeRef.current = chosen // può restare stringa vuota, MediaRecorder userà il default
+    mimeRef.current = chosen
 
     try {
       streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaRecRef.current = new MediaRecorder(streamRef.current, chosen ? { mimeType: chosen } : undefined)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e => {
+      const mr = new MediaRecorder(streamRef.current, chosen ? { mimeType: chosen } : undefined)
+      mediaRecRef.current = mr
+
+      mr.addEventListener('dataavailable', e => {
         if (e.data && e.data.size) recordedChunks.current.push(e.data)
-      }
-      mediaRecRef.current.onstop = processVoice
-      mediaRecRef.current.start()
+      }, { once: false })
+
+      // onstop → processVoice
+      mr.addEventListener('stop', () => {
+        // risolve la promise di stop (se in attesa)
+        stopWaitRef.current?.resolve?.()
+        processVoice().finally(() => {
+          setRecBusy(false)
+        })
+      }, { once: true })
+
+      mr.start()
       setRecBusy(true)
     } catch (err) {
       console.error(err)
@@ -170,16 +187,56 @@ function SpeseCasa() {
     }
   }
 
+  async function stopRecording(sync = false) {
+    if (!mediaRecRef.current) {
+      stopTracks()
+      setRecBusy(false)
+      return
+    }
+    if (mediaRecRef.current.state !== 'recording') {
+      stopTracks()
+      setRecBusy(false)
+      return
+    }
+
+    setStopping(true)
+
+    // prepara promise che si risolve su onstop o timeout
+    const p = new Promise(resolve => {
+      stopWaitRef.current = { resolve }
+      // timeout di sicurezza: se onstop non arriva, forziamo cleanup
+      setTimeout(() => resolve('timeout'), 2000)
+    })
+
+    try {
+      mediaRecRef.current.stop() // può lanciare
+    } catch {
+      // se fallisce lo stop, procedi a cleanup comunque
+      stopWaitRef.current?.resolve?.()
+    }
+
+    if (!sync) {
+      await p
+    }
+
+    // cleanup comune
+    mediaRecRef.current = null
+    stopTracks()
+    setStopping(false)
+  }
+
+  function stopTracks() {
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
+    streamRef.current = null
+  }
+
+  // ───────────────────────────── POST-REC: STT
   const processVoice = async () => {
     try {
-      // rilascia sempre le tracce
-      stopTracks()
-
       if (!recordedChunks.current.length) {
         setError('Registrazione vuota, riprova.')
-        return setRecBusy(false)
+        return
       }
-
       const mime = mimeRef.current || (recordedChunks.current[0]?.type || 'audio/webm')
       const ext = mime.includes('mp4') ? 'm4a'
         : mime.includes('ogg') ? 'ogg'
@@ -191,20 +248,18 @@ function SpeseCasa() {
 
       const resp = await fetch('/api/stt', { method: 'POST', body: fd })
       const json = await resp.json().catch(() => ({}))
-      if (!resp.ok || !json?.text) {
-        console.error('STT response', resp.status, json)
-        throw new Error('STT fallito')
-      }
+      if (!resp.ok || !json?.text) throw new Error('STT fallito')
+
       await parseAssistantPrompt(buildSystemPrompt('voice', json.text))
     } catch (err) {
       console.error(err)
       setError('STT fallito')
     } finally {
-      setRecBusy(false)
       recordedChunks.current = []
     }
   }
 
+  // ───────────────────────────── PROMPT BUILDER
   function buildSystemPrompt(source, userText, fileName) {
     const fn = fileName || 'scontrino'
     if (source === 'ocr') {
@@ -238,6 +293,7 @@ function SpeseCasa() {
     ].join('\n')
   }
 
+  // ───────────────────────────── Parse + insert in DB
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -259,9 +315,7 @@ function SpeseCasa() {
       let spentAt = it.data
       if (spentAt === 'oggi') spentAt = new Date().toISOString().slice(0, 10)
       if (spentAt === 'ieri') {
-        const d = new Date()
-        d.setDate(d.getDate() - 1)
-        spentAt = d.toISOString().slice(0, 10)
+        const d = new Date(); d.setDate(d.getDate() - 1); spentAt = d.toISOString().slice(0, 10)
       }
       const totalPrice = Number(it.prezzoTotale) || 0
       const method = (it.paymentMethod || 'cash')
@@ -295,6 +349,7 @@ function SpeseCasa() {
     })
   }
 
+  // ───────────────────────────── UI
   const totale = (spese || []).reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   const renderPayBadge = (r) => {
@@ -306,13 +361,19 @@ function SpeseCasa() {
   return (
     <>
       <Head><title>Spese Casa</title></Head>
+
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <h2 className="title">🏠 Spese Casa</h2>
 
           <div className="table-buttons">
-            <button className="btn-vocale" onClick={toggleRec} disabled={recBusy}>
-              {recBusy ? '⏹ Stop' : '🎙 Voce'}
+            <button
+              className="btn-vocale"
+              onClick={toggleRec}
+              disabled={stopping}
+              title={stopping ? 'Chiusura microfono…' : ''}
+            >
+              {recBusy && !stopping ? '⏹ Stop' : (stopping ? '…' : '🎙 Voce')}
             </button>
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
               📷 OCR
