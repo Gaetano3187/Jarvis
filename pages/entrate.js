@@ -140,18 +140,21 @@ function Entrate() {
 
     await ensureCarryoverAuto(user.id, monthKey);
 
+    // Intervallo: [startDate, endExclusive)
+    const endExclusive = new Date(new Date(endDate).getTime() + 24*60*60*1000).toISOString();
+
     // 1) Entrate del periodo
     const { data: inc, error: e1 } = await supabase
       .from('incomes')
       .select('id, source, description, amount, received_at')
       .eq('user_id', user.id)
-      .gte('moved_at', `${startDate}T00:00:00.000Z`)
-  .lte('moved_at', `${endDate}T23:59:59.999Z`)
+      .gte('received_at', startDate)
+      .lt('received_at', endExclusive)
       .order('received_at', { ascending: false });
     if (e1) throw e1;
     setIncomes(inc || []);
 
-    // 2) Carryover
+    // 2) Carryover del mese
     const { data: co, error: e2 } = await supabase
       .from('carryovers')
       .select('id, month_key, amount, note')
@@ -163,13 +166,13 @@ function Entrate() {
 
     // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
 
-    // 3a) Movimenti manuali (ricariche/uscite) nel PERIODO CORRENTE
+    // 3a) Movimenti manuali pocket_cash nel periodo corrente
     const { data: pc, error: e3 } = await supabase
       .from('pocket_cash')
       .select('id, created_at, moved_at, note, delta, amount, direction')
       .eq('user_id', user.id)
       .gte('moved_at', startDate)
-      .lte('moved_at', endDate)
+      .lt('moved_at', endExclusive)
       .order('moved_at', { ascending: false });
     if (e3) throw e3;
 
@@ -197,7 +200,7 @@ function Entrate() {
       .eq('user_id', user.id)
       .eq('payment_method', 'cash')
       .gte('spent_at', startDate)
-      .lte('spent_at', endDate)
+      .lt('spent_at', endExclusive)
       .order('spent_at', { ascending: false });
     if (e4) throw e4;
 
@@ -221,14 +224,15 @@ function Entrate() {
 
     setPocketRows(rows);
 
-    // 4) Spese totali del periodo (per il saldo mese in alto)
+    // 4) Spese totali del periodo (per saldo mese in alto)
     const { data: exp, error: e5 } = await supabase
       .from('finances')
       .select('amount, spent_at')
       .eq('user_id', user.id)
       .gte('spent_at', startDate)
-      .lte('spent_at', endDate);
+      .lt('spent_at', endExclusive);
     if (e5) throw e5;
+
     const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
     setMonthExpenses(totalExp);
 
