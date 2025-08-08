@@ -103,31 +103,41 @@ function Entrate() {
       const since = new Date()
       since.setMonth(since.getMonth() - 2)
 
-      const { data: pc, error: e3 } = await supabase
-        .from('pocket_cash')
-        .select(`
-          id,
-          user_id,
-          created_at,
-          moved_at,
-          note,
-          delta,
-          amount,
-          direction,
-          finance_id,
-          finances:finances (
-            id,
-            spent_at,
-            description
-          )
-        `)
-        .eq('user_id', user.id)
-        .gte('created_at', since.toISOString())
-        // prova ad ordinare prima per moved_at (se presente), poi per created_at
-        .order('moved_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-      if (e3) throw e3
-      setPocket(pc || [])
+      // Movimenti “soldi in tasca” (ultimi 60 gg) — DISAMBIGUA RELAZIONI
+const since = new Date()
+since.setMonth(since.getMonth() - 2)
+
+const { data: pc, error: e3 } = await supabase
+  .from('pocket_cash')
+  .select(`
+    id,
+    user_id,
+    created_at,
+    moved_at,
+    note,
+    delta,
+    amount,
+    direction,
+    finance_id,
+    link_finance_id,
+    finances_fid:finances!pocket_cash_finance_id_fkey (
+      id,
+      spent_at,
+      description
+    ),
+    finances_lid:finances!pocket_cash_link_finance_id_fkey (
+      id,
+      spent_at,
+      description
+    )
+  `)
+  .eq('user_id', user.id)
+  .gte('created_at', since.toISOString())
+  .order('moved_at', { ascending: false, nullsFirst: false })
+  .order('created_at', { ascending: false })
+if (e3) throw e3
+setPocket(pc || [])
+
 
       // Spese del periodo
       const { data: exp, error: e4 } = await supabase
@@ -338,34 +348,40 @@ function Entrate() {
 
   // ─────────────────────────────────────────────── Helpers Soldi in tasca (NUOVI)
   function summarizeCashRow(row) {
-    const fin = Array.isArray(row.finances) ? row.finances?.[0] : row.finances
-    const iso = (row.moved_at || row.created_at || fin?.spent_at || '').slice(0, 10)
-    const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
-    const todayISO = new Date().toISOString().slice(0, 10)
+  // each embed può arrivare come oggetto o array → normalizzo
+  const normalize = v => (Array.isArray(v) ? v[0] : v) || null
+  const finA = normalize(row.finances_fid)
+  const finB = normalize(row.finances_lid)
+  const fin = finA || finB
 
-    // importo (retro-compatibile: 'amount' con direction oppure 'delta')
-    const amt = (row.amount != null)
-      ? (row.direction === 'in' ? +Number(row.amount) : -Number(row.amount))
-      : Number(row.delta || 0)
+  const iso = (row.moved_at || row.created_at || fin?.spent_at || '').slice(0, 10)
+  const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
+  const todayISO = new Date().toISOString().slice(0, 10)
 
-    if (fin?.description) {
-      const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
-      const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
-      return {
-        label: `Punto vendita: ${store} — ${when}`,
-        dateISO: iso,
-        amount: amt,
-      }
-    }
+  // importo (retro-compatibile: 'amount/direction' oppure 'delta')
+  const amt = (row.amount != null)
+    ? (row.direction === 'in' ? +Number(row.amount) : -Number(row.amount))
+    : Number(row.delta || 0)
 
-    // movimento manuale
-    const dirLabel = amt >= 0 ? 'entrata cassa' : 'uscita cassa'
+  if (fin?.description) {
+    const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
+    const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
     return {
-      label: `${dirLabel}${row.note ? ` — ${row.note}` : ''}`,
+      label: `Punto vendita: ${store} — ${when}`,
       dateISO: iso,
       amount: amt,
     }
   }
+
+  // movimento manuale
+  const dirLabel = amt >= 0 ? 'entrata cassa' : 'uscita cassa'
+  return {
+    label: `${dirLabel}${row.note ? ` — ${row.note}` : ''}`,
+    dateISO: iso,
+    amount: amt,
+  }
+}
+
 
   // ─────────────────────────────────────────────── Calcoli
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
