@@ -1,19 +1,21 @@
 // pages/api/ocr.js
-export const config = { api: { bodyParser: false } }
+export const config = {
+  api: { bodyParser: false },
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // importa SOLO lato server quando serve
+  // Importiamo "formidable" SOLO lato server
   const { IncomingForm } = await import('formidable')
   const fs = await import('fs')
   const { Blob } = await import('buffer')
 
   let files
   try {
-    ;({ files } = await new Promise((resolve, reject) => {
+    ({ files } = await new Promise((resolve, reject) => {
       const form = new IncomingForm({ keepExtensions: true })
       form.parse(req, (err, _fields, files) => {
         if (err) return reject(err)
@@ -67,6 +69,5 @@ export default async function handler(req, res) {
     .trim()
 
   fs.unlink(upload.filepath, () => {})
-
   res.status(200).json({ text })
 }
