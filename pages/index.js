@@ -1,4 +1,4 @@
-// pages/index.js
+// pages/index.js 
 import React, { useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
