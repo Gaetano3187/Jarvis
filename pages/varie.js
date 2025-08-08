@@ -1,397 +1,388 @@
-import React, { useEffect, useState, useRef } from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
+// pages/varie.js
+import React, { useEffect, useRef, useState } from 'react'
+import Head from 'next/head'
+import Link from 'next/link'
+import withAuth from '../hoc/withAuth'
+import { supabase } from '@/lib/supabaseClient'
 
-import { supabase } from '../lib/supabaseClient';
-import { insertExpense } from '@/lib/dbHelpers';
-import { askAssistant } from '../lib/assistant';
-import withAuth from '../hoc/withAuth';
-import { parseAssistant } from '@/lib/assistant';
+// Categoria VARIE
+const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6'
 
 function Varie() {
-  const [spese, setSpese] = useState([]);
-  const [nuovaSpesa, setNuovaSpesa] = useState({ descrizione: '', importo: '', quantita: '1', spentAt: '' });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  // ─────────────────────────────────────────────── Stati e refs
+  const [spese, setSpese] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [recBusy, setRecBusy] = useState(false)
+  const [nuovaSpesa, setNuovaSpesa] = useState({
+    puntoVendita: '',
+    dettaglio: '',
+    quantita: '1',
+    prezzoTotale: '',
+    spentAt: '',
+  })
 
-  const fileInputRef = useRef(null);
+  const formRef = useRef(null)
+  const ocrInputRef = useRef(null)
+  const mediaRecRef = useRef(null)
+  const recordedChunks = useRef([])
 
-  useEffect(() => { fetchSpese(); }, []);
+  // ─────────────────────────────────────────────── Carica storico on mount
+  useEffect(() => {
+    fetchSpese()
+  }, [])
 
-  const fetchSpese = async () => {
-    setLoading(true);
+  async function fetchSpese() {
+    setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, spent_at, category_id')
-      .eq('category_id', '075ce548-15a9-467c-afc8-8b156064eeb6')
-      .order('created_at', { ascending: false });
+      .select('id, description, amount, qty, spent_at')
+      .eq('category_id', CATEGORY_ID_VARIE)
+      .order('created_at', { ascending: false })
+    if (error) setError(error.message)
+    else setSpese(data || [])
+    setLoading(false)
+  }
 
-    if (!error) setSpese(data);
-    else setError(error.message);
+  // ─────────────────────────────────────────────── Aggiungi manuale
+  const handleAdd = async e => {
+    e.preventDefault()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return setError('Sessione scaduta')
 
-    setLoading(false);
-  };
-
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      setError('Sessione scaduta');
-      return;
+    const row = {
+      user_id:     user.id,
+      category_id: CATEGORY_ID_VARIE,
+      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
+      amount:      Number(nuovaSpesa.prezzoTotale) || 0,
+      spent_at:    nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
+      qty:         parseInt(nuovaSpesa.quantita, 10) || 1,
     }
 
-    const { data, error } = await insertExpense({
-      userId: user.id,
-      categoryName: 'varie',
-      description: nuovaSpesa.descrizione,
-      amount: Number(nuovaSpesa.importo),
-      spentAt: nuovaSpesa.spentAt || new Date().toISOString(),
-      qty: parseInt(nuovaSpesa.quantita, 10) || 1
-    });
+    const { error: insertError } = await supabase.from('finances').insert(row)
+    if (insertError) setError(insertError.message)
+    else {
+      setNuovaSpesa({
+        puntoVendita: '',
+        dettaglio: '',
+        quantita: '1',
+        prezzoTotale: '',
+        spentAt: '',
+      })
+      fetchSpese()
+    }
+  }
 
-    if (!error) {
-      setSpese([...spese, data]);
-      setNuovaSpesa({ descrizione: '', importo: '', quantita: '1', spentAt: '' });
-    } else setError(error.message);
-  };
+  // ─────────────────────────────────────────────── Elimina voce
+  const handleDelete = async id => {
+    const { error } = await supabase.from('finances').delete().eq('id', id)
+    if (error) setError(error.message)
+    else setSpese(spese.filter(r => r.id !== id))
+  }
 
-  const handleDelete = async (id) => {
-    const { error } = await supabase.from('finances').delete().eq('id', id);
-    if (!error) setSpese(spese.filter((s) => s.id !== id));
-    else setError(error.message);
-  };
-
-  const handleOCR = async (file) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result.split(',')[1];
-      const prompt = 'Analizza lo scontrino OCR e restituisci JSON con {descrizione, importo, esercizio, data, quantita}.';
-      await parseAssistantPrompt(`${prompt}\n${base64}`);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleVoice = async () => {
-    const spoken = prompt('Parla o digita la descrizione:');
-    if (!spoken) return;
-    const prompt = `Estrai descrizione, importo e data da: "${spoken}" in JSON`;
-    await parseAssistantPrompt(prompt);
-  };
-
-  const parseAssistantPrompt = async (fullPrompt) => {
+  // ─────────────────────────────────────────────── OCR multiplo
+  const handleOCR = async files => {
+    if (!files?.length) return
     try {
-      const answer = await askAssistant(fullPrompt);
-      const parsed = typeof answer === 'string' ? JSON.parse(answer) : answer;
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const rows = Array.isArray(parsed) ? parsed : [parsed];
-      const insert = rows.map(r => ({
-        userId: user.id,
-        categoryName: 'varie',
-        description: r.descrizione || r.item || 'spesa',
-        amount: Number(r.importo || r.prezzo || 0),
-        spent_at: r.data || new Date().toISOString(),
-        qty: parseInt(r.quantita || r.qty || 1, 10)
-      }));
-
-      await supabase.from('finances').insert(insert);
-      fetchSpese();
+      const fd = new FormData()
+      files.forEach(f => fd.append('images', f))
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const { text } = await res.json()
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
     } catch (err) {
-      console.error('Assistente: JSON non valido', err);
-      setError('Risposta assistant non valida');
+      console.error(err)
+      setError('OCR fallito')
     }
-  };
+  }
 
-  const totale = spese.reduce(
-    (sum, s) => sum + Number(s.amount || 0) * (s.qty ?? 1),
-    0
-  );
+  // ─────────────────────────────────────────────── Registrazione audio
+  const toggleRec = async () => {
+    if (recBusy) {
+      mediaRecRef.current?.stop()
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaRecRef.current = new MediaRecorder(stream)
+      recordedChunks.current = []
+      mediaRecRef.current.ondataavailable = e =>
+        e.data.size && recordedChunks.current.push(e.data)
+      mediaRecRef.current.onstop = processVoice
+      mediaRecRef.current.start()
+      setRecBusy(true)
+    } catch {
+      setError('Microfono non disponibile')
+    }
+  }
+
+  const processVoice = async () => {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' })
+    const fd = new FormData()
+    fd.append('audio', blob, 'voice.webm')
+    try {
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
+      await parseAssistantPrompt(buildSystemPrompt('voice', text))
+    } catch (err) {
+      console.error(err)
+      setError('STT fallito')
+    } finally {
+      setRecBusy(false)
+    }
+  }
+
+  // ─────────────────────────────────────────────── Costruisci prompt (identico a Vestiti)
+  function buildSystemPrompt(source, userText) {
+    if (source === 'ocr') {
+      return `
+Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
+
+Per ciascuna voce genera:
+- puntoVendita: string
+- dettaglio: string
+- quantita: number
+- prezzoTotale: number
+- data: "YYYY-MM-DD"
+
+Rispondi **solo** con JSON:
+\`\`\`json
+{
+  "type":"expense",
+  "items":[
+    {
+      "puntoVendita":"varie",
+      "dettaglio":"descrizione sintetica dell'acquisto",
+      "quantita":1,
+      "prezzoTotale":9.99,
+      "data":"2025-08-06"
+    }
+    /* altre voci... */
+  ]
+}
+\`\`\`
+
+TESTO_OCR:
+${userText}
+`
+    }
+    return `
+**ATTENZIONE:** il testo seguente è trascrizione vocale, ignora "ehm", "ok", ecc.
+
+Ora estrai **solo** JSON spesa (stesso schema):
+"${userText}"
+`
+  }
+
+  // ─────────────────────────────────────────────── Parsing AI & DB insert
+  async function parseAssistantPrompt(prompt) {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    })
+    const { answer, error: apiErr } = await res.json()
+    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+
+    const data = JSON.parse(answer)
+    if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length) {
+      throw new Error('Assistant response invalid')
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error('Sessione scaduta')
+
+    const rows = data.items.map(it => {
+      let spentAt = it.data === 'oggi'
+        ? new Date().toISOString().slice(0, 10)
+        : it.data === 'ieri'
+          ? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10) })()
+          : it.data
+
+      return {
+        user_id:     user.id,
+        category_id: CATEGORY_ID_VARIE,
+        description: `[${it.puntoVendita}] ${it.dettaglio}`,
+        amount:      Number(it.prezzoTotale) || 0,
+        spent_at:    spentAt,
+        qty:         parseFloat(it.quantita) || 1,
+      }
+    })
+
+    const { error: dbErr } = await supabase.from('finances').insert(rows)
+    if (dbErr) throw dbErr
+
+    await fetchSpese()
+    const last = rows[0]
+    setNuovaSpesa({
+      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
+      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
+      quantita:     String(last.qty),
+      prezzoTotale: last.amount,
+      spentAt:      last.spent_at,
+    })
+  }
+
+  // ─────────────────────────────────────────────── Render
+  const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   return (
     <>
-      <Head>
-        <title>Spese Varie – Jarvis-Assistant</title>
-      </Head>
+      <Head><title>Spese Varie</title></Head>
 
-      <div className="varie-container1">
-        <div className="varie-container2">
-          <div className="varie-container3">
-            <div className="table-container">
-              <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>
-                📁 Spese Varie
-              </h2>
+      <div className="spese-casa-container1">
+        <div className="spese-casa-container2">
+          <h2 className="title">📁 Spese Varie</h2>
 
-              <div className="table-buttons">
-                <button
-                  className="btn-manuale"
-                  onClick={() => fileInputRef.current?.scrollIntoView()}
-                >
-                  ➕ Aggiungi manualmente
-                </button>
-                <button className="btn-vocale" onClick={handleVoice}>
-                  🎙 Riconoscimento vocale
-                </button>
-                <button
-                  className="btn-ocr"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  📷 OCR
-                </button>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,application/pdf"
-                style={{ display: 'none' }}
-                onChange={(e) => handleOCR(e.target.files[0])}
-              />
-
-              <form onSubmit={handleAdd} className="input-section">
-                <label htmlFor="descrizioneVarie">Descrizione</label>
-                <input
-                  id="descrizioneVarie"
-                  type="text"
-                  placeholder="Es. Spesa imprevista"
-                  value={nuovaSpesa.descrizione}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, descrizione: e.target.value })
-                  }
-                  required
-                />
-
-                <label htmlFor="importoVarie">Importo</label>
-                <input
-                  id="importoVarie"
-                  type="number"
-                  step="0.01"
-                  placeholder="50.00"
-                  value={nuovaSpesa.importo}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, importo: e.target.value })
-                  }
-                  required
-                />
-
-                <label htmlFor="quantita">Quantità</label>
-                <input
-                  id="quantita"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={nuovaSpesa.quantita}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })
-                  }
-                  required
-                />
-
-                <label htmlFor="spentAt">Data</label>
-                <input
-                  id="spentAt"
-                  type="date"
-                  value={nuovaSpesa.spentAt}
-                  onChange={(e) =>
-                    setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })
-                  }
-                />
-
-                <button type="submit">Aggiungi</button>
-              </form>
-
-              {loading ? (
-                <p>Caricamento…</p>
-              ) : (
-                <table className="custom-table">
-                  <thead>
-                    <tr>
-                      <th>Descrizione</th>
-                      <th>Data</th>
-                      <th>Qtà</th>
-                      <th>Prezzo €</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {spese.map((s) => (
-                      <tr key={s.id}>
-                        <td>{s.description}</td>
-                        <td>{s.spent_at ? new Date(s.spent_at).toLocaleDateString() : '-'}</td>
-                        <td>{s.qty ?? 1}</td>
-                        <td>{Number(s.amount).toFixed(2)}</td>
-                        <td>
-                          <button onClick={() => handleDelete(s.id)}>🗑</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-
-              <div className="total-box">Totale: € {totale.toFixed(2)}</div>
-
-              {error && <p style={{ color: 'red' }}>{error}</p>}
-            </div>
-
-            <Link
-              href="/home"
-              className="thq-button-filled"
-              style={{ marginTop: '1.5rem', display: 'inline-block' }}
-            >
-              🏠 Home
-            </Link>
+          <div className="table-buttons">
+            <button className="btn-vocale" onClick={toggleRec}>
+              {recBusy ? '⏹ Stop' : '🎙 Voce'}
+            </button>
+            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
+              📷 OCR
+            </button>
+            <input
+              ref={ocrInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              hidden
+              onChange={e => handleOCR(Array.from(e.target.files || []))}
+            />
           </div>
+
+          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
+            <label>Punto vendita / Servizio</label>
+            <input
+              value={nuovaSpesa.puntoVendita}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
+              required
+            />
+            <label>Quantità</label>
+            <input
+              type="number"
+              min="1"
+              value={nuovaSpesa.quantita}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
+              required
+            />
+            <label>Dettaglio della spesa</label>
+            <textarea
+              value={nuovaSpesa.dettaglio}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
+              required
+            />
+            <label>Data di acquisto</label>
+            <input
+              type="date"
+              value={nuovaSpesa.spentAt}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+              required
+            />
+            <label>Prezzo totale (€)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={nuovaSpesa.prezzoTotale}
+              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
+              required
+            />
+            <button className="btn-manuale">Aggiungi</button>
+          </form>
+
+          <div className="table-container">
+            {loading ? (
+              <p>Caricamento…</p>
+            ) : (
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Punto vendita</th>
+                    <th>Dettaglio</th>
+                    <th>Data</th>
+                    <th>Qtà</th>
+                    <th>Prezzo €</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {spese.map(r => {
+                    const m = r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
+                    return (
+                      <tr key={r.id}>
+                        <td>{m[1] || '-'}</td>
+                        <td>{m[2] || r.description}</td>
+                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
+                        <td>{r.qty}</td>
+                        <td>{r.amount.toFixed(2)}</td>
+                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          <Link href="/home">
+            <button className="btn-vocale">🏠 Home</button>
+          </Link>
         </div>
       </div>
 
+      {/* Stili identici a quelli già usati nelle altre pagine */}
       <style jsx global>{`
-        .table-container {
-          overflow-x: auto;
-          background: rgba(0, 0, 0, 0.6);
-          border-radius: 1rem;
-          padding: 1.5rem;
-          color: #fff;
-          font-family: Inter, sans-serif;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          width: 100%;
-          box-sizing: border-box;
-        }
-        table.custom-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 1rem;
-          color: #fff;
-        }
-        table.custom-table thead {
-          background-color: #1f2937;
-        }
-        table.custom-table th,
-        table.custom-table td {
-          padding: 0.75rem 1rem;
-          text-align: left;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        table.custom-table tbody tr:hover {
-          background-color: rgba(255, 255, 255, 0.05);
-        }
-        .total-box {
-          margin-top: 1rem;
-          background: rgba(34, 197, 94, 0.8);
-          color: #fff;
-          padding: 1rem;
-          border-radius: 0.5rem;
-          font-size: 1.25rem;
-          font-weight: 600;
-          text-align: right;
-        }
-        .table-buttons {
-          display: flex;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
-          flex-wrap: wrap;
-        }
-        .table-buttons button {
-          padding: 0.75rem 1.25rem;
-          font-size: 1rem;
-          border-radius: 0.5rem;
-          border: none;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
-        }
-        .btn-manuale {
-          background: #22c55e;
-          color: #fff;
-        }
-        .btn-vocale {
-          background: #10b981;
-          color: #fff;
-        }
-        .btn-ocr {
-          background: #f43f5e;
-          color: #fff;
-        }
-        .table-buttons button:hover {
-          opacity: 0.85;
-        }
-        .input-section {
-          background: rgba(255, 255, 255, 0.1);
-          padding: 1rem;
-          margin-bottom: 1.5rem;
-          border-radius: 0.5rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-        .input-section label {
-          font-weight: 600;
-          font-size: 1rem;
-        }
-        .input-section input {
-          padding: 0.6rem;
-          border-radius: 0.5rem;
-          border: none;
-          font-size: 1rem;
-          width: 100%;
-        }
-        @media (max-width: 768px) {
-          .table-container {
-            padding: 1rem;
-          }
-          .table-buttons button {
-            font-size: 0.95rem;
-            padding: 0.6rem 1rem;
-          }
-          .input-section input {
-            font-size: 0.95rem;
-          }
-        }
-      `}</style>
-
-      <style jsx>{`
-        .varie-container1 {
+        .spese-casa-container1 {
           width: 100%;
           display: flex;
-          min-height: 100vh;
           align-items: center;
-          flex-direction: column;
           justify-content: center;
+          background: #0f172a;
+          min-height: 100vh;
+          padding: 2rem;
+          font-family: Inter, sans-serif;
         }
-        .varie-container3 {
-          display: contents;
+        .spese-casa-container2 {
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 800px;
+          width: 100%;
         }
-        @media (max-width: 1600px) {
-          .varie-container2 {
-            width: 1599px;
-            height: 1000px;
-          }
+        .title { margin-bottom: 1rem; font-size: 1.5rem; color: #fff; }
+        .table-buttons { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+        .btn-vocale, .btn-ocr, .btn-manuale {
+          background: #10b981; color: #fff; border: none;
+          padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer;
         }
-        @media (max-width: 1200px) {
-          .varie-container2 {
-            width: 1199px;
-          }
+        .btn-ocr { background: #f43f5e; }
+        .input-section { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+        input, textarea {
+          width: 100%; padding: 0.6rem; border: none; border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.1); color: #fff;
         }
-        @media (max-width: 991px) {
-          .varie-container2 {
-            width: 990px;
-          }
+        textarea { resize: vertical; min-height: 4.5rem; }
+        .custom-table { width: 100%; border-collapse: collapse; }
+        .custom-table th, .custom-table td {
+          padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);
         }
-        @media (max-width: 767px) {
-          .varie-container2 {
-            width: 766px;
-          }
+        .custom-table thead { background: #1f2937; }
+        .total-box {
+          margin-top: 1rem; background: rgba(34,197,94,0.8);
+          padding: 1rem; border-radius: 0.5rem; text-align: right; font-weight: 600;
         }
-        @media (max-width: 479px) {
-          .varie-container2 {
-            width: 466px;
-            height: 990px;
-          }
-        }
+        .error { color: #f87171; margin-top: 1rem; }
       `}</style>
     </>
-  );
+  )
 }
 
-export default withAuth(Varie);
+export default withAuth(Varie)
