@@ -144,78 +144,67 @@ else {
     }
   }
 
-  // ─────────────────────────────────────────────── Costruisci prompt
-  function buildSystemPrompt(source, userText, fileName) {
+// ─────────────────────────────────────────────── Costruisci prompt (versione parser-safe)
+function buildSystemPrompt(source, userText, fileName) {
+  const fn = fileName || 'scontrino';
   if (source === 'ocr') {
-    return String.raw`
-Sei Jarvis. Da questo testo OCR estrai **tutte** le righe di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino (non la data di inserimento).
-
-Per ciascuna voce estratta genera un oggetto con:
-- puntoVendita: string
-- dettaglio: string
-- prezzoUnitario: number | null
-- quantita: number
-- prezzoTotale: number
-- data: "YYYY-MM-DD" (estratta direttamente dal testo)
-
-Rispondi **solo** con JSON conforme a questo schema:
-\`\`\`json
-{
-  "type": "expense",
-  "items": [
-    {
-      "puntoVendita": "Supermercato Orsini Market",
-      "dettaglio": "1 confezione di latte",
-      "prezzoUnitario": 20.00,
-      "quantita": 1,
-      "prezzoTotale": 20.00,
-      "data": "2025-08-06"
-    },
-    {
-      "puntoVendita": "Supermercato Orsini Market",
-      "dettaglio": "2 confezioni di pane",
-      "prezzoUnitario": 1.50,
-      "quantita": 2,
-      "prezzoTotale": 3.00,
-      "data": "2025-08-06"
-    }
-    // …altre righe se presenti
-  ]
-}
-\`\`\`
-
-CONTENUTO OCR (${fileName || 'scontrino'}):
-${userText}
-`
+    return [
+      'Sei Jarvis. Da questo testo OCR estrai tutte le righe di spesa, usando la data presente sullo scontrino.',
+      '',
+      'Per ogni voce genera un oggetto con:',
+      '- puntoVendita: string',
+      '- dettaglio: string',
+      '- prezzoUnitario: number | null',
+      '- quantita: number',
+      '- prezzoTotale: number',
+      '- data: "YYYY-MM-DD" (estratta dal testo)',
+      '',
+      'Rispondi solo con JSON conforme a questo schema:',
+      '{',
+      '  "type": "expense",',
+      '  "items": [',
+      '    {',
+      '      "puntoVendita": "Supermercato Orsini Market",',
+      '      "dettaglio": "1 confezione di latte",',
+      '      "prezzoUnitario": 20.00,',
+      '      "quantita": 1,',
+      '      "prezzoTotale": 20.00,',
+      '      "data": "2025-08-06"',
+      '    }',
+      '  ]',
+      '}',
+      '',
+      'CONTENUTO OCR (' + fn + '):',
+      String(userText || '')
+    ].join('\n');
   }
 
   // voce / STT
-  return String.raw`
-**ATTENZIONE:** il testo che segue è trascrizione vocale, ignora "ehm", "allora", ecc.
-Ora estrai **solo** JSON spesa (stesso schema di prima).
-
-ESEMPIO:
-Input: "Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025"
-Output:
-{
-  "type":"expense",
-  "items":[
-    {
-      "puntoVendita":"Supermercato Rossi",
-      "dettaglio":"3 pacchi di pasta Barilla",
-      "prezzoTotale":2.50,
-      "quantita":3,
-      "data":"2025-07-10",
-      "categoria":"casa",
-      "category_id":"${CATEGORY_ID_CASA}"
-    }
-  ]
+  return [
+    'ATTENZIONE: il testo che segue è trascrizione vocale, ignora intercalari.',
+    'Estrai SOLO JSON spesa (stesso schema di prima).',
+    '',
+    'ESEMPIO:',
+    'Input: Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025',
+    'Output:',
+    '{',
+    '  "type":"expense",',
+    '  "items":[{',
+    '    "puntoVendita":"Supermercato Rossi",',
+    '    "dettaglio":"3 pacchi di pasta Barilla",',
+    '    "prezzoTotale":2.50,',
+    '    "quantita":3,',
+    '    "data":"2025-07-10",',
+    '    "categoria":"casa",',
+    '    "category_id":"' + CATEGORY_ID_CASA + '"',
+    '  }]',
+    '}',
+    '',
+    'Testo:',
+    String(userText || '')
+  ].join('\n');
 }
 
-Ora capisci la frase seguente e compila i campi:
-"${userText}"
-`
-}
 
   // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
