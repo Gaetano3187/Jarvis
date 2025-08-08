@@ -96,7 +96,4 @@ export default async function handler(req, res) {
     })
   }
   res.status(200).json({ text: joined })
-}export async function getServerSideProps() {
-  return { props: {} };
-}
 
