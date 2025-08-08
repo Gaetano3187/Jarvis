@@ -132,107 +132,114 @@ function Entrate() {
   }, [monthKey]);
 
   async function loadAll() {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Sessione scaduta');
+  setLoading(true);
+  setError(null);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
 
-      await ensureCarryoverAuto(user.id, monthKey);
+    await ensureCarryoverAuto(user.id, monthKey);
 
-      const { data: inc, error: e1 } = await supabase
-        .from('incomes')
-        .select('id, source, description, amount, received_at')
-        .eq('user_id', user.id)
-        .gte('received_at', startDate)
-        .lte('received_at', endDate)
-        .order('received_at', { ascending: false });
-      if (e1) throw e1;
-      setIncomes(inc || []);
+    // 1) Entrate del periodo
+    const { data: inc, error: e1 } = await supabase
+      .from('incomes')
+      .select('id, source, description, amount, received_at')
+      .eq('user_id', user.id)
+      .gte('received_at', startDate)
+      .lte('received_at', endDate)
+      .order('received_at', { ascending: false });
+    if (e1) throw e1;
+    setIncomes(inc || []);
 
-      const { data: co, error: e2 } = await supabase
-        .from('carryovers')
-        .select('id, month_key, amount, note')
-        .eq('user_id', user.id)
-        .eq('month_key', monthKey)
-        .maybeSingle();
-      if (e2 && e2.code !== 'PGRST116') throw e2;
-      setCarryover(co || null);
+    // 2) Carryover
+    const { data: co, error: e2 } = await supabase
+      .from('carryovers')
+      .select('id, month_key, amount, note')
+      .eq('user_id', user.id)
+      .eq('month_key', monthKey)
+      .maybeSingle();
+    if (e2 && e2.code !== 'PGRST116') throw e2;
+    setCarryover(co || null);
 
-      // Carico tutti i movimenti "soldi in tasca" (ultimi 2 mesi), inclusi:
-      // - ricariche/prelievi manuali (delta / amount+direction)
-      // - spese contanti collegate da finances (join via FK)
-      const since = new Date();
-      since.setMonth(since.getMonth() - 2);
+    // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
 
-      const { data: pc, error: e3 } = await supabase
-        .from('pocket_cash')
-        .select(`
-          id, user_id, created_at, moved_at, note, delta, amount, direction,
-          finances_fid:finances!pocket_cash_finance_id_fkey (id, spent_at, description, amount),
-          finances_lid:finances!pocket_cash_link_finance_id_fkey (id, spent_at, description, amount)
-        `)
-        .eq('user_id', user.id)
-        .gte('moved_at', since.toISOString())
-        .order('moved_at', { ascending: false });
-      if (e3) throw e3;
+    // 3a) Movimenti manuali (ricariche/uscite) nel PERIODO CORRENTE
+    const { data: pc, error: e3 } = await supabase
+      .from('pocket_cash')
+      .select('id, created_at, moved_at, note, delta, amount, direction')
+      .eq('user_id', user.id)
+      .gte('moved_at', startDate)
+      .lte('moved_at', endDate)
+      .order('moved_at', { ascending: false });
+    if (e3) throw e3;
 
-      const one = (v) => (Array.isArray(v) ? v[0] : v) || null;
+    const manualRows = (pc || []).map((row) => {
+      const eff = (row.delta != null)
+        ? Number(row.delta || 0)
+        : (row.amount != null
+            ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0)
+            : 0);
 
-      const rows = (pc || [])
-        .map((row) => {
-          const fin = one(row.finances_fid) || one(row.finances_lid);
+      const dateISO = (row.moved_at || row.created_at || '').slice(0, 10);
 
-          // valore effettivo del movimento sul contante
-          const eff = (row.delta != null)
-            ? Number(row.delta || 0)
-            : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
+      return {
+        id: `pc-${row.id}`,
+        dateISO,
+        label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
+        amount: Number(eff || 0),
+      };
+    });
 
-          const isoFull = (fin?.spent_at || row.moved_at || row.created_at || '');
-          const dateISO = isoFull ? isoFull.slice(0, 10) : '';
+    // 3b) Spese in contante dalle altre pagine (finances)
+    const { data: finCash, error: e4 } = await supabase
+      .from('finances')
+      .select('id, description, amount, spent_at')
+      .eq('user_id', user.id)
+      .eq('payment_method', 'cash')
+      .gte('spent_at', startDate)
+      .lte('spent_at', endDate)
+      .order('spent_at', { ascending: false });
+    if (e4) throw e4;
 
-          // Label:
-          // - se è legato ad una spesa, mostro punto vendita e info essenziali
-          // - altrimenti uso la nota oppure "Movimento contante"
-          let label;
-          if (fin?.description) {
-            const m = fin.description.match(/^\[(.*?)\]\s*(.*)$/);
-            const store = m ? m[1] : 'N/D';
-            const dett = m ? m[2] : fin.description;
-            label = `Spesa in contante • ${store} • ${dett}`;
-          } else {
-            label = row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti');
-          }
+    const cashRows = (finCash || []).map((f) => {
+      const dateISO = (f.spent_at || '').slice(0, 10);
+      const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+      const store = m ? m[1] : 'Punto vendita';
+      const dett  = m ? m[2] : (f.description || '');
+      return {
+        id: `fin-${f.id}`,
+        dateISO,
+        label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+        amount: -Math.abs(Number(f.amount) || 0), // spesa = uscita
+      };
+    });
 
-          return {
-            id: row.id,
-            dateISO,
-            label,
-            amount: Number(eff || 0), // + ricarica / - spesa
-          };
-        })
-        .filter((r) => Number.isFinite(r.amount) && r.amount !== 0)
-        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+    // 3c) Unione e ordinamento
+    const rows = [...manualRows, ...cashRows]
+      .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
+      .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
-      setPocketRows(rows);
+    setPocketRows(rows);
 
-      // Spese totali del periodo per saldo mese (tutte le spese)
-      const { data: exp, error: e4 } = await supabase
-        .from('finances')
-        .select('amount, spent_at')
-        .eq('user_id', user.id)
-        .gte('spent_at', startDate)
-        .lte('spent_at', endDate);
-      if (e4) throw e4;
-      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-      setMonthExpenses(totalExp);
-    } catch (err) {
-      console.error(err);
-      setError(err.message || String(err));
-    } finally {
-      setLoading(false);
-    }
+    // 4) Spese totali del periodo (per il saldo mese in alto)
+    const { data: exp, error: e5 } = await supabase
+      .from('finances')
+      .select('amount, spent_at')
+      .eq('user_id', user.id)
+      .gte('spent_at', startDate)
+      .lte('spent_at', endDate);
+    if (e5) throw e5;
+    const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+    setMonthExpenses(totalExp);
+
+  } catch (err) {
+    console.error(err);
+    setError(err.message || String(err));
+  } finally {
+    setLoading(false);
   }
+}
+
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildPocketPrompt(userText) {
