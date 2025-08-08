@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabaseClient';
 /** Giorno di accredito stipendio (1..28) */
 const PAYDAY_DAY = 10;
 
-// --------------------------- helpers
+/* --------------------------- helpers --------------------------- */
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear();
   const m = today.getMonth();
@@ -39,6 +39,8 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('user_id', userId)
     .eq('month_key', monthKeyCurrent)
     .maybeSingle();
+
+  // PGRST116 = no rows; altri errori sono reali
   if (e0 && e0.code !== 'PGRST116') throw e0;
   if (existing) return;
 
@@ -51,21 +53,24 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const prevKey = prevEnd.toISOString().slice(0, 7);
 
   const { data: incPrev, error: e1 } = await supabase
-    .from('incomes').select('amount')
+    .from('incomes')
+    .select('amount')
     .eq('user_id', userId)
     .gte('received_at', prevStartISO)
     .lte('received_at', prevEndISO);
   if (e1) throw e1;
 
   const { data: expPrev, error: e2 } = await supabase
-    .from('finances').select('amount')
+    .from('finances')
+    .select('amount')
     .eq('user_id', userId)
     .gte('spent_at', prevStartISO)
     .lte('spent_at', prevEndISO);
   if (e2) throw e2;
 
   const { data: coPrev, error: e3 } = await supabase
-    .from('carryovers').select('amount')
+    .from('carryovers')
+    .select('amount')
     .eq('user_id', userId)
     .eq('month_key', prevKey)
     .maybeSingle();
@@ -86,9 +91,8 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   if (e4) throw e4;
 }
 
-// --------------------------- component
+/* --------------------------- component --------------------------- */
 function Entrate() {
-  // state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -113,11 +117,24 @@ function Entrate() {
   const ocrInputRef = useRef(null);
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
+  const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
 
-  useEffect(() => { loadAll(); }, [monthKey]);
+  useEffect(() => {
+    loadAll();
+
+    // cleanup microfono se si lascia la pagina
+    return () => {
+      try {
+        if (mediaRecRef.current && mediaRecRef.current.state === 'recording') {
+          mediaRecRef.current.stop();
+        }
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
+      } catch {}
+    };
+  }, [monthKey]);
 
   async function loadAll() {
     setLoading(true);
@@ -129,7 +146,8 @@ function Entrate() {
       await ensureCarryoverAuto(user.id, monthKey);
 
       const { data: inc, error: e1 } = await supabase
-        .from('incomes').select('*')
+        .from('incomes')
+        .select('id, source, description, amount, received_at')
         .eq('user_id', user.id)
         .gte('received_at', startDate)
         .lte('received_at', endDate)
@@ -138,7 +156,8 @@ function Entrate() {
       setIncomes(inc || []);
 
       const { data: co, error: e2 } = await supabase
-        .from('carryovers').select('*')
+        .from('carryovers')
+        .select('id, month_key, amount, note')
         .eq('user_id', user.id)
         .eq('month_key', monthKey)
         .maybeSingle();
@@ -193,7 +212,8 @@ function Entrate() {
       setPocket(pocketView);
 
       const { data: exp, error: e4 } = await supabase
-        .from('finances').select('amount, spent_at')
+        .from('finances')
+        .select('amount, spent_at')
         .eq('user_id', user.id)
         .gte('spent_at', startDate)
         .lte('spent_at', endDate);
@@ -208,7 +228,7 @@ function Entrate() {
     }
   }
 
-  // --------------------------- Assistant prompts (ASCII safe)
+  /* ---------------------- Assistant prompts (ASCII safe) ---------------------- */
   function buildPocketPrompt(userText) {
     const example = JSON.stringify({
       type: 'pocket_topup',
@@ -256,15 +276,17 @@ function Entrate() {
   async function parseAssistantForPocket(userText) {
     const data = await callAssistant(buildPocketPrompt(userText));
     if (data.type !== 'pocket_topup' || !Array.isArray(data.items) || !data.items.length) return false;
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
     const rows = data.items.map((it) => ({
       user_id: user.id,
       note: it.note || 'Ricarica manuale (OCR/voce)',
-      delta: Number(it.amount) || 0,
+      delta: Number(it.amount) || 0, // negativo = prelievo?
       moved_at: it.date || new Date().toISOString(),
     }));
+
     const { error } = await supabase.from('pocket_cash').insert(rows);
     if (error) throw error;
     return true;
@@ -273,6 +295,7 @@ function Entrate() {
   async function parseAssistantForIncome(userText) {
     const data = await callAssistant(buildIncomePrompt(userText));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
@@ -283,12 +306,13 @@ function Entrate() {
       amount: Number(it.amount) || 0,
       received_at: it.receivedAt || new Date().toISOString().slice(0, 10),
     }));
+
     const { error } = await supabase.from('incomes').insert(rows);
     if (error) throw error;
     return true;
   }
 
-  // --------------------------- OCR / VOCE handlers
+  /* --------------------------- OCR / VOCE handlers --------------------------- */
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
@@ -312,14 +336,19 @@ function Entrate() {
 
   const toggleRec = async () => {
     if (recBusy) {
-      if (mediaRecRef.current) mediaRecRef.current.stop();
+      try {
+        mediaRecRef.current?.stop();
+      } catch {}
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       mediaRecRef.current = new MediaRecorder(stream);
       recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data.size) recordedChunks.current.push(e.data); };
+      mediaRecRef.current.ondataavailable = (e) => {
+        if (e.data?.size) recordedChunks.current.push(e.data);
+      };
       mediaRecRef.current.onstop = processVoice;
       mediaRecRef.current.start();
       setRecBusy(true);
@@ -332,6 +361,7 @@ function Entrate() {
     const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
     const fd = new FormData();
     fd.append('audio', blob, 'voice.webm');
+
     try {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
@@ -339,12 +369,14 @@ function Entrate() {
       const handledPocket = await parseAssistantForPocket(text).catch(() => false);
       if (handledPocket) {
         setRecBusy(false);
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
         return loadAll();
       }
 
       const handledIncome = await parseAssistantForIncome(text).catch(() => false);
       if (handledIncome) {
         setRecBusy(false);
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
         return loadAll();
       }
 
@@ -354,16 +386,18 @@ function Entrate() {
       setError('STT fallito');
     } finally {
       setRecBusy(false);
+      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
     }
   };
 
-  // --------------------------- CRUD
+  /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
     e.preventDefault();
     setError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       await supabase.from('incomes').insert({
         user_id: user.id,
         source: newIncome.source || 'Entrata',
@@ -371,6 +405,7 @@ function Entrate() {
         amount: Number(newIncome.amount) || 0,
         received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
       });
+
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
     } catch (err) {
@@ -390,12 +425,14 @@ function Entrate() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       const payload = {
         user_id: user.id,
         month_key: monthKey,
         amount: Number(newCarry.amount) || 0,
         note: newCarry.note || null,
       };
+
       if (carryover?.id) {
         const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
         if (error) throw error;
@@ -403,6 +440,7 @@ function Entrate() {
         const { error } = await supabase.from('carryovers').insert(payload);
         if (error) throw error;
       }
+
       setNewCarry({ amount: '', note: '' });
       await loadAll();
     } catch (err) {
@@ -416,8 +454,10 @@ function Entrate() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       const delta = Number(pocketTopUp);
       if (!delta) return;
+
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
         note: 'Ricarica manuale',
@@ -425,6 +465,7 @@ function Entrate() {
         moved_at: new Date().toISOString(),
       });
       if (error) throw error;
+
       setPocketTopUp('');
       await loadAll();
     } catch (err) {
@@ -433,21 +474,21 @@ function Entrate() {
   }
 
   async function handleClearPocket() {
-    // ATTENZIONE: cancella TUTTI i movimenti pocket dell'utente
-    // Usa questo tasto solo quando vuoi ripartire con un nuovo prelievo
     if (!confirm('Azzerare TUTTI i movimenti di "Soldi in tasca"?')) return;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
+
       const { error } = await supabase.from('pocket_cash').delete().eq('user_id', user.id);
       if (error) throw error;
+
       await loadAll();
     } catch (err) {
       setError(err.message || String(err));
     }
   }
 
-  // --------------------------- calcoli
+  /* --------------------------- calcoli --------------------------- */
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
   const carryAmount = Number(carryover?.amount || 0);
   const saldoMese = totalIncomes + carryAmount - monthExpenses;
@@ -455,7 +496,7 @@ function Entrate() {
 
   const pocketTableRows = onlyPocketExpenses ? pocket.filter((m) => m.amount < 0) : pocket;
 
-  // --------------------------- UI
+  /* ------------------------------ UI ------------------------------ */
   return (
     <>
       <Head><title>Entrate & Saldi</title></Head>
@@ -541,7 +582,7 @@ function Entrate() {
                   <tr key={i.id}>
                     <td>{i.source || '-'}</td>
                     <td>{i.description}</td>
-                    <td>{new Date(i.received_at).toLocaleDateString()}</td>
+                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString() : '-'}</td>
                     <td>{Number(i.amount).toFixed(2)}</td>
                     <td><button onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
                   </tr>
