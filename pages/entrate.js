@@ -99,14 +99,32 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2
       setCarryover(co || null)
 
-      // Movimenti “soldi in tasca” (ultimi 60 gg)
+      // ───────── MODIFICATO: Movimenti “soldi in tasca” con join a finances (ultimi 60 gg)
       const since = new Date()
       since.setMonth(since.getMonth() - 2)
+
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
-        .select('*')
+        .select(`
+          id,
+          user_id,
+          created_at,
+          moved_at,
+          note,
+          delta,
+          amount,
+          direction,
+          finance_id,
+          finances:finances (
+            id,
+            spent_at,
+            description
+          )
+        `)
         .eq('user_id', user.id)
         .gte('created_at', since.toISOString())
+        // prova ad ordinare prima per moved_at (se presente), poi per created_at
+        .order('moved_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
       if (e3) throw e3
       setPocket(pc || [])
@@ -188,7 +206,7 @@ function Entrate() {
     }
   }
 
-  // ─────────────────────────────────────────────── Top-up “Soldi in tasca”
+  // ─────────────────────────────────────────────── Top-up “Soldi in tasca” (retro-compatibile)
   async function handleTopUpPocket(e) {
     e.preventDefault()
     setError(null)
@@ -197,6 +215,7 @@ function Entrate() {
       if (!user) throw new Error('Sessione scaduta')
       const delta = Number(pocketTopUp)
       if (!delta) return
+      // Mantengo l'inserimento con 'delta' per compatibilità.
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
         note: 'Ricarica manuale',
@@ -317,11 +336,48 @@ function Entrate() {
     }
   }
 
+  // ─────────────────────────────────────────────── Helpers Soldi in tasca (NUOVI)
+  function summarizeCashRow(row) {
+    const fin = Array.isArray(row.finances) ? row.finances?.[0] : row.finances
+    const iso = (row.moved_at || row.created_at || fin?.spent_at || '').slice(0, 10)
+    const dateStr = iso ? new Date(iso).toLocaleDateString() : '-'
+    const todayISO = new Date().toISOString().slice(0, 10)
+
+    // importo (retro-compatibile: 'amount' con direction oppure 'delta')
+    const amt = (row.amount != null)
+      ? (row.direction === 'in' ? +Number(row.amount) : -Number(row.amount))
+      : Number(row.delta || 0)
+
+    if (fin?.description) {
+      const store = fin.description.match(/^\[(.*?)\]/)?.[1] || 'N/D'
+      const when = iso === todayISO ? 'spesa di oggi' : `spesa del ${dateStr}`
+      return {
+        label: `Punto vendita: ${store} — ${when}`,
+        dateISO: iso,
+        amount: amt,
+      }
+    }
+
+    // movimento manuale
+    const dirLabel = amt >= 0 ? 'entrata cassa' : 'uscita cassa'
+    return {
+      label: `${dirLabel}${row.note ? ` — ${row.note}` : ''}`,
+      dateISO: iso,
+      amount: amt,
+    }
+  }
+
   // ─────────────────────────────────────────────── Calcoli
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
   const carryAmount = Number(carryover?.amount || 0)
   const saldoMese = totalIncomes + carryAmount - monthExpenses
-  const pocketBalance = pocket.reduce((t, r) => t + Number(r.delta || 0), 0)
+
+  // saldo tasca retro-compatibile: somma delta, altrimenti somma (+in, -out)
+  const pocketBalance = pocket.reduce((t, r) => {
+    if (r.delta != null) return t + Number(r.delta || 0)
+    const val = Number(r.amount || 0) * (r.direction === 'in' ? +1 : -1)
+    return t + val
+  }, 0)
 
   // ─────────────────────────────────────────────── UI
   return (
@@ -449,7 +505,7 @@ function Entrate() {
             </table>
           )}
 
-          {/* TABELLA 3 — SOLDI IN TASCA */}
+          {/* TABELLA 3 — SOLDI IN TASCA (MODIFICATA) */}
           <h3 style={{ marginTop: '2rem' }}>3) Soldi in tasca</h3>
           <form className="input-section" onSubmit={handleTopUpPocket}>
             <label>Ricarica/Immissione (€)</label>
@@ -472,18 +528,23 @@ function Entrate() {
               <thead>
                 <tr>
                   <th>Data</th>
-                  <th>Nota</th>
-                  <th>Variazione</th>
+                  <th>Descrizione (riassunto)</th>
+                  <th style={{ textAlign: 'right' }}>Importo €</th>
                 </tr>
               </thead>
               <tbody>
-                {pocket.map(m => (
-                  <tr key={m.id}>
-                    <td>{new Date(m.created_at).toLocaleString()}</td>
-                    <td>{m.note || '-'}</td>
-                    <td>{Number(m.delta).toFixed(2)}</td>
-                  </tr>
-                ))}
+                {pocket.map(m => {
+                  const s = summarizeCashRow(m)
+                  return (
+                    <tr key={m.id}>
+                      <td>{s.dateISO ? new Date(s.dateISO).toLocaleDateString() : '-'}</td>
+                      <td>{s.label}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {s.amount >= 0 ? '+' : '−'} {Math.abs(s.amount).toFixed(2)}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}
