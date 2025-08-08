@@ -135,18 +135,30 @@ function CeneAperitivi() {
   function buildSystemPrompt(source, userText) {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa, usando la data presente sullo scontrino.
+Sei Jarvis. Dal testo OCR estrai uno **scontrino unico** con:
+- puntoVendita (string)
+- data (YYYY-MM-DD)
+- lineItems: array di { desc (string), qty (number, default 1), price (number in EUR) }
+- total (number in EUR). Se non c'è, calcola tu somma (qty * price).
 
-Per ciascuna voce genera:
-- puntoVendita: string
-- dettaglio: string
-- quantita: number
-- prezzoTotale: number
-- data: "YYYY-MM-DD"
-
-Rispondi **solo** con JSON:
+Rispondi **solo** JSON:
 \`\`\`json
 {
+  "type":"receipt",
+  "puntoVendita":"Ristorante Il Cortile",
+  "data":"2025-08-06",
+  "lineItems":[
+    {"desc":"Bruschette","qty":1,"price":3.00},
+    {"desc":"Pizza margherita","qty":1,"price":7.00}
+  ],
+  "total":10.00
+}
+\`\`\`
+
+TESTO_OCR:
+${userText}
+`
+}
   "type":"expense",
   "items":[
     {
