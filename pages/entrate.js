@@ -40,13 +40,11 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('month_key', monthKeyCurrent)
     .maybeSingle();
 
-  // PGRST116 = no rows; altri errori sono reali
   if (e0 && e0.code !== 'PGRST116') throw e0;
   if (existing) return;
 
-  // periodo precedente (mese calendario precedente)
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
-  const prevEnd = new Date(yy, mm - 1, 0); // ultimo giorno mese precedente
+  const prevEnd = new Date(yy, mm - 1, 0);
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
   const prevStartISO = prevStart.toISOString().slice(0, 10);
   const prevEndISO = prevEnd.toISOString().slice(0, 10);
@@ -107,9 +105,10 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  const [pocket, setPocket] = useState([]);
+  // Movimenti pocket (grezzi per saldo), e righe tabella (solo spese cash collegate)
+  const [pocketMovs, setPocketMovs] = useState([]);
+  const [pocketRows, setPocketRows] = useState([]);
   const [pocketTopUp, setPocketTopUp] = useState('');
-  const [onlyPocketExpenses, setOnlyPocketExpenses] = useState(true);
 
   const [monthExpenses, setMonthExpenses] = useState(0);
 
@@ -124,8 +123,6 @@ function Entrate() {
 
   useEffect(() => {
     loadAll();
-
-    // cleanup microfono se si lascia la pagina
     return () => {
       try {
         if (mediaRecRef.current && mediaRecRef.current.state === 'recording') {
@@ -170,18 +167,20 @@ function Entrate() {
 
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
-        .select(
+        .select(`
           id, user_id, created_at, moved_at, note, delta, amount, direction,
           finances_fid:finances!pocket_cash_finance_id_fkey (id, spent_at, description),
           finances_lid:finances!pocket_cash_link_finance_id_fkey (id, spent_at, description)
-        )
+        `)
         .eq('user_id', user.id)
         .gte('moved_at', since.toISOString())
         .order('moved_at', { ascending: false });
       if (e3) throw e3;
 
       const norm = (v) => (Array.isArray(v) ? v[0] : v) || null;
-      const pocketView = (pc || [])
+
+      // Mappa tutti i movimenti per il saldo (top del box)
+      const movs = (pc || [])
         .map((row) => {
           const finA = norm(row.finances_fid);
           const finB = norm(row.finances_lid);
@@ -193,24 +192,40 @@ function Entrate() {
 
           const isoFull = (fin?.spent_at || row.moved_at || row.created_at || '');
           const iso = isoFull ? isoFull.slice(0, 10) : '';
-          const dateStr = iso ? new Date(iso).toLocaleDateString() : '-';
 
-          let label;
-          if (fin?.description) {
-            const m = fin.description.match(/^\[(.*?)\]/);
-            const store = m ? m[1] : 'N/D';
-            label = 'Punto vendita: ' + store + ' - spesa del ' + dateStr;
-          } else {
-            const dirLabel = eff >= 0 ? 'entrata cassa' : 'uscita cassa';
-            label = dirLabel + (row.note ? ' - ' + row.note : '');
-          }
-
-          return { id: row.id, dateISO: iso, label, amount: eff, hasFinance: !!fin };
+          return {
+            id: row.id,
+            dateISO: iso,
+            amount: eff,
+            note: row.note || null,
+            hasFinance: !!fin,
+            finDesc: fin?.description || null,
+          };
         })
-        .filter((v) => Number(v.amount) !== 0);
+        .filter((v) => Number.isFinite(v.amount) && v.amount !== 0);
 
-      setPocket(pocketView);
+      setPocketMovs(movs);
 
+      // Righe tabella: SOLO spese in contante provenienti da finances (cioè collegate)
+      const rows = movs
+        .filter((m) => m.hasFinance && m.amount < 0)
+        .map((m) => {
+          // label = punto vendita dalla descrizione [Store]
+          let label = m.finDesc || '';
+          const mStore = label.match(/^\[(.*?)\]/);
+          const store = mStore ? mStore[1] : 'N/D';
+          const dateStr = m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-';
+          return {
+            id: m.id,
+            dateISO: m.dateISO,
+            label: `Punto vendita: ${store} - spesa del ${dateStr}`,
+            amount: m.amount, // negativo
+          };
+        });
+
+      setPocketRows(rows);
+
+      // Spese del periodo (tutte, per saldo mese)
       const { data: exp, error: e4 } = await supabase
         .from('finances')
         .select('amount, spent_at')
@@ -274,6 +289,7 @@ function Entrate() {
   }
 
   async function parseAssistantForPocket(userText) {
+    // Manteniamo il top-up in DB per il saldo, ma NON lo mostriamo in tabella (filtrato sopra)
     const data = await callAssistant(buildPocketPrompt(userText));
     if (data.type !== 'pocket_topup' || !Array.isArray(data.items) || !data.items.length) return false;
 
@@ -283,7 +299,7 @@ function Entrate() {
     const rows = data.items.map((it) => ({
       user_id: user.id,
       note: it.note || 'Ricarica manuale (OCR/voce)',
-      delta: Number(it.amount) || 0, // negativo = prelievo?
+      delta: Number(it.amount) || 0,
       moved_at: it.date || new Date().toISOString(),
     }));
 
@@ -458,6 +474,7 @@ function Entrate() {
       const delta = Number(pocketTopUp);
       if (!delta) return;
 
+      // Inseriamo il top-up per aggiornare il saldo (ma NON verrà mostrato in tabella)
       const { error } = await supabase.from('pocket_cash').insert({
         user_id: user.id,
         note: 'Ricarica manuale',
@@ -492,9 +509,9 @@ function Entrate() {
   const totalIncomes = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
   const carryAmount = Number(carryover?.amount || 0);
   const saldoMese = totalIncomes + carryAmount - monthExpenses;
-  const pocketBalance = pocket.reduce((t, r) => t + Number(r.amount || 0), 0);
 
-  const pocketTableRows = onlyPocketExpenses ? pocket.filter((m) => m.amount < 0) : pocket;
+  // Saldo “Soldi in tasca” = top-up (delta > 0) – spese in contante (movimenti negativi linkati dal trigger)
+  const pocketBalance = pocketMovs.reduce((t, r) => t + Number(r.amount || 0), 0);
 
   /* ------------------------------ UI ------------------------------ */
   return (
@@ -599,7 +616,7 @@ function Entrate() {
               step="0.01"
               value={newCarry.amount}
               onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-              placeholder={Importo € per ${monthKey}}
+              placeholder={`Importo € per ${monthKey}`}
               required
             />
             <input
@@ -639,17 +656,9 @@ function Entrate() {
             <button className="btn-manuale">+ Aggiungi</button>
             <button type="button" onClick={handleClearPocket} style={{ background: '#ef4444' }}>Ripulisci</button>
 
-            <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <input
-                type="checkbox"
-                checked={onlyPocketExpenses}
-                onChange={(e) => setOnlyPocketExpenses(e.target.checked)}
-              />
-              Solo spese contante
-            </label>
-
             <p style={{ opacity: 0.8, marginTop: '0.5rem', flexBasis: '100%' }}>
-              Le spese in contante vengono scalate automaticamente (trigger su finances).
+              In tabella vedi SOLO le spese pagate in contante provenienti dalle altre pagine.
+              I prelievi manuali aggiornano solo il saldo in alto.
             </p>
           </form>
 
@@ -663,12 +672,12 @@ function Entrate() {
                 </tr>
               </thead>
               <tbody>
-                {pocketTableRows.map((m) => (
+                {pocketRows.map((m) => (
                   <tr key={m.id}>
                     <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-'}</td>
                     <td>{m.label}</td>
                     <td style={{ textAlign: 'right' }}>
-                      {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
+                      - {Math.abs(m.amount).toFixed(2)}
                     </td>
                   </tr>
                 ))}
@@ -684,7 +693,7 @@ function Entrate() {
         </div>
       </div>
 
-      <style jsx global>{
+      <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
@@ -725,11 +734,9 @@ function Entrate() {
         .flex-line { display: flex; justify-content: space-between; margin: .3rem 0; }
         .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
         .error { color: #f87171; margin-top: 1rem; }
-      }</style>
+      `}</style>
     </>
   );
 }
 
 export default withAuth(Entrate);
-
-
