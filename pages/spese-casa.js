@@ -490,7 +490,19 @@ function buildSystemPrompt(source, userText, fileName) {
                         <td>{renderPayBadge(r)}</td>
                         <td>
                           <button onClick={() => handleDelete(r.id)}>🗑</button>
-                        </td>
+                 
+              <td>
+  {(() => {
+    const m = r.description.match(/×\s*([\d.,]+)(?:\s+([A-Za-z]+))?\s*=/);
+    if (m) {
+      const q = m[1];
+      const u = m[2] || '';
+      return `${q}${u ? ' ' + u : ''}`;
+    }
+    return r.qty;
+  })()}
+</td>
+
                       </tr>
                     )
                   })}
