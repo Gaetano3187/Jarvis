@@ -8,7 +8,6 @@ import { supabase } from '@/lib/supabaseClient'
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
 function SpeseCasa() {
-  // ─────────────────────────────────────────────── Stati e refs
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -19,8 +18,7 @@ function SpeseCasa() {
     prezzoTotale: '',
     quantita: '1',
     spentAt: '',
-    // ➕ NUOVO: metodo pagamento + label carta
-    paymentMethod: 'cash',
+    paymentMethod: 'cash', // default
     cardLabel: '',
   })
 
@@ -29,7 +27,6 @@ function SpeseCasa() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  // ─────────────────────────────────────────────── Carica storico on mount
   useEffect(() => {
     fetchSpese()
   }, [])
@@ -38,7 +35,7 @@ function SpeseCasa() {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, spent_at, payment_method, card_label') // ➕
+      .select('id, description, amount, qty, spent_at, payment_method, card_label')
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
@@ -46,12 +43,9 @@ function SpeseCasa() {
     setLoading(false)
   }
 
-  // ─────────────────────────────────────────────── Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) return setError('Sessione scaduta')
 
     const row = {
@@ -61,13 +55,10 @@ function SpeseCasa() {
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
       qty: parseInt(nuovaSpesa.quantita, 10) || 1,
-
-      // ➕ Metodo pagamento (default: contante)
-      payment_method: (nuovaSpesa.paymentMethod || 'cash'), // 'cash' | 'card' | 'transfer'
-      card_label:
-        (nuovaSpesa.paymentMethod === 'card'
-          ? (nuovaSpesa.cardLabel?.trim() || null)
-          : null),
+      payment_method: (nuovaSpesa.paymentMethod || 'cash'), // cash | card | bank
+      card_label: (nuovaSpesa.paymentMethod === 'card'
+        ? (nuovaSpesa.cardLabel?.trim() || null)
+        : null),
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
@@ -84,9 +75,8 @@ function SpeseCasa() {
       })
       fetchSpese()
     }
-  } // ←← CHIUDE handleAdd (mancava)
+  }
 
-  // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
     const { error: deleteError } = await supabase
       .from('finances')
@@ -96,9 +86,7 @@ function SpeseCasa() {
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ─────────────────────────────────────────────── OCR multiplo
   const handleOCR = async files => {
-    console.log('▶️ handleOCR chiamato con file(s):', files)
     if (!files || files.length === 0) return
     try {
       const fd = new FormData()
@@ -112,7 +100,6 @@ function SpeseCasa() {
     }
   }
 
-  // ─────────────────────────────────────────────── Registrazione audio
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -146,9 +133,8 @@ function SpeseCasa() {
     }
   }
 
-  // ─────────────────────────────────────────────── Costruisci prompt (versione parser-safe)
   function buildSystemPrompt(source, userText, fileName) {
-    const fn = fileName || 'scontrino';
+    const fn = fileName || 'scontrino'
     if (source === 'ocr') {
       return [
         'Sei Jarvis. Da questo testo OCR estrai tutte le righe di spesa, usando la data presente sullo scontrino.',
@@ -162,52 +148,24 @@ function SpeseCasa() {
         '- data: "YYYY-MM-DD" (estratta dal testo)',
         '',
         'Rispondi solo con JSON conforme a questo schema:',
-        '{',
-        '  "type": "expense",',
-        '  "items": [',
-        '    {',
-        '      "puntoVendita": "Supermercato Orsini Market",',
-        '      "dettaglio": "1 confezione di latte",',
-        '      "prezzoUnitario": 20.00,',
-        '      "quantita": 1,',
-        '      "prezzoTotale": 20.00,',
-        '      "data": "2025-08-06"',
-        '    }',
-        '  ]',
-        '}',
+        '{ "type": "expense", "items": [{ "puntoVendita": "Supermercato", "dettaglio": "Latte", "prezzoUnitario": 1.20, "quantita": 1, "prezzoTotale": 1.20, "data": "2025-08-06" }] }',
         '',
         'CONTENUTO OCR (' + fn + '):',
         String(userText || '')
-      ].join('\n');
+      ].join('\n')
     }
-
-    // voce / STT
     return [
-      'ATTENZIONE: il testo che segue è trascrizione vocale, ignora intercalari.',
+      'ATTENZIONE: il testo che segue è trascrizione vocale.',
       'Estrai SOLO JSON spesa (stesso schema di prima).',
       '',
       'ESEMPIO:',
-      'Input: Ho preso 3 pacchi di pasta Barilla a 2.50 euro al Supermercato Rossi il 10 luglio 2025',
-      'Output:',
-      '{',
-      '  "type":"expense",',
-      '  "items":[{',
-      '    "puntoVendita":"Supermercato Rossi",',
-      '    "dettaglio":"3 pacchi di pasta Barilla",',
-      '    "prezzoTotale":2.50,',
-      '    "quantita":3,',
-      '    "data":"2025-07-10",',
-      '    "categoria":"casa",',
-      '    "category_id":"' + CATEGORY_ID_CASA + '"',
-      '  }]',
-      '}',
+      '{ "type":"expense", "items":[{ "puntoVendita":"Supermercato Rossi", "dettaglio":"Pasta Barilla", "prezzoTotale":2.50, "quantita":1, "data":"2025-07-10", "categoria":"casa", "category_id":"' + CATEGORY_ID_CASA + '" }] }',
       '',
       'Testo:',
       String(userText || '')
-    ].join('\n');
+    ].join('\n')
   }
 
-  // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -222,16 +180,13 @@ function SpeseCasa() {
       throw new Error('Assistant response invalid')
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
       let spentAt = it.data
-      if (spentAt === 'oggi') {
-        spentAt = new Date().toISOString().slice(0, 10)
-      } else if (spentAt === 'ieri') {
+      if (spentAt === 'oggi') spentAt = new Date().toISOString().slice(0, 10)
+      if (spentAt === 'ieri') {
         const d = new Date()
         d.setDate(d.getDate() - 1)
         spentAt = d.toISOString().slice(0, 10)
@@ -241,14 +196,14 @@ function SpeseCasa() {
       const label = method === 'card' ? (it.cardLabel || null) : null
 
       return {
-        user_id:      user.id,
-        category_id:  CATEGORY_ID_CASA,
-        description:  `[${it.puntoVendita}] ${it.dettaglio}`,
-        amount:       totalPrice,
-        spent_at:     spentAt,
-        qty:          1,
-        payment_method: method,   // ➕
-        card_label:      label,   // ➕
+        user_id: user.id,
+        category_id: CATEGORY_ID_CASA,
+        description: `[${it.puntoVendita}] ${it.dettaglio}`,
+        amount: totalPrice,
+        spent_at: spentAt,
+        qty: 1,
+        payment_method: method, // cash | card | bank
+        card_label: label,
       }
     })
 
@@ -259,34 +214,29 @@ function SpeseCasa() {
     const last = rows[0]
     setNuovaSpesa({
       puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
+      dettaglio: last.description.replace(/^\[.*?\]\s*/, ''),
       prezzoTotale: last.amount,
-      quantita:     String(last.qty),
-      spentAt:      last.spent_at,
+      quantita: String(last.qty),
+      spentAt: last.spent_at,
       paymentMethod: last.payment_method || 'cash',
       cardLabel: last.card_label || '',
     })
   }
 
-  // ─────────────────────────────────────────────── Render
   const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
 
   const renderPayBadge = (r) => {
     if (r.payment_method === 'card') return `💳 ${r.card_label || 'Carta'}`
-    if (r.payment_method === 'transfer') return '🏦 Bonifico'
+    if (r.payment_method === 'bank') return '🏦 Bonifico'
     return '💶 Contante'
   }
 
   return (
     <>
-      <Head>
-        <title>Spese Casa</title>
-      </Head>
-
+      <Head><title>Spese Casa</title></Head>
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <h2 className="title">🏠 Spese Casa</h2>
-
           <div className="table-buttons">
             <button className="btn-vocale" onClick={toggleRec}>
               {recBusy ? '⏹ Stop' : '🎙 Voce'}
@@ -294,83 +244,37 @@ function SpeseCasa() {
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
               📷 OCR
             </button>
-            <input
-              ref={ocrInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              hidden
-              onChange={e => handleOCR(Array.from(e.target.files || []))}
-            />
+            <input ref={ocrInputRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={e => handleOCR(Array.from(e.target.files || []))}/>
           </div>
 
           <form className="input-section" ref={formRef} onSubmit={handleAdd}>
             <label>Punto vendita / Servizio</label>
-            <input
-              value={nuovaSpesa.puntoVendita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
-              required
-            />
+            <input value={nuovaSpesa.puntoVendita} onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })} required/>
             <label>Quantità</label>
-            <input
-              type="number"
-              min="1"
-              value={nuovaSpesa.quantita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-              required
-            />
+            <input type="number" min="1" value={nuovaSpesa.quantita} onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })} required/>
             <label>Dettaglio della spesa</label>
-            <textarea
-              value={nuovaSpesa.dettaglio}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
-              required
-            />
+            <textarea value={nuovaSpesa.dettaglio} onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })} required/>
             <label>Data di acquisto</label>
-            <input
-              type="date"
-              value={nuovaSpesa.spentAt}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
-              required
-            />
+            <input type="date" value={nuovaSpesa.spentAt} onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })} required/>
             <label>Prezzo totale (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={nuovaSpesa.prezzoTotale}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
-              required
-            />
-
-            {/* ➕ Metodo pagamento */}
+            <input type="number" step="0.01" value={nuovaSpesa.prezzoTotale} onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })} required/>
             <label>Metodo di pagamento</label>
-            <select
-              value={nuovaSpesa.paymentMethod}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, paymentMethod: e.target.value })}
-            >
+            <select value={nuovaSpesa.paymentMethod} onChange={e => setNuovaSpesa({ ...nuovaSpesa, paymentMethod: e.target.value })}>
               <option value="cash">Contante (tasca)</option>
               <option value="card">Carta</option>
-              <option value="transfer">Bonifico/Altro</option>
+              <option value="bank">Bonifico/Altro</option>
             </select>
-
             {nuovaSpesa.paymentMethod === 'card' && (
               <>
                 <label>Nome carta (opz.)</label>
-                <input
-                  value={nuovaSpesa.cardLabel}
-                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, cardLabel: e.target.value })}
-                  placeholder="Visa, Revolut…"
-                />
+                <input value={nuovaSpesa.cardLabel} onChange={e => setNuovaSpesa({ ...nuovaSpesa, cardLabel: e.target.value })} placeholder="Visa, Revolut…"/>
               </>
             )}
-
             <button className="btn-manuale">Aggiungi</button>
           </form>
 
           <div className="table-container">
-            {loading ? (
-              <p>Caricamento…</p>
-            ) : (
+            {loading ? <p>Caricamento…</p> : (
               <table className="custom-table">
                 <thead>
                   <tr>
@@ -379,7 +283,7 @@ function SpeseCasa() {
                     <th>Data</th>
                     <th>Qtà</th>
                     <th>Prezzo €</th>
-                    <th>Pag.</th>{/* ➕ */}
+                    <th>Pag.</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -393,10 +297,8 @@ function SpeseCasa() {
                         <td>{new Date(r.spent_at).toLocaleDateString()}</td>
                         <td>{r.qty}</td>
                         <td>{r.amount.toFixed(2)}</td>
-                        <td>{renderPayBadge(r)}</td>{/* ➕ */}
-                        <td>
-                          <button onClick={() => handleDelete(r.id)}>🗑</button>
-                        </td>
+                        <td>{renderPayBadge(r)}</td>
+                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
                       </tr>
                     )
                   })}
@@ -407,100 +309,9 @@ function SpeseCasa() {
           </div>
 
           {error && <p className="error">{error}</p>}
-
-          <Link href="/home" legacyBehavior>
-            <a className="btn-vocale">🏠 Home</a>
-          </Link>
+          <Link href="/home"><a className="btn-vocale">🏠 Home</a></Link>
         </div>
       </div>
-
-      <style jsx>{`
-        .spese-casa-container1 {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #0f172a;
-          min-height: 100vh;
-          padding: 2rem;
-          font-family: Inter, sans-serif;
-        }
-        .spese-casa-container2 {
-          background: rgba(0, 0, 0, 0.6);
-          padding: 2rem;
-          border-radius: 1rem;
-          color: #fff;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          max-width: 800px;
-          width: 100%;
-        }
-        .title {
-          margin-bottom: 1rem;
-          font-size: 1.5rem;
-        }
-        .table-buttons {
-          display: flex;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
-        }
-        .btn-vocale,
-        .btn-ocr,
-        .btn-manuale {
-          background: #10b981;
-          color: #fff;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 0.5rem;
-          cursor: pointer;
-        }
-        .btn-ocr {
-          background: #f43f5e;
-        }
-        .input-section {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-          margin-bottom: 1.5rem;
-        }
-        input,
-        textarea,
-        select {
-          width: 100%;
-          padding: 0.6rem;
-          border: none;
-          border-radius: 0.5rem;
-          background: rgba(255, 255, 255, 0.1);
-          color: #fff;
-        }
-        textarea {
-          resize: vertical;
-          min-height: 4.5rem;
-        }
-        .custom-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        .custom-table th,
-        .custom-table td {
-          padding: 0.75rem 1rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .custom-table thead {
-          background: #1f2937;
-        }
-        .total-box {
-          margin-top: 1rem;
-          background: rgba(34, 197, 94, 0.8);
-          padding: 1rem;
-          border-radius: 0.5rem;
-          text-align: right;
-          font-weight: 600;
-        }
-        .error {
-          color: #f87171;
-          margin-top: 1rem;
-        }
-      `}</style>
     </>
   )
 }
