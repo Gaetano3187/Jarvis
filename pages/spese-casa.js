@@ -308,7 +308,57 @@ function buildSystemPrompt(source, userText, fileName) {
     String(userText || '')
   ].join('\n');
 }
+   }
 
+  // ───────────────────────────────────────────────── PARSING & DB INSERT
+  async function parseAssistantPrompt(prompt) {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    })
+    const { answer, error: apiErr } = await res.json()
+    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+    const data = JSON.parse(answer)
+    if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
+      throw new Error('Assistant response invalid')
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error('Sessione scaduta')
+
+   const rows = data.items.map(it => {
+  const spentAt = normDate(it.data);
+  const totalPrice = Number(it.prezzoTotale) || 0;
+  const qty = parseFloat(it.quantita) || 1;
+  // unità di misura se presente
+  const uom = (it.uom || '').trim(); // es: 'kg', 'L', 'pz'
+  // prezzo unitario: usa il campo se c’è, altrimenti calcola
+  const unitPrice = it.prezzoUnitario != null
+    ? Number(it.prezzoUnitario) || 0
+    : (qty ? totalPrice / qty : totalPrice);
+
+  // arricchisco la description per storicizzare uom senza toccare il DB
+  // formato: [Store] Dettaglio • €X.xx × QTY UOM = €TOT
+  const parts = [];
+  parts.push(`[${it.puntoVendita}] ${it.dettaglio}`);
+  parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`);
+
+  const method = (it.paymentMethod || 'cash');
+  const label  = method === 'card' ? (it.cardLabel || null) : null;
+
+  return {
+    user_id: user.id,
+    category_id: CATEGORY_ID_CASA,
+    description: parts.join(' '),
+    amount: totalPrice,
+    spent_at: spentAt,
+    qty: qty,
+    payment_method: method,
+    card_label: label,
+  };
+});
 
   // ───────────────────────────── UI
   const totale = (spese || []).reduce((t, r) => t + r.amount * (r.qty || 1), 0)
