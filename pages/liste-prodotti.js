@@ -12,7 +12,6 @@ const ASSISTANT_ID_OCR = 'assistantasst_a1d9qqNpXnXU92lPJFV00TjZ';
 const API_ASSISTANT_TEXT = '/api/assistant';
 const API_ASSISTANT_OCR = '/api/assistant-ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
-const API_OPERATOR_CONNECT = '/api/operator/connect';
 
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
@@ -32,9 +31,9 @@ function normKey(str) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g,' ')
-    .replace(/\s{2,}/g,' ')
-    .trim();
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+  .trim();
 }
 function tokens(str){ return new Set(normKey(str).split(' ').filter(Boolean)); }
 function isSimilar(a,b){
@@ -52,7 +51,7 @@ function isSimilar(a,b){
 /* ---------------- parser liste ---------------- */
 function parseLinesToItems(text) {
   const chunks = String(text || '')
-    .split(/[\n,]+/g)
+    .split(/[\n,;]+/g)
     .map(s => s.trim())
     .filter(Boolean);
 
@@ -130,16 +129,12 @@ function toISODate(any) {
   return '';
 }
 
-/** estrae coppie prodotto->data da frasi continue:
- *  "il latte scade il 15/07/2025 il burro il 12/08/2026 la passata di pomodoro scade il 10 giugno 2025"
- *  supporta anche pezzi senza “scade”: "<item> il <data>"
- */
+/** estrae coppie prodotto->data da frasi continue */
 function parseExpiryPairs(text) {
   const out = [];
   const norm = (x) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const s = norm(text);
 
-  // 1) pattern generico ripetuto
   const re = /([a-zà-ú\s]{2,}?)(?:\s+scade(?:\s+il)?)?\s+((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(?:\d{1,2}\s+[a-zà-ú]+\s+\d{2,4}))/gi;
   let m;
   while ((m = re.exec(s)) !== null) {
@@ -148,7 +143,6 @@ function parseExpiryPairs(text) {
     const iso = toISODate(dateRaw);
     if (!nameRaw || !iso) continue;
 
-    // usa lessico per “magnetizzare” il nome
     let chosen = nameRaw;
     let bestLen = 0;
     for (const p of GROCERY_LEXICON) {
@@ -158,7 +152,6 @@ function parseExpiryPairs(text) {
     out.push({ name: chosen, expiresAt: iso });
   }
 
-  // 2) se niente trovato, prova “<lessico> ... <data>”
   if (!out.length) {
     for (const p of GROCERY_LEXICON) {
       const k = norm(p);
@@ -173,8 +166,26 @@ function parseExpiryPairs(text) {
       }
     }
   }
-
   return out;
+}
+
+/* ---------- fetch helpers robusti ---------- */
+async function readJsonSafe(res) {
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  const raw = await res.text();
+  if (!raw || !raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
+  if (ct.includes('application/json')) {
+    try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
+    catch (e) { return { ok: res.ok, data: null, error: `JSON parse error: ${e?.message || e}` }; }
+  }
+  try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
+  catch { return { ok: res.ok, data: null, error: raw.slice(0,200) || `HTTP ${res.status}` }; }
+}
+function ensureArray(x) { return Array.isArray(x) ? x : []; }
+function timeoutFetch(url, opts={}, ms=25000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(()=>clearTimeout(t));
 }
 
 /* ---------------- component ---------------- */
@@ -203,7 +214,7 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale: SCADENZE (session dedicata, più lunga)
+  // Vocale: SCADENZE (session dedicata)
   const expMediaRef = useRef(null);
   const expChunksRef = useRef([]);
   const expStreamRef = useRef(null);
@@ -300,9 +311,12 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- Vocale: LISTA (rimane per lista prodotti) ---------------- */
+  /* ---------------- Vocale: LISTA ---------------- */
   async function toggleRecList() {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
+    if (recBusy) {
+      try { mediaRecRef.current?.stop(); } catch {}
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -322,28 +336,35 @@ export default function ListeProdotti() {
     const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
     try {
       setBusy(true);
-      const res = await fetch('/api/stt', { method: 'POST', body: fd });
+      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
 
-      // inviamo a assistant per estrarre items (fallback parser locale se vuoto)
+      // assistant (estrazione strutturata) con fallback locale
+      let appended = false;
       try {
         const payload = {
           assistantId: ASSISTANT_ID_VOICE,
           prompt: [
-            'Sei Jarvis. Capisci una LISTA SPESA. JSON { "items":[{ "name":"latte","brand":"Parmalat","qty":2 }, ...] }.',
+            'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
+            '{ "items":[{ "name":"latte","brand":"Parmalat","qty":2 }, ...] }',
+            'Se manca brand metti stringa vuota, qty default 1.',
             'Voci comuni: ' + GROCERY_LEXICON.join(', '),
             'Testo:', text
           ].join('\n'),
         };
-        const r = await fetch(API_ASSISTANT_TEXT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        const { answer } = await r.json();
-        const data = typeof answer === 'string' ? JSON.parse(answer) : answer;
-        const arr = Array.isArray(data?.items) ? data.items : [];
+        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        }, 25000);
+        const safe = await readJsonSafe(r);
+        const answer = safe?.answer || safe?.data || safe; // copre implementazioni diverse
+        const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
+        const arr = Array.isArray(parsed?.items) ? parsed.items : [];
         if (arr.length) {
           setLists(prev => {
             const next = { ...prev };
-            const existing = [...(prev[currentList] || [])];
+            const target = currentList;
+            const existing = [...(prev[target] || [])];
             for (const raw of arr) {
               const it = {
                 id: 'tmp-' + Math.random().toString(36).slice(2),
@@ -357,38 +378,46 @@ export default function ListeProdotti() {
               if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
               else existing.push(it);
             }
-            next[currentList] = existing;
+            next[target] = existing;
             return next;
           });
+          appended = true;
         }
-      } catch {
+      } catch {}
+
+      if (!appended) {
         const local = parseLinesToItems(text);
         if (local.length) {
           setLists(prev => {
             const next = { ...prev };
-            const existing = [...(prev[currentList] || [])];
+            const target = currentList;
+            const existing = [...(prev[target] || [])];
             for (const it of local) {
               const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase());
               if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
               else existing.push(it);
             }
-            next[currentList] = existing;
+            next[target] = existing;
             return next;
           });
+          appended = true;
         }
       }
 
-      showToast('Lista aggiornata da Vocale ✓', 'ok');
+      showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
     } catch {
       alert('Errore nel riconoscimento vocale');
     } finally {
       setRecBusy(false);
       setBusy(false);
-      try { streamRef.current?.getTracks?.forEach(t=>t.stop()); } catch {}
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {} // <-- FIX: chiude davvero il microfono
+      mediaRecRef.current = null;
+      streamRef.current = null;
+      recordedChunks.current = [];
     }
   }
 
-  /* ---------------- Vocale: SCADENZE (più lungo + parser continuo) ---------------- */
+  /* ---------------- Vocale: SCADENZE ---------------- */
   async function startVoiceExpiry() {
     if (expRecBusy) return;
     try {
@@ -400,22 +429,19 @@ export default function ListeProdotti() {
       expMediaRef.current.onstop = processVoiceExpiry;
       expMediaRef.current.start();
       setExpRecBusy(true);
-      // timeout auto 10s se non si preme Stop
-      setTimeout(() => { try { if (expMediaRef.current && expMediaRef.current.state === 'recording') expMediaRef.current.stop(); } catch {} }, 10000);
+      setTimeout(() => { try { if (expMediaRef.current && expMediaRef.current.state === 'recording') expMediaRef.current.stop(); } catch {} }, 12000);
     } catch {
       alert('Microfono non disponibile');
     }
   }
-  function stopVoiceExpiry() {
-    try { expMediaRef.current?.stop(); } catch {}
-  }
+  function stopVoiceExpiry() { try { expMediaRef.current?.stop(); } catch {} }
 
   async function processVoiceExpiry() {
     const blob = new Blob(expChunksRef.current, { type: 'audio/webm' });
     const fd = new FormData(); fd.append('audio', blob, 'expiry.webm');
     try {
       setBusy(true);
-      const res = await fetch('/api/stt', { method:'POST', body: fd });
+      const res = await timeoutFetch('/api/stt', { method:'POST', body: fd }, 25000);
       const { text } = await res.json();
       const pairs = parseExpiryPairs(text || '');
       if (!pairs.length) { showToast('Nessuna scadenza trovata', 'err'); return; }
@@ -432,28 +458,34 @@ export default function ListeProdotti() {
     } finally {
       setBusy(false);
       setExpRecBusy(false);
-      try { expStreamRef.current?.getTracks?.forEach(t=>t.stop()); } catch {}
+      try { expStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      expMediaRef.current = null;
+      expStreamRef.current = null;
+      expChunksRef.current = [];
     }
   }
 
-  /* ---------------- OCR: scontrini (aggiorna liste e scorte; non popola altre sezioni) ---------------- */
-  function decrementListsByPurchases(prevLists, purchases) {
+  /* ----- OCR: funzioni supporto decremento su entrambe le liste ----- */
+  function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
-    // solo Lista Supermercato (come richiesto), ma estendiamo anche all'online se vuoi
-    const lt = LIST_TYPES.SUPERMARKET;
-    const arr = [...(prevLists[lt] || [])];
-    for (const p of purchases) {
-      const dec = Math.max(1, Number(p.qty || 1));
-      const idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!p.brand || isSimilar(i.brand || '', p.brand || '')));
-      if (idx >= 0) {
-        const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
-        arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
+    const decList = (listKey) => {
+      const arr = [...(next[listKey] || [])];
+      for (const p of purchases) {
+        const dec = Math.max(1, Number(p.qty || 1));
+        const idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!p.brand || isSimilar(i.brand || '', p.brand || '')));
+        if (idx >= 0) {
+          const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
+          arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
+        }
       }
-    }
-    next[lt] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+    };
+    decList(LIST_TYPES.SUPERMARKET);
+    decList(LIST_TYPES.ONLINE);
     return next;
   }
 
+  /* ---------------- OCR: scontrini (aggiorna entrambe le liste + scorte) ---------------- */
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
@@ -463,16 +495,17 @@ export default function ListeProdotti() {
       files.forEach((f) => fd.append('files', f));
       fd.append('hints', JSON.stringify({ lexicon: GROCERY_LEXICON }));
 
-      const res = await fetch(API_ASSISTANT_OCR, { method: 'POST', body: fd });
-      const { data, error } = await res.json();
-      if (!res.ok || error) throw new Error(error || String(res.status));
+      const res = await timeoutFetch(API_ASSISTANT_OCR, { method: 'POST', body: fd }, 30000);
+      const { ok, data, error } = await readJsonSafe(res);
+      if (!ok) throw new Error(error || `HTTP ${res.status}`);
+      if (!data) throw new Error('Risposta vuota dal servizio OCR');
 
-      const purchases = Array.isArray(data?.purchases) ? data.purchases : [];
-      const expiries  = Array.isArray(data?.expiries)  ? data.expiries  : [];
-      const stockArr  = Array.isArray(data?.stock)     ? data.stock     : [];
+      const purchases = ensureArray(data.purchases);
+      const expiries  = ensureArray(data.expiries);
+      const stockArr  = ensureArray(data.stock);
 
       if (purchases.length) {
-        setLists(prev => decrementListsByPurchases(prev, purchases));
+        setLists(prev => decrementAcrossBothLists(prev, purchases));
         // aggiorna scorte includendo anche prodotti non in lista
         setStock(prev => {
           const arr = [...prev];
@@ -488,30 +521,45 @@ export default function ListeProdotti() {
           }
           return arr;
         });
-        // invia alle finanze (best-effort)
-        try { await fetch(API_FINANCES_INGEST, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ purchases }) }); } catch {}
+        // best-effort finanze
+        try {
+          await fetch(API_FINANCES_INGEST, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ purchases })
+          });
+        } catch {}
       }
 
-      // scadenze standalone o stato scorte (non creare nuove righe: aggiorna solo esistenti)
       if ((expiries && expiries.length) || (stockArr && stockArr.length)) {
         setStock(prev => {
           let arr = [...prev];
-          const apply = (rec) => {
+          const upsert = (rec) => {
+            if (!rec?.name) return;
             const idx = arr.findIndex(s => isSimilar(s.name, rec.name) && (!rec.brand || isSimilar(s.brand||'', rec.brand)));
-            const ex = toISODate(rec.expiresAt);
+            const addQty = Math.max(0, Number(rec.qty || 0));
+            const ex = rec.expiresAt ? toISODate(rec.expiresAt) : '';
             if (idx >= 0) {
-              arr[idx] = { ...arr[idx], expiresAt: ex || arr[idx].expiresAt, qty: Number(arr[idx].qty || 0) + Math.max(0, Number(rec.qty||0)) };
+              arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + addQty, expiresAt: ex || arr[idx].expiresAt };
+            } else if (rec.qty || rec.expiresAt) {
+              arr.unshift({ name: rec.name, brand: rec.brand || '', qty: addQty || 1, expiresAt: ex || '' });
             }
           };
-          (expiries||[]).forEach(apply);
-          (stockArr||[]).forEach(apply);
+          stockArr.forEach(upsert);
+          expiries.forEach((rec) => {
+            if (!rec?.name) return;
+            const idx = arr.findIndex(s => isSimilar(s.name, rec.name) && (!rec.brand || isSimilar(s.brand||'', rec.brand)));
+            const ex = rec.expiresAt ? toISODate(rec.expiresAt) : '';
+            if (idx >= 0 && ex) arr[idx] = { ...arr[idx], expiresAt: ex };
+          });
           return arr;
         });
       }
 
       showToast('OCR scontrino elaborato ✓', 'ok');
-    } catch {
-      showToast('Errore OCR/Assistant', 'err');
+    } catch (e) {
+      console.error('[OCR] error', e);
+      showToast(`Errore OCR: ${e?.message || e}`, 'err');
     } finally {
       setBusy(false);
       if (ocrInputRef.current) ocrInputRef.current.value = '';
@@ -533,10 +581,11 @@ export default function ListeProdotti() {
       files.forEach((f)=>fd.append('files', f));
       fd.append('intent', 'expiry_for_item');
       fd.append('item', JSON.stringify({ name: row.name, brand: row.brand || '' }));
-      const res = await fetch(API_ASSISTANT_OCR, { method:'POST', body: fd });
-      const { data, error } = await res.json();
-      if (!res.ok || error) throw new Error(error || String(res.status));
-      const ex = Array.isArray(data?.expiries) ? data.expiries[0] : null;
+
+      const res = await timeoutFetch(API_ASSISTANT_OCR, { method:'POST', body: fd }, 25000);
+      const { ok, data, error } = await readJsonSafe(res);
+      if (!ok) throw new Error(error || `HTTP ${res.status}`);
+      const ex = ensureArray(data?.expiries)[0];
       const iso = ex?.expiresAt ? toISODate(ex.expiresAt) : '';
       if (iso) {
         setStock(prev => {
@@ -548,8 +597,9 @@ export default function ListeProdotti() {
       } else {
         showToast('Scadenza non riconosciuta', 'err');
       }
-    } catch {
-      showToast('Errore OCR scadenza', 'err');
+    } catch (e) {
+      console.error('[OCR row] error', e);
+      showToast(`Errore OCR scadenza: ${e?.message || e}`, 'err');
     } finally {
       setBusy(false);
       setTargetRowIdx(null);
@@ -641,7 +691,7 @@ export default function ListeProdotti() {
               <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
             </form>
             <p style={{opacity:.8, marginTop: 6}}>
-              Suggerimenti voce: “2 latte parmalat, 3 pasta barilla, uova”.
+              Suggerimenti voce: “2 latte parmalat; 3 pasta barilla; uova”.
             </p>
           </div>
 
