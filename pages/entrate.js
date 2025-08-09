@@ -5,7 +5,7 @@ import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import { supabase } from '@/lib/supabaseClient';
 
-/** Giorno di accredito stipendio (1..28) */
+/** Giorno di accredito stipendio (1..28) — usato solo per calcolare il periodo */
 const PAYDAY_DAY = 10;
 
 /* --------------------------- helpers --------------------------- */
@@ -97,6 +97,33 @@ function parseAmountLoose(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Formatta YYYY-MM-DD -> dd/mm/yyyy (IT) */
+function formatIT(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!isNaN(d)) {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = d.getFullYear();
+    return `${dd}/${mm}/${yy}`;
+  }
+  // Fallback se ci passa proprio "YYYY-MM-DD"
+  const [yy, mm, dd] = String(iso).split('-').map(Number);
+  if (yy && mm && dd) return `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${yy}`;
+  return String(iso);
+}
+
+/** Error helper: mostra messaggi utili e logga in console */
+function showError(setter, err) {
+  const msg =
+    err?.message ||
+    err?.error_description ||
+    err?.hint ||
+    (typeof err === 'string' ? err : JSON.stringify(err));
+  setter(msg);
+  console.error('[SUPABASE ERROR]', err);
+}
+
 /* --------------------------- component --------------------------- */
 function Entrate() {
   const [loading, setLoading] = useState(false);
@@ -116,7 +143,7 @@ function Entrate() {
   const [pocketRows, setPocketRows] = useState([]); // righe estratto conto contante (manuali + spese cash)
   const [pocketTopUp, setPocketTopUp] = useState('');
 
-  const [monthExpenses, setMonthExpenses] = useState(0); // se ti serve altrove, qui rimane
+  const [monthExpenses, setMonthExpenses] = useState(0); // opzionale
 
   // OCR / VOCE
   const ocrInputRef = useRef(null);
@@ -241,8 +268,7 @@ function Entrate() {
       setMonthExpenses(totalExp);
 
     } catch (err) {
-      console.error(err);
-      setError(err.message || String(err));
+      showError(setError, err);
     } finally {
       setLoading(false);
     }
@@ -336,6 +362,13 @@ function Entrate() {
       const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
       const amount = Math.abs(parseAmountLoose(it.amount));
 
+      console.log('[INSERT INCOME OCR/VOICE]', {
+        source: it.source || 'Entrata',
+        description: it.description || it.source || 'Entrata',
+        amount,
+        received_at: dataIncasso
+      });
+
       const { error } = await supabase.from('incomes').insert({
         user_id: user.id,
         source: it.source || 'Entrata',
@@ -356,16 +389,21 @@ function Entrate() {
       const res = await fetch('/api/ocr', { method: 'POST', body: fd });
       const { text } = await res.json();
 
-      const handledPocket = await parseAssistantForPocket(text).catch(() => false);
-      if (handledPocket) return loadAll();
+      const handledPocket = await parseAssistantForPocket(text);
+      if (handledPocket) {
+        await loadAll();
+        return;
+      }
 
-      const handledIncome = await parseAssistantForIncome(text).catch(() => false);
-      if (handledIncome) return loadAll();
+      const handledIncome = await parseAssistantForIncome(text);
+      if (handledIncome) {
+        await loadAll();
+        return;
+      }
 
       setError('Nessun dato riconosciuto da OCR');
     } catch (err) {
-      console.error(err);
-      setError('OCR fallito');
+      showError(setError, err);
     }
   }
 
@@ -397,24 +435,25 @@ function Entrate() {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
 
-      const handledPocket = await parseAssistantForPocket(text).catch(() => false);
+      const handledPocket = await parseAssistantForPocket(text);
       if (handledPocket) {
         setRecBusy(false);
         streamRef.current?.getTracks?.().forEach((t) => t.stop());
-        return loadAll();
+        await loadAll();
+        return;
       }
 
-      const handledIncome = await parseAssistantForIncome(text).catch(() => false);
+      const handledIncome = await parseAssistantForIncome(text);
       if (handledIncome) {
         setRecBusy(false);
         streamRef.current?.getTracks?.().forEach((t) => t.stop());
-        return loadAll();
+        await loadAll();
+        return;
       }
 
       setError('Nessun dato riconosciuto dalla voce');
     } catch (err) {
-      console.error(err);
-      setError('STT fallito');
+      showError(setError, err);
     } finally {
       setRecBusy(false);
       try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
@@ -429,25 +468,34 @@ function Entrate() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
 
-      await supabase.from('incomes').insert({
+      const payload = {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Math.abs(parseAmountLoose(newIncome.amount)), // <-- accetta virgola/punto e forza positivo
+        amount: Math.abs(parseAmountLoose(newIncome.amount)), // accetta virgola/punto e forza positivo
         received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
-      });
+      };
+
+      console.log('[INSERT INCOME MANUAL]', payload);
+
+      const { error } = await supabase.from('incomes').insert(payload);
+      if (error) throw error;
 
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
     } catch (err) {
-      setError(err.message || String(err));
+      showError(setError, err);
     }
   }
 
   async function handleDeleteIncome(id) {
-    const { error: e } = await supabase.from('incomes').delete().eq('id', id);
-    if (e) return setError(e.message);
-    setIncomes(incomes.filter((i) => i.id !== id));
+    try {
+      const { error: e } = await supabase.from('incomes').delete().eq('id', id);
+      if (e) throw e;
+      setIncomes(incomes.filter((i) => i.id !== id));
+    } catch (err) {
+      showError(setError, err);
+    }
   }
 
   async function handleSaveCarryover(e) {
@@ -475,7 +523,7 @@ function Entrate() {
       setNewCarry({ amount: '', note: '' });
       await loadAll();
     } catch (err) {
-      setError(err.message || String(err));
+      showError(setError, err);
     }
   }
 
@@ -486,21 +534,25 @@ function Entrate() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
 
-      const delta = parseAmountLoose(pocketTopUp); // <-- accetta virgola/punto e segno
+      const delta = parseAmountLoose(pocketTopUp); // accetta virgola/punto e segno
       if (!delta) return;
 
-      const { error } = await supabase.from('pocket_cash').insert({
+      const payload = {
         user_id: user.id,
         note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
         delta,
         moved_at: new Date().toISOString(),
-      });
+      };
+
+      console.log('[INSERT POCKET MANUAL]', payload);
+
+      const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) throw error;
 
       setPocketTopUp('');
       await loadAll();
     } catch (err) {
-      setError(err.message || String(err));
+      showError(setError, err);
     }
   }
 
@@ -515,7 +567,7 @@ function Entrate() {
 
       await loadAll();
     } catch (err) {
-      setError(err.message || String(err));
+      showError(setError, err);
     }
   }
 
@@ -531,7 +583,7 @@ function Entrate() {
   // Saldo disponibile (reale)
   const saldoDisponibile = entratePeriodo + carryAmount - prelievi;
 
-  // Mostra sempre >= 0 come richiesto
+  // Mostra sempre >= 0 come richiesto (se vuoi assoluto, usa Math.abs)
   const saldoDisponibileUI = Math.max(0, saldoDisponibile);
 
   // Contante residuo = somma movimenti (ricariche/prelievi +, spese cash -)
@@ -546,12 +598,12 @@ function Entrate() {
         <div className="spese-casa-container2">
           <h2 className="title">Entrate & Saldi</h2>
 
-          {/* Periodo corrente in alto */}
+          {/* Periodo corrente in alto - formato IT */}
           <div className="periodo-row">
             <span>Periodo corrente:</span>
-            <b>{startDate}</b>
-            <span>→</span>
-            <b>{endDate}</b>
+            <b>{formatIT(startDate)}</b>
+            <span>–</span>
+            <b>{formatIT(endDate)}</b>
           </div>
 
           {/* Disponibilita */}
