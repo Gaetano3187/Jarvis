@@ -9,25 +9,42 @@ import { supabase } from '@/lib/supabaseClient';
 const PAYDAY_DAY = 10;
 
 /* --------------------------- helpers --------------------------- */
+/** Ritorna YYYY-MM-DD in LOCALE (niente UTC) */
+function isoLocal(date) {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${y}-${pad(m)}-${pad(d)}`;
+}
+
+/** Somma giorni in LOCALE e ritorna nuova Date */
+function addDaysLocal(date, days) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+/** Calcola il periodo corrente usando SOLO date locali */
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear();
   const m = today.getMonth();
   const d = today.getDate();
 
-  const thisPayday = new Date(y, m, paydayDay);
+  const thisPayday = new Date(y, m, paydayDay); // locale
   let start, end;
 
   if (d >= paydayDay) {
-    start = thisPayday;
-    end = new Date(y, m + 1, paydayDay - 1);
+    start = thisPayday;                                // dal 10 incluso
+    end = new Date(y, m + 1, paydayDay - 1);           // al 9 incluso
   } else {
-    start = new Date(y, m - 1, paydayDay);
-    end = new Date(y, m, paydayDay - 1);
+    start = new Date(y, m - 1, paydayDay);             // 10 mese prima
+    end = new Date(y, m, paydayDay - 1);               // 9 mese corrente
   }
 
-  const startDate = start.toISOString().slice(0, 10); // YYYY-MM-DD
-  const endDate = end.toISOString().slice(0, 10);     // YYYY-MM-DD
-  const monthKey = end.toISOString().slice(0, 7);
+  const startDate = isoLocal(start);
+  const endDate = isoLocal(end);
+  const monthKey = isoLocal(end).slice(0, 7);
   return { startDate, endDate, monthKey };
 }
 
@@ -53,9 +70,9 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
   const prevEnd = new Date(yy, mm - 1, 0);
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
-  const prevStartISO = prevStart.toISOString().slice(0, 10);
-  const prevEndISO = prevEnd.toISOString().slice(0, 10);
-  const prevKey = prevEnd.toISOString().slice(0, 7);
+  const prevStartISO = isoLocal(prevStart);
+  const prevEndISO = isoLocal(prevEnd);
+  const prevKey = prevEndISO.slice(0, 7);
 
   console.log('[CARRY] prev period', { prevStartISO, prevEndISO, prevKey });
 
@@ -111,11 +128,9 @@ function parseAmountLoose(v) {
 /** Formatta YYYY-MM-DD -> dd/mm/yyyy (IT) */
 function formatIT(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (!isNaN(d)) return d.toLocaleDateString('it-IT');
-  const [yy, mm, dd] = String(iso).split('-').map(Number);
-  if (yy && mm && dd) return new Date(yy, mm - 1, dd).toLocaleDateString('it-IT');
-  return String(iso);
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
+  return date.toLocaleDateString('it-IT');
 }
 
 /** Error helper */
@@ -157,17 +172,15 @@ function Entrate() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // === Date correnti ===
+  // === Date correnti (LOCAL) ===
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-
-  // ISO per filtri
-  const startDateISO = startDate; // 'YYYY-MM-DD'
-  const endDateISO = endDate;     // 'YYYY-MM-DD'
-  const endExclusiveDate = (() => {
-    const d = new Date(endDateISO + 'T00:00:00Z');
-    d.setUTCDate(d.getUTCDate() + 1);
-    return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
-  })();
+  const startDateISO = startDate;
+  const endDateISO = endDate;
+  const endExclusiveDate = isoLocal(addDaysLocal(new Date(
+    Number(endDateISO.slice(0,4)),
+    Number(endDateISO.slice(5,7))-1,
+    Number(endDateISO.slice(8,10))
+  ), 1));
 
   // Italiano per UI
   const startDateIT = formatIT(startDateISO);
@@ -230,7 +243,7 @@ function Entrate() {
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // 1) Entrate del periodo (ISO nei filtri)
+      // 1) Entrate del periodo (LOCAL ISO nei filtri)
       const { data: inc, error: e1 } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at')
@@ -282,7 +295,7 @@ function Entrate() {
       });
       console.log('[MAP] manualRows', manualRows.length);
 
-      // 3b) Spese cash dalle altre pagine (ISO nei filtri)
+      // 3b) Spese cash dalle altre pagine (LOCAL ISO nei filtri)
       const { data: finCash, error: e4 } = await supabase
         .from('finances')
         .select('id, description, amount, spent_at')
@@ -358,7 +371,7 @@ function Entrate() {
   }
 
   function buildIncomePrompt(userText) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = isoLocal(new Date());
     const example = JSON.stringify({
       type: 'income',
       items: [{ source: 'Stipendio', description: 'Stipendio', amount: 1500, receivedAt: today }],
@@ -414,7 +427,7 @@ function Entrate() {
     if (error) { console.error('[INSERT POCKET OCR ERROR]', error); throw error; }
     console.log('[INSERT POCKET OCR OK]');
 
-    // Probe: leggo subito ultime righe pocket
+    // Probe
     const { data: probePc, error: probePcErr } = await supabase
       .from('pocket_cash')
       .select('id, created_at, moved_at, delta, note')
@@ -436,7 +449,7 @@ function Entrate() {
     if (!user) throw new Error('Sessione scaduta');
 
     for (const it of data.items) {
-      const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
+      const dataIncasso = it.receivedAt || isoLocal(new Date());
       const amount = Math.abs(parseAmountLoose(it.amount));
 
       const payload = {
@@ -460,7 +473,7 @@ function Entrate() {
         .eq('received_at', payload.received_at)
         .order('id', { ascending: false })
         .limit(3);
-      if (probeErr) console.error('[PROBE] read back income error', probeErr);
+      if (probeErr) console.error('[PROBE] read back income error]', probeErr);
       console.log('[PROBE] read back income for', payload.received_at, probeInc);
     }
     return true;
@@ -559,7 +572,7 @@ function Entrate() {
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
         amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
+        received_at: newIncome.receivedAt || isoLocal(new Date()),
       };
 
       console.log('[INSERT INCOME MANUAL]', payload);
@@ -646,7 +659,7 @@ function Entrate() {
         user_id: user.id,
         note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
         delta,
-        moved_at: new Date().toISOString(),
+        moved_at: new Date().toISOString(), // qui può restare ISO pieno (timestamp), lo filtri con created_at fallback
       };
 
       console.log('[INSERT POCKET MANUAL]', payload);
