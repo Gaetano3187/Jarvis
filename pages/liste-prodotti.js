@@ -9,15 +9,13 @@ import Link from 'next/link';
  * - 📷 OCR    -> /api/assistant-ocr (assistantId: OCR)
  * - Finanze   -> /api/finances/ingest (JSON purchases)
  * - Operator  -> /api/operator/connect
- *
- * Nota: se usi path diversi, cambia le costanti API_* qui sotto.
  */
 
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 
 // === CONFIG ===
 const ASSISTANT_ID_VOICE = 'asst_LJmOc3h6JuVYiZXRQdtjnOlkchatgpt';
-// Mi hai passato “assistantasst_…”. Se il backend richiede “asst_…”, aggiorna questa costante.
+// nota: se il backend richiede "asst_..." al posto di "assistantasst_...", aggiorna qui:
 const ASSISTANT_ID_OCR = 'assistantasst_a1d9qqNpXnXU92lPJFV00TjZ';
 
 const API_ASSISTANT_TEXT = '/api/assistant';
@@ -25,41 +23,96 @@ const API_ASSISTANT_OCR = '/api/assistant-ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
 const API_OPERATOR_CONNECT = '/api/operator/connect';
 
-/* ---------------- parsers & helpers ---------------- */
+/* ---------------- helpers ---------------- */
 function parseLinesToItems(text) {
+  // Spezza per virgole o nuove linee
   const chunks = String(text || '')
-    .split(/[\n,]+/g).map(s => s.trim()).filter(Boolean);
+    .split(/[\n,]+/g)
+    .map(s => s.trim())
+    .filter(Boolean);
 
   const items = [];
   for (const raw of chunks) {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) continue;
 
+    // qty opzionale all'inizio
     let qty = 1;
     const mQty = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
     let rest = s;
-    if (mQty) { qty = Number(String(mQty[1]).replace(',', '.')) || 1; rest = mQty[2].trim(); }
+    if (mQty) {
+      qty = Number(String(mQty[1]).replace(',', '.')) || 1;
+      rest = mQty[2].trim();
+    }
 
+    // brand euristico: parola finale con maiuscola o dopo "marca|brand"
     let name = rest, brand = '';
     const marca = rest.match(/\b(?:marca|brand)\s+([^\s].*)$/i);
-    if (marca) { brand = marca[1].trim(); name = rest.replace(marca[0], '').trim(); }
-    else {
+    if (marca) {
+      brand = marca[1].trim();
+      name = rest.replace(marca[0], '').trim();
+    } else {
       const parts = rest.split(' ');
       if (parts.length > 1) {
         const last = parts[parts.length - 1];
-        if (/^[A-ZÀ-ÖØ-Þ]/.test(last)) { brand = last; name = parts.slice(0, -1).join(' '); }
+        if (/^[A-ZÀ-ÖØ-Þ]/.test(last)) {
+          brand = last;
+          name = parts.slice(0, -1).join(' ');
+        }
       }
     }
+
     name = name.replace(/\s{2,}/g, ' ').trim();
     brand = brand.replace(/\s{2,}/g, ' ').trim();
 
-    if (name) items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand: brand || '', qty: qty > 0 ? qty : 1 });
+    if (name) {
+      items.push({
+        id: 'tmp-' + Math.random().toString(36).slice(2),
+        name,
+        brand: brand || '',
+        qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
+        purchased: false,
+      });
+    }
   }
   return items;
 }
 
+// Parser “loose”: gestisce frasi tipo "pane pasta latte detersivo"
+function parseLooseList(text) {
+  const s = String(text || '').toLowerCase().trim();
+  if (!s) return [];
+  // se già presenti virgole/newline, non interveniamo qui
+  if (/[\n,]/.test(s)) return [];
+
+  // niente numeri -> elenco semplice presumibile
+  if (/\d/.test(s)) return [];
+
+  // separa per " e " e spazi
+  const parts = s
+    .split(/\s+e\s+|[\s]+/gi)
+    .map(t => t.trim())
+    .filter(Boolean);
+
+  // rimuovi articoli/parole comuni italiane
+  const stop = new Set(['il','lo','la','i','gli','le','uno','una','un','dei','degli','delle','di','del','della','dello','dell','dal','dallo','dalla','dall','dei','alle','allo','alla','all','al','ai','agli','a','e','ed','oppure','o']);
+  const tokens = parts.filter(t => !stop.has(t) && t.length >= 2);
+
+  // se meno di 2 token, non è un elenco
+  if (tokens.length < 2) return [];
+
+  return tokens.map(name => ({
+    id: 'tmp-' + Math.random().toString(36).slice(2),
+    name,
+    brand: '',
+    qty: 1,
+    purchased: false,
+  }));
+}
+
 function toISODate(any) {
-  const s = String(any);
+  const s = String(any || '').trim();
+  if (!s) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
   if (m) {
@@ -69,7 +122,7 @@ function toISODate(any) {
     if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
     return `${y}-${M}-${d}`;
   }
-  return null;
+  return '';
 }
 
 function extractUrls(text) {
@@ -77,7 +130,37 @@ function extractUrls(text) {
   return (String(text || '').match(re) || []).slice(0, 50);
 }
 
-/** Scala quantità in TUTTE le liste in base agli acquisti OCR */
+// normalizza nome per similarity
+function norm(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // accenti
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function tokenSet(str) {
+  return new Set(norm(str).split(' ').filter(Boolean));
+}
+
+// similarità semplice per grocery: jaccard + contains
+function isSimilar(a, b) {
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length >= 3 && (nb.includes(na) || na.includes(nb))) return true;
+
+  const A = tokenSet(a), B = tokenSet(b);
+  if (A.size === 0 || B.size === 0) return false;
+  let inter = 0;
+  A.forEach(t => { if (B.has(t)) inter++; });
+  const union = new Set([...A, ...B]).size;
+  const jacc = inter / union;
+  return jacc >= 0.5 || inter >= 1 && (A.size === 1 || B.size === 1);
+}
+
 function decrementListsByPurchases(prevLists, purchases) {
   const next = { ...prevLists };
   const listTypes = Object.values(LIST_TYPES);
@@ -85,20 +168,15 @@ function decrementListsByPurchases(prevLists, purchases) {
   for (const lt of listTypes) {
     const arr = [...(prevLists[lt] || [])];
     for (const p of purchases) {
-      const name = String(p.name || '').toLowerCase();
-      const brand = String(p.brand || '').toLowerCase();
       const dec = Math.max(1, Number(p.qty || 1));
-
-      const idx = arr.findIndex(i =>
-        i.name.toLowerCase() === name &&
-        (i.brand || '').toLowerCase() === brand
-      );
+      // trova item simile
+      const idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!p.brand || isSimilar(i.brand || '', p.brand || '')));
       if (idx >= 0) {
         const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
-        arr[idx] = { ...arr[idx], qty: newQty };
+        arr[idx] = { ...arr[idx], qty: newQty, purchased: true }; // segna comprato da OCR
       }
     }
-    next[lt] = arr.filter(i => Number(i.qty || 0) > 0);
+    next[lt] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased); // mantieni se acquistato ma qty 0? li lasciamo se non vuoi perderli
   }
   return next;
 }
@@ -172,7 +250,7 @@ export default function ListeProdotti() {
       const items = [...(prev[currentList] || [])];
       const idx = items.findIndex(i => i.name.toLowerCase() === name.toLowerCase() && i.brand.toLowerCase() === brand.toLowerCase());
       if (idx >= 0) items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + qty };
-      else items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand, qty });
+      else items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand, qty, purchased: false });
       next[currentList] = items;
       return next;
     });
@@ -199,20 +277,37 @@ export default function ListeProdotti() {
   }
 
   function markBought(id) {
+    // click manuale: segna comprato + scala 1 + aggiungi a scorte
+    setLists(prev => {
+      const next = { ...prev };
+      next[currentList] = (prev[currentList] || []).map(i => {
+        if (i.id !== id) return i;
+        const newQty = Math.max(0, Number(i.qty || 0) - 1);
+        return { ...i, qty: newQty, purchased: true };
+      }).filter(i => i.qty > 0);
+      return next;
+    });
+
     const item = (lists[currentList] || []).find(i => i.id === id);
-    if (!item) return;
-    incQty(id, -1);
-    addToStock({ name: item.name, brand: item.brand, qty: 1 });
+    if (item) addToStock({ name: item.name, brand: item.brand, qty: 1 });
   }
 
   function parseAndAppend(text) {
-    const items = parseLinesToItems(text);
+    // 1) parser rigoroso
+    let items = parseLinesToItems(text);
+
+    // 2) se sembra un elenco ma ha prodotto 1 solo item, fallback “loose”
+    if (items.length <= 1) {
+      const loose = parseLooseList(text);
+      if (loose.length >= 2) items = loose;
+    }
+
     if (items.length) {
       setLists(prev => {
         const next = { ...prev };
         const existing = [...(prev[currentList] || [])];
         for (const it of items) {
-          const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && i.brand.toLowerCase() === (it.brand || '').toLowerCase());
+          const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand || '').toLowerCase() === (it.brand || '').toLowerCase());
           if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
           else existing.push(it);
         }
@@ -231,7 +326,7 @@ export default function ListeProdotti() {
       prompt: [
         'Sei Jarvis. Estrai voci per una lista della spesa.',
         'Rispondi SOLO con JSON:',
-        JSON.stringify({ items: [{ name: 'latte', brand: 'Parmalat', qty: 2 }] }),
+        JSON.stringify({ items: [{ name: 'latte', brand: 'Parmalat', qty: 2 }, { name: 'pasta', qty: 1 }] }),
         '',
         'Testo:',
         text
@@ -241,20 +336,24 @@ export default function ListeProdotti() {
     const { answer, error } = await res.json();
     if (!res.ok || error) throw new Error(error || String(res.status));
     const data = typeof answer === 'string' ? JSON.parse(answer) : answer;
-    if (!data?.items || !Array.isArray(data.items)) throw new Error('Formato assistant non valido');
+    const arr = Array.isArray(data?.items) ? data.items : [];
+    if (!arr.length) throw new Error('Nessun item dal modello');
+
+    const items = arr.map(raw => ({
+      id: 'tmp-' + Math.random().toString(36).slice(2),
+      name: String(raw.name || '').trim(),
+      brand: String(raw.brand || '').trim(),
+      qty: Math.max(1, Number(raw.qty || 1)),
+      purchased: false,
+    })).filter(it => it.name);
+
+    if (!items.length) throw new Error('Lista vuota');
 
     setLists(prev => {
       const next = { ...prev };
       const existing = [...(prev[currentList] || [])];
-      for (const raw of data.items) {
-        const it = {
-          id: 'tmp-' + Math.random().toString(36).slice(2),
-          name: String(raw.name || '').trim(),
-          brand: String(raw.brand || '').trim(),
-          qty: Math.max(1, Number(raw.qty || 1)),
-        };
-        if (!it.name) continue;
-        const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && i.brand.toLowerCase() === it.brand.toLowerCase());
+      for (const it of items) {
+        const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand || '').toLowerCase() === it.brand.toLowerCase());
         if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
         else existing.push(it);
       }
@@ -264,6 +363,32 @@ export default function ListeProdotti() {
   }
 
   /* --------------- integrazione Assistant: OCR --------------- */
+  function addToStock({ name, brand = '', qty = 1, expiresAt = '' }) {
+    const nm = String(name || '').trim();
+    if (!nm) return;
+    const exISO = toISODate(expiresAt);
+    setStock(prev => {
+      const arr = [...prev];
+      const idx = arr.findIndex(p =>
+        p.name.toLowerCase() === nm.toLowerCase() &&
+        (p.brand || '').toLowerCase() === brand.toLowerCase() &&
+        (p.expiresAt || '') === (exISO || '')
+      );
+      if (idx >= 0) arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + Number(qty || 1) };
+      else arr.unshift({ name: nm, brand: brand.trim(), qty: Number(qty || 1), expiresAt: exISO || '' });
+      return arr;
+    });
+  }
+
+  function markPurchasedByPurchases(purchases) {
+    // segna purchased=true per item simili (tutte le liste)
+    setLists(prev => {
+      let next = { ...prev };
+      next = decrementListsByPurchases(next, purchases);
+      return next;
+    });
+  }
+
   async function sendToAssistantOCR(files) {
     const fd = new FormData();
     fd.append('assistantId', ASSISTANT_ID_OCR);
@@ -275,23 +400,27 @@ export default function ListeProdotti() {
 
     if (text) parseAndAppend(text);
 
-    // Atteso: { purchases:[{name,brand?,qty?,price?,store?,boughtAt?,expiresAt?,category?}] }
-    const purchases = data?.purchases || [];
-    if (Array.isArray(purchases) && purchases.length) {
-      // a) scala da TUTTE le liste
+    // Atteso: { purchases:[{name,brand?,qty?,price?,store?,boughtAt?,expiresAt?,category?}],
+    //          expiries:[{name,brand?,qty?,expiresAt?}], stock:[{name,brand?,qty?,expiresAt?}] }
+    const purchases = Array.isArray(data?.purchases) ? data.purchases : [];
+    const expiries  = Array.isArray(data?.expiries)  ? data.expiries  : [];
+    const stockArr  = Array.isArray(data?.stock)     ? data.stock     : [];
+
+    if (purchases.length) {
+      // a) scala e segna comprato (fuzzy)
       setLists(prev => decrementListsByPurchases(prev, purchases));
 
-      // b) aggiorna scorte
+      // b) aggiorna scorte con eventuale scadenza presente nella purchase
       for (const p of purchases) {
         addToStock({
           name: p.name,
           brand: p.brand || '',
           qty: Math.max(1, Number(p.qty || 1)),
-          expiresAt: p.expiresAt ? toISODate(p.expiresAt) : '',
+          expiresAt: p.expiresAt || '',
         });
       }
 
-      // c) manda alle Finanze per registrazione (store, date, price, category)
+      // c) invia alle finanze
       try {
         await fetch(API_FINANCES_INGEST, {
           method: 'POST',
@@ -301,6 +430,24 @@ export default function ListeProdotti() {
       } catch (e) {
         console.warn('[FINANCES] ingest fallita:', e?.message || e);
       }
+    }
+
+    // Scadenze esplicite dall’OCR (anche senza acquisto)
+    for (const ex of expiries) {
+      addToStock({
+        name: ex.name,
+        brand: ex.brand || '',
+        qty: Math.max(1, Number(ex.qty || 1)),
+        expiresAt: ex.expiresAt || '',
+      });
+    }
+    for (const st of stockArr) {
+      addToStock({
+        name: st.name,
+        brand: st.brand || '',
+        qty: Math.max(1, Number(st.qty || 1)),
+        expiresAt: st.expiresAt || '',
+      });
     }
   }
 
@@ -334,7 +481,7 @@ export default function ListeProdotti() {
         await sendToAssistantVoice(text);
         showToast('Lista aggiornata da Vocale ✓', 'ok');
       } catch (e) {
-        console.warn('[ASSISTANT VOICE] fallback parser locale:', e?.message);
+        // fallback robusto
         parseAndAppend(text);
         showToast('Aggiornato (parser locale)', 'ok');
       }
@@ -377,28 +524,11 @@ export default function ListeProdotti() {
     }
   }
 
-  /* --------------- scorte & scadenze --------------- */
-  function addToStock({ name, brand = '', qty = 1, expiresAt = '' }) {
-    const nm = String(name || '').trim();
-    if (!nm) return;
-    setStock(prev => {
-      const arr = [...prev];
-      const idx = arr.findIndex(p =>
-        p.name.toLowerCase() === nm.toLowerCase() &&
-        (p.brand || '').toLowerCase() === brand.toLowerCase() &&
-        (p.expiresAt || '') === (expiresAt || '')
-      );
-      if (idx >= 0) arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + Number(qty || 1) };
-      else arr.unshift({ name: nm, brand: brand.trim(), qty: Number(qty || 1), expiresAt: expiresAt || '' });
-      return arr;
-    });
-  }
-
+  /* --------------- scorte: form scadenze manuali --------------- */
   function onExpiryManualSubmit(e) {
     e.preventDefault();
     const qty = Math.max(1, Number(String(expiryForm.qty).replace(',', '.')) || 1);
-    const exISO = expiryForm.expiresAt ? toISODate(expiryForm.expiresAt) : '';
-    addToStock({ name: expiryForm.name, brand: expiryForm.brand, qty, expiresAt: exISO });
+    addToStock({ name: expiryForm.name, brand: expiryForm.brand, qty, expiresAt: expiryForm.expiresAt });
     setExpiryForm({ name: '', brand: '', qty: '1', expiresAt: '' });
     showToast('Scorte aggiornate ✓', 'ok');
   }
@@ -470,12 +600,18 @@ export default function ListeProdotti() {
                       </div>
                     </div>
                     <div style={styles.itemActions}>
-                      <button title="Segna comprato" onClick={() => markBought(it.id)} style={styles.actionSuccess}>✔ Comprato</button>
+                      <button
+                        title="Segna comprato"
+                        onClick={() => markBought(it.id)}
+                        style={it.purchased ? styles.actionSuccess : styles.actionDanger}
+                      >
+                        {it.purchased ? '✔ Comprato' : 'Comprato'}
+                      </button>
                       <div style={{display:'flex', gap:6}}>
                         <button title="Diminuisci quantità" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
                         <button title="Aumenta quantità" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
                       </div>
-                      <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionDanger}>🗑 Elimina</button>
+                      <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionGhostDanger}>🗑 Elimina</button>
                     </div>
                   </div>
                 ))}
@@ -496,16 +632,16 @@ export default function ListeProdotti() {
               <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
             </form>
             <p style={{opacity:.8, marginTop: 6}}>
-              Suggerimenti voce/OCR: “2 latte parmalat, 3 pasta barilla, uova”.
+              Suggerimenti voce/OCR: “2 latte parmalat, 3 pasta barilla, uova” oppure “pane pasta latte detersivo”.
             </p>
           </div>
 
           {/* Prodotti in esaurimento / scadenza */}
-          <div style={styles.section}>
+          <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
 
             {/* Mini form scadenza manuale / voce / OCR */}
-            <form onSubmit={onExpiryManualSubmit} style={{...styles.formRow, marginBottom: 10}}>
+            <form onSubmit={onExpiryManualSubmit} style={{...styles.formRow, marginBottom: 12}}>
               <input placeholder="Prodotto (es. latte)" value={expiryForm.name}
                      onChange={e=>setExpiryForm(f=>({...f, name:e.target.value}))} style={styles.input} required />
               <input placeholder="Marca" value={expiryForm.brand}
@@ -516,7 +652,7 @@ export default function ListeProdotti() {
                      onChange={e=>setExpiryForm(f=>({...f, expiresAt:e.target.value}))} style={{...styles.input, minWidth:240}} />
               <button style={styles.primaryBtn} disabled={busy}>Registra</button>
             </form>
-            <div style={{display:'flex', gap:8, marginBottom:10}}>
+            <div style={{display:'flex', gap:8, marginBottom:12}}>
               <button onClick={toggleRec} style={styles.voiceBtnSmall} disabled={busy}>{recBusy ? '⏹️ Stop' : '🎙 Vocale scadenza'}</button>
               <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR scadenza</button>
             </div>
@@ -536,7 +672,7 @@ export default function ListeProdotti() {
           </div>
 
           {/* Stato scorte */}
-          <div style={styles.section}>
+          <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>📊 Stato Scorte</h3>
             {stock.length === 0 ? (
               <p style={{opacity:.8}}>Nessun dato scorte</p>
@@ -565,7 +701,7 @@ export default function ListeProdotti() {
           </div>
 
           {/* Report offerte settimanali */}
-          <div style={styles.section}>
+          <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>📈 Report Offerte settimanali</h3>
             {offers.length === 0 ? (
               <p style={{opacity:.8}}>Qui appariranno i link delle offerte trovate (anche da OCR/scontrini).</p>
@@ -604,28 +740,29 @@ export default function ListeProdotti() {
 const styles = {
   page: {
     width: '100%', minHeight: '100vh', background: '#0f172a',
-    padding: 24, display: 'flex', alignItems: 'center', justifyContent:'center', color:'#fff',
+    padding: 28, display: 'flex', alignItems: 'center', justifyContent:'center', color:'#fff',
     fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif'
   },
-  card: { width:'100%', maxWidth: 1000, background:'rgba(0,0,0,.6)', borderRadius: 16, padding: 20, boxShadow: '0 6px 16px rgba(0,0,0,.3)' },
-  headerRow: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 8 },
+  card: { width:'100%', maxWidth: 1000, background:'rgba(0,0,0,.6)', borderRadius: 16, padding: 22, boxShadow: '0 6px 16px rgba(0,0,0,.3)' },
+  headerRow: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 10 },
   homeBtn: { background:'#6366f1', color:'#fff', padding:'6px 10px', borderRadius:8, textDecoration:'none' },
 
-  switchRow: { display:'flex', gap:8, margin: '10px 0 6px' },
-  switchBtn: { background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.15)', color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer' },
-  switchBtnActive: { background:'#06b6d4', border:'0', color:'#0b1220', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 },
+  switchRow: { display:'flex', gap:10, margin: '14px 0 10px' },
+  switchBtn: { background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.15)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer' },
+  switchBtnActive: { background:'#06b6d4', border:'0', color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  toolsRow: { display:'flex', flexWrap:'wrap', gap:8, margin:'10px 0 6px' },
-  toolsRowSecondary: { display:'flex', flexWrap:'wrap', gap:8, margin:'4px 0 14px' },
+  toolsRow: { display:'flex', flexWrap:'wrap', gap:10, margin:'12px 0 8px' },
+  toolsRowSecondary: { display:'flex', flexWrap:'wrap', gap:10, margin:'4px 0 20px' },
 
   voiceBtn: { background:'#6366f1', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   ocrBtn: { background:'#06b6d4', border:0, color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
   operatorBtn: { background:'#22c55e', border:0, color:'#0f172a', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
 
-  section: { marginTop: 16 },
-  h3: { margin:'4px 0 10px' },
+  section: { marginTop: 24, marginBottom: 10 },
+  sectionLarge: { marginTop: 32, marginBottom: 14 },
+  h3: { margin:'4px 0 12px' },
 
-  listGrid: { display:'flex', flexDirection:'column', gap:10 },
+  listGrid: { display:'flex', flexDirection:'column', gap:12 },
   itemRow: {
     display:'flex', alignItems:'center', justifyContent:'space-between',
     background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.12)',
@@ -640,16 +777,17 @@ const styles = {
   actionSuccess: { background:'#16a34a', border:0, color:'#fff', padding:'8px 10px', borderRadius:10, cursor:'pointer', fontWeight:800 },
   actionDanger: { background:'#ef4444', border:0, color:'#fff', padding:'8px 10px', borderRadius:10, cursor:'pointer', fontWeight:800 },
   actionGhost: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
+  actionGhostDanger: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  formRow: { display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
+  formRow: { display:'flex', flexWrap:'wrap', gap:10, alignItems:'center' },
   input: {
     padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)',
-    background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 180
+    background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 190
   },
 
   table: { width:'100%', borderCollapse:'collapse', background:'rgba(255,255,255,.04)', borderRadius:12, overflow:'hidden' },
-  th: { textAlign:'left', padding:'8px', borderBottom:'1px solid rgba(255,255,255,.12)' },
-  td: { padding:'8px', borderBottom:'1px solid rgba(255,255,255,.08)' },
+  th: { textAlign:'left', padding:'10px', borderBottom:'1px solid rgba(255,255,255,.12)' },
+  td: { padding:'10px', borderBottom:'1px solid rgba(255,255,255,.08)' },
 
   voiceBtnSmall: { background:'#6366f1', border:0, color:'#fff', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   ocrBtnSmall: { background:'#06b6d4', border:0, color:'#0b1220', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:800 },
