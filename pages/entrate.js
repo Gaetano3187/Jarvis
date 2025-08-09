@@ -187,9 +187,38 @@ function Entrate() {
     };
   }, [monthKey]);
 
+  async function debugFetch(userId) {
+    try {
+      const { data: incAny, error: incErr } = await supabase
+        .from('incomes')
+        .select('id, source, description, amount, received_at')
+        .eq('user_id', userId)
+        .order('received_at', { ascending: false })
+        .limit(5);
+      if (incErr) console.error('[DEBUG] incomes ANY error', incErr);
+      console.log('[DEBUG] incomes ANY last5', incAny);
+
+      const { data: pcAny, error: pcErr } = await supabase
+        .from('pocket_cash')
+        .select('id, created_at, moved_at, note, delta, amount, direction')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (pcErr) console.error('[DEBUG] pocket ANY error', pcErr);
+      console.log('[DEBUG] pocket ANY last5', pcAny);
+    } catch (e) {
+      console.error('[DEBUG] fetch error', e);
+    }
+  }
+
   async function loadAll() {
     console.log('================ [LOAD ALL] ================');
-    console.log('[PERIODO]', { startDateISO, endDateISO, endExclusiveDate, startDateIT, endDateIT, monthKey });
+    console.log('[PERIODO]',
+      'startDateISO=', startDateISO,
+      'endDateISO=', endDateISO,
+      'endExclusiveDate=', endExclusiveDate,
+      'monthKey=', monthKey
+    );
 
     setLoading(true);
     setError(null);
@@ -224,8 +253,7 @@ function Entrate() {
       console.log('[FETCH] carryover', co);
       setCarryover(co || null);
 
-      // 3a) Movimenti contante manuali nel periodo
-      // Inclusi record che hanno moved_at NULLO: usiamo created_at come fallback
+      // 3a) Movimenti contante manuali nel periodo (moved_at OPPURE created_at)
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, note, delta, amount, direction')
@@ -298,6 +326,9 @@ function Entrate() {
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
       console.log('[FETCH] expenses count', exp?.length ?? 0, 'totalExp', totalExp);
       setMonthExpenses(totalExp);
+
+      // DEBUG: ultime 5 righe senza filtri
+      await debugFetch(user.id);
 
       console.log('================ [/LOAD ALL OK] ================');
     } catch (err) {
@@ -381,6 +412,18 @@ function Entrate() {
     console.log('[INSERT POCKET OCR]', rows);
     const { error } = await supabase.from('pocket_cash').insert(rows);
     if (error) { console.error('[INSERT POCKET OCR ERROR]', error); throw error; }
+    console.log('[INSERT POCKET OCR OK]');
+
+    // Probe: leggo subito ultime righe pocket
+    const { data: probePc, error: probePcErr } = await supabase
+      .from('pocket_cash')
+      .select('id, created_at, moved_at, delta, note')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (probePcErr) console.error('[PROBE] read back pocket error', probePcErr);
+    console.log('[PROBE] read back pocket last5', probePc);
+
     return true;
   }
 
@@ -407,6 +450,18 @@ function Entrate() {
 
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) { console.error('[INSERT INCOME OCR ERROR]', error); throw error; }
+      console.log('[INSERT INCOME OCR OK]');
+
+      // Probe: leggo subito quella data, senza filtri di periodo
+      const { data: probeInc, error: probeErr } = await supabase
+        .from('incomes')
+        .select('id, amount, received_at')
+        .eq('user_id', user.id)
+        .eq('received_at', payload.received_at)
+        .order('id', { ascending: false })
+        .limit(3);
+      if (probeErr) console.error('[PROBE] read back income error', probeErr);
+      console.log('[PROBE] read back income for', payload.received_at, probeInc);
     }
     return true;
   }
@@ -512,6 +567,17 @@ function Entrate() {
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) { console.error('[INSERT INCOME MANUAL ERROR]', error); throw error; }
 
+      // Probe: leggo subito quella data
+      const { data: probeInc, error: probeErr } = await supabase
+        .from('incomes')
+        .select('id, amount, received_at')
+        .eq('user_id', user.id)
+        .eq('received_at', payload.received_at)
+        .order('id', { ascending: false })
+        .limit(3);
+      if (probeErr) console.error('[PROBE] read back income error', probeErr);
+      console.log('[PROBE] read back income for', payload.received_at, probeInc);
+
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
     } catch (err) {
@@ -587,6 +653,16 @@ function Entrate() {
 
       const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) { console.error('[INSERT POCKET MANUAL ERROR]', error); throw error; }
+
+      // Probe: leggo subito ultime righe pocket
+      const { data: probePc, error: probePcErr } = await supabase
+        .from('pocket_cash')
+        .select('id, created_at, moved_at, delta, note')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (probePcErr) console.error('[PROBE] read back pocket error', probePcErr);
+      console.log('[PROBE] read back pocket last5', probePc);
 
       setPocketTopUp('');
       await loadAll();
