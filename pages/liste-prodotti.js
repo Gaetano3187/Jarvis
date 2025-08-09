@@ -13,6 +13,9 @@ const API_FINANCES_INGEST = '/api/finances/ingest';
 // Abilita/Disabilita invio a finanze (evita 405)
 const ENABLE_FINANCES_INGEST = false;
 
+// Debug client
+const DEBUG = true;
+
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
   'latte','latte zymil','yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
@@ -129,15 +132,17 @@ function toISODate(any) {
   return '';
 }
 
-/** estrae coppie prodotto->data da frasi continue */
+/** estrae coppie prodotto->data da frasi continue (con log) */
 function parseExpiryPairs(text) {
+  if (DEBUG) console.log('[parseExpiryPairs] input:', text);
   const out = [];
   const norm = (x) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const s = norm(text);
 
   const re = /([a-zà-ú\s]{2,}?)(?:\s+scade(?:\s+il)?)?\s+((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(?:\d{1,2}\s+[a-zà-ú]+\s+\d{2,4}))/gi;
-  let m;
+  let m; let idxCount = 0;
   while ((m = re.exec(s)) !== null) {
+    idxCount++;
     const nameRaw = String(m[1] || '').trim().replace(/^(il|lo|la|i|gli|le)\s+/i,'').trim();
     const dateRaw = String(m[2] || '').trim();
     const iso = toISODate(dateRaw);
@@ -166,6 +171,7 @@ function parseExpiryPairs(text) {
       }
     }
   }
+  if (DEBUG) console.log('[parseExpiryPairs] matches:', out);
   return out;
 }
 
@@ -173,6 +179,7 @@ function parseExpiryPairs(text) {
 async function readJsonSafe(res) {
   const ct = (res.headers.get?.('content-type') || '').toLowerCase();
   const raw = await res.text?.() || '';
+  if (DEBUG) console.log('[readJsonSafe] status:', res.status, 'ct:', ct, 'raw len:', raw.length, 'raw preview:', raw.slice(0,200));
   if (!raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
   if (ct.includes('application/json')) {
     try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
@@ -185,7 +192,10 @@ function ensureArray(x) { return Array.isArray(x) ? x : []; }
 function timeoutFetch(url, opts={}, ms=25000) {
   const ctrl = new AbortController();
   const t = setTimeout(()=>ctrl.abort(), ms);
-  return fetch(url, { ...opts, signal: ctrl.signal }).finally(()=>clearTimeout(t));
+  if (DEBUG) console.log('[fetch] →', url, opts);
+  return fetch(url, { ...opts, signal: ctrl.signal })
+    .then(r => { if (DEBUG) console.log('[fetch] ←', url, r.status); return r; })
+    .finally(()=>clearTimeout(t));
 }
 
 /* ------------- Prompt builder: scontrino ------------- */
@@ -372,7 +382,6 @@ export default function ListeProdotti() {
   const ocrInputRef = useRef(null);
 
   // OCR scadenza per riga
-  theRow: null
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
@@ -396,6 +405,11 @@ export default function ListeProdotti() {
 
   function showToast(msg, type='info') {
     setToast({ msg, type });
+    setTimeout(() => setToast(null), 2500);
+  }
+  function showDebug(msg) {
+    if (!DEBUG) return;
+    setToast({ msg: `🐞 ${msg}`, type: 'info' });
     setTimeout(() => setToast(null), 2500);
   }
 
@@ -487,6 +501,7 @@ export default function ListeProdotti() {
       setBusy(true);
       const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
       const { text } = await res.json();
+      if (DEBUG) console.log('[STT list] text:', text);
       if (!text) throw new Error('Testo non riconosciuto');
 
       // assistant (estrazione strutturata) + fallback locale
@@ -506,6 +521,7 @@ export default function ListeProdotti() {
         }, 25000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
+        if (DEBUG) console.log('[Assistant list] raw answer:', answer);
         const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
         const arr = Array.isArray(parsed?.items) ? parsed.items : [];
         if (arr.length) {
@@ -531,7 +547,9 @@ export default function ListeProdotti() {
           });
           appended = true;
         }
-      } catch {}
+      } catch (err) {
+        if (DEBUG) console.error('[Assistant list] error:', err);
+      }
 
       if (!appended) {
         const local = parseLinesToItems(text);
@@ -553,7 +571,8 @@ export default function ListeProdotti() {
       }
 
       showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
-    } catch {
+    } catch (err) {
+      if (DEBUG) console.error('[STT list] error:', err);
       alert('Errore nel riconoscimento vocale');
     } finally {
       setRecBusy(false);
@@ -591,8 +610,16 @@ export default function ListeProdotti() {
       setBusy(true);
       const res = await timeoutFetch('/api/stt', { method:'POST', body: fd }, 25000);
       const { text } = await res.json();
+      if (DEBUG) console.log('[STT expiry] text:', text);
+      if (!text) { showToast('Testo non riconosciuto', 'err'); return; }
+
       const pairs = parseExpiryPairs(text || '');
-      if (!pairs.length) { showToast('Nessuna scadenza trovata', 'err'); return; }
+      if (DEBUG) console.log('[STT expiry] pairs:', pairs);
+      if (!pairs.length) {
+        showDebug(`nessuna data trovata (testo: "${String(text).slice(0,80)}${String(text).length>80?'…':''}")`);
+        showToast('Nessuna scadenza trovata', 'err');
+        return;
+      }
       let hit = 0;
       setStock(prev => {
         const arr = [...prev];
@@ -603,6 +630,9 @@ export default function ListeProdotti() {
         return arr;
       });
       showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
+    } catch (err) {
+      if (DEBUG) console.error('[STT expiry] error:', err);
+      showToast('Errore nel riconoscimento vocale', 'err');
     } finally {
       setBusy(false);
       setExpRecBusy(false);
@@ -646,6 +676,7 @@ export default function ListeProdotti() {
       const ocrJson = await readJsonSafe(ocrRes);
       if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
       const ocrText = String(ocrJson?.text || '').trim();
+      if (DEBUG) console.log('[OCR receipt] text len:', ocrText.length, 'preview:', ocrText.slice(0,200));
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
       // 2) Chiedi all’assistente l’estrazione strutturata
@@ -657,6 +688,7 @@ export default function ListeProdotti() {
       }, 30000);
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
+      if (DEBUG) console.log('[Assistant receipt] raw answer:', answer);
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       let purchases = ensureArray(parsed?.purchases);
@@ -668,6 +700,7 @@ export default function ListeProdotti() {
 
       // 3) Aggiorna liste (decremento degli acquistati su ENTRAMBE le liste)
       if (purchases.length) {
+        if (DEBUG) console.log('[Receipt] purchases:', purchases);
         setLists(prev => decrementAcrossBothLists(prev, purchases));
         // aggiorna scorte includendo anche prodotti non in lista
         setStock(prev => {
@@ -693,7 +726,9 @@ export default function ListeProdotti() {
               headers:{'Content-Type':'application/json'},
               body: JSON.stringify({ purchases })
             });
-          } catch {}
+          } catch (err) {
+            if (DEBUG) console.error('[Finances ingest] error:', err);
+          }
         }
       }
 
@@ -722,7 +757,6 @@ export default function ListeProdotti() {
       const brand = window.prompt('Marca', row.brand || '') ?? (row.brand || '');
       const qtyStr = window.prompt('Quantità', String(row.qty ?? 1)) ?? String(row.qty ?? 1);
       const qty = Math.max(0, Number(String(qtyStr).replace(',', '.')) || 0);
-      // NON chiediamo scadenza qui per coerenza con blocco OCR; puoi riattivare se serve
       arr[i] = { ...row, name: name.trim() || row.name, brand: brand.trim(), qty };
       return arr;
     });
@@ -749,6 +783,7 @@ export default function ListeProdotti() {
       const ocrJson = await readJsonSafe(ocrRes);
       if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
       const ocrText = String(ocrJson?.text || '').trim();
+      if (DEBUG) console.log('[OCR row] text len:', ocrText.length, 'preview:', ocrText.slice(0,200));
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
       // 2) Assistant per scadenza singola (la applichiamo solo qui, NON dallo scontrino)
@@ -758,6 +793,7 @@ export default function ListeProdotti() {
       }, 25000);
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
+      if (DEBUG) console.log('[Assistant row] raw answer:', answer);
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       const ex = ensureArray(parsed?.expiries)[0];
@@ -770,6 +806,7 @@ export default function ListeProdotti() {
         });
         showToast('Scadenza assegnata ✓', 'ok');
       } else {
+        showDebug(`nessuna data per "${row.name}" (OCR: "${ocrText.slice(0,60)}${ocrText.length>60?'…':''}")`);
         showToast('Scadenza non riconosciuta', 'err');
       }
     } catch (e) {
@@ -1019,7 +1056,6 @@ const styles = {
     padding:'12px', borderRadius:12
   },
 
-  formRow: { display:'flex', flexWrap:'wrap', gap:10, alignItems:'center' },
   input: {
     padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 200
