@@ -466,16 +466,15 @@ function Entrate() {
     e.preventDefault();
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Sessione scaduta');
+     const { data: ins, error } = await supabase
+  .from('incomes')
+  .insert(payload)
+  .select('id, source, description, amount, received_at')
+  .single();
 
-      const payload = {
-        user_id: user.id,
-        source: newIncome.source || 'Entrata',
-        description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
-      };
+if (error) throw error;
+console.log('[INSERTED INCOME ROW]', ins);
+
 
       console.log('[INSERT INCOME MANUAL]', payload);
 
