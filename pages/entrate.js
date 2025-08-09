@@ -50,26 +50,29 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const prevEndISO = prevEnd.toISOString().slice(0, 10);
   const prevKey = prevEnd.toISOString().slice(0, 7);
 
-  const { data: incPrev } = await supabase
+  const { data: incPrev, error: e1 } = await supabase
     .from('incomes')
     .select('amount')
     .eq('user_id', userId)
     .gte('received_at', prevStartISO)
     .lte('received_at', prevEndISO);
+  if (e1) throw e1;
 
-  const { data: expPrev } = await supabase
+  const { data: expPrev, error: e2 } = await supabase
     .from('finances')
     .select('amount')
     .eq('user_id', userId)
     .gte('spent_at', prevStartISO)
     .lte('spent_at', prevEndISO);
+  if (e2) throw e2;
 
-  const { data: coPrev } = await supabase
+  const { data: coPrev, error: e3 } = await supabase
     .from('carryovers')
     .select('amount')
     .eq('user_id', userId)
     .eq('month_key', prevKey)
     .maybeSingle();
+  if (e3 && e3.code !== 'PGRST116') throw e3;
 
   const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
   const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
@@ -84,6 +87,14 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     note: 'Auto-carryover da mese precedente',
   });
   if (e4) throw e4;
+}
+
+/** Parser importi: accetta "10,50" o "10.50" e rimuove spazi */
+function parseAmountLoose(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /* --------------------------- component --------------------------- */
@@ -102,10 +113,10 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  const [pocketRows, setPocketRows] = useState([]); // righe estratto conto contante
+  const [pocketRows, setPocketRows] = useState([]); // righe estratto conto contante (manuali + spese cash)
   const [pocketTopUp, setPocketTopUp] = useState('');
 
-  const [monthExpenses, setMonthExpenses] = useState(0);
+  const [monthExpenses, setMonthExpenses] = useState(0); // se ti serve altrove, qui rimane
 
   // OCR / VOCE
   const ocrInputRef = useRef(null);
@@ -158,6 +169,8 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2;
       setCarryover(co || null);
 
+      // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
+
       // 3a) Movimenti manuali (ricariche/uscite) nel PERIODO CORRENTE
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
@@ -181,7 +194,7 @@ function Entrate() {
           id: `pc-${row.id}`,
           dateISO,
           label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-          amount: Number(eff || 0),
+          amount: Number(eff || 0), // + ricarica/prelievo ; - uscita manuale (se inserita negativa)
         };
       });
 
@@ -216,7 +229,7 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // 4) Spese totali del periodo (se ti servono per altre viste)
+      // 4) (opzionale) Totale spese del periodo
       const { data: exp, error: e5 } = await supabase
         .from('finances')
         .select('amount, spent_at')
@@ -280,7 +293,7 @@ function Entrate() {
     return JSON.parse(answer);
   }
 
-  // 🔧 Normalizza segni per contante via OCR/Voce
+  // Normalizza segni per contante via OCR/Voce
   async function parseAssistantForPocket(userText) {
     const data = await callAssistant(buildPocketPrompt(userText));
     if (data.type !== 'pocket_topup' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -289,7 +302,7 @@ function Entrate() {
     if (!user) throw new Error('Sessione scaduta');
 
     const rows = data.items.map((it) => {
-      const raw = Number(it.amount) || 0;
+      const raw = parseAmountLoose(it.amount);
       const note = (it.note || '').trim();
       const noteL = note.toLowerCase();
 
@@ -311,7 +324,7 @@ function Entrate() {
     return true;
   }
 
-  // 🔧 Entrate via OCR/Voce sempre positive
+  // Entrate via OCR/Voce sempre positive
   async function parseAssistantForIncome(userText) {
     const data = await callAssistant(buildIncomePrompt(userText));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -321,7 +334,7 @@ function Entrate() {
 
     for (const it of data.items) {
       const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
-      const amount = Math.abs(Number(it.amount) || 0);
+      const amount = Math.abs(parseAmountLoose(it.amount));
 
       const { error } = await supabase.from('incomes').insert({
         user_id: user.id,
@@ -420,7 +433,7 @@ function Entrate() {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Math.abs(Number(newIncome.amount) || 0), // <- sempre positivo
+        amount: Math.abs(parseAmountLoose(newIncome.amount)), // <-- accetta virgola/punto e forza positivo
         received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
       });
 
@@ -473,7 +486,7 @@ function Entrate() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
 
-      const delta = Number(pocketTopUp);
+      const delta = parseAmountLoose(pocketTopUp); // <-- accetta virgola/punto e segno
       if (!delta) return;
 
       const { error } = await supabase.from('pocket_cash').insert({
@@ -518,10 +531,10 @@ function Entrate() {
   // Saldo disponibile (reale)
   const saldoDisponibile = entratePeriodo + carryAmount - prelievi;
 
-  // Mostra sempre valore positivo in UI (richiesta)
+  // Mostra sempre >= 0 come richiesto
   const saldoDisponibileUI = Math.max(0, saldoDisponibile);
 
-  // Contante residuo
+  // Contante residuo = somma movimenti (ricariche/prelievi +, spese cash -)
   const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
 
   /* ------------------------------ UI ------------------------------ */
@@ -533,11 +546,24 @@ function Entrate() {
         <div className="spese-casa-container2">
           <h2 className="title">Entrate & Saldi</h2>
 
+          {/* Periodo corrente in alto */}
+          <div className="periodo-row">
+            <span>Periodo corrente:</span>
+            <b>{startDate}</b>
+            <span>→</span>
+            <b>{endDate}</b>
+          </div>
+
           {/* Disponibilita */}
           <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
             <h3>Disponibilità</h3>
-            <div className="flex-line metric-sub"><span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b></div>
-            <div className="flex-line metric-sub"><span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b></div>
+
+            <div className="flex-line metric-sub">
+              <span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b>
+            </div>
+            <div className="flex-line metric-sub">
+              <span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b>
+            </div>
 
             <div className="flex-line">
               <span>Saldo disponibile:</span>
@@ -547,10 +573,6 @@ function Entrate() {
               <span>Soldi in tasca (restanti):</span>
               <b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b>
             </div>
-
-            <p className="metric-hint">
-              Periodo corrente: <b>{startDate}</b> → <b>{endDate}</b> (payday giorno {PAYDAY_DAY})
-            </p>
           </div>
 
           {/* Tasti OCR/Voce */}
@@ -594,8 +616,8 @@ function Entrate() {
               required
             />
             <input
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={newIncome.amount}
               onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
               placeholder="Importo €"
@@ -667,8 +689,8 @@ function Entrate() {
           <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
           <form className="input-section" onSubmit={handleTopUpPocket}>
             <input
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={pocketTopUp}
               onChange={(e) => setPocketTopUp(e.target.value)}
               placeholder="Ricarica (+) / Uscita (-) €"
@@ -733,7 +755,14 @@ function Entrate() {
           max-width: 1000px;
           width: 100%;
         }
-        .title { margin-bottom: .5rem; font-size: 1.5rem; }
+        .title { margin-bottom: .25rem; font-size: 1.5rem; }
+
+        .periodo-row {
+          display:flex; gap:.4rem; align-items:center;
+          margin: .25rem 0 .6rem;
+          font-size: .95rem;
+          opacity:.9;
+        }
 
         .table-buttons { display: flex; gap: .5rem; margin: .25rem 0 1rem; }
         .btn-vocale, .btn-ocr, .btn-manuale {
@@ -760,7 +789,6 @@ function Entrate() {
         .metric-sub { font-size: 1rem; opacity: .85; }
         .metric--saldo { color: #22c55e; }   /* verde */
         .metric--pocket { color: #06b6d4; }  /* ciano */
-        .metric-hint { opacity: 0.8; margin-top: 0.3rem; }
       `}</style>
     </>
   );
