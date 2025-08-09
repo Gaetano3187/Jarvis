@@ -132,7 +132,7 @@ export default function ListeProdotti() {
   const [toast, setToast] = useState(null);
 
   // Scadenza manuale
-  theconst [expiryForm, setExpiryForm] = useState({ name: '', brand: '', qty: '1', expiresAt: '' });
+  const [expiryForm, setExpiryForm] = useState({ name: '', brand: '', qty: '1', expiresAt: '' });
 
   const curItems = lists[currentList] || [];
 
