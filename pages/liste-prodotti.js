@@ -10,6 +10,9 @@ const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
 const API_OCR = '/api/ocr';                  // usa il tuo ocr.js
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
+// Flag per evitare 405 finché l’endpoint non esiste/proprio
+const ENABLE_INGEST = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_ENABLE_INGEST === '1';
+
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
   'latte','latte zymil','yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
@@ -126,7 +129,7 @@ function toISODate(any) {
   return '';
 }
 
-/** estrae coppie prodotto->data da frasi continue (usato solo per voce scadenze) */
+/** estrae coppie prodotto->data da frasi continue */
 function parseExpiryPairs(text) {
   const out = [];
   const norm = (x) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -168,8 +171,8 @@ function parseExpiryPairs(text) {
 
 /* ---------- fetch helpers robusti ---------- */
 async function readJsonSafe(res) {
-  const ct = (res.headers?.get?.('content-type') || '').toLowerCase();
-  const raw = (await res.text?.()) || '';
+  const ct = (res.headers.get?.('content-type') || '').toLowerCase();
+  const raw = await res.text?.() || '';
   if (!raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
   if (ct.includes('application/json')) {
     try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
@@ -185,29 +188,25 @@ function timeoutFetch(url, opts={}, ms=25000) {
   return fetch(url, { ...opts, signal: ctrl.signal }).finally(()=>clearTimeout(t));
 }
 
-/* ------------- Prompt builder: scontrino (NB: le scadenze verranno IGNORATE) ------------- */
+/* ------------- Prompt builder: scontrino ------------- */
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
   const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
   return [
     'Sei Jarvis, estrattore strutturato di scontrini.',
     'DEVI rispondere SOLO in JSON con questo schema ESATTO:',
-    '{ "purchases":[{ "name":"", "brand":"", "qty":1, "packSize":1, "expiresAt":"" }], "expiries":[], "stock":[] }',
+    '{ "purchases":[{ "name":"", "brand":"", "qty":1, "expiresAt":"" }], "expiries":[], "stock":[] }',
     '',
     'REGOLE:',
-    '- Estrai SOLO righe prodotto. IGNORA intestazioni, subtotali, TOTALE, pagamenti, sconti globali.',
-    '- Normalizza nomi usando il lessico come guida:',
+    '- Estrai SOLO righe che indicano prodotti acquistati.',
+    '- IGNORA intestazioni, reparti, subtotali, TOTALE, IVA, sconti globali, contanti/bancomat, resto, numeri ordine, casse.',
+    '- Normalizza i nomi usando questo lessico come guida (se simili, scegli la forma del lessico):',
     LEX,
-    '- brand: stringa breve se deducibile, altrimenti "".',
-    '- qty: numero di confezioni acquistate (default 1).',
-    '- packSize: numero di pezzi per confezione (es. "10pz" => 10, "4x125g" => 4). Se non indicato, 1.',
-    '- expiresAt (se presente) verrà ignorato a valle.',
-    '- Niente testo fuori dal JSON.',
+    '- brand: stringa breve se deducibile (es. “Barilla”, “Parmalat”), altrimenti "".',
+    '- qty: quantità acquistata. Se non specificata, 1. Per pesi (es. 1,20 kg) usa qty numerica (es. 1.2).',
+    '- expiresAt: lasciala vuota per gli scontrini (\"\").', // <-- importante: non caricare scadenze da scontrino
+    '- Niente commenti, niente testo fuori dal JSON.',
     '',
-    'ESEMPI:',
-    'PARMALAT LATTE P.S. 2 x 1,29',
-    'UOVA FRESCHE 10PZ 2,49',
-    '{ "purchases":[{ "name":"latte","brand":"Parmalat","qty":2,"packSize":1,"expiresAt":"" },{ "name":"uova","brand":"","qty":1,"packSize":10,"expiresAt":"" }], "expiries":[], "stock":[] }',
-    '',
+    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO. RISPONDI SOLO CON IL JSON FINALE.',
     '--- TESTO OCR INIZIO ---',
     ocrText,
     '--- TESTO OCR FINE ---'
@@ -225,6 +224,7 @@ function buildExpiryPrompt(itemName, brand, ocrText) {
     '',
     `PRODOTTO TARGET: "${tag}"`,
     '',
+    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO.',
     '--- TESTO OCR INIZIO ---',
     ocrText,
     '--- TESTO OCR FINE ---'
@@ -239,15 +239,16 @@ function parseReceiptPurchases(ocrText) {
   const out = [];
   for (let raw of lines) {
     if (ignore.test(raw)) continue;
-    let qty = 1, packSize = 1, brand = '', name = raw;
+    let qty = 1, brand = '', name = raw;
 
-    const mPackX = raw.match(/(\d+)\s*[xX]\s*\d+\s*(?:g|gr|ml|cl|l|pz|PZ)?\b/);
-    if (mPackX) packSize = Math.max(packSize, Number(mPackX[1]) || 1);
-    const mPieces = raw.match(/(\d+)\s*(?:pz|PZ|pezzi|uova|capsule|bustine)\b/);
-    if (mPieces) packSize = Math.max(packSize, Number(mPieces[1]) || 1);
+    const mPack = raw.match(/(\d+)\s*[xX]\s*\d+/);
+    if (mPack) qty = Math.max(qty, Number(mPack[1]||1));
 
     const mQty = raw.match(/^(\d+(?:[.,]\d+)?)\s*[xX]?\s+(.*)$/);
     if (mQty) { qty = Number(String(mQty[1]).replace(',','.')) || 1; name = mQty[2]; }
+
+    const mKg = raw.match(/(\d+(?:[.,]\d+)?)\s*(kg|g)\b/i);
+    if (mKg) qty = Number(String(mKg[1]).replace(',','.')) || qty;
 
     const parts = name.split(' ');
     if (parts.length>1 && /^[A-ZÀ-ÖØ-Þ]/.test(parts[parts.length-1])) {
@@ -268,7 +269,7 @@ function parseReceiptPurchases(ocrText) {
       .replace(/yogurt\b.*/, 'yogurt');
 
     if (!name || name.length<2) continue;
-    out.push({ name, brand: brand || '', qty: Math.max(1, qty), packSize: Math.max(1, packSize), expiresAt: '' });
+    out.push({ name, brand: brand || '', qty: Math.max(1, qty), expiresAt: '' });
   }
   return out;
 }
@@ -286,8 +287,8 @@ export default function ListeProdotti() {
   const [form, setForm] = useState({ name: '', brand: '', qty: '1' });
 
   // Scorte & critici
-  const [stock, setStock] = useState([]); // {name,brand,qty,expiresAt?,lastPurchaseAt?,initialQtyAtLastPurchase?}
-  const [critical, setCritical] = useState([]);
+  const [stock, setStock] = useState([]);       // [{name,brand,qty,expiresAt?}]
+  const [critical, setCritical] = useState([]); // subset di stock
 
   // Stato UI
   const [busy, setBusy] = useState(false);
@@ -299,7 +300,7 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale: SCADENZE
+  // Vocale: SCADENZE (session dedicata)
   const expMediaRef = useRef(null);
   const expChunksRef = useRef([]);
   const expStreamRef = useRef(null);
@@ -312,33 +313,21 @@ export default function ListeProdotti() {
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
-  // Edit scorte
-  const [editingIdx, setEditingIdx] = useState(null);
-  const [editForm, setEditForm] = useState({ name:'', brand:'', qty:'', expiresAt:'' });
-
   const curItems = lists[currentList] || [];
 
-  /* --------------- derivati: Prodotti in esaurimento / scadenza --------------- */
+  /* --------------- derivati --------------- */
   useEffect(() => {
-    const now = Date.now();
-    const twoDays = 2 * 24 * 60 * 60 * 1000;
-    const nearExpiryWindow = 10 * 24 * 60 * 60 * 1000; // 10 giorni
-
+    const today = new Date();
+    const tenDays = 10 * 24 * 60 * 60 * 1000;
     const crit = stock.filter((p) => {
-      const qty = Number(p.qty || 0);
-      const init = Number(p.initialQtyAtLastPurchase || 0);
-      const last = p.lastPurchaseAt ? new Date(p.lastPurchaseAt).getTime() : 0;
-
-      const expiresSoon = p.expiresAt ? (new Date(p.expiresAt).getTime() - now) <= nearExpiryWindow : false;
-
-      const lowByUnits = qty <= 2;
-      const lowByPercent = init > 0 ? (qty <= 0.8 * init) : false;
-      const oldEnough = last && (now - last) > twoDays;
-      const depletion = oldEnough && (lowByUnits || lowByPercent);
-
-      return expiresSoon || depletion;
+      const lowQty = Number(p.qty || 0) <= 1;
+      let nearExp = false;
+      if (p.expiresAt) {
+        const exp = new Date(p.expiresAt);
+        nearExp = (exp - today) <= tenDays;
+      }
+      return lowQty || nearExp;
     });
-
     setCritical(crit);
   }, [stock]);
 
@@ -379,9 +368,9 @@ export default function ListeProdotti() {
   function incQty(id, delta) {
     setLists(prev => {
       const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).
-        map(i => i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i).
-        filter(i => i.qty > 0);
+      next[currentList] = (prev[currentList] || []).map(i => (
+        i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i
+      )).filter(i => i.qty > 0);
       return next;
     });
   }
@@ -400,29 +389,9 @@ export default function ListeProdotti() {
     if (item) {
       setStock(prev => {
         const arr = [...prev];
-        const idx = arr.findIndex(s =>
-          isSimilar(s.name, item.name) &&
-          ( !(item.brand && s.brand) || isSimilar(s.brand || '', item.brand || '') )
-        );
-        const nowISO = new Date().toISOString();
-        if (idx >= 0) {
-          const newQty = Number(arr[idx].qty || 0) + 1;
-          arr[idx] = {
-            ...arr[idx],
-            qty: newQty,
-            lastPurchaseAt: nowISO,
-            initialQtyAtLastPurchase: newQty
-          };
-        } else {
-          arr.unshift({
-            name: item.name,
-            brand: item.brand,
-            qty: 1,
-            expiresAt: '',
-            lastPurchaseAt: nowISO,
-            initialQtyAtLastPurchase: 1
-          });
-        }
+        const idx = arr.findIndex(s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand||'', item.brand)));
+        if (idx >= 0) arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + 1 };
+        else arr.unshift({ name: item.name, brand: item.brand, qty: 1, expiresAt: '' });
         return arr;
       });
     }
@@ -457,6 +426,7 @@ export default function ListeProdotti() {
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
 
+      // assistant (estrazione strutturata) + fallback locale
       let appended = false;
       try {
         const payload = {
@@ -580,33 +550,21 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ----- OCR: supporto decremento su entrambe le liste ----- */
+  /* ----- OCR: funzioni supporto decremento su entrambe le liste ----- */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
-
-    const findMatchIdx = (arr, p) => {
-      return arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        ( !(p.brand && i.brand) || isSimilar(i.brand || '', p.brand || '') )
-      );
-    };
-
     const decList = (listKey) => {
       const arr = [...(next[listKey] || [])];
       for (const p of purchases) {
-        const packSize = Math.max(1, Number(p.packSize || p.unitsPerPack || 1));
-        const dec = Math.max(1, Number(p.qty || 1)) * packSize;
-
-        const idx = findMatchIdx(arr, p);
+        const dec = Math.max(1, Number(p.qty || 1));
+        const idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!p.brand || isSimilar(i.brand || '', p.brand || '')));
         if (idx >= 0) {
-          const current = Number(arr[idx].qty || 0);
-          const newQty = Math.max(0, current - Math.min(dec, current));
+          const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
           arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
         }
       }
       next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
     };
-
     decList(LIST_TYPES.SUPERMARKET);
     decList(LIST_TYPES.ONLINE);
     return next;
@@ -618,7 +576,7 @@ export default function ListeProdotti() {
     try {
       setBusy(true);
 
-      // 1) OCR testo dallo scontrino
+      // 1) OCR testo dallo scontrino (usa /api/ocr con campo "images")
       const fdOcr = new FormData();
       files.forEach((f) => fdOcr.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
@@ -627,7 +585,7 @@ export default function ListeProdotti() {
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
-      // 2) Estrazione strutturata (le scadenze verranno IGNORATE)
+      // 2) Chiedi all’assistente l’estrazione strutturata
       const prompt = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
         method:'POST',
@@ -639,93 +597,62 @@ export default function ListeProdotti() {
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       let purchases = ensureArray(parsed?.purchases);
+      const expiries  = ensureArray(parsed?.expiries);
       const stockArr  = ensureArray(parsed?.stock);
-      // ignoriamo SEMPRE qualsiasi "expiries" dal modello
+
       // fallback locale se vuoto
       if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
+
+      // IMPORTANTISSIMO: non caricare scadenze dagli scontrini
+      if (purchases.length) purchases = purchases.map(p => ({ ...p, expiresAt: '' }));
 
       // 3) Aggiorna liste (decremento degli acquistati su ENTRAMBE le liste)
       if (purchases.length) {
         setLists(prev => decrementAcrossBothLists(prev, purchases));
-
-        // Aggiorna scorte includendo anche prodotti non in lista
+        // aggiorna scorte includendo anche prodotti non in lista
         setStock(prev => {
           const arr = [...prev];
-          const nowISO = new Date().toISOString();
-
           for (const p of purchases) {
-            const packSize = Math.max(1, Number(p.packSize || p.unitsPerPack || 1));
-            const incQty = Math.max(1, Number(p.qty || 1)) * packSize;
-
-            const idx = arr.findIndex(s =>
-              isSimilar(s.name, p.name) &&
-              ( !(p.brand && s.brand) || isSimilar(s.brand || '', p.brand || '') )
-            );
-
-            // >>> NON impostiamo mai expiresAt da scontrino
+            const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+            const incQty = Math.max(1, Number(p.qty||1));
+            const ex = ''; // da scontrino NON settiamo scadenze
             if (idx >= 0) {
-              const newQty = Number(arr[idx].qty || 0) + incQty;
-              arr[idx] = {
-                ...arr[idx],
-                qty: newQty,
-                lastPurchaseAt: nowISO,
-                initialQtyAtLastPurchase: newQty
-              };
+              arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + incQty, expiresAt: ex || arr[idx].expiresAt };
             } else {
-              arr.unshift({
-                name: p.name,
-                brand: p.brand || '',
-                qty: incQty,
-                expiresAt: arr.expiresAt || '', // resta vuoto
-                lastPurchaseAt: nowISO,
-                initialQtyAtLastPurchase: incQty
-              });
+              arr.unshift({ name: p.name, brand: p.brand || '', qty: incQty, expiresAt: ex });
             }
           }
           return arr;
         });
 
-        // best-effort finanze
-        try {
-          await fetch(API_FINANCES_INGEST, {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ purchases })
-          });
-        } catch {}
+        // 4) best-effort finanze → chiamata disabilitabile per evitare 405
+        if (ENABLE_INGEST) {
+          try {
+            await fetch(API_FINANCES_INGEST, {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ purchases })
+            });
+          } catch {}
+        }
       }
 
-      // 4) stock extra dal modello (SOLO quantità; IGNORA eventuali expiresAt)
+      // Applica eventuali scorte extra dal modello (ignora eventuali expiries auto)
       if (stockArr && stockArr.length) {
         setStock(prev => {
           let arr = [...prev];
-          for (const rec of stockArr) {
-            if (!rec?.name) continue;
-            const addQty = Math.max(0, Number(rec.qty || 0)) * Math.max(1, Number(rec.packSize || rec.unitsPerPack || 1));
-            const idx = arr.findIndex(s =>
-              isSimilar(s.name, rec.name) &&
-              ( !(rec.brand && s.brand) || isSimilar(s.brand || '', rec.brand || '') )
-            );
-            const nowISO = new Date().toISOString();
+          const upsert = (rec) => {
+            if (!rec?.name) return;
+            const idx = arr.findIndex(s => isSimilar(s.name, rec.name) && (!rec.brand || isSimilar(s.brand||'', rec.brand)));
+            const addQty = Math.max(0, Number(rec.qty || 0));
+            // anche qui, da scontrino lasciamo scadenza vuota
             if (idx >= 0) {
-              const newQty = Number(arr[idx].qty || 0) + addQty;
-              arr[idx] = {
-                ...arr[idx],
-                qty: newQty,
-                // expiresAt invariato
-                ...(addQty > 0 ? { lastPurchaseAt: nowISO, initialQtyAtLastPurchase: newQty } : {})
-              };
-            } else if (addQty) {
-              arr.unshift({
-                name: rec.name,
-                brand: rec.brand || '',
-                qty: addQty,
-                expiresAt: '',
-                lastPurchaseAt: nowISO,
-                initialQtyAtLastPurchase: addQty
-              });
+              arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + addQty };
+            } else if (rec.qty) {
+              arr.unshift({ name: rec.name, brand: rec.brand || '', qty: addQty || 1, expiresAt: '' });
             }
-          }
+          };
+          stockArr.forEach(upsert);
           return arr;
         });
       }
@@ -751,6 +678,7 @@ export default function ListeProdotti() {
     try {
       setBusy(true);
 
+      // 1) OCR immagine etichetta
       const fd = new FormData();
       files.forEach((f)=>fd.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
@@ -759,6 +687,7 @@ export default function ListeProdotti() {
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
+      // 2) Assistant per scadenza singola
       const prompt = buildExpiryPrompt(row.name, row.brand || '', ocrText);
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
@@ -787,46 +716,6 @@ export default function ListeProdotti() {
       setTargetRowIdx(null);
       if (rowOcrInputRef.current) rowOcrInputRef.current.value = '';
     }
-  }
-
-  /* ---------------- Stato Scorte: Modifica/Elimina ---------------- */
-  function startEditStock(idx) {
-    const s = stock[idx];
-    setEditingIdx(idx);
-    setEditForm({
-      name: s?.name || '',
-      brand: s?.brand || '',
-      qty: String(s?.qty ?? 0),
-      expiresAt: s?.expiresAt || ''
-    });
-  }
-  function cancelEditStock() {
-    setEditingIdx(null);
-    setEditForm({ name:'', brand:'', qty:'', expiresAt:'' });
-  }
-  function saveEditStock() {
-    if (editingIdx == null) return;
-    setStock(prev => {
-      const arr = [...prev];
-      const target = arr[editingIdx];
-      if (!target) return prev;
-      const qtyNum = Math.max(0, Number(String(editForm.qty).replace(',', '.')) || 0);
-      const iso = editForm.expiresAt ? toISODate(editForm.expiresAt) : '';
-      arr[editingIdx] = {
-        ...target,
-        name: editForm.name.trim() || target.name,
-        brand: editForm.brand.trim(),
-        qty: qtyNum,
-        expiresAt: iso
-      };
-      return arr;
-    });
-    cancelEditStock();
-    showToast('Voce aggiornata ✓', 'ok');
-  }
-  function deleteStock(idx) {
-    setStock(prev => prev.filter((_, i) => i !== idx));
-    showToast('Voce eliminata', 'ok');
   }
 
   /* ---------------- render ---------------- */
@@ -900,17 +789,32 @@ export default function ListeProdotti() {
             )}
           </div>
 
-          {/* Form aggiunta manuale */}
+          {/* Form aggiunta manuale - STILE COERENTE */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>Aggiungi prodotto</h3>
-            <form onSubmit={addManualItem} style={styles.formRow}>
-              <input placeholder="Prodotto (es. latte)" value={form.name}
-                     onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-              <input placeholder="Marca (es. Parmalat)" value={form.brand}
-                     onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-              <input placeholder="Q.tà" inputMode="decimal" value={form.qty}
-                     onChange={e => setForm(f => ({...f, qty: e.target.value}))} style={{...styles.input, width: 100}} required />
-              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
+            <form onSubmit={addManualItem} style={styles.addBar}>
+              <input
+                placeholder="Prodotto (es. latte)"
+                value={form.name}
+                onChange={e => setForm(f => ({...f, name: e.target.value}))}
+                style={{ ...styles.input, flex: 2, minWidth: 180 }}
+                required
+              />
+              <input
+                placeholder="Marca (es. Parmalat)"
+                value={form.brand}
+                onChange={e => setForm(f => ({...f, brand: e.target.value}))}
+                style={{ ...styles.input, flex: 1, minWidth: 140 }}
+              />
+              <input
+                placeholder="Q.tà"
+                inputMode="decimal"
+                value={form.qty}
+                onChange={e => setForm(f => ({...f, qty: e.target.value}))}
+                style={{ ...styles.input, width: 100 }}
+                required
+              />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi</button>
             </form>
             <p style={{opacity:.8, marginTop: 6}}>
               Suggerimenti voce: “2 latte parmalat; 3 pasta barilla; uova”.
@@ -973,39 +877,12 @@ export default function ListeProdotti() {
                 <tbody>
                   {stock.map((s, i) => (
                     <tr key={i}>
+                      <td style={styles.td}>{s.name}</td>
+                      <td style={styles.td}>{s.brand || '-'}</td>
+                      <td style={styles.td}>{s.qty}</td>
+                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
-                        {editingIdx===i ? (
-                          <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={styles.inputSm} />
-                        ) : s.name}
-                      </td>
-                      <td style={styles.td}>
-                        {editingIdx===i ? (
-                          <input value={editForm.brand} onChange={e=>setEditForm(f=>({...f,brand:e.target.value}))} style={styles.inputSm} />
-                        ) : (s.brand || '-')}
-                      </td>
-                      <td style={styles.td}>
-                        {editingIdx===i ? (
-                          <input value={editForm.qty} inputMode="decimal" onChange={e=>setEditForm(f=>({...f,qty:e.target.value}))} style={{...styles.inputSm, width:90}} />
-                        ) : s.qty}
-                      </td>
-                      <td style={styles.td}>
-                        {editingIdx===i ? (
-                          <input type="date" value={editForm.expiresAt || ''} onChange={e=>setEditForm(f=>({...f,expiresAt:e.target.value}))} style={styles.inputSm} />
-                        ) : (s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-')}
-                      </td>
-                      <td style={styles.td}>
-                        {editingIdx===i ? (
-                          <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                            <button onClick={saveEditStock} style={styles.actionSuccessSmall}>Salva</button>
-                            <button onClick={cancelEditStock} style={styles.actionGhostSmall}>Annulla</button>
-                          </div>
-                        ) : (
-                          <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                            <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-                            <button onClick={()=>startEditStock(i)} style={styles.actionGhostSmall}>Modifica</button>
-                            <button onClick={()=>deleteStock(i)} style={styles.actionGhostDangerSmall}>Elimina</button>
-                          </div>
-                        )}
+                        <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
                       </td>
                     </tr>
                   ))}
@@ -1082,7 +959,37 @@ const styles = {
   actionGhost: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   actionGhostDanger: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  primaryBtn: { background:'#16a34a', border:0, color:'#fff', padding:'10px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
+  // 🔧 Barra "Aggiungi prodotto" coerente con la UI
+  addBar: {
+    display:'flex',
+    gap:10,
+    alignItems:'center',
+    background:'rgba(255,255,255,.05)',
+    border:'1px solid rgba(255,255,255,.12)',
+    borderRadius:12,
+    padding:'10px',
+    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04)'
+  },
+
+  input: {
+    padding: '10px 12px',
+    borderRadius: 10,
+    border: '1px solid rgba(255,255,255,.15)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    minWidth: 200,
+    outline: 'none'
+  },
+  primaryBtn: {
+    background:'#16a34a',
+    border:0,
+    color:'#fff',
+    padding:'10px 14px',
+    borderRadius:10,
+    cursor:'pointer',
+    fontWeight:800,
+    whiteSpace:'nowrap'
+  },
 
   table: { width:'100%', borderCollapse:'collapse', background:'rgba(255,255,255,.04)', borderRadius:12, overflow:'hidden' },
   th: { textAlign:'left', padding:'10px', borderBottom:'1px solid rgba(255,255,255,.12)' },
@@ -1092,14 +999,5 @@ const styles = {
   voiceBtnSmall: { background:'#6366f1', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   voiceBtnSmallStop: { background:'#ef4444', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
   ocrBtnSmall: { background:'#06b6d4', border:0, color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
-  ocrInlineBtn: { background:'rgba(6,182,212,.15)', border:'1px solid rgba(6,182,212,.6)', color:'#e0fbff', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:700 },
-
-  // mini input / bottoni tabella scorte
-  inputSm: {
-    padding:'6px 8px', borderRadius:8, border:'1px solid rgba(255,255,255,.2)',
-    background:'rgba(255,255,255,.06)', color:'#fff', minWidth: 120
-  },
-  actionSuccessSmall: { background:'#16a34a', border:0, color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 },
-  actionGhostSmall: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 },
-  actionGhostDangerSmall: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 }
+  ocrInlineBtn: { background:'rgba(6,182,212,.15)', border:'1px solid rgba(6,182,212,.6)', color:'#e0fbff', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:700 }
 };
