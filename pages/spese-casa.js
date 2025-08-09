@@ -1,18 +1,21 @@
-// pages/spese-casa.js
+// pages/vestiti-ed-altro.js
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
-const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
+// === CATEGORIA: Vestiti & Altro ===
+const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
 
-/** Dizionario alias → nome canonico per i punti vendita */
+/** Dizionario alias → nome canonico per i punti vendita (estendibile) */
 const STORE_ALIASES = [
-  ['orsini market', 'Orsini Market'],
-  ['orsinimarket', 'Orsini Market'],
-  ['orsini marche', 'Orsini Market'],
-  ['orsini marker', 'Orsini Market'],
+  ['zara', 'Zara'],
+  ['h&m', 'H&M'],
+  ['ovs', 'OVS'],
+  ['ovs industry', 'OVS'],
+  ['decathlon', 'Decathlon'],
+  ['foot locker', 'Foot Locker'],
   // aggiungi qui altri alias comuni
 ]
 
@@ -23,16 +26,20 @@ function canonicalizeStoreName(raw) {
     if (s === alias) return canon
   }
   // capitalizza parole di default
-  return s.replace(/\s+/g, ' ').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : '').join(' ')
+  return s
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map(w => (w ? w[0].toUpperCase() + w.slice(1) : ''))
+    .join(' ')
 }
 
-function SpeseCasa() {
+function VestitiEdAltro() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const [recBusy, setRecBusy] = useState(false)      // true = sta registrando
-  const [stopping, setStopping] = useState(false)    // true = fermo in corso (attendi)
+  const [recBusy, setRecBusy] = useState(false)
+  const [stopping, setStopping] = useState(false)
 
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
@@ -51,7 +58,7 @@ function SpeseCasa() {
   const streamRef = useRef(null)
   const recordedChunks = useRef([])
   const mimeRef = useRef('')
-  const stopWaitRef = useRef(null) // promise di attesa stop
+  const stopWaitRef = useRef(null)
 
   // ----------------------------- API
   const fetchSpese = useCallback(async () => {
@@ -65,7 +72,7 @@ function SpeseCasa() {
         .from('finances')
         .select('id, user_id, description, amount, qty, spent_at, payment_method, card_label')
         .eq('user_id', user.id)
-        .eq('category_id', CATEGORY_ID_CASA)
+        .eq('category_id', CATEGORY_ID_VESTITI)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -125,11 +132,9 @@ function SpeseCasa() {
     }
 
     setStopping(true)
-
-    // promise si risolve su onstop o timeout
     const p = new Promise(resolve => {
       stopWaitRef.current = { resolve }
-      setTimeout(() => resolve('timeout'), 2000) // sicurezza
+      setTimeout(() => resolve('timeout'), 2000)
     })
 
     try {
@@ -142,7 +147,6 @@ function SpeseCasa() {
       await p
     }
 
-    // cleanup
     mediaRecRef.current = null
     stopTracks()
     setStopping(false)
@@ -152,9 +156,8 @@ function SpeseCasa() {
   useEffect(() => {
     fetchSpese()
 
-    // auto-stop se si cambia scheda o si lascia la pagina
     const handleVisibility = () => { if (document.hidden) stopRecording() }
-    const handleBeforeUnload = () => { stopRecording(true) } // best effort sync
+    const handleBeforeUnload = () => { stopRecording(true) }
 
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('beforeunload', handleBeforeUnload)
@@ -180,7 +183,7 @@ function SpeseCasa() {
     const storeCanon = canonicalizeStoreName(nuovaSpesa.puntoVendita)
     const row = {
       user_id: user.id,
-      category_id: CATEGORY_ID_CASA,
+      category_id: CATEGORY_ID_VESTITI,
       description: `[${storeCanon}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
@@ -193,7 +196,6 @@ function SpeseCasa() {
 
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) {
-      // 23505 → violazione unique (es. indice naturale)
       if (insertError.code === '23505') setError('Questa spesa sembra già inserita.')
       else setError(insertError.message)
     } else {
@@ -241,14 +243,13 @@ function SpeseCasa() {
   // ----------------------------- START/STOP REC
   const toggleRec = async () => {
     setError(null)
-    if (stopping) return // evita rimbalzi durante lo stop
+    if (stopping) return
 
     if (recBusy) {
       await stopRecording()
       return
     }
 
-    // già attivo?
     if (mediaRecRef.current && mediaRecRef.current.state === 'recording') return
 
     if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
@@ -279,9 +280,7 @@ function SpeseCasa() {
         if (e.data && e.data.size) recordedChunks.current.push(e.data)
       })
 
-      // onstop → processVoice
       mr.addEventListener('stop', () => {
-        // risolve la promise di stop (se in attesa)
         stopWaitRef.current?.resolve?.()
         processVoice().finally(() => {
           setRecBusy(false)
@@ -326,24 +325,23 @@ function SpeseCasa() {
       '  "nota": "string opzionale"',
       '}]}',
       '',
-      'Nota: per i nomi dei negozi usa la forma più probabile e completa (es. "Orsini Market").',
+      'Nota: per i nomi dei negozi usa la forma più probabile e completa.',
       '',
-    ].join('\n');
+    ].join('\n')
 
     if (source === 'ocr') {
       return [
         header,
         'Testo OCR (' + fn + '):',
         String(userText || '')
-      ].join('\n');
+      ].join('\n')
     }
 
-    // STT / testo libero
     return [
       header,
       'Trascrizione:',
       String(userText || '')
-    ].join('\n');
+    ].join('\n')
   }
 
   // ----------------------------- Helpers
@@ -392,14 +390,13 @@ function SpeseCasa() {
       parts.push(`[${storeCanon}] ${it.dettaglio}`)
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
-      // normalizza payment method (transfer -> bank per coerenza UI)
       const methodRaw = (it.paymentMethod || 'cash')
       const method = methodRaw === 'transfer' ? 'bank' : methodRaw
       const label  = method === 'card' ? (it.cardLabel || null) : null
 
       return {
         user_id: user.id,
-        category_id: CATEGORY_ID_CASA,
+        category_id: CATEGORY_ID_VESTITI,
         description: parts.join(' '),
         amount: totalPrice,
         spent_at: spentAt,
@@ -417,7 +414,7 @@ function SpeseCasa() {
 
     await fetchSpese()
 
-    // Precompila il form con l’ultima spesa inserita (comodo per correzioni rapide)
+    // Precompila form con ultima spesa inserita
     const last = rows[0]
     setNuovaSpesa({
       puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
@@ -441,11 +438,11 @@ function SpeseCasa() {
 
   return (
     <>
-      <Head><title>Spese Casa</title></Head>
+      <Head><title>Vestiti ed Altro</title></Head>
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 className="title">🏠 Spese Casa</h2>
+          <h2 className="title">🛍️ Vestiti ed Altro</h2>
 
           <div className="table-buttons">
             <button
@@ -554,7 +551,7 @@ function SpeseCasa() {
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
+                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString('it-IT') : '-'}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
@@ -646,4 +643,4 @@ function SpeseCasa() {
   )
 }
 
-export default withAuth(SpeseCasa)
+export default withAuth(VestitiEdAltro)
