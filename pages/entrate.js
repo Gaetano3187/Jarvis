@@ -25,8 +25,8 @@ function computeCurrentPayPeriod(today, paydayDay) {
     end = new Date(y, m, paydayDay - 1);
   }
 
-  const startDate = start.toISOString().slice(0, 10);
-  const endDate = end.toISOString().slice(0, 10);
+  const startDate = start.toISOString().slice(0, 10); // YYYY-MM-DD
+  const endDate = end.toISOString().slice(0, 10);     // YYYY-MM-DD
   const monthKey = end.toISOString().slice(0, 7);
   return { startDate, endDate, monthKey };
 }
@@ -101,14 +101,9 @@ function parseAmountLoose(v) {
 function formatIT(iso) {
   if (!iso) return '';
   const d = new Date(iso);
-  if (!isNaN(d)) {
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yy = d.getFullYear();
-    return `${dd}/${mm}/${yy}`;
-  }
+  if (!isNaN(d)) return d.toLocaleDateString('it-IT');
   const [yy, mm, dd] = String(iso).split('-').map(Number);
-  if (yy && mm && dd) return `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${yy}`;
+  if (yy && mm && dd) return new Date(yy, mm - 1, dd).toLocaleDateString('it-IT');
   return String(iso);
 }
 
@@ -151,9 +146,21 @@ function Entrate() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
+  // === Date correnti ===
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-  // Fine-giorno esclusiva: include tutto l’ultimo giorno anche se TIMESTAMP
-  const endExclusive = new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+  // ISO per filtri
+  const startDateISO = startDate; // 'YYYY-MM-DD'
+  const endDateISO = endDate;     // 'YYYY-MM-DD'
+  const endExclusiveDate = (() => {
+    const d = new Date(endDateISO + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  })();
+
+  // Italiano per UI
+  const startDateIT = formatIT(startDateISO);
+  const endDateIT = formatIT(endDateISO);
 
   useEffect(() => {
     loadAll();
@@ -176,13 +183,13 @@ function Entrate() {
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // 1) Entrate del periodo
+      // 1) Entrate del periodo (ISO nei filtri)
       const { data: inc, error: e1 } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at')
         .eq('user_id', user.id)
-        .gte('received_at', startDate)
-        .lt('received_at', endExclusive)
+        .gte('received_at', startDateISO)
+        .lt('received_at', endExclusiveDate)
         .order('received_at', { ascending: false });
       if (e1) throw e1;
       setIncomes(inc || []);
@@ -197,15 +204,13 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2;
       setCarryover(co || null);
 
-      // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
-
-      // 3a) Movimenti manuali nel PERIODO CORRENTE
+      // 3a) Movimenti contante manuali nel periodo (ISO nei filtri)
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, note, delta, amount, direction')
         .eq('user_id', user.id)
-        .gte('moved_at', startDate)
-        .lt('moved_at', endExclusive)
+        .gte('moved_at', startDateISO)
+        .lt('moved_at', endExclusiveDate)
         .order('moved_at', { ascending: false });
       if (e3) throw e3;
 
@@ -226,14 +231,14 @@ function Entrate() {
         };
       });
 
-      // 3b) Spese in contante dalle altre pagine (finances)
+      // 3b) Spese cash dalle altre pagine (ISO nei filtri)
       const { data: finCash, error: e4 } = await supabase
         .from('finances')
         .select('id, description, amount, spent_at')
         .eq('user_id', user.id)
         .eq('payment_method', 'cash')
-        .gte('spent_at', startDate)
-        .lt('spent_at', endExclusive)
+        .gte('spent_at', startDateISO)
+        .lt('spent_at', endExclusiveDate)
         .order('spent_at', { ascending: false });
       if (e4) throw e4;
 
@@ -246,23 +251,22 @@ function Entrate() {
           id: `fin-${f.id}`,
           dateISO,
           label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-          amount: -Math.abs(Number(f.amount) || 0), // spesa = uscita
+          amount: -Math.abs(Number(f.amount) || 0),
         };
       });
 
-      // 3c) Unione e ordinamento
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
       setPocketRows(rows);
 
-      // 4) (opzionale) Spese totali del periodo
+      // 4) (opzionale) Totale spese nel periodo (ISO nei filtri)
       const { data: exp, error: e5 } = await supabase
         .from('finances')
         .select('amount, spent_at')
         .eq('user_id', user.id)
-        .gte('spent_at', startDate)
-        .lt('spent_at', endExclusive);
+        .gte('spent_at', startDateISO)
+        .lt('spent_at', endExclusiveDate);
       if (e5) throw e5;
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
       setMonthExpenses(totalExp);
@@ -592,9 +596,9 @@ function Entrate() {
           {/* Periodo corrente in alto - formato IT */}
           <div className="periodo-row">
             <span>Periodo corrente:</span>
-            <b>{formatIT(startDate)}</b>
+            <b>{startDateIT}</b>
             <span>–</span>
-            <b>{formatIT(endDate)}</b>
+            <b>{endDateIT}</b>
           </div>
 
           {/* Disponibilita */}
