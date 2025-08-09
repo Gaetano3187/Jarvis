@@ -5,12 +5,9 @@ import Link from 'next/link';
 
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 
-// Assistant IDs / API endpoints
-const ASSISTANT_ID_VOICE = 'asst_LJmOc3h6JuVYiZXRQdtjnOlkchatgpt';
-const ASSISTANT_ID_OCR = 'assistantasst_a1d9qqNpXnXU92lPJFV00TjZ';
-
-const API_ASSISTANT_TEXT = '/api/assistant';
-const API_ASSISTANT_OCR = '/api/assistant-ocr';
+// Endpoints esistenti
+const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
+const API_OCR = '/api/ocr';                  // usa il tuo ocr.js
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
 /* ----------------- Lessico supermercato ----------------- */
@@ -33,7 +30,7 @@ function normKey(str) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s{2,}/g, ' ')
-  .trim();
+    .trim();
 }
 function tokens(str){ return new Set(normKey(str).split(' ').filter(Boolean)); }
 function isSimilar(a,b){
@@ -171,9 +168,9 @@ function parseExpiryPairs(text) {
 
 /* ---------- fetch helpers robusti ---------- */
 async function readJsonSafe(res) {
-  const ct = (res.headers.get('content-type') || '').toLowerCase();
-  const raw = await res.text();
-  if (!raw || !raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
+  const ct = (res.headers.get?.('content-type') || '').toLowerCase();
+  const raw = await res.text?.() || '';
+  if (!raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
   if (ct.includes('application/json')) {
     try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
     catch (e) { return { ok: res.ok, data: null, error: `JSON parse error: ${e?.message || e}` }; }
@@ -186,6 +183,154 @@ function timeoutFetch(url, opts={}, ms=25000) {
   const ctrl = new AbortController();
   const t = setTimeout(()=>ctrl.abort(), ms);
   return fetch(url, { ...opts, signal: ctrl.signal }).finally(()=>clearTimeout(t));
+}
+
+/* ------------- Prompt builder: scontrino ------------- */
+function buildOcrAssistantPrompt(ocrText, lexicon = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
+  return [
+    'Sei Jarvis, estrattore strutturato di scontrini.',
+    'DEVI rispondere SOLO in JSON con questo schema ESATTO:',
+    '{ "purchases":[{ "name":"", "brand":"", "qty":1, "expiresAt":"" }], "expiries":[], "stock":[] }',
+    '',
+    'REGOLE:',
+    '- Estrai SOLO righe che indicano prodotti acquistati.',
+    '- IGNORA intestazioni, reparti, subtotali, TOTALE, IVA, sconti globali, contanti/bancomat, resto, numeri ordine, casse.',
+    '- Normalizza i nomi usando questo lessico come guida (se simili, scegli la forma del lessico):',
+    LEX,
+    '- brand: stringa breve se deducibile (es. “Barilla”, “Parmalat”), altrimenti "".',
+    '- qty: quantità acquistata. Se non specificata, 1. Per pesi (es. 1,20 kg) usa qty numerica (es. 1.2).',
+    '- expiresAt: YYYY-MM-DD se presente in chiaro; altrimenti "".',
+    '- Niente commenti, niente testo fuori dal JSON.',
+    '',
+    'ESEMPI:',
+    'Input OCR:',
+    '----------------------------------------',
+    'ESSELUNGA - SCONTRINO FISCALE',
+    'PARMALAT LATTE P.S. 2 x 1,29',
+    'BARILLA SPAGHETTI 500G 1,09',
+    'UOVA FRESCHE 10PZ 2,49',
+    'TOTALE EURO 6,16',
+    'PAGATO BANCOMAT',
+    '----------------------------------------',
+    'Output JSON:',
+    '{ "purchases":[',
+    '  { "name":"latte", "brand":"Parmalat", "qty":2, "expiresAt":"" },',
+    '  { "name":"spaghetti", "brand":"Barilla", "qty":1, "expiresAt":"" },',
+    '  { "name":"uova", "brand":"", "qty":10, "expiresAt":"" }',
+    '], "expiries":[], "stock":[] }',
+    '',
+    'Input OCR:',
+    '----------------------------------------',
+    'COOP',
+    'PASSATA POMODORO MUTTI 0,99',
+    'RISO CARNAROLI 1KG 2,49',
+    'MELE GOLDEN 1,20 KG x 1,69',
+    'SCONTO -0,30',
+    'TOTALE 4,87',
+    'CONTANTI 5,00 RESTO 0,13',
+    '----------------------------------------',
+    'Output JSON:',
+    '{ "purchases":[',
+    '  { "name":"passata di pomodoro", "brand":"Mutti", "qty":1, "expiresAt":"" },',
+    '  { "name":"riso", "brand":"", "qty":1, "expiresAt":"" },',
+    '  { "name":"mele", "brand":"", "qty":1.2, "expiresAt":"" }',
+    '], "expiries":[], "stock":[] }',
+    '',
+    'Input OCR:',
+    '----------------------------------------',
+    'IPER',
+    'YOGURT FRAGOLA MULLER 4X125 1,99',
+    'BURRO LURPAK 250G 2,39',
+    'LATTE PS 1L SCAD 15/07/2025 1,29',
+    'TOTALE 5,67',
+    '----------------------------------------',
+    'Output JSON:',
+    '{ "purchases":[',
+    '  { "name":"yogurt", "brand":"Muller", "qty":4, "expiresAt":"" },',
+    '  { "name":"burro", "brand":"Lurpak", "qty":1, "expiresAt":"" },',
+    '  { "name":"latte", "brand":"", "qty":1, "expiresAt":"2025-07-15" }',
+    '], "expiries":[{"name":"latte", "expiresAt":"2025-07-15"}], "stock":[] }',
+    '',
+    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO. RISPONDI SOLO CON IL JSON FINALE.',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
+/* ------------- Prompt builder: scadenza singola ------------- */
+function buildExpiryPrompt(itemName, brand, ocrText) {
+  const tag = brand ? `${itemName} (marca ${brand})` : itemName;
+  return [
+    'Sei Jarvis, estrattore scadenze da etichette/scontrini.',
+    'Cerca SOLO la scadenza riferita al prodotto indicato.',
+    'Rispondi SOLO in JSON con schema: { "expiries":[{ "name":"", "expiresAt":"YYYY-MM-DD" }] }',
+    '- Se non trovi una data chiara, restituisci {"expiries":[]}.',
+    '',
+    `PRODOTTO TARGET: "${tag}"`,
+    '',
+    'ESEMPI:',
+    'Input:',
+    '  Prodotto: "latte (marca Parmalat)"',
+    '  Testo OCR: "LATTE PS PARMALAT 1L SCAD 15/07/2025 lotto 18"',
+    'Output:',
+    '{ "expiries":[{ "name":"latte", "expiresAt":"2025-07-15" }] }',
+    '',
+    'Input:',
+    '  Prodotto: "burro"',
+    '  Testo OCR: "BURRO 250g LURPAK da consumarsi preferibilmente entro 12/08/26"',
+    'Output:',
+    '{ "expiries":[{ "name":"burro", "expiresAt":"2026-08-12" }] }',
+    '',
+    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO.',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
+/* ------------- Fallback parser locale (semplice) ------------- */
+function parseReceiptPurchases(ocrText) {
+  const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const ignore = /(totale|iva|bancomat|contanti|resto|scontrino|cassa|cliente|sconto|subtotale)/i;
+
+  const out = [];
+  for (let raw of lines) {
+    if (ignore.test(raw)) continue;
+    let qty = 1, brand = '', name = raw;
+
+    const mPack = raw.match(/(\d+)\s*[xX]\s*\d+/);
+    if (mPack) qty = Math.max(qty, Number(mPack[1]||1));
+
+    const mQty = raw.match(/^(\d+(?:[.,]\d+)?)\s*[xX]?\s+(.*)$/);
+    if (mQty) { qty = Number(String(mQty[1]).replace(',','.')) || 1; name = mQty[2]; }
+
+    const mKg = raw.match(/(\d+(?:[.,]\d+)?)\s*(kg|g)\b/i);
+    if (mKg) qty = Number(String(mKg[1]).replace(',','.')) || qty;
+
+    const parts = name.split(' ');
+    if (parts.length>1 && /^[A-ZÀ-ÖØ-Þ]/.test(parts[parts.length-1])) {
+      brand = parts.pop();
+      name = parts.join(' ');
+    }
+
+    name = name
+      .replace(/\b(\d+[gG]|kg|ml|l|cl)\b/g,'')
+      .replace(/\s{2,}/g,' ')
+      .trim()
+      .toLowerCase();
+
+    name = name
+      .replace(/spaghetti|penne|fusilli|rigatoni/, 'pasta')
+      .replace(/passata\b.*pomodoro|passata\b/, 'passata di pomodoro')
+      .replace(/latte\b.*/, 'latte')
+      .replace(/yogurt\b.*/, 'yogurt');
+
+    if (!name || name.length<2) continue;
+    out.push({ name, brand: brand || '', qty: Math.max(1, qty), expiresAt: '' });
+  }
+  return out;
 }
 
 /* ---------------- component ---------------- */
@@ -340,11 +485,10 @@ export default function ListeProdotti() {
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
 
-      // assistant (estrazione strutturata) con fallback locale
+      // assistant (estrazione strutturata) + fallback locale
       let appended = false;
       try {
         const payload = {
-          assistantId: ASSISTANT_ID_VOICE,
           prompt: [
             'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
             '{ "items":[{ "name":"latte","brand":"Parmalat","qty":2 }, ...] }',
@@ -357,7 +501,7 @@ export default function ListeProdotti() {
           method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
         }, 25000);
         const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe; // copre implementazioni diverse
+        const answer = safe?.answer || safe?.data || safe;
         const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
         const arr = Array.isArray(parsed?.items) ? parsed.items : [];
         if (arr.length) {
@@ -410,7 +554,7 @@ export default function ListeProdotti() {
     } finally {
       setRecBusy(false);
       setBusy(false);
-      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {} // <-- FIX: chiude davvero il microfono
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
       mediaRecRef.current = null;
       streamRef.current = null;
       recordedChunks.current = [];
@@ -485,25 +629,40 @@ export default function ListeProdotti() {
     return next;
   }
 
-  /* ---------------- OCR: scontrini (aggiorna entrambe le liste + scorte) ---------------- */
+  /* ---------------- OCR: scontrini (usa /api/ocr + /api/assistant) ---------------- */
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
       setBusy(true);
-      const fd = new FormData();
-      fd.append('assistantId', ASSISTANT_ID_OCR);
-      files.forEach((f) => fd.append('files', f));
-      fd.append('hints', JSON.stringify({ lexicon: GROCERY_LEXICON }));
 
-      const res = await timeoutFetch(API_ASSISTANT_OCR, { method: 'POST', body: fd }, 30000);
-      const { ok, data, error } = await readJsonSafe(res);
-      if (!ok) throw new Error(error || `HTTP ${res.status}`);
-      if (!data) throw new Error('Risposta vuota dal servizio OCR');
+      // 1) OCR testo dallo scontrino (usa il tuo endpoint esistente /api/ocr con campo "images")
+      const fdOcr = new FormData();
+      files.forEach((f) => fdOcr.append('images', f));
+      const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
+      const ocrJson = await readJsonSafe(ocrRes);
+      if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+      const ocrText = String(ocrJson?.text || '').trim();
+      if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
-      const purchases = ensureArray(data.purchases);
-      const expiries  = ensureArray(data.expiries);
-      const stockArr  = ensureArray(data.stock);
+      // 2) Chiedi all’assistente l’estrazione strutturata
+      const prompt = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ prompt })
+      }, 30000);
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
+      let purchases = ensureArray(parsed?.purchases);
+      const expiries  = ensureArray(parsed?.expiries);
+      const stockArr  = ensureArray(parsed?.stock);
+
+      // fallback locale se vuoto
+      if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
+
+      // 3) Aggiorna liste (decremento degli acquistati su ENTRAMBE le liste)
       if (purchases.length) {
         setLists(prev => decrementAcrossBothLists(prev, purchases));
         // aggiorna scorte includendo anche prodotti non in lista
@@ -531,6 +690,7 @@ export default function ListeProdotti() {
         } catch {}
       }
 
+      // 4) Applica eventuali scadenze/stock extra dal modello
       if ((expiries && expiries.length) || (stockArr && stockArr.length)) {
         setStock(prev => {
           let arr = [...prev];
@@ -566,7 +726,7 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- OCR scadenza per riga ---------------- */
+  /* ---------------- OCR scadenza per riga (usa /api/ocr + /api/assistant) ---------------- */
   function openRowOcr(idx) {
     setTargetRowIdx(idx);
     rowOcrInputRef.current?.click();
@@ -576,16 +736,26 @@ export default function ListeProdotti() {
     const row = stock[targetRowIdx];
     try {
       setBusy(true);
-      const fd = new FormData();
-      fd.append('assistantId', ASSISTANT_ID_OCR);
-      files.forEach((f)=>fd.append('files', f));
-      fd.append('intent', 'expiry_for_item');
-      fd.append('item', JSON.stringify({ name: row.name, brand: row.brand || '' }));
 
-      const res = await timeoutFetch(API_ASSISTANT_OCR, { method:'POST', body: fd }, 25000);
-      const { ok, data, error } = await readJsonSafe(res);
-      if (!ok) throw new Error(error || `HTTP ${res.status}`);
-      const ex = ensureArray(data?.expiries)[0];
+      // 1) OCR immagine etichetta
+      const fd = new FormData();
+      files.forEach((f)=>fd.append('images', f));
+      const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
+      const ocrJson = await readJsonSafe(ocrRes);
+      if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+      const ocrText = String(ocrJson?.text || '').trim();
+      if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
+
+      // 2) Assistant per scadenza singola
+      const prompt = buildExpiryPrompt(row.name, row.brand || '', ocrText);
+      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+      }, 25000);
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+
+      const ex = ensureArray(parsed?.expiries)[0];
       const iso = ex?.expiresAt ? toISODate(ex.expiresAt) : '';
       if (iso) {
         setStock(prev => {
@@ -838,6 +1008,7 @@ const styles = {
     padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 200
   },
+  primaryBtn: { background:'#16a34a', border:0, color:'#fff', padding:'10px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
 
   table: { width:'100%', borderCollapse:'collapse', background:'rgba(255,255,255,.04)', borderRadius:12, overflow:'hidden' },
   th: { textAlign:'left', padding:'10px', borderBottom:'1px solid rgba(255,255,255,.12)' },
