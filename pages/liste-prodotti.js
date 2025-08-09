@@ -5,16 +5,15 @@ import Link from 'next/link';
 
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 
-// Assistant IDs / API endpoints
+// Assistant IDs / API endpoints (se li usi lato server li puoi leggere qui)
 const ASSISTANT_ID_VOICE = 'asst_LJmOc3h6JuVYiZXRQdtjnOlkchatgpt';
-const ASSISTANT_ID_OCR = 'assistantasst_a1d9qqNpXnXU92lPJFV00TjZ';
+const ASSISTANT_ID_OCR   = 'assistantasst_a1d9qqNpXnXU92lPJFV00TjZ';
 
-const API_ASSISTANT_TEXT = '/api/assistant';
-const API_ASSISTANT_OCR = '/api/assistant-ocr';
+const API_ASSISTANT_TEXT  = '/api/assistant';
+const API_ASSISTANT_OCR   = '/api/assistant-ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
-const API_OPERATOR_CONNECT = '/api/operator/connect';
 
-/* ----------------- Lessico prodotti (supermercato + everyday + bar + cocktails) ----------------- */
+/* ----------------- Lessico esteso ----------------- */
 const GROCERY_LEXICON = [
   // Supermercato
   'latte','latte zymil','yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
@@ -80,26 +79,49 @@ function isSimilar(a,b){
   return j>=0.5 || (inter>=1 && (A.size===1 || B.size===1));
 }
 
-/* ---------------- parser liste ---------------- */
+/* ---------------- parser liste (migliorato per vocale) ---------------- */
 function parseLinesToItems(text) {
-  const chunks = String(text || '')
-    .split(/[\n,]+/g)
+  const cleaned = String(text || '')
+    .replace(/\s+(e|ed|and|\+|piu|più)\s+/gi, ',')
+    .replace(/[•\-–—]/g, ','); // puntini elenco / trattini
+
+  const chunks = cleaned
+    .split(/[\n,;]+/g)
     .map(s => s.trim())
     .filter(Boolean);
 
   const items = [];
+
+  // helper merge
+  const pushMerge = (name, brand = '', qty = 1) => {
+    name = (name || '').trim();
+    brand = (brand || '').trim();
+    const q = Math.max(1, Number(String(qty).replace(',', '.')) || 1);
+    if (!name) return;
+    // se il pezzo contiene più brand, teniamo brand se riconosciuto altrimenti vuoto
+    const idx = items.findIndex(i =>
+      i.name.toLowerCase() === name.toLowerCase() &&
+      (i.brand || '').toLowerCase() === brand.toLowerCase()
+    );
+    if (idx >= 0) items[idx].qty = Number(items[idx].qty || 0) + q;
+    else items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand, qty: q, purchased:false });
+  };
+
+  // 1) parsing semplice "2 latte parmalat"
   for (const raw of chunks) {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) continue;
 
+    // quantità davanti
     let qty = 1;
-    const mQty = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
     let rest = s;
+    const mQty = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
     if (mQty) {
       qty = Number(String(mQty[1]).replace(',', '.')) || 1;
       rest = mQty[2].trim();
     }
 
+    // brand (euristico)
     let name = rest, brand = '';
     const marca = rest.match(/\b(?:marca|brand)\s+([^\s].*)$/i);
     if (marca) {
@@ -116,19 +138,41 @@ function parseLinesToItems(text) {
       }
     }
 
+    // se è una frase lunga senza virgole: prova a estrarre più voci dal lessico
+    const nrest = normKey(rest);
+    const likelySentence = nrest.split(' ').length >= 3 && !mQty && !/,|;/.test(raw);
+    if (likelySentence) {
+      const matches = [];
+      for (const p of GROCERY_LEXICON) {
+        const k = normKey(p);
+        if (k && nrest.includes(k)) matches.push(p);
+      }
+      // se trovo 2+ match, estraggo come prodotti separati
+      if (matches.length >= 2) {
+        matches.forEach(p => pushMerge(p, '', 1));
+        continue;
+      }
+    }
+
+    // altrimenti singolo item
     name = name.replace(/\s{2,}/g, ' ').trim();
     brand = brand.replace(/\s{2,}/g, ' ').trim();
+    if (name) pushMerge(name, brand, qty);
+  }
 
-    if (name) {
-      items.push({
-        id: 'tmp-' + Math.random().toString(36).slice(2),
-        name,
-        brand: brand || '',
-        qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
-        purchased: false,
-      });
+  // 2) fallback extra: se testo unico e nessun item estratto, usa completamente il lessico
+  if (!items.length) {
+    const ntext = normKey(text);
+    const seen = new Set();
+    for (const p of GROCERY_LEXICON) {
+      const k = normKey(p);
+      if (k && ntext.includes(k) && !seen.has(k)) {
+        seen.add(k);
+        pushMerge(p, '', 1);
+      }
     }
   }
+
   return items;
 }
 
@@ -161,16 +205,12 @@ function toISODate(any) {
   return '';
 }
 
-/** estrae coppie prodotto->data da frasi continue:
- *  "il latte scade il 15/07/2025 il burro il 12/08/2026 la passata di pomodoro scade il 10 giugno 2025"
- *  supporta anche pezzi senza “scade”: "<item> il <data>"
- */
+/** "il latte scade il 15/07/2025 il burro il 12/08/2026 la passata di pomodoro scade il 10 giugno 2025" */
 function parseExpiryPairs(text) {
   const out = [];
   const norm = (x) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const s = norm(text);
 
-  // 1) pattern generico ripetuto
   const re = /([a-zà-ú\s]{2,}?)(?:\s+scade(?:\s+il)?)?\s+((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(?:\d{1,2}\s+[a-zà-ú]+\s+\d{2,4}))/gi;
   let m;
   while ((m = re.exec(s)) !== null) {
@@ -179,7 +219,6 @@ function parseExpiryPairs(text) {
     const iso = toISODate(dateRaw);
     if (!nameRaw || !iso) continue;
 
-    // magnetizza al lessico più vicino (più lungo che compare nel pezzo)
     let chosen = nameRaw;
     let bestLen = 0;
     for (const p of GROCERY_LEXICON) {
@@ -189,13 +228,12 @@ function parseExpiryPairs(text) {
     out.push({ name: chosen, expiresAt: iso });
   }
 
-  // 2) fallback: “<lessico> ... <data>”
   if (!out.length) {
     for (const p of GROCERY_LEXICON) {
       const k = norm(p);
       const idx = s.indexOf(k);
       if (idx >= 0) {
-        const tail = s.slice(idx, idx+100);
+        const tail = s.slice(idx, idx+120);
         const maybe = tail.match(/(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(\d{1,2}\s+[a-zà-ú]+\s+\d{2,4})/i);
         if (maybe) {
           const iso = toISODate(maybe[0]);
@@ -228,20 +266,24 @@ export default function ListeProdotti() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Vocale: LISTA
+  // Vocale LISTA
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale: SCADENZE (session dedicata, più lunga)
+  // OCR LISTA
+  const ocrListRef = useRef(null);
+
+  // Vocale SCADENZE (più lungo)
   const expMediaRef = useRef(null);
   const expChunksRef = useRef([]);
   const expStreamRef = useRef(null);
   const [expRecBusy, setExpRecBusy] = useState(false);
+  const MAX_VOICE_EXPIRY_MS = 20000; // 20s
 
-  // OCR input (scontrini)
-  const ocrInputRef = useRef(null);
+  // OCR scontrini accanto a scorte
+  const ocrReceiptRef = useRef(null);
 
   // OCR scadenza per riga
   const rowOcrInputRef = useRef(null);
@@ -283,7 +325,7 @@ export default function ListeProdotti() {
       const items = [...(prev[currentList] || [])];
       const idx = items.findIndex(i => i.name.toLowerCase() === name.toLowerCase() && (i.brand||'').toLowerCase() === brand.toLowerCase());
       if (idx >= 0) items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + qty };
-      else items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand, qty, purchased: false });
+      else items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand, qty, purchased:false });
       next[currentList] = items;
       return next;
     });
@@ -331,7 +373,7 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- Vocale: LISTA (rimane per lista prodotti) ---------------- */
+  /* ---------------- Vocale: LISTA ---------------- */
   async function toggleRecList() {
     if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
@@ -357,7 +399,26 @@ export default function ListeProdotti() {
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
 
-      // inviamo a assistant per estrarre items (fallback parser locale se vuoto)
+      // 1) parser locale robusto (sempre)
+      const local = parseLinesToItems(text);
+      if (local.length) {
+        setLists(prev => {
+          const next = { ...prev };
+          const existing = [...(prev[currentList] || [])];
+          for (const it of local) {
+            const idx = existing.findIndex(i =>
+              i.name.toLowerCase() === it.name.toLowerCase() &&
+              (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase()
+            );
+            if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
+            else existing.push(it);
+          }
+          next[currentList] = existing;
+          return next;
+        });
+      }
+
+      // 2) opzionale: assistant per arricchire (best effort, non blocca)
       try {
         const payload = {
           assistantId: ASSISTANT_ID_VOICE,
@@ -381,10 +442,13 @@ export default function ListeProdotti() {
                 name: String(raw.name||'').trim(),
                 brand: String(raw.brand||'').trim(),
                 qty: Math.max(1, Number(raw.qty||1)),
-                purchased: false,
+                purchased:false,
               };
               if (!it.name) continue;
-              const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand||'').toLowerCase() === it.brand.toLowerCase());
+              const idx = existing.findIndex(i =>
+                i.name.toLowerCase() === it.name.toLowerCase() &&
+                (i.brand||'').toLowerCase() === it.brand.toLowerCase()
+              );
               if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
               else existing.push(it);
             }
@@ -392,22 +456,7 @@ export default function ListeProdotti() {
             return next;
           });
         }
-      } catch {
-        const local = parseLinesToItems(text);
-        if (local.length) {
-          setLists(prev => {
-            const next = { ...prev };
-            const existing = [...(prev[currentList] || [])];
-            for (const it of local) {
-              const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase());
-              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
-              else existing.push(it);
-            }
-            next[currentList] = existing;
-            return next;
-          });
-        }
-      }
+      } catch {}
 
       showToast('Lista aggiornata da Vocale ✓', 'ok');
     } catch {
@@ -419,7 +468,46 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- Vocale: SCADENZE (più lungo + parser continuo) ---------------- */
+  /* ---------------- OCR: LISTA (scannerizza promemoria/nota e aggiunge voci) ---------------- */
+  async function handleOCRList(files) {
+    if (!files?.length) return;
+    try {
+      setBusy(true);
+      const fd = new FormData();
+      files.forEach((f) => fd.append('images', f));
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd });
+      const { text } = await res.json();
+      if (!text) throw new Error('Nessun testo OCR');
+
+      const items = parseLinesToItems(text);
+      if (items.length) {
+        setLists(prev => {
+          const next = { ...prev };
+          const existing = [...(prev[currentList] || [])];
+          for (const it of items) {
+            const idx = existing.findIndex(i =>
+              i.name.toLowerCase() === it.name.toLowerCase() &&
+              (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase()
+            );
+            if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
+            else existing.push(it);
+          }
+          next[currentList] = existing;
+          return next;
+        });
+        showToast('Lista aggiornata da OCR ✓', 'ok');
+      } else {
+        showToast('Nessun prodotto riconosciuto dalla lista', 'err');
+      }
+    } catch {
+      showToast('Errore OCR Lista', 'err');
+    } finally {
+      setBusy(false);
+      if (ocrListRef.current) ocrListRef.current.value = '';
+    }
+  }
+
+  /* ---------------- Vocale: SCADENZE (timeout più lungo) ---------------- */
   async function startVoiceExpiry() {
     if (expRecBusy) return;
     try {
@@ -431,8 +519,7 @@ export default function ListeProdotti() {
       expMediaRef.current.onstop = processVoiceExpiry;
       expMediaRef.current.start();
       setExpRecBusy(true);
-      // timeout auto 10s se non si preme Stop
-      setTimeout(() => { try { if (expMediaRef.current && expMediaRef.current.state === 'recording') expMediaRef.current.stop(); } catch {} }, 10000);
+      setTimeout(() => { try { if (expMediaRef.current && expMediaRef.current.state === 'recording') expMediaRef.current.stop(); } catch {} }, MAX_VOICE_EXPIRY_MS);
     } catch {
       alert('Microfono non disponibile');
     }
@@ -440,7 +527,6 @@ export default function ListeProdotti() {
   function stopVoiceExpiry() {
     try { expMediaRef.current?.stop(); } catch {}
   }
-
   async function processVoiceExpiry() {
     const blob = new Blob(expChunksRef.current, { type: 'audio/webm' });
     const fd = new FormData(); fd.append('audio', blob, 'expiry.webm');
@@ -467,10 +553,10 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- OCR: scontrini (aggiorna liste e scorte; non popola altre sezioni) ---------------- */
+  /* ---------------- OCR: SCONTRINI (aggiorna liste e scorte; non popola altre sezioni) ---------------- */
   function decrementListsByPurchases(prevLists, purchases) {
     const next = { ...prevLists };
-    const lt = LIST_TYPES.SUPERMARKET; // solo Supermercato
+    const lt = LIST_TYPES.SUPERMARKET;
     const arr = [...(prevLists[lt] || [])];
     for (const p of purchases) {
       const dec = Math.max(1, Number(p.qty || 1));
@@ -484,7 +570,7 @@ export default function ListeProdotti() {
     return next;
   }
 
-  async function handleOCR(files) {
+  async function handleOCRReceipts(files) {
     if (!files?.length) return;
     try {
       setBusy(true);
@@ -503,7 +589,6 @@ export default function ListeProdotti() {
 
       if (purchases.length) {
         setLists(prev => decrementListsByPurchases(prev, purchases));
-        // aggiorna scorte includendo anche prodotti non in lista
         setStock(prev => {
           const arr = [...prev];
           for (const p of purchases) {
@@ -518,11 +603,9 @@ export default function ListeProdotti() {
           }
           return arr;
         });
-        // invia alle finanze (best-effort)
         try { await fetch(API_FINANCES_INGEST, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ purchases }) }); } catch {}
       }
 
-      // scadenze standalone o stato scorte (non creare nuove righe: aggiorna solo esistenti)
       if ((expiries && expiries.length) || (stockArr && stockArr.length)) {
         setStock(prev => {
           let arr = [...prev];
@@ -544,7 +627,7 @@ export default function ListeProdotti() {
       showToast('Errore OCR/Assistant', 'err');
     } finally {
       setBusy(false);
-      if (ocrInputRef.current) ocrInputRef.current.value = '';
+      if (ocrReceiptRef.current) ocrReceiptRef.current.value = '';
     }
   }
 
@@ -612,11 +695,23 @@ export default function ListeProdotti() {
             </button>
           </div>
 
-          {/* Comandi Lista (solo voce per aggiungere alla lista) */}
+          {/* Comandi Lista: Vocale + OCR Lista */}
           <div style={styles.toolsRow}>
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
+            <button onClick={() => ocrListRef.current?.click()} style={styles.ocrBtn} disabled={busy}>
+              📷 OCR Lista
+            </button>
+            <input
+              ref={ocrListRef}
+              type="file"
+              accept="image/*,application/pdf"
+              capture="environment"
+              multiple
+              hidden
+              onChange={(e) => handleOCRList(Array.from(e.target.files || []))}
+            />
           </div>
 
           {/* Lista corrente */}
@@ -671,7 +766,7 @@ export default function ListeProdotti() {
               <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
             </form>
             <p style={{opacity:.8, marginTop: 6}}>
-              Suggerimenti voce: “2 latte parmalat, 3 pasta barilla, uova”.
+              Suggerimenti voce: “2 latte parmalat, 3 pasta barilla, uova” oppure “pane e pasta e latte detersivo”.
             </p>
           </div>
 
@@ -692,7 +787,7 @@ export default function ListeProdotti() {
             )}
           </div>
 
-          {/* Stato scorte + (tasti OCR/Vocale scadenze affianco) */}
+          {/* Stato scorte + tasti scadenze/ocr scontrini accanto */}
           <div style={styles.sectionXL}>
             <div style={styles.scorteHeader}>
               <h3 style={{...styles.h3, marginBottom:0}}>📊 Stato Scorte</h3>
@@ -702,15 +797,15 @@ export default function ListeProdotti() {
                 ) : (
                   <button onClick={stopVoiceExpiry} style={styles.voiceBtnSmallStop}>⏹️ Stop Vocale</button>
                 )}
-                <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
+                <button onClick={() => ocrReceiptRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
                 <input
-                  ref={ocrInputRef}
+                  ref={ocrReceiptRef}
                   type="file"
                   accept="image/*,application/pdf"
                   capture="environment"
                   multiple
                   hidden
-                  onChange={(e) => handleOCR(Array.from(e.target.files || []))}
+                  onChange={(e) => handleOCRReceipts(Array.from(e.target.files || []))}
                 />
               </div>
             </div>
@@ -789,8 +884,8 @@ const styles = {
   switchBtnActive: { background:'#06b6d4', border:'0', color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
   toolsRow: { display:'flex', flexWrap:'wrap', gap:12, margin:'14px 0 6px' },
-
   voiceBtn: { background:'#6366f1', border:0, color:'#fff', padding:'10px 14px', borderRadius:12, cursor:'pointer', fontWeight:800 },
+  ocrBtn: { background:'#06b6d4', border:0, color:'#0b1220', padding:'10px 14px', borderRadius:12, cursor:'pointer', fontWeight:800 },
 
   sectionLarge: { marginTop: 36, marginBottom: 10 },
   sectionXL: { marginTop: 46, marginBottom: 12 },
