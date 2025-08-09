@@ -33,6 +33,7 @@ function computeCurrentPayPeriod(today, paydayDay) {
 
 /** Se manca il carryover per il mese corrente, lo crea come residuo del mese precedente (saldo base) */
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
+  console.log('[CARRY] ensureCarryoverAuto start', { userId, monthKeyCurrent });
   const { data: existing, error: e0 } = await supabase
     .from('carryovers')
     .select('id')
@@ -40,8 +41,14 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('month_key', monthKeyCurrent)
     .maybeSingle();
 
-  if (e0 && e0.code !== 'PGRST116') throw e0;
-  if (existing) return;
+  if (e0 && e0.code !== 'PGRST116') {
+    console.error('[CARRY] existing check error', e0);
+    throw e0;
+  }
+  if (existing) {
+    console.log('[CARRY] already exists for', monthKeyCurrent, 'id=', existing.id);
+    return;
+  }
 
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
   const prevEnd = new Date(yy, mm - 1, 0);
@@ -50,13 +57,15 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const prevEndISO = prevEnd.toISOString().slice(0, 10);
   const prevKey = prevEnd.toISOString().slice(0, 7);
 
+  console.log('[CARRY] prev period', { prevStartISO, prevEndISO, prevKey });
+
   const { data: incPrev, error: e1 } = await supabase
     .from('incomes')
     .select('amount')
     .eq('user_id', userId)
     .gte('received_at', prevStartISO)
     .lte('received_at', prevEndISO);
-  if (e1) throw e1;
+  if (e1) { console.error('[CARRY] incPrev error', e1); throw e1; }
 
   const { data: expPrev, error: e2 } = await supabase
     .from('finances')
@@ -64,7 +73,7 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('user_id', userId)
     .gte('spent_at', prevStartISO)
     .lte('spent_at', prevEndISO);
-  if (e2) throw e2;
+  if (e2) { console.error('[CARRY] expPrev error', e2); throw e2; }
 
   const { data: coPrev, error: e3 } = await supabase
     .from('carryovers')
@@ -72,13 +81,14 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('user_id', userId)
     .eq('month_key', prevKey)
     .maybeSingle();
-  if (e3 && e3.code !== 'PGRST116') throw e3;
+  if (e3 && e3.code !== 'PGRST116') { console.error('[CARRY] coPrev error', e3); throw e3; }
 
   const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
   const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
   const prevCarry = Number(coPrev?.amount || 0);
-
   const saldoPrevBase = totalInc + prevCarry - totalExp;
+
+  console.log('[CARRY] computed', { totalInc, totalExp, prevCarry, saldoPrevBase });
 
   const { error: e4 } = await supabase.from('carryovers').insert({
     user_id: userId,
@@ -86,7 +96,8 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     amount: Number(saldoPrevBase.toFixed(2)),
     note: 'Auto-carryover da mese precedente',
   });
-  if (e4) throw e4;
+  if (e4) { console.error('[CARRY] insert error', e4); throw e4; }
+  console.log('[CARRY] inserted for', monthKeyCurrent);
 }
 
 /** Parser importi: accetta "10,50" o "10.50" e rimuove spazi */
@@ -163,6 +174,7 @@ function Entrate() {
   const endDateIT = formatIT(endDateISO);
 
   useEffect(() => {
+    console.log('[MOUNT] Entrate page mount');
     loadAll();
     return () => {
       try {
@@ -171,15 +183,21 @@ function Entrate() {
         }
         streamRef.current?.getTracks?.().forEach((t) => t.stop());
       } catch {}
+      console.log('[UNMOUNT] Entrate page unmount');
     };
   }, [monthKey]);
 
   async function loadAll() {
+    console.log('================ [LOAD ALL] ================');
+    console.log('[PERIODO]', { startDateISO, endDateISO, endExclusiveDate, startDateIT, endDateIT, monthKey });
+
     setLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
+      console.log('[AUTH] user', user.id);
 
       await ensureCarryoverAuto(user.id, monthKey);
 
@@ -191,7 +209,8 @@ function Entrate() {
         .gte('received_at', startDateISO)
         .lt('received_at', endExclusiveDate)
         .order('received_at', { ascending: false });
-      if (e1) throw e1;
+      if (e1) { console.error('[FETCH] incomes error', e1); throw e1; }
+      console.log('[FETCH] incomes count', inc?.length ?? 0);
       setIncomes(inc || []);
 
       // 2) Carryover
@@ -201,18 +220,21 @@ function Entrate() {
         .eq('user_id', user.id)
         .eq('month_key', monthKey)
         .maybeSingle();
-      if (e2 && e2.code !== 'PGRST116') throw e2;
+      if (e2 && e2.code !== 'PGRST116') { console.error('[FETCH] carryover error', e2); throw e2; }
+      console.log('[FETCH] carryover', co);
       setCarryover(co || null);
 
-      // 3a) Movimenti contante manuali nel periodo (ISO nei filtri)
+      // 3a) Movimenti contante manuali nel periodo
+      // Inclusi record che hanno moved_at NULLO: usiamo created_at come fallback
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, note, delta, amount, direction')
         .eq('user_id', user.id)
-        .gte('moved_at', startDateISO)
-        .lt('moved_at', endExclusiveDate)
-        .order('moved_at', { ascending: false });
-      if (e3) throw e3;
+        .or(`and(moved_at.gte.${startDateISO},moved_at.lt.${endExclusiveDate}),and(created_at.gte.${startDateISO},created_at.lt.${endExclusiveDate})`)
+        .order('moved_at', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (e3) { console.error('[FETCH] pocket_cash error', e3); throw e3; }
+      console.log('[FETCH] pocket_cash count', pc?.length ?? 0);
 
       const manualRows = (pc || []).map((row) => {
         const eff = (row.delta != null)
@@ -230,6 +252,7 @@ function Entrate() {
           amount: Number(eff || 0),
         };
       });
+      console.log('[MAP] manualRows', manualRows.length);
 
       // 3b) Spese cash dalle altre pagine (ISO nei filtri)
       const { data: finCash, error: e4 } = await supabase
@@ -240,7 +263,8 @@ function Entrate() {
         .gte('spent_at', startDateISO)
         .lt('spent_at', endExclusiveDate)
         .order('spent_at', { ascending: false });
-      if (e4) throw e4;
+      if (e4) { console.error('[FETCH] finances cash error', e4); throw e4; }
+      console.log('[FETCH] finances cash count', finCash?.length ?? 0);
 
       const cashRows = (finCash || []).map((f) => {
         const dateISO = (f.spent_at || '').slice(0, 10);
@@ -254,24 +278,30 @@ function Entrate() {
           amount: -Math.abs(Number(f.amount) || 0),
         };
       });
+      console.log('[MAP] cashRows', cashRows.length);
 
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+      console.log('[MERGE] pocketRows total', rows.length);
+
       setPocketRows(rows);
 
-      // 4) (opzionale) Totale spese nel periodo (ISO nei filtri)
+      // 4) (opzionale) Totale spese nel periodo
       const { data: exp, error: e5 } = await supabase
         .from('finances')
         .select('amount, spent_at')
         .eq('user_id', user.id)
         .gte('spent_at', startDateISO)
         .lt('spent_at', endExclusiveDate);
-      if (e5) throw e5;
+      if (e5) { console.error('[FETCH] expenses error', e5); throw e5; }
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+      console.log('[FETCH] expenses count', exp?.length ?? 0, 'totalExp', totalExp);
       setMonthExpenses(totalExp);
 
+      console.log('================ [/LOAD ALL OK] ================');
     } catch (err) {
+      console.error('================ [/LOAD ALL ERROR] ================');
       showError(setError, err);
     } finally {
       setLoading(false);
@@ -336,7 +366,6 @@ function Entrate() {
       const note = (it.note || '').trim();
       const noteL = note.toLowerCase();
 
-      // "preliev"/"ricarica" => POSITIVO ; "uscit"/"spesa" => NEGATIVO
       let delta = raw;
       if (noteL.includes('preliev') || noteL.includes('ricarica')) delta = Math.abs(raw);
       else if (noteL.includes('uscit') || noteL.includes('spesa')) delta = -Math.abs(raw);
@@ -349,8 +378,9 @@ function Entrate() {
       };
     });
 
+    console.log('[INSERT POCKET OCR]', rows);
     const { error } = await supabase.from('pocket_cash').insert(rows);
-    if (error) throw error;
+    if (error) { console.error('[INSERT POCKET OCR ERROR]', error); throw error; }
     return true;
   }
 
@@ -366,14 +396,17 @@ function Entrate() {
       const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
       const amount = Math.abs(parseAmountLoose(it.amount));
 
-      const { error } = await supabase.from('incomes').insert({
+      const payload = {
         user_id: user.id,
         source: it.source || 'Entrata',
         description: it.description || it.source || 'Entrata',
         amount,
         received_at: dataIncasso
-      });
-      if (error) throw error;
+      };
+      console.log('[INSERT INCOME OCR]', payload);
+
+      const { error } = await supabase.from('incomes').insert(payload);
+      if (error) { console.error('[INSERT INCOME OCR ERROR]', error); throw error; }
     }
     return true;
   }
@@ -462,7 +495,8 @@ function Entrate() {
     e.preventDefault();
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
       const payload = {
@@ -476,7 +510,7 @@ function Entrate() {
       console.log('[INSERT INCOME MANUAL]', payload);
 
       const { error } = await supabase.from('incomes').insert(payload);
-      if (error) throw error;
+      if (error) { console.error('[INSERT INCOME MANUAL ERROR]', error); throw error; }
 
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
@@ -487,8 +521,9 @@ function Entrate() {
 
   async function handleDeleteIncome(id) {
     try {
+      console.log('[DELETE INCOME]', id);
       const { error: e } = await supabase.from('incomes').delete().eq('id', id);
-      if (e) throw e;
+      if (e) { console.error('[DELETE INCOME ERROR]', e); throw e; }
       setIncomes(incomes.filter((i) => i.id !== id));
     } catch (err) {
       showError(setError, err);
@@ -499,7 +534,8 @@ function Entrate() {
     e.preventDefault();
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
       const payload = {
@@ -509,12 +545,14 @@ function Entrate() {
         note: newCarry.note || null,
       };
 
+      console.log('[CARRY SAVE] payload', payload, 'existing', carryover?.id);
+
       if (carryover?.id) {
         const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
-        if (error) throw error;
+        if (error) { console.error('[CARRY UPDATE ERROR]', error); throw error; }
       } else {
         const { error } = await supabase.from('carryovers').insert(payload);
-        if (error) throw error;
+        if (error) { console.error('[CARRY INSERT ERROR]', error); throw error; }
       }
 
       setNewCarry({ amount: '', note: '' });
@@ -528,11 +566,15 @@ function Entrate() {
     e.preventDefault();
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
       const delta = parseAmountLoose(pocketTopUp);
-      if (!delta) return;
+      if (!delta) {
+        console.warn('[INSERT POCKET MANUAL] delta falsy, skip');
+        return;
+      }
 
       const payload = {
         user_id: user.id,
@@ -544,7 +586,7 @@ function Entrate() {
       console.log('[INSERT POCKET MANUAL]', payload);
 
       const { error } = await supabase.from('pocket_cash').insert(payload);
-      if (error) throw error;
+      if (error) { console.error('[INSERT POCKET MANUAL ERROR]', error); throw error; }
 
       setPocketTopUp('');
       await loadAll();
@@ -556,11 +598,17 @@ function Entrate() {
   async function handleClearPocket() {
     if (!confirm('Azzerare TUTTI i movimenti di "Soldi in tasca"?')) return;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
+      console.log('[POCKET CLEAR] deleting all for user', user.id);
+
       const { error } = await supabase.from('pocket_cash').delete().eq('user_id', user.id);
-      if (error) throw error;
+      if (error) {
+        console.error('[POCKET DELETE ERROR]', error);
+        throw error;
+      }
 
       await loadAll();
     } catch (err) {
