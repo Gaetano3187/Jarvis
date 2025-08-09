@@ -50,29 +50,26 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const prevEndISO = prevEnd.toISOString().slice(0, 10);
   const prevKey = prevEnd.toISOString().slice(0, 7);
 
-  const { data: incPrev, error: e1 } = await supabase
+  const { data: incPrev } = await supabase
     .from('incomes')
     .select('amount')
     .eq('user_id', userId)
     .gte('received_at', prevStartISO)
     .lte('received_at', prevEndISO);
-  if (e1) throw e1;
 
-  const { data: expPrev, error: e2 } = await supabase
+  const { data: expPrev } = await supabase
     .from('finances')
     .select('amount')
     .eq('user_id', userId)
     .gte('spent_at', prevStartISO)
     .lte('spent_at', prevEndISO);
-  if (e2) throw e2;
 
-  const { data: coPrev, error: e3 } = await supabase
+  const { data: coPrev } = await supabase
     .from('carryovers')
     .select('amount')
     .eq('user_id', userId)
     .eq('month_key', prevKey)
     .maybeSingle();
-  if (e3 && e3.code !== 'PGRST116') throw e3;
 
   const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
   const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
@@ -161,8 +158,6 @@ function Entrate() {
       if (e2 && e2.code !== 'PGRST116') throw e2;
       setCarryover(co || null);
 
-      // ------- SOLDI IN TASCA (ESTRATTO CONTO) -------
-
       // 3a) Movimenti manuali (ricariche/uscite) nel PERIODO CORRENTE
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
@@ -221,7 +216,7 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // 4) Spese totali del periodo (per il saldo mese in alto) — non impattano la logica saldo disponibile
+      // 4) Spese totali del periodo (se ti servono per altre viste)
       const { data: exp, error: e5 } = await supabase
         .from('finances')
         .select('amount, spent_at')
@@ -285,6 +280,7 @@ function Entrate() {
     return JSON.parse(answer);
   }
 
+  // 🔧 Normalizza segni per contante via OCR/Voce
   async function parseAssistantForPocket(userText) {
     const data = await callAssistant(buildPocketPrompt(userText));
     if (data.type !== 'pocket_topup' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -292,18 +288,30 @@ function Entrate() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
-    const rows = data.items.map((it) => ({
-      user_id: user.id,
-      note: it.note || 'Movimento contante (OCR/voce)',
-      delta: Number(it.amount) || 0, // >0 ricarica, <0 uscita
-      moved_at: it.date || new Date().toISOString(),
-    }));
+    const rows = data.items.map((it) => {
+      const raw = Number(it.amount) || 0;
+      const note = (it.note || '').trim();
+      const noteL = note.toLowerCase();
+
+      // "preliev"/"ricarica" => POSITIVO ; "uscit"/"spesa" => NEGATIVO
+      let delta = raw;
+      if (noteL.includes('preliev') || noteL.includes('ricarica')) delta = Math.abs(raw);
+      else if (noteL.includes('uscit') || noteL.includes('spesa')) delta = -Math.abs(raw);
+
+      return {
+        user_id: user.id,
+        note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
+        delta,
+        moved_at: it.date || new Date().toISOString(),
+      };
+    });
 
     const { error } = await supabase.from('pocket_cash').insert(rows);
     if (error) throw error;
     return true;
   }
 
+  // 🔧 Entrate via OCR/Voce sempre positive
   async function parseAssistantForIncome(userText) {
     const data = await callAssistant(buildIncomePrompt(userText));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -311,16 +319,19 @@ function Entrate() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
-    const rows = data.items.map((it) => ({
-      user_id: user.id,
-      source: it.source || 'Entrata',
-      description: it.description || it.source || 'Entrata',
-      amount: Number(it.amount) || 0,
-      received_at: it.receivedAt || new Date().toISOString().slice(0, 10),
-    }));
+    for (const it of data.items) {
+      const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
+      const amount = Math.abs(Number(it.amount) || 0);
 
-    const { error } = await supabase.from('incomes').insert(rows);
-    if (error) throw error;
+      const { error } = await supabase.from('incomes').insert({
+        user_id: user.id,
+        source: it.source || 'Entrata',
+        description: it.description || it.source || 'Entrata',
+        amount,
+        received_at: dataIncasso
+      });
+      if (error) throw error;
+    }
     return true;
   }
 
@@ -409,7 +420,7 @@ function Entrate() {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Number(newIncome.amount) || 0,
+        amount: Math.abs(Number(newIncome.amount) || 0), // <- sempre positivo
         received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
       });
 
@@ -499,15 +510,18 @@ function Entrate() {
   const entratePeriodo = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
   const carryAmount = Number(carryover?.amount || 0);
 
-  // Prelievi = ricariche manuali di contante positive (solo righe manuali pc-)
+  // Prelievi = ricariche manuali positive (solo righe manuali pc-)
   const prelievi = pocketRows
     .filter(r => r.id?.toString().startsWith('pc-') && r.amount > 0)
     .reduce((t, r) => t + r.amount, 0);
 
-  // Saldo disponibile = Entrate + Carryover - Prelievi
+  // Saldo disponibile (reale)
   const saldoDisponibile = entratePeriodo + carryAmount - prelievi;
 
-  // Saldo contante = somma di tutti i movimenti (ricariche positive, spese/uscite negative)
+  // Mostra sempre valore positivo in UI (richiesta)
+  const saldoDisponibileUI = Math.max(0, saldoDisponibile);
+
+  // Contante residuo
   const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
 
   /* ------------------------------ UI ------------------------------ */
@@ -522,11 +536,19 @@ function Entrate() {
           {/* Disponibilita */}
           <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
             <h3>Disponibilità</h3>
-            <div className="flex-line"><span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b></div>
-            <div className="flex-line"><span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b></div>
-            <div className="flex-line"><span>Saldo disponibile:</span><b>€ {saldoDisponibile.toFixed(2)}</b></div>
-            <div className="flex-line"><span>Soldi in tasca (restanti):</span><b>€ {pocketBalance.toFixed(2)}</b></div>
-            <p style={{ opacity: 0.8, marginTop: '0.3rem' }}>
+            <div className="flex-line metric-sub"><span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b></div>
+            <div className="flex-line metric-sub"><span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b></div>
+
+            <div className="flex-line">
+              <span>Saldo disponibile:</span>
+              <b className="metric metric--saldo">€ {saldoDisponibileUI.toFixed(2)}</b>
+            </div>
+            <div className="flex-line">
+              <span>Soldi in tasca (restanti):</span>
+              <b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b>
+            </div>
+
+            <p className="metric-hint">
               Periodo corrente: <b>{startDate}</b> → <b>{endDate}</b> (payday giorno {PAYDAY_DAY})
             </p>
           </div>
@@ -732,6 +754,13 @@ function Entrate() {
         .flex-line { display: flex; justify-content: space-between; margin: .3rem 0; gap: 1rem; }
         .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
         .error { color: #f87171; margin-top: 1rem; }
+
+        /* ===== Metrics grandi e colorate ===== */
+        .metric { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+        .metric-sub { font-size: 1rem; opacity: .85; }
+        .metric--saldo { color: #22c55e; }   /* verde */
+        .metric--pocket { color: #06b6d4; }  /* ciano */
+        .metric-hint { opacity: 0.8; margin-top: 0.3rem; }
       `}</style>
     </>
   );
