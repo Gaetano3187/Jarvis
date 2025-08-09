@@ -13,9 +13,10 @@ const API_FINANCES_INGEST = '/api/finances/ingest';
 
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
-  'latte','latte zymil','yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
-  'pane','pasta','spaghetti','penne','riso','farina','zucchero','sale','olio evo','olio di semi','aceto','passata di pomodoro','pelati',
-  'biscotti','cereali','fette biscottate','marmellata','nutella','caffè','the','tè',
+  'latte','latte ps','latte parzialmente scremato','latte intero','latte uht','latte zymil',
+  'yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
+  'pane','pasta','spaghetti','penne','fusilli','rigatoni','riso','farina','zucchero','sale','olio evo','olio di semi','aceto','passata di pomodoro','pelati',
+  'biscotti','cereali','fette biscottate','marmellata','nutella','caffè','caffe','the','tè',
   'pollo','petto di pollo','bistecche','tritato','prosciutto','tonno in scatola','salmone',
   'piselli surgelati','spinaci surgelati','patatine surgelate','gelato',
   'detersivo','detersivo piatti','detersivo lavatrice','ammorbidente','candeggina','spugne','carta igienica','scottex','sacchetti immondizia',
@@ -127,37 +128,46 @@ function toISODate(any) {
   return '';
 }
 
-/** Parser scadenze più severo:
- * - Accetta una scadenza solo se vicino alla data c'è un prodotto del lessico
- *   oppure uno dei prodotti già presenti nello stato scorte.
- * - Evita match generici tipo "la festa è il 15 luglio 2025".
- */
+/** Parser scadenze più severo e ampliato */
 function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
   if (DEBUG) console.log('[parseExpiryPairs] input:', text);
   const out = [];
   const norm = (x) => String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const s = norm(text);
 
+  // parole chiave intorno alla data
+  const KW = ['scad','scadenza','scade','entro','consumare','preferibilmente','da consumarsi','da consumare'];
   const DATE_RE = /((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(?:\d{1,2}\s+[a-zà-ú]+\s+\d{2,4}))/i;
 
   const tokensArr = s.split(/\s+/);
   for (let i = 0; i < tokensArr.length; i++) {
-    const win = tokensArr.slice(Math.max(0, i - 6), i + 6).join(' ');
+    const win = tokensArr.slice(Math.max(0, i - 10), i + 10).join(' ');
     const dm = win.match(DATE_RE);
     if (!dm) continue;
 
+    const hasKW = KW.some(k => win.includes(k));
+    // non obbligatoria ma aiuta a filtrare falsi positivi; se non ci sono parole chiave, proviamo comunque grazie al match del prodotto
     const iso = toISODate(dm[1]);
     if (!iso) continue;
 
-    // 1) prova a trovare un prodotto del lessico
+    // 1) lessico (con sinonimi basilari)
+    const synonyms = [
+      ['caffe','caffè'],
+      ['latte ps','latte parzialmente scremato','latte p.s.','latte p.s','latte p s'],
+      ['latte uht','latte lunga conservazione']
+    ];
     let chosen = '';
     let bestLen = 0;
-    for (const p of lexicon) {
+
+    const testList = [...lexicon];
+    synonyms.forEach(group => group.forEach(g => testList.push(g)));
+
+    for (const p of testList) {
       const k = norm(p);
       if (k && win.includes(k) && k.length > bestLen) { chosen = p; bestLen = k.length; }
     }
 
-    // 2) se non trovato, prova coi prodotti noti in scorte
+    // 2) prodotti noti
     if (!chosen && Array.isArray(knownProducts) && knownProducts.length) {
       for (const kp of knownProducts) {
         const k = norm(kp);
@@ -165,10 +175,10 @@ function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
       }
     }
 
-    // 3) se ancora niente, scarta (evita "la festa", ecc.)
-    if (!chosen) continue;
+    // 3) parole chiave obbligatorie se non abbiamo match prodotto
+    if (!chosen && !hasKW) continue;
 
-    out.push({ name: chosen, expiresAt: iso });
+    if (chosen) out.push({ name: chosen, expiresAt: iso });
   }
 
   if (DEBUG) console.log('[parseExpiryPairs] valid matches:', out);
@@ -303,7 +313,7 @@ function buildExpiryPrompt(itemName, brand, ocrText) {
   ].join('\n');
 }
 
-/* ------------- Fallback parser locale (semplice) ------------- */
+/* ------------- Fallback parser locale (potenziato) ------------- */
 function parseReceiptPurchases(ocrText) {
   const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const ignore = /(totale|iva|bancomat|contanti|resto|scontrino|cassa|cliente|sconto|subtotale)/i;
@@ -313,15 +323,23 @@ function parseReceiptPurchases(ocrText) {
     if (ignore.test(raw)) continue;
     let qty = 1, brand = '', name = raw;
 
-    const mPack = raw.match(/(\d+)\s*[xX]\s*\d+/);
-    if (mPack) qty = Math.max(qty, Number(mPack[1]||1));
+    // pack espressi come "4x", "x4", "4 x 125", "4X125"
+    const mX = raw.match(/(\d+)\s*[xX]\s*(\d+)?/);
+    if (mX) qty = Math.max(qty, Number(mX[1]||1));
 
+    // 10 pz / 10 pezzi / 10 bott / 10 buste / 10 conf / 10 uova
+    const mPz = raw.match(/(\d+)\s*(?:pz|pezzi|bott|buste|conf(?:e(?:zioni)?)?|uova|latte|yogurt|vasetti|barrette)\b/i);
+    if (mPz) qty = Math.max(qty, Number(mPz[1]||1));
+
+    // leading qty "2 latte" o "1,20 kg mele"
     const mQty = raw.match(/^(\d+(?:[.,]\d+)?)\s*[xX]?\s+(.*)$/);
-    if (mQty) { qty = Number(String(mQty[1]).replace(',','.')) || 1; name = mQty[2]; }
+    if (mQty) { qty = Number(String(mQty[1]).replace(',','.')) || qty; name = mQty[2]; }
 
-    const mKg = raw.match(/(\d+(?:[.,]\d+)?)\s*(kg|g)\b/i);
-    if (mKg) qty = Number(String(mKg[1]).replace(',','.')) || qty;
+    // pesi/volumi convertiti a qty float
+    const mWeight = raw.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|cl)\b/i);
+    if (mWeight) qty = Number(String(mWeight[1]).replace(',','.')) || qty;
 
+    // brand: ultima parola capitalizzata
     const parts = name.split(' ');
     if (parts.length>1 && /^[A-ZÀ-ÖØ-Þ]/.test(parts[parts.length-1])) {
       brand = parts.pop();
@@ -334,11 +352,14 @@ function parseReceiptPurchases(ocrText) {
       .trim()
       .toLowerCase();
 
+    // normalizzazioni basilari
     name = name
+      .replace(/\buht\b/g,'') // rimane "latte"
       .replace(/spaghetti|penne|fusilli|rigatoni/, 'pasta')
       .replace(/passata\b.*pomodoro|passata\b/, 'passata di pomodoro')
       .replace(/latte\b.*/, 'latte')
-      .replace(/yogurt\b.*/, 'yogurt');
+      .replace(/yogurt\b.*/, 'yogurt')
+      .replace(/\bcaffe\b/g,'caffè');
 
     if (!name || name.length<2) continue;
     out.push({ name, brand: brand || '', qty: Math.max(1, qty), expiresAt: '' });
@@ -359,8 +380,9 @@ export default function ListeProdotti() {
   const [form, setForm] = useState({ name: '', brand: '', qty: '1' });
 
   // Scorte & critici
-  const [stock, setStock] = useState([]);       // [{name,brand,qty,expiresAt?}]
-  const [critical, setCritical] = useState([]); // subset di stock
+  // Estendo il record scorta: {name, brand, qty, expiresAt?, baselineQty?, lastRestockAt?}
+  const [stock, setStock] = useState([]);
+  const [critical, setCritical] = useState([]);
 
   // Stato UI
   const [busy, setBusy] = useState(false);
@@ -392,15 +414,24 @@ export default function ListeProdotti() {
   useEffect(() => {
     const today = new Date();
     const tenDays = 10 * 24 * 60 * 60 * 1000;
+    const twoDays = 2 * 24 * 60 * 60 * 1000;
+
     const crit = stock.filter((p) => {
-      const lowQty = Number(p.qty || 0) <= 1;
-      let nearExp = false;
-      if (p.expiresAt) {
-        const exp = new Date(p.expiresAt);
-        nearExp = (exp - today) <= tenDays;
-      }
-      return lowQty || nearExp;
+      const qty = Number(p.qty || 0);
+      const baseline = Number(p.baselineQty || 0);
+      const last = p.lastRestockAt ? new Date(p.lastRestockAt) : null;
+
+      const nearExp = p.expiresAt ? ((new Date(p.expiresAt)) - today) <= tenDays : false;
+
+      // Solo per la parte "consumo/quantità" richiediamo che siano passati >2 giorni dall'ultimo carico
+      const oldEnough = last ? (today - last) > twoDays : false;
+
+      const lowAbsolute = qty < 2; // confezioni sotto 2
+      const lowPercent = baseline > 0 ? (qty <= baseline * 0.2) : false; // <=20% della baseline
+
+      return nearExp || (oldEnough && (lowAbsolute || lowPercent));
     });
+
     setCritical(crit);
   }, [stock]);
 
@@ -462,9 +493,19 @@ export default function ListeProdotti() {
     if (item) {
       setStock(prev => {
         const arr = [...prev];
+        const todayISO = new Date().toISOString().slice(0,10);
         const idx = arr.findIndex(s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand||'', item.brand)));
-        if (idx >= 0) arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + 1 };
-        else arr.unshift({ name: item.name, brand: item.brand, qty: 1, expiresAt: '' });
+        if (idx >= 0) {
+          const newQty = Number(arr[idx].qty || 0) + 1;
+          arr[idx] = {
+            ...arr[idx],
+            qty: newQty,
+            baselineQty: newQty,            // baseline aggiornata al nuovo carico
+            lastRestockAt: todayISO
+          };
+        } else {
+          arr.unshift({ name: item.name, brand: item.brand, qty: 1, expiresAt: '', baselineQty: 1, lastRestockAt: todayISO });
+        }
         return arr;
       });
     }
@@ -680,10 +721,6 @@ export default function ListeProdotti() {
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       let purchases = ensureArray(parsed?.purchases);
-      // IMPORTANTISSIMO: ignoriamo qualsiasi data/scorta che arrivi dallo scontrino
-      // per non inquinare le scadenze: le scadenze le gestiamo da "Vocale Scadenze" o OCR per riga
-      // const expiries  = ensureArray(parsed?.expiries);
-      // const stockArr  = ensureArray(parsed?.stock);
 
       // fallback locale se vuoto
       if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
@@ -691,22 +728,34 @@ export default function ListeProdotti() {
       // 3) Aggiorna liste (decremento degli acquistati su ENTRAMBE le liste)
       if (purchases.length) {
         setLists(prev => decrementAcrossBothLists(prev, purchases));
-        // aggiorna scorte includendo anche prodotti non in lista (senza toccare le scadenze)
+        // aggiorna scorte (no scadenze qui) + baseline & lastRestockAt
         setStock(prev => {
           const arr = [...prev];
+          const todayISO = new Date().toISOString().slice(0,10);
           for (const p of purchases) {
             const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
             const incQty = Math.max(1, Number(p.qty||1));
-            const ex = ''; // <- NON carichiamo scadenze da scontrino
             if (idx >= 0) {
-              arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + incQty, expiresAt: ex || arr[idx].expiresAt };
+              const newQty = Number(arr[idx].qty || 0) + incQty;
+              arr[idx] = {
+                ...arr[idx],
+                qty: newQty,
+                baselineQty: newQty,     // baseline aggiornata al nuovo carico
+                lastRestockAt: todayISO  // data carico
+              };
             } else {
-              arr.unshift({ name: p.name, brand: p.brand || '', qty: incQty, expiresAt: ex || '' });
+              arr.unshift({
+                name: p.name, brand: p.brand || '',
+                qty: incQty,
+                expiresAt: '',
+                baselineQty: incQty,
+                lastRestockAt: todayISO
+              });
             }
           }
           return arr;
         });
-        // best-effort finanze (POST se disponibile; altrimenti ignora)
+        // best-effort finanze
         try {
           await fetch(API_FINANCES_INGEST, {
             method:'POST',
@@ -716,8 +765,6 @@ export default function ListeProdotti() {
         } catch {}
       }
 
-      // 4) NON applichiamo expiries/stock extra dal modello per lo scontrino (vedi nota sopra)
-
       showToast('OCR scontrino elaborato ✓', 'ok');
     } catch (e) {
       console.error('[OCR] error', e);
@@ -726,6 +773,42 @@ export default function ListeProdotti() {
       setBusy(false);
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
+  }
+
+  /* ---------------- Modifica / Elimina scorte ---------------- */
+  function editStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    const name = prompt('Nome prodotto:', it.name);
+    if (name == null || !name.trim()) return;
+    const brand = prompt('Marca (opzionale):', it.brand || '');
+    if (brand == null) return;
+    const qtyStr = prompt('Quantità:', String(it.qty ?? 0));
+    if (qtyStr == null) return;
+    const qty = Math.max(0, Number(String(qtyStr).replace(',','.')) || 0);
+    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+    const ex = expStr ? toISODate(expStr) : '';
+
+    setStock(prev => {
+      const arr = [...prev];
+      arr[i] = {
+        ...arr[i],
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        qty,
+        expiresAt: ex || ''
+      };
+      // se l’utente modifica la quantità manualmente potremmo voler aggiornare baseline?
+      // Non lo faccio automaticamente per non falsare il consumo. Se vuoi: arr[i].baselineQty = Math.max(arr[i].baselineQty||0, qty);
+      return arr;
+    });
+  }
+
+  function deleteStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    if (!confirm(`Eliminare "${it.name}${it.brand?` (${it.brand})`:''}" dalle scorte?`)) return;
+    setStock(prev => prev.filter((_, idx) => idx !== i));
   }
 
   /* ---------------- OCR scadenza per riga (usa /api/ocr + /api/assistant) ---------------- */
@@ -928,7 +1011,11 @@ export default function ListeProdotti() {
                       <td style={styles.td}>{s.qty}</td>
                       <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
-                        <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
