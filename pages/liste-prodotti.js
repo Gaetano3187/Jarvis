@@ -10,8 +10,8 @@ const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
 const API_OCR = '/api/ocr';                  // usa il tuo ocr.js
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
-// Flag per evitare 405 finché l’endpoint non esiste/proprio
-const ENABLE_INGEST = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_ENABLE_INGEST === '1';
+// Abilita/Disabilita invio a finanze (evita 405)
+const ENABLE_FINANCES_INGEST = false;
 
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
@@ -203,8 +203,57 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
     LEX,
     '- brand: stringa breve se deducibile (es. “Barilla”, “Parmalat”), altrimenti "".',
     '- qty: quantità acquistata. Se non specificata, 1. Per pesi (es. 1,20 kg) usa qty numerica (es. 1.2).',
-    '- expiresAt: lasciala vuota per gli scontrini (\"\").', // <-- importante: non caricare scadenze da scontrino
+    '- expiresAt: YYYY-MM-DD se presente in chiaro; altrimenti "".',
     '- Niente commenti, niente testo fuori dal JSON.',
+    '',
+    'ESEMPI:',
+    'Input OCR:',
+    '----------------------------------------',
+    'ESSELUNGA - SCONTRINO FISCALE',
+    'PARMALAT LATTE P.S. 2 x 1,29',
+    'BARILLA SPAGHETTI 500G 1,09',
+    'UOVA FRESCHE 10PZ 2,49',
+    'TOTALE EURO 6,16',
+    'PAGATO BANCOMAT',
+    '----------------------------------------',
+    'Output JSON:',
+    '{ "purchases":[',
+    '  { "name":"latte", "brand":"Parmalat", "qty":2, "expiresAt":"" },',
+    '  { "name":"spaghetti", "brand":"Barilla", "qty":1, "expiresAt":"" },',
+    '  { "name":"uova", "brand":"", "qty":10, "expiresAt":"" }',
+    '], "expiries":[], "stock":[] }',
+    '',
+    'Input OCR:',
+    '----------------------------------------',
+    'COOP',
+    'PASSATA POMODORO MUTTI 0,99',
+    'RISO CARNAROLI 1KG 2,49',
+    'MELE GOLDEN 1,20 KG x 1,69',
+    'SCONTO -0,30',
+    'TOTALE 4,87',
+    'CONTANTI 5,00 RESTO 0,13',
+    '----------------------------------------',
+    'Output JSON:',
+    '{ "purchases":[',
+    '  { "name":"passata di pomodoro", "brand":"Mutti", "qty":1, "expiresAt":"" },',
+    '  { "name":"riso", "brand":"", "qty":1, "expiresAt":"" },',
+    '  { "name":"mele", "brand":"", "qty":1.2, "expiresAt":"" }',
+    '], "expiries":[], "stock":[] }',
+    '',
+    'Input OCR:',
+    '----------------------------------------',
+    'IPER',
+    'YOGURT FRAGOLA MULLER 4X125 1,99',
+    'BURRO LURPAK 250G 2,39',
+    'LATTE PS 1L SCAD 15/07/2025 1,29',
+    'TOTALE 5,67',
+    '----------------------------------------',
+    'Output JSON:',
+    '{ "purchases":[',
+    '  { "name":"yogurt", "brand":"Muller", "qty":4, "expiresAt":"" },',
+    '  { "name":"burro", "brand":"Lurpak", "qty":1, "expiresAt":"" },',
+    '  { "name":"latte", "brand":"", "qty":1, "expiresAt":"2025-07-15" }',
+    '], "expiries":[{"name":"latte", "expiresAt":"2025-07-15"}], "stock":[] }',
     '',
     'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO. RISPONDI SOLO CON IL JSON FINALE.',
     '--- TESTO OCR INIZIO ---',
@@ -223,6 +272,19 @@ function buildExpiryPrompt(itemName, brand, ocrText) {
     '- Se non trovi una data chiara, restituisci {"expiries":[]}.',
     '',
     `PRODOTTO TARGET: "${tag}"`,
+    '',
+    'ESEMPI:',
+    'Input:',
+    '  Prodotto: "latte (marca Parmalat)"',
+    '  Testo OCR: "LATTE PS PARMALAT 1L SCAD 15/07/2025 lotto 18"',
+    'Output:',
+    '{ "expiries":[{ "name":"latte", "expiresAt":"2025-07-15" }] }',
+    '',
+    'Input:',
+    '  Prodotto: "burro"',
+    '  Testo OCR: "BURRO 250g LURPAK da consumarsi preferibilmente entro 12/08/26"',
+    'Output:',
+    '{ "expiries":[{ "name":"burro", "expiresAt":"2026-08-12" }] }',
     '',
     'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO.',
     '--- TESTO OCR INIZIO ---',
@@ -310,6 +372,7 @@ export default function ListeProdotti() {
   const ocrInputRef = useRef(null);
 
   // OCR scadenza per riga
+  theRow: null
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
@@ -576,7 +639,7 @@ export default function ListeProdotti() {
     try {
       setBusy(true);
 
-      // 1) OCR testo dallo scontrino (usa /api/ocr con campo "images")
+      // 1) OCR testo dallo scontrino (usa il tuo endpoint esistente /api/ocr con campo "images")
       const fdOcr = new FormData();
       files.forEach((f) => fdOcr.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
@@ -603,9 +666,6 @@ export default function ListeProdotti() {
       // fallback locale se vuoto
       if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
 
-      // IMPORTANTISSIMO: non caricare scadenze dagli scontrini
-      if (purchases.length) purchases = purchases.map(p => ({ ...p, expiresAt: '' }));
-
       // 3) Aggiorna liste (decremento degli acquistati su ENTRAMBE le liste)
       if (purchases.length) {
         setLists(prev => decrementAcrossBothLists(prev, purchases));
@@ -615,7 +675,8 @@ export default function ListeProdotti() {
           for (const p of purchases) {
             const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
             const incQty = Math.max(1, Number(p.qty||1));
-            const ex = ''; // da scontrino NON settiamo scadenze
+            // IGNORA sempre le scadenze provenienti dallo scontrino
+            const ex = ''; // <--- forzato vuoto
             if (idx >= 0) {
               arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + incQty, expiresAt: ex || arr[idx].expiresAt };
             } else {
@@ -624,9 +685,8 @@ export default function ListeProdotti() {
           }
           return arr;
         });
-
-        // 4) best-effort finanze → chiamata disabilitabile per evitare 405
-        if (ENABLE_INGEST) {
+        // finanze: opzionale (disabilitato per evitare 405)
+        if (ENABLE_FINANCES_INGEST) {
           try {
             await fetch(API_FINANCES_INGEST, {
               method:'POST',
@@ -637,24 +697,9 @@ export default function ListeProdotti() {
         }
       }
 
-      // Applica eventuali scorte extra dal modello (ignora eventuali expiries auto)
-      if (stockArr && stockArr.length) {
-        setStock(prev => {
-          let arr = [...prev];
-          const upsert = (rec) => {
-            if (!rec?.name) return;
-            const idx = arr.findIndex(s => isSimilar(s.name, rec.name) && (!rec.brand || isSimilar(s.brand||'', rec.brand)));
-            const addQty = Math.max(0, Number(rec.qty || 0));
-            // anche qui, da scontrino lasciamo scadenza vuota
-            if (idx >= 0) {
-              arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + addQty };
-            } else if (rec.qty) {
-              arr.unshift({ name: rec.name, brand: rec.brand || '', qty: addQty || 1, expiresAt: '' });
-            }
-          };
-          stockArr.forEach(upsert);
-          return arr;
-        });
+      // 4) Ignora sempre scadenze/stock extra da OCR per evitare sballi
+      if (false && ((expiries && expiries.length) || (stockArr && stockArr.length))) {
+        // Bloccato intenzionalmente
       }
 
       showToast('OCR scontrino elaborato ✓', 'ok');
@@ -665,6 +710,25 @@ export default function ListeProdotti() {
       setBusy(false);
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
+  }
+
+  /* Azioni manuali su Stato Scorte */
+  function editStockRow(i) {
+    setStock(prev => {
+      const arr = [...prev];
+      const row = arr[i];
+      if (!row) return prev;
+      const name = window.prompt('Nome prodotto', row.name) ?? row.name;
+      const brand = window.prompt('Marca', row.brand || '') ?? (row.brand || '');
+      const qtyStr = window.prompt('Quantità', String(row.qty ?? 1)) ?? String(row.qty ?? 1);
+      const qty = Math.max(0, Number(String(qtyStr).replace(',', '.')) || 0);
+      // NON chiediamo scadenza qui per coerenza con blocco OCR; puoi riattivare se serve
+      arr[i] = { ...row, name: name.trim() || row.name, brand: brand.trim(), qty };
+      return arr;
+    });
+  }
+  function deleteStockRow(i) {
+    setStock(prev => prev.filter((_, idx) => idx !== i));
   }
 
   /* ---------------- OCR scadenza per riga (usa /api/ocr + /api/assistant) ---------------- */
@@ -687,7 +751,7 @@ export default function ListeProdotti() {
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
-      // 2) Assistant per scadenza singola
+      // 2) Assistant per scadenza singola (la applichiamo solo qui, NON dallo scontrino)
       const prompt = buildExpiryPrompt(row.name, row.brand || '', ocrText);
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
@@ -789,32 +853,17 @@ export default function ListeProdotti() {
             )}
           </div>
 
-          {/* Form aggiunta manuale - STILE COERENTE */}
+          {/* Form aggiunta manuale (bar coerente) */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>Aggiungi prodotto</h3>
             <form onSubmit={addManualItem} style={styles.addBar}>
-              <input
-                placeholder="Prodotto (es. latte)"
-                value={form.name}
-                onChange={e => setForm(f => ({...f, name: e.target.value}))}
-                style={{ ...styles.input, flex: 2, minWidth: 180 }}
-                required
-              />
-              <input
-                placeholder="Marca (es. Parmalat)"
-                value={form.brand}
-                onChange={e => setForm(f => ({...f, brand: e.target.value}))}
-                style={{ ...styles.input, flex: 1, minWidth: 140 }}
-              />
-              <input
-                placeholder="Q.tà"
-                inputMode="decimal"
-                value={form.qty}
-                onChange={e => setForm(f => ({...f, qty: e.target.value}))}
-                style={{ ...styles.input, width: 100 }}
-                required
-              />
-              <button style={styles.primaryBtn} disabled={busy}>Aggiungi</button>
+              <input placeholder="Prodotto (es. latte)" value={form.name}
+                     onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
+              <input placeholder="Marca (es. Parmalat)" value={form.brand}
+                     onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
+              <input placeholder="Q.tà" inputMode="decimal" value={form.qty}
+                     onChange={e => setForm(f => ({...f, qty: e.target.value}))} style={{...styles.input, width: 100}} required />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
             </form>
             <p style={{opacity:.8, marginTop: 6}}>
               Suggerimenti voce: “2 latte parmalat; 3 pasta barilla; uova”.
@@ -881,8 +930,12 @@ export default function ListeProdotti() {
                       <td style={styles.td}>{s.brand || '-'}</td>
                       <td style={styles.td}>{s.qty}</td>
                       <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
-                      <td style={styles.td}>
-                        <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                      <td style={{...styles.td}}>
+                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✏️ Modifica</button>
+                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -959,37 +1012,19 @@ const styles = {
   actionGhost: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   actionGhostDanger: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  // 🔧 Barra "Aggiungi prodotto" coerente con la UI
+  // Barra aggiungi coerente con il resto
   addBar: {
-    display:'flex',
-    gap:10,
-    alignItems:'center',
-    background:'rgba(255,255,255,.05)',
-    border:'1px solid rgba(255,255,255,.12)',
-    borderRadius:12,
-    padding:'10px',
-    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04)'
+    display:'flex', flexWrap:'wrap', gap:10, alignItems:'center',
+    background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.12)',
+    padding:'12px', borderRadius:12
   },
 
+  formRow: { display:'flex', flexWrap:'wrap', gap:10, alignItems:'center' },
   input: {
-    padding: '10px 12px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.15)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    minWidth: 200,
-    outline: 'none'
+    padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)',
+    background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 200
   },
-  primaryBtn: {
-    background:'#16a34a',
-    border:0,
-    color:'#fff',
-    padding:'10px 14px',
-    borderRadius:10,
-    cursor:'pointer',
-    fontWeight:800,
-    whiteSpace:'nowrap'
-  },
+  primaryBtn: { background:'#16a34a', border:0, color:'#fff', padding:'10px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
 
   table: { width:'100%', borderCollapse:'collapse', background:'rgba(255,255,255,.04)', borderRadius:12, overflow:'hidden' },
   th: { textAlign:'left', padding:'10px', borderBottom:'1px solid rgba(255,255,255,.12)' },
