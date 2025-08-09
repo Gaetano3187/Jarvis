@@ -69,3 +69,23 @@ Output:
       "data":"${new Date().toISOString().slice(0,10)}",
       "categoria":"casa",
       "category_id":"4cfaac74-aab4-4d96-b335-6cc64de59afc"
+    }
+  ]
+}
+` // <-- QUI chiudiamo il backtick
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ]
+    })
+
+    const answer = completion.choices?.[0]?.message?.content ?? ''
+    return res.status(200).json({ answer })
+  } catch (error) {
+    console.error('Errore Assistant:', error)
+    return res.status(500).json({ error: 'Errore interno assistant' })
+  }
+}
