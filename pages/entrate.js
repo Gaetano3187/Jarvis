@@ -8,6 +8,9 @@ import { supabase } from '@/lib/supabaseClient';
 /** Giorno “payday” usato solo per calcolare il periodo corrente */
 const PAYDAY_DAY = 10;
 
+/** Categoria "Spese Varie" (usata per il filtro dopo Ripulisci) */
+const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';
+
 /* --------------------------- helpers --------------------------- */
 /** Ritorna YYYY-MM-DD in LOCALE (niente UTC) */
 function isoLocal(date) {
@@ -80,7 +83,7 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .from('incomes')
     .select('amount')
     .eq('user_id', userId)
-    .gte('received_date', prevStartISO)  // <-- usa received_date
+    .gte('received_date', prevStartISO)
     .lte('received_date', prevEndISO);
   if (e1) { console.error('[CARRY] incPrev error', e1); throw e1; }
 
@@ -88,7 +91,7 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .from('finances')
     .select('amount')
     .eq('user_id', userId)
-    .gte('spent_date', prevStartISO)     // <-- usa spent_date
+    .gte('spent_date', prevStartISO)
     .lte('spent_date', prevEndISO);
   if (e2) { console.error('[CARRY] expPrev error', e2); throw e2; }
 
@@ -172,6 +175,9 @@ function Entrate() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
+  /** Dopo “Ripulisci”: mostra in Soldi in tasca solo spese CASH con category_id = VARIE */
+  const [onlyVarieAfterClear, setOnlyVarieAfterClear] = useState(false);
+
   // === Date correnti (LOCAL) ===
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
   const startDateISO = startDate;
@@ -194,26 +200,24 @@ function Entrate() {
       console.log('[UNMOUNT] Entrate page unmount');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthKey]);
+  }, [monthKey, onlyVarieAfterClear]);
 
   async function debugFetch(userId) {
     try {
-      const { data: incAny, error: incErr } = await supabase
+      const { data: incAny } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at, received_date')
         .eq('user_id', userId)
         .order('received_at', { ascending: false })
         .limit(5);
-      if (incErr) console.error('[DEBUG] incomes ANY error', incErr);
       console.log('[DEBUG] incomes ANY last5', incAny);
 
-      const { data: pcAny, error: pcErr } = await supabase
+      const { data: pcAny } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(5);
-      if (pcErr) console.error('[DEBUG] pocket ANY error', pcErr);
       console.log('[DEBUG] pocket ANY last5', pcAny);
     } catch (e) {
       console.error('[DEBUG] fetch error', e);
@@ -239,12 +243,12 @@ function Entrate() {
         .from('incomes')
         .select('id, source, description, amount, received_at, received_date')
         .eq('user_id', user.id)
-        .gte('received_date', startDateISO)   // <— CHIAVE
-        .lte('received_date', endDateISO)     // <— CHIAVE
+        .gte('received_date', startDateISO)
+        .lte('received_date', endDateISO)
         .order('received_at', { ascending: false });
       if (e1) { console.error('[FETCH] incomes error', e1); throw e1; }
-      console.log('[FETCH] incomes count', inc?.length ?? 0);
       setIncomes(inc || []);
+      console.log('[FETCH] incomes count', inc?.length ?? 0);
 
       // 2) Carryover
       const { data: co, error: e2 } = await supabase
@@ -254,16 +258,16 @@ function Entrate() {
         .eq('month_key', monthKey)
         .maybeSingle();
       if (e2 && e2.code !== 'PGRST116') { console.error('[FETCH] carryover error', e2); throw e2; }
-      console.log('[FETCH] carryover', co);
       setCarryover(co || null);
+      console.log('[FETCH] carryover', co);
 
       // 3a) Movimenti contante manuali — filtra su moved_date
       const { data: pc, error: e3 } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
-        .gte('moved_date', startDateISO)      // <— CHIAVE
-        .lte('moved_date', endDateISO)        // <— CHIAVE
+        .gte('moved_date', startDateISO)
+        .lte('moved_date', endDateISO)
         .order('moved_at', { ascending: false })
         .order('created_at', { ascending: false });
       if (e3) { console.error('[FETCH] pocket_cash error', e3); throw e3; }
@@ -288,14 +292,20 @@ function Entrate() {
       console.log('[MAP] manualRows', manualRows.length);
 
       // 3b) Spese cash dalle altre pagine — filtra su spent_date
-      const { data: finCash, error: e4 } = await supabase
+      let finQuery = supabase
         .from('finances')
-        .select('id, description, amount, spent_at, spent_date')
+        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
         .eq('user_id', user.id)
         .eq('payment_method', 'cash')
-        .gte('spent_date', startDateISO)      // <— CHIAVE
-        .lte('spent_date', endDateISO)        // <— CHIAVE
+        .gte('spent_date', startDateISO)
+        .lte('spent_date', endDateISO)
         .order('spent_at', { ascending: false });
+
+      if (onlyVarieAfterClear) {
+        finQuery = finQuery.eq('category_id', CATEGORY_ID_VARIE);
+      }
+
+      const { data: finCash, error: e4 } = await finQuery;
       if (e4) { console.error('[FETCH] finances cash error', e4); throw e4; }
       console.log('[FETCH] finances cash count', finCash?.length ?? 0);
 
@@ -325,14 +335,14 @@ function Entrate() {
         .from('finances')
         .select('amount, spent_date')
         .eq('user_id', user.id)
-        .gte('spent_date', startDateISO)      // <— CHIAVE
-        .lte('spent_date', endDateISO);       // <— CHIAVE
+        .gte('spent_date', startDateISO)
+        .lte('spent_date', endDateISO);
       if (e5) { console.error('[FETCH] expenses error', e5); throw e5; }
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
       console.log('[FETCH] expenses count', exp?.length ?? 0, 'totalExp', totalExp);
       setMonthExpenses(totalExp);
 
-      // DEBUG: ultime 5 righe senza filtri
+      // DEBUG
       await debugFetch(user.id);
 
       console.log('================ [/LOAD ALL OK] ================');
@@ -389,6 +399,12 @@ function Entrate() {
     return JSON.parse(answer);
   }
 
+  // Heuristica: frasi di incasso da trattare come CONTANTI (Soldi in tasca), non come "Entrate del periodo"
+  function looksLikeCashIncome(text) {
+    const t = (text || '').toLowerCase();
+    return /stipendio|mi hanno pagato|pagato.*lavoro|lavoro privato|ho preso.*stipendio|incassato.*contanti|mi hanno dato.*soldi/.test(t);
+  }
+
   // Normalizza segni per contante via OCR/Voce
   async function parseAssistantForPocket(userText) {
     const data = await callAssistant(buildPocketPrompt(userText));
@@ -421,7 +437,10 @@ function Entrate() {
     return true;
   }
 
-  // Entrate via OCR/Voce sempre positive
+  // Entrate via OCR/Voce:
+  // - Se la frase “somiglia” a incasso contante (stipendio preso oggi, lavoro privato pagato, ecc.)
+  //   allora INSERISCO in pocket_cash (ricarica) e NON in incomes.
+  // - Altrimenti inserisco in incomes come prima.
   async function parseAssistantForIncome(userText) {
     const data = await callAssistant(buildIncomePrompt(userText));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -429,21 +448,34 @@ function Entrate() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
+    const treatAsCash = looksLikeCashIncome(userText);
+
     for (const it of data.items) {
       const dataIncasso = it.receivedAt || isoLocal(new Date());
       const amount = Math.abs(parseAmountLoose(it.amount));
 
-      const payload = {
-        user_id: user.id,
-        source: it.source || 'Entrata',
-        description: it.description || it.source || 'Entrata',
-        amount,
-        received_at: `${dataIncasso}T12:00:00Z`,
-      };
-      console.log('[VOICE] INCOME INSERT', payload);
-
-      const { error } = await supabase.from('incomes').insert(payload);
-      if (error) { console.error('[VOICE] INCOME INSERT ERROR', error); throw error; }
+      if (treatAsCash) {
+        const payloadPocket = {
+          user_id: user.id,
+          note: (it.description || it.source || 'Ricarica contanti'),
+          delta: amount,
+          moved_at: `${dataIncasso}T12:00:00Z`,
+        };
+        console.log('[VOICE/OCR] POCKET INSERT (from income text)', payloadPocket);
+        const { error } = await supabase.from('pocket_cash').insert(payloadPocket);
+        if (error) { console.error('[VOICE/OCR] POCKET INSERT ERROR', error); throw error; }
+      } else {
+        const payloadIncome = {
+          user_id: user.id,
+          source: it.source || 'Entrata',
+          description: it.description || it.source || 'Entrata',
+          amount,
+          received_at: `${dataIncasso}T12:00:00Z`,
+        };
+        console.log('[VOICE/OCR] INCOME INSERT', payloadIncome);
+        const { error } = await supabase.from('incomes').insert(payloadIncome);
+        if (error) { console.error('[VOICE/OCR] INCOME INSERT ERROR', error); throw error; }
+      }
     }
     return true;
   }
@@ -456,17 +488,13 @@ function Entrate() {
       const res = await fetch('/api/ocr', { method: 'POST', body: fd });
       const { text } = await res.json();
 
+      // 1) prova come movimento contante
       const handledPocket = await parseAssistantForPocket(text);
-      if (handledPocket) {
-        await loadAll();
-        return;
-      }
+      if (handledPocket) { await loadAll(); return; }
 
+      // 2) altrimenti come entrata (ma con heuristica che può reindirizzare a pocket)
       const handledIncome = await parseAssistantForIncome(text);
-      if (handledIncome) {
-        await loadAll();
-        return;
-      }
+      if (handledIncome) { await loadAll(); return; }
 
       setError('Nessun dato riconosciuto da OCR');
     } catch (err) {
@@ -635,19 +663,21 @@ function Entrate() {
   }
 
   async function handleClearPocket() {
-    if (!confirm('Azzerare TUTTI i movimenti di "Soldi in tasca"?')) return;
+    if (!confirm('Azzerare i movimenti manuali e mostrare solo le spese CASH di “Spese Varie”?')) return;
     try {
       const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
-      console.log('[POCKET CLEAR] deleting all for user', user.id);
-
+      console.log('[POCKET CLEAR] deleting pocket_cash for user', user.id);
       const { error } = await supabase.from('pocket_cash').delete().eq('user_id', user.id);
       if (error) {
         console.error('[POCKET DELETE ERROR]', error);
         throw error;
       }
+
+      // Dopo il clear, mostra solo le spese CASH della categoria VARIE
+      setOnlyVarieAfterClear(true);
 
       await loadAll();
     } catch (err) {
@@ -678,7 +708,27 @@ function Entrate() {
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 className="title">Entrate & Saldi</h2>
+          {/* Titolo + Bottoni Voce/OCR affiancati */}
+          <div className="title-row">
+            <h2 className="title">Entrate &amp; Saldi</h2>
+            <div className="title-actions">
+              <button className="btn-vocale" onClick={toggleRec}>
+                {recBusy ? 'Stop' : 'Voce'}
+              </button>
+              <button className="btn-ocr" onClick={() => ocrInputRef.current && ocrInputRef.current.click()}>
+                OCR
+              </button>
+              <input
+                ref={ocrInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                hidden
+                onChange={(e) => handleOCR(Array.from(e.target.files || []))}
+              />
+            </div>
+          </div>
 
           {/* Periodo corrente in alto - formato IT */}
           <div className="periodo-row">
@@ -688,7 +738,7 @@ function Entrate() {
             <b>{endDateIT}</b>
           </div>
 
-          {/* Disponibilita */}
+          {/* Disponibilità */}
           <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
             <h3>Disponibilità</h3>
 
@@ -707,25 +757,6 @@ function Entrate() {
               <span>Soldi in tasca (restanti):</span>
               <b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b>
             </div>
-          </div>
-
-          {/* Tasti OCR/Voce */}
-          <div className="table-buttons">
-            <button className="btn-vocale" onClick={toggleRec}>
-              {recBusy ? 'Stop' : 'Voce'}
-            </button>
-            <button className="btn-ocr" onClick={() => ocrInputRef.current && ocrInputRef.current.click()}>
-              OCR
-            </button>
-            <input
-              ref={ocrInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              hidden
-              onChange={(e) => handleOCR(Array.from(e.target.files || []))}
-            />
           </div>
 
           {/* 1) Entrate */}
@@ -834,7 +865,7 @@ function Entrate() {
             <button type="button" onClick={handleClearPocket} style={{ background: '#ef4444' }}>Ripulisci</button>
 
             <p style={{ opacity: 0.8, marginTop: '0.5rem', flexBasis: '100%' }}>
-              Qui vedi tutte le ricariche/uscite e le spese in contante registrate nelle altre sezioni.
+              Dopo “Ripulisci” vedrai qui solo le spese in contante della categoria <b>Spese Varie</b>.
             </p>
           </form>
 
@@ -889,7 +920,17 @@ function Entrate() {
           max-width: 1000px;
           width: 100%;
         }
-        .title { margin-bottom: .25rem; font-size: 1.5rem; }
+
+        /* Titolo + azioni a destra */
+        .title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: .75rem;
+          margin-bottom: .25rem;
+        }
+        .title { margin: 0; font-size: 1.5rem; }
+        .title-actions { display: flex; gap: .5rem; }
 
         .periodo-row {
           display:flex; gap:.4rem; align-items:center;
@@ -898,7 +939,6 @@ function Entrate() {
           opacity:.9;
         }
 
-        .table-buttons { display: flex; gap: .5rem; margin: .25rem 0 1rem; }
         .btn-vocale, .btn-ocr, .btn-manuale {
           background: #6366f1; border: 0; padding: .4rem .6rem; border-radius: .5rem; cursor: pointer; color: #fff;
         }
