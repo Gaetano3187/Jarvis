@@ -126,7 +126,7 @@ function toISODate(any) {
   return '';
 }
 
-/** estrae coppie prodotto->data da frasi continue */
+/** estrae coppie prodotto->data da frasi continue (usato solo per voce scadenze) */
 function parseExpiryPairs(text) {
   const out = [];
   const norm = (x) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -185,7 +185,7 @@ function timeoutFetch(url, opts={}, ms=25000) {
   return fetch(url, { ...opts, signal: ctrl.signal }).finally(()=>clearTimeout(t));
 }
 
-/* ------------- Prompt builder: scontrino ------------- */
+/* ------------- Prompt builder: scontrino (NB: le scadenze verranno IGNORATE) ------------- */
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
   const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
   return [
@@ -200,22 +200,14 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
     '- brand: stringa breve se deducibile, altrimenti "".',
     '- qty: numero di confezioni acquistate (default 1).',
     '- packSize: numero di pezzi per confezione (es. "10pz" => 10, "4x125g" => 4). Se non indicato, 1.',
-    '- expiresAt: YYYY-MM-DD se presente in chiaro; altrimenti "".',
+    '- expiresAt (se presente) verrà ignorato a valle.',
     '- Niente testo fuori dal JSON.',
     '',
     'ESEMPI:',
-    'Input OCR:',
     'PARMALAT LATTE P.S. 2 x 1,29',
-    'BARILLA SPAGHETTI 500G 1,09',
     'UOVA FRESCHE 10PZ 2,49',
-    'Output JSON:',
-    '{ "purchases":[',
-    '  { "name":"latte", "brand":"Parmalat", "qty":2, "packSize":1, "expiresAt":"" },',
-    '  { "name":"spaghetti", "brand":"Barilla", "qty":1, "packSize":1, "expiresAt":"" },',
-    '  { "name":"uova", "brand":"", "qty":1, "packSize":10, "expiresAt":"" }',
-    '], "expiries":[], "stock":[] }',
+    '{ "purchases":[{ "name":"latte","brand":"Parmalat","qty":2,"packSize":1,"expiresAt":"" },{ "name":"uova","brand":"","qty":1,"packSize":10,"expiresAt":"" }], "expiries":[], "stock":[] }',
     '',
-    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO. RISPONDI SOLO CON IL JSON FINALE.',
     '--- TESTO OCR INIZIO ---',
     ocrText,
     '--- TESTO OCR FINE ---'
@@ -233,7 +225,6 @@ function buildExpiryPrompt(itemName, brand, ocrText) {
     '',
     `PRODOTTO TARGET: "${tag}"`,
     '',
-    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO.',
     '--- TESTO OCR INIZIO ---',
     ocrText,
     '--- TESTO OCR FINE ---'
@@ -250,21 +241,14 @@ function parseReceiptPurchases(ocrText) {
     if (ignore.test(raw)) continue;
     let qty = 1, packSize = 1, brand = '', name = raw;
 
-    // pattern tipo "4x125g", "6X1L", "10 PZ"
     const mPackX = raw.match(/(\d+)\s*[xX]\s*\d+\s*(?:g|gr|ml|cl|l|pz|PZ)?\b/);
     if (mPackX) packSize = Math.max(packSize, Number(mPackX[1]) || 1);
     const mPieces = raw.match(/(\d+)\s*(?:pz|PZ|pezzi|uova|capsule|bustine)\b/);
     if (mPieces) packSize = Math.max(packSize, Number(mPieces[1]) || 1);
 
-    // quantità esplicita a sinistra (numero confezioni)
     const mQty = raw.match(/^(\d+(?:[.,]\d+)?)\s*[xX]?\s+(.*)$/);
     if (mQty) { qty = Number(String(mQty[1]).replace(',','.')) || 1; name = mQty[2]; }
 
-    // pesi (consideriamo come quantità "unità" = kg, non tocchiamo packSize)
-    const mKg = raw.match(/(\d+(?:[.,]\d+)?)\s*(kg|g)\b/i);
-    if (mKg && !mQty) qty = Number(String(mKg[1]).replace(',','.')) || qty;
-
-    // brand euristico: ultima parola in Maiuscolo "tipico"
     const parts = name.split(' ');
     if (parts.length>1 && /^[A-ZÀ-ÖØ-Þ]/.test(parts[parts.length-1])) {
       brand = parts.pop();
@@ -302,9 +286,8 @@ export default function ListeProdotti() {
   const [form, setForm] = useState({ name: '', brand: '', qty: '1' });
 
   // Scorte & critici
-  // qty = unità in casa; lastPurchaseAt = ISO string; initialQtyAtLastPurchase = unità totali dopo l'ultimo rifornimento
-  const [stock, setStock] = useState([]);       // [{name,brand,qty,expiresAt?,lastPurchaseAt?,initialQtyAtLastPurchase?}]
-  const [critical, setCritical] = useState([]); // subset di stock
+  const [stock, setStock] = useState([]); // {name,brand,qty,expiresAt?,lastPurchaseAt?,initialQtyAtLastPurchase?}
+  const [critical, setCritical] = useState([]);
 
   // Stato UI
   const [busy, setBusy] = useState(false);
@@ -316,7 +299,7 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale: SCADENZE (session dedicata)
+  // Vocale: SCADENZE
   const expMediaRef = useRef(null);
   const expChunksRef = useRef([]);
   const expStreamRef = useRef(null);
@@ -328,6 +311,10 @@ export default function ListeProdotti() {
   // OCR scadenza per riga
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
+
+  // Edit scorte
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [editForm, setEditForm] = useState({ name:'', brand:'', qty:'', expiresAt:'' });
 
   const curItems = lists[currentList] || [];
 
@@ -342,12 +329,10 @@ export default function ListeProdotti() {
       const init = Number(p.initialQtyAtLastPurchase || 0);
       const last = p.lastPurchaseAt ? new Date(p.lastPurchaseAt).getTime() : 0;
 
-      // 1) scadenza entro 10 giorni -> sempre mostrare
       const expiresSoon = p.expiresAt ? (new Date(p.expiresAt).getTime() - now) <= nearExpiryWindow : false;
 
-      // 2) esaurimento: solo se ultimo acquisto > 2 giorni
       const lowByUnits = qty <= 2;
-      const lowByPercent = init > 0 ? (qty <= 0.8 * init) : false; // <=80% del carico iniziale
+      const lowByPercent = init > 0 ? (qty <= 0.8 * init) : false;
       const oldEnough = last && (now - last) > twoDays;
       const depletion = oldEnough && (lowByUnits || lowByPercent);
 
@@ -472,7 +457,6 @@ export default function ListeProdotti() {
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
 
-      // assistant (estrazione strutturata) + fallback locale
       let appended = false;
       try {
         const payload = {
@@ -596,7 +580,7 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ----- OCR: funzioni supporto decremento su entrambe le liste ----- */
+  /* ----- OCR: supporto decremento su entrambe le liste ----- */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
 
@@ -634,7 +618,7 @@ export default function ListeProdotti() {
     try {
       setBusy(true);
 
-      // 1) OCR testo dallo scontrino (usa /api/ocr con campo "images")
+      // 1) OCR testo dallo scontrino
       const fdOcr = new FormData();
       files.forEach((f) => fdOcr.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
@@ -643,7 +627,7 @@ export default function ListeProdotti() {
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
-      // 2) Estrazione strutturata dall’assistente
+      // 2) Estrazione strutturata (le scadenze verranno IGNORATE)
       const prompt = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
         method:'POST',
@@ -655,15 +639,15 @@ export default function ListeProdotti() {
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       let purchases = ensureArray(parsed?.purchases);
-      const expiries  = ensureArray(parsed?.expiries);
       const stockArr  = ensureArray(parsed?.stock);
-
+      // ignoriamo SEMPRE qualsiasi "expiries" dal modello
       // fallback locale se vuoto
       if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
 
       // 3) Aggiorna liste (decremento degli acquistati su ENTRAMBE le liste)
       if (purchases.length) {
         setLists(prev => decrementAcrossBothLists(prev, purchases));
+
         // Aggiorna scorte includendo anche prodotti non in lista
         setStock(prev => {
           const arr = [...prev];
@@ -678,13 +662,12 @@ export default function ListeProdotti() {
               ( !(p.brand && s.brand) || isSimilar(s.brand || '', p.brand || '') )
             );
 
-            const ex = p.expiresAt ? toISODate(p.expiresAt) : '';
+            // >>> NON impostiamo mai expiresAt da scontrino
             if (idx >= 0) {
               const newQty = Number(arr[idx].qty || 0) + incQty;
               arr[idx] = {
                 ...arr[idx],
                 qty: newQty,
-                expiresAt: ex || arr[idx].expiresAt,
                 lastPurchaseAt: nowISO,
                 initialQtyAtLastPurchase: newQty
               };
@@ -693,7 +676,7 @@ export default function ListeProdotti() {
                 name: p.name,
                 brand: p.brand || '',
                 qty: incQty,
-                expiresAt: ex || '',
+                expiresAt: arr.expiresAt || '', // resta vuoto
                 lastPurchaseAt: nowISO,
                 initialQtyAtLastPurchase: incQty
               });
@@ -701,6 +684,7 @@ export default function ListeProdotti() {
           }
           return arr;
         });
+
         // best-effort finanze
         try {
           await fetch(API_FINANCES_INGEST, {
@@ -711,47 +695,37 @@ export default function ListeProdotti() {
         } catch {}
       }
 
-      // 4) Applica eventuali scadenze/stock extra dal modello
-      if ((expiries && expiries.length) || (stockArr && stockArr.length)) {
+      // 4) stock extra dal modello (SOLO quantità; IGNORA eventuali expiresAt)
+      if (stockArr && stockArr.length) {
         setStock(prev => {
           let arr = [...prev];
-          const upsert = (rec) => {
-            if (!rec?.name) return;
+          for (const rec of stockArr) {
+            if (!rec?.name) continue;
+            const addQty = Math.max(0, Number(rec.qty || 0)) * Math.max(1, Number(rec.packSize || rec.unitsPerPack || 1));
             const idx = arr.findIndex(s =>
               isSimilar(s.name, rec.name) &&
               ( !(rec.brand && s.brand) || isSimilar(s.brand || '', rec.brand || '') )
             );
-            const addQty = Math.max(0, Number(rec.qty || 0)) * Math.max(1, Number(rec.packSize || rec.unitsPerPack || 1));
-            const ex = rec.expiresAt ? toISODate(rec.expiresAt) : '';
+            const nowISO = new Date().toISOString();
             if (idx >= 0) {
               const newQty = Number(arr[idx].qty || 0) + addQty;
               arr[idx] = {
                 ...arr[idx],
                 qty: newQty,
-                expiresAt: ex || arr[idx].expiresAt,
-                ...(addQty > 0 ? { lastPurchaseAt: new Date().toISOString(), initialQtyAtLastPurchase: newQty } : {})
+                // expiresAt invariato
+                ...(addQty > 0 ? { lastPurchaseAt: nowISO, initialQtyAtLastPurchase: newQty } : {})
               };
-            } else if (addQty || ex) {
+            } else if (addQty) {
               arr.unshift({
                 name: rec.name,
                 brand: rec.brand || '',
-                qty: addQty || 1,
-                expiresAt: ex || '',
-                lastPurchaseAt: new Date().toISOString(),
-                initialQtyAtLastPurchase: (addQty || 1)
+                qty: addQty,
+                expiresAt: '',
+                lastPurchaseAt: nowISO,
+                initialQtyAtLastPurchase: addQty
               });
             }
-          };
-          stockArr.forEach(upsert);
-          expiries.forEach((rec) => {
-            if (!rec?.name) return;
-            const idx = arr.findIndex(s =>
-              isSimilar(s.name, rec.name) &&
-              ( !(rec.brand && s.brand) || isSimilar(s.brand || '', rec.brand || '') )
-            );
-            const ex = rec.expiresAt ? toISODate(rec.expiresAt) : '';
-            if (idx >= 0 && ex) arr[idx] = { ...arr[idx], expiresAt: ex };
-          });
+          }
           return arr;
         });
       }
@@ -777,7 +751,6 @@ export default function ListeProdotti() {
     try {
       setBusy(true);
 
-      // 1) OCR immagine etichetta
       const fd = new FormData();
       files.forEach((f)=>fd.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
@@ -786,7 +759,6 @@ export default function ListeProdotti() {
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
-      // 2) Assistant per scadenza singola
       const prompt = buildExpiryPrompt(row.name, row.brand || '', ocrText);
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
@@ -815,6 +787,46 @@ export default function ListeProdotti() {
       setTargetRowIdx(null);
       if (rowOcrInputRef.current) rowOcrInputRef.current.value = '';
     }
+  }
+
+  /* ---------------- Stato Scorte: Modifica/Elimina ---------------- */
+  function startEditStock(idx) {
+    const s = stock[idx];
+    setEditingIdx(idx);
+    setEditForm({
+      name: s?.name || '',
+      brand: s?.brand || '',
+      qty: String(s?.qty ?? 0),
+      expiresAt: s?.expiresAt || ''
+    });
+  }
+  function cancelEditStock() {
+    setEditingIdx(null);
+    setEditForm({ name:'', brand:'', qty:'', expiresAt:'' });
+  }
+  function saveEditStock() {
+    if (editingIdx == null) return;
+    setStock(prev => {
+      const arr = [...prev];
+      const target = arr[editingIdx];
+      if (!target) return prev;
+      const qtyNum = Math.max(0, Number(String(editForm.qty).replace(',', '.')) || 0);
+      const iso = editForm.expiresAt ? toISODate(editForm.expiresAt) : '';
+      arr[editingIdx] = {
+        ...target,
+        name: editForm.name.trim() || target.name,
+        brand: editForm.brand.trim(),
+        qty: qtyNum,
+        expiresAt: iso
+      };
+      return arr;
+    });
+    cancelEditStock();
+    showToast('Voce aggiornata ✓', 'ok');
+  }
+  function deleteStock(idx) {
+    setStock(prev => prev.filter((_, i) => i !== idx));
+    showToast('Voce eliminata', 'ok');
   }
 
   /* ---------------- render ---------------- */
@@ -961,12 +973,39 @@ export default function ListeProdotti() {
                 <tbody>
                   {stock.map((s, i) => (
                     <tr key={i}>
-                      <td style={styles.td}>{s.name}</td>
-                      <td style={styles.td}>{s.brand || '-'}</td>
-                      <td style={styles.td}>{s.qty}</td>
-                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
-                        <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                        {editingIdx===i ? (
+                          <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={styles.inputSm} />
+                        ) : s.name}
+                      </td>
+                      <td style={styles.td}>
+                        {editingIdx===i ? (
+                          <input value={editForm.brand} onChange={e=>setEditForm(f=>({...f,brand:e.target.value}))} style={styles.inputSm} />
+                        ) : (s.brand || '-')}
+                      </td>
+                      <td style={styles.td}>
+                        {editingIdx===i ? (
+                          <input value={editForm.qty} inputMode="decimal" onChange={e=>setEditForm(f=>({...f,qty:e.target.value}))} style={{...styles.inputSm, width:90}} />
+                        ) : s.qty}
+                      </td>
+                      <td style={styles.td}>
+                        {editingIdx===i ? (
+                          <input type="date" value={editForm.expiresAt || ''} onChange={e=>setEditForm(f=>({...f,expiresAt:e.target.value}))} style={styles.inputSm} />
+                        ) : (s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-')}
+                      </td>
+                      <td style={styles.td}>
+                        {editingIdx===i ? (
+                          <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                            <button onClick={saveEditStock} style={styles.actionSuccessSmall}>Salva</button>
+                            <button onClick={cancelEditStock} style={styles.actionGhostSmall}>Annulla</button>
+                          </div>
+                        ) : (
+                          <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                            <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                            <button onClick={()=>startEditStock(i)} style={styles.actionGhostSmall}>Modifica</button>
+                            <button onClick={()=>deleteStock(i)} style={styles.actionGhostDangerSmall}>Elimina</button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1043,11 +1082,6 @@ const styles = {
   actionGhost: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   actionGhostDanger: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  formRow: { display:'flex', flexWrap:'wrap', gap:10, alignItems:'center' },
-  input: {
-    padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)',
-    background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 200
-  },
   primaryBtn: { background:'#16a34a', border:0, color:'#fff', padding:'10px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
 
   table: { width:'100%', borderCollapse:'collapse', background:'rgba(255,255,255,.04)', borderRadius:12, overflow:'hidden' },
@@ -1058,5 +1092,14 @@ const styles = {
   voiceBtnSmall: { background:'#6366f1', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
   voiceBtnSmallStop: { background:'#ef4444', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
   ocrBtnSmall: { background:'#06b6d4', border:0, color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
-  ocrInlineBtn: { background:'rgba(6,182,212,.15)', border:'1px solid rgba(6,182,212,.6)', color:'#e0fbff', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:700 }
+  ocrInlineBtn: { background:'rgba(6,182,212,.15)', border:'1px solid rgba(6,182,212,.6)', color:'#e0fbff', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:700 },
+
+  // mini input / bottoni tabella scorte
+  inputSm: {
+    padding:'6px 8px', borderRadius:8, border:'1px solid rgba(255,255,255,.2)',
+    background:'rgba(255,255,255,.06)', color:'#fff', minWidth: 120
+  },
+  actionSuccessSmall: { background:'#16a34a', border:0, color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 },
+  actionGhostSmall: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 },
+  actionGhostDangerSmall: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer', fontWeight:700 }
 };
