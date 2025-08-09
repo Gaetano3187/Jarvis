@@ -1,14 +1,15 @@
 // pages/api/assistant-ocr.js
+import { IncomingForm } from 'formidable'
+import fs from 'fs'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
-import { readFile } from 'fs/promises'
-import formidable from 'formidable'
 
-// Consenti anche JSON: useremo formidable solo per multipart
 export const config = {
   api: { bodyParser: false },
+  runtime: 'nodejs', // evita Edge per usare formidable/OCR
 }
 
+// --- OpenAI & Supabase ---
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? '',
 })
@@ -18,66 +19,13 @@ const supabase =
     ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
     : null
 
-function parseMultipart(req) {
-  return new Promise((resolve, reject) => {
-    const form = formidable({ multiples: false, keepExtensions: true })
-    form.parse(req, (err, fields, files) => {
-      if (err) return reject(err)
-      resolve({ fields, files })
-    })
-  })
-}
-
-async function parseJson(req) {
-  const chunks = []
-  for await (const c of req) chunks.push(c)
-  const raw = Buffer.concat(chunks).toString('utf8')
-  if (!raw) return {}
-  try { return JSON.parse(raw) } catch { return {} }
-}
-
-function safeJson(text) {
+function safeParseJson(text) {
   try { return JSON.parse(text) } catch (_) {}
-  const first = text.indexOf('{')
-  const last = text.lastIndexOf('}')
-  if (first !== -1 && last !== -1 && last > first) {
-    const slice = text.slice(first, last + 1)
-    try { return JSON.parse(slice) } catch (_) {}
+  const a = text.indexOf('{')
+  const b = text.lastIndexOf('}')
+  if (a !== -1 && b !== -1 && b > a) {
+    try { return JSON.parse(text.slice(a, b + 1)) } catch (_) {}
   }
-  return null
-}
-
-async function getImageDataUrl({ files, fields, json }) {
-  // 1) Se c’è un file multipart (campo 'file' o 'image')
-  const fileObj = files?.file || files?.image
-  if (fileObj?.filepath) {
-    const buf = await readFile(fileObj.filepath)
-    const b64 = buf.toString('base64')
-    const mime = fileObj.mimetype || 'image/jpeg'
-    return `data:${mime};base64,${b64}`
-  }
-
-  // 2) Se c’è una URL in multipart fields o nel JSON
-  const imageUrl =
-    (fields && (fields.imageUrl || fields.url || fields.image)) ||
-    (json && (json.imageUrl || json.url || json.image))
-
-  if (imageUrl) {
-    // fetch server-side della URL e converto in data URL
-    const r = await fetch(imageUrl)
-    if (!r.ok) throw new Error(`Impossibile scaricare l'immagine (${r.status})`)
-    const mime = r.headers.get('content-type') || 'image/jpeg'
-    const arrBuf = await r.arrayBuffer()
-    const b64 = Buffer.from(arrBuf).toString('base64')
-    return `data:${mime};base64,${b64}`
-  }
-
-  // 3) Se nel JSON arriva già un dataURL/base64
-  const dataUrl =
-    (json && (json.dataUrl || json.imageDataUrl || json.base64)) ||
-    (fields && (fields.dataUrl || fields.imageDataUrl || fields.base64))
-  if (dataUrl && String(dataUrl).startsWith('data:')) return String(dataUrl)
-
   return null
 }
 
@@ -87,77 +35,130 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Metodo ${req.method} non consentito (usa POST)` })
   }
 
+  // --- parse form-data: images (+ opzionale userId) ---
+  let files, fields
   try {
-    const isJson = (req.headers['content-type'] || '').includes('application/json')
+    ({ files, fields } = await new Promise((resolve, reject) => {
+      const form = new IncomingForm({ multiples: true, keepExtensions: true })
+      form.parse(req, (err, fields, files) => {
+        if (err) return reject(err)
+        resolve({ fields, files })
+      })
+    }))
+  } catch (err) {
+    console.error('[assistant-ocr] parse error:', err)
+    return res.status(500).json({ error: String(err.message || err) })
+  }
 
-    let fields = {}, files = {}, json = {}
-    if (isJson) {
-      json = await parseJson(req)
-    } else {
-      ({ fields, files } = await parseMultipart(req))
+  const imgs = []
+  const input = files?.images
+  if (Array.isArray(input)) imgs.push(...input)
+  else if (input) imgs.push(input)
+
+  if (!imgs.length) {
+    return res.status(400).json({ error: 'Nessun file nel campo "images"' })
+  }
+
+  // --- OCR via OCR.Space (come nel tuo ocr.js) ---
+  const results = []
+  for (const u of imgs) {
+    try {
+      const buf = await fs.promises.readFile(u.filepath)
+      const blob = new Blob([buf], { type: u.mimetype || 'application/octet-stream' })
+      const fd = new FormData()
+      fd.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld')
+      fd.append('language', 'ita')
+      fd.append('isOverlayRequired', 'false')
+      fd.append('file', blob, u.originalFilename || 'upload.jpg')
+
+      const resp = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: fd })
+      const json = await resp.json()
+
+      if (json?.IsErroredOnProcessing) {
+        const msg = Array.isArray(json.ErrorMessage) ? json.ErrorMessage.join(' | ') : (json.ErrorMessage || 'OCR error')
+        throw new Error(msg)
+      }
+
+      const text = (json?.ParsedResults || [])
+        .map(r => r?.ParsedText || '')
+        .join('\n')
+        .trim()
+
+      results.push({ name: u.originalFilename || 'upload.jpg', text })
+    } catch (err) {
+      console.error('[assistant-ocr] ocr error:', u?.originalFilename, err)
+      results.push({ name: u?.originalFilename || 'upload.jpg', text: '', error: String(err.message || err) })
+    } finally {
+      if (u?.filepath) fs.unlink(u.filepath, () => {})
     }
+  }
 
-    const userId = String(fields.userId || json.userId || '').trim() || null
-    const dataUrl = await getImageDataUrl({ files, fields, json })
-    if (!dataUrl) {
-      return res.status(400).json({ error: 'File/URL immagine mancante' })
-    }
+  const joined = results
+    .map(r => (r.error ? '' : `### ${r.name}\n${r.text}`))
+    .filter(Boolean)
+    .join('\n\n')
 
-    const systemPrompt = `
-Sei Jarvis, assistente per la spesa. Hai un'immagine di uno scontrino.
-Estrai le voci acquistate e restituisci SOLO JSON con questo schema:
+  if (!joined) {
+    return res.status(500).json({ error: results.find(r => r.error)?.error || 'OCR fallito su tutti i file' })
+  }
+
+  // --- Prompt OpenAI: da scontrino -> azioni ---
+  const systemPrompt = `
+Sei Jarvis. Ricevi il TESTO OCR di uno scontrino.
+Devi restituire **solo** JSON con questo schema:
 
 {
-  "removeFromList": [ "nomeProdotto1", "nomeProdotto2" ],
+  "removeFromList": ["nomeProdotto1", "nomeProdotto2"],
   "addToInventory": [
     { "name": "nomeProdotto", "quantity": 1, "unit": "pz", "category": "casa" }
   ]
 }
 
 Regole:
-- Normalizza i nomi (minuscolo).
-- quantity/unit quando possibile ("pz","kg","g","l","ml").
-- Metti TUTTI gli acquistati in addToInventory; se plausibili in lista, includili anche in removeFromList.
-- Niente testo fuori dal JSON.
-`
+- Normalizza i nomi (minuscolo, rimuovi parole inutili tipo "offerta", "promo", brand non essenziali).
+- quantity/unit quando presenti nello scontrino (pz, kg, g, l, ml); se ignote: quantity=1, unit="pz".
+- Metti TUTTI gli acquistati in addToInventory.
+- Se un articolo è tipicamente nella lista della spesa, includilo anche in removeFromList (usa buon senso).
+- Nessun testo fuori dal JSON.
+`.trim()
 
+  try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.2,
       messages: [
-        { role: 'system', content: systemPrompt.trim() },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Estrai prodotti e genera le due liste richieste.' },
-            { type: 'image_url', image_url: dataUrl },
-          ],
-        },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `TESTO SCONTRINO:\n${joined}` },
       ],
     })
 
-    const text = completion.choices?.[0]?.message?.content ?? ''
-    const parsed = safeJson(text)
+    const raw = completion.choices?.[0]?.message?.content ?? ''
+    const parsed = safeParseJson(raw)
+
     if (!parsed || typeof parsed !== 'object') {
-      return res.status(502).json({ error: 'OCR parsing fallito', raw: text?.slice?.(0, 500) })
+      return res.status(502).json({ error: 'Parsing modello fallito', raw: raw.slice?.(0, 600) })
     }
 
     const removeFromList = Array.isArray(parsed.removeFromList) ? parsed.removeFromList : []
     const addToInventory = Array.isArray(parsed.addToInventory) ? parsed.addToInventory : []
 
-    let db = { removed: 0, upserted: 0, skipped: 0 }
+    // --- Applica su Supabase se disponibile e se ci passi userId ---
+    const userId = String(fields?.userId || '').trim() || null
+    const db = { removed: 0, upserted: 0, skipped: 0 }
+
     if (supabase && userId) {
-      // elimina dalla lista_prodotti
+      // 1) rimuovi dalla lista_prodotti (match parziale per nome, case-insensitive)
       for (const name of removeFromList) {
         const { error, count } = await supabase
           .from('lista_prodotti')
           .delete({ count: 'exact' })
           .ilike('nome', `%${name}%`)
           .eq('user_id', userId)
-        if (!error) db.removed += count || 0
+        if (error) console.error('[assistant-ocr] delete lista_prodotti error:', error)
+        else db.removed += count || 0
       }
 
-      // upsert in stato_scorte
+      // 2) upsert in stato_scorte
       if (addToInventory.length) {
         const rows = addToInventory.map(r => ({
           user_id: userId,
@@ -169,15 +170,21 @@ Regole:
         const { error, data } = await supabase
           .from('stato_scorte')
           .upsert(rows, { onConflict: 'user_id,nome', ignoreDuplicates: false })
-        if (!error) db.upserted = data?.length ?? rows.length
+        if (error) console.error('[assistant-ocr] upsert stato_scorte error:', error)
+        else db.upserted = data?.length ?? rows.length
       }
     } else {
       db.skipped = removeFromList.length + addToInventory.length
     }
 
-    return res.status(200).json({ ok: true, actions: { removeFromList, addToInventory }, db })
+    return res.status(200).json({
+      ok: true,
+      text: joined, // utile per debug
+      actions: { removeFromList, addToInventory },
+      db,
+    })
   } catch (err) {
-    console.error('[assistant-ocr] error', err)
-    return res.status(500).json({ error: err?.message || 'Errore interno' })
+    console.error('[assistant-ocr] error:', err)
+    return res.status(500).json({ error: err?.message || 'Errore interno assistant-ocr' })
   }
 }
