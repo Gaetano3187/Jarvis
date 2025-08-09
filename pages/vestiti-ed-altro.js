@@ -404,4 +404,4 @@ Ora estrai **solo** JSON spesa (stesso schema):
     </>
   )
 }
-export default withAuth(vestiti-ed-altro)
+export default withAuth(VestitiEdAltro)
