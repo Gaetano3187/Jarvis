@@ -5,7 +5,7 @@ import OpenAI from 'openai'
 
 export const config = {
   api: { bodyParser: false },
-  runtime: 'nodejs', // evita Edge
+  runtime: 'nodejs',
 }
 
 const openai = new OpenAI({
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Metodo ${req.method} non consentito (usa POST)` })
   }
 
-  // 1) Parse multipart form (file + eventuali campi testuali)
+  // ---- parse multipart (files + fields) ----
   let fields, files
   try {
     ;({ fields, files } = await new Promise((resolve, reject) => {
@@ -33,19 +33,16 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: String(err?.message || err) })
   }
 
-  // 2) Raccogli le immagini da vari alias + supporto URL/Base64
+  // ---- raccogli immagini da più alias + URL/Base64 ----
   const uploads = []
-
   const addFromFilesKey = (k) => {
     const v = files?.[k]
     if (!v) return
     if (Array.isArray(v)) uploads.push(...v)
     else uploads.push(v)
   }
-
   ;['images', 'image', 'file', 'files', 'photo', 'upload'].forEach(addFromFilesKey)
 
-  // imageUrl (scarica l'immagine remota)
   const rawImageUrl = (fields?.imageUrl && String(fields.imageUrl).trim()) || ''
   if (rawImageUrl) {
     try {
@@ -62,7 +59,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // imageBase64 (data URL o base64 nudo)
   const rawBase64 = (fields?.imageBase64 && String(fields.imageBase64)) || ''
   if (rawBase64) {
     try {
@@ -71,11 +67,7 @@ export default async function handler(req, res) {
       const m = rawBase64.match(/^data:(.+?);base64,(.+)$/)
       if (m) { mime = m[1]; b64 = m[2] }
       const buf = Buffer.from(b64, 'base64')
-      uploads.push({
-        buffer: buf,
-        mimetype: mime,
-        originalFilename: 'inline-base64.jpg',
-      })
+      uploads.push({ buffer: buf, mimetype: mime, originalFilename: 'inline-base64.jpg' })
     } catch (e) {
       console.warn('[assistant-ocr] base64 parse warn:', e?.message || e)
     }
@@ -83,11 +75,11 @@ export default async function handler(req, res) {
 
   if (!uploads.length) {
     return res.status(400).json({
-      error: 'Nessuna immagine trovata (usa uno dei campi: images/image/file/files/photo oppure imageUrl/imageBase64)',
+      error: 'Nessuna immagine trovata (usa images/image/file/files/photo oppure imageUrl/imageBase64)',
     })
   }
 
-  // 3) OCR (OCR.Space) – stessa logica del tuo ocr.js
+  // ---- OCR (OCR.space) con robustezza e fallback su "vuoto" ----
   const ocrResults = []
   for (const u of uploads) {
     try {
@@ -107,6 +99,10 @@ export default async function handler(req, res) {
       fd.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld')
       fd.append('language', 'ita')
       fd.append('isOverlayRequired', 'false')
+      fd.append('scale', 'true')
+      fd.append('detectOrientation', 'true')
+      // puoi forzare un motore via env (1 o 2 normalmente; 3 è enterprise)
+      if (process.env.OCRSPACE_ENGINE) fd.append('OCREngine', process.env.OCRSPACE_ENGINE)
       fd.append('file', blob, filename)
 
       const resp = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: fd })
@@ -119,30 +115,43 @@ export default async function handler(req, res) {
         throw new Error(msg)
       }
 
-      const text = (json?.ParsedResults || [])
-        .map(r => r?.ParsedText || '')
-        .join('\n')
-        .trim()
+      const texts = (json?.ParsedResults || []).map(r => r?.ParsedText || '')
+      const text = texts.join('\n').trim()
+
+      if (!text) {
+        // Tratta il "vuoto" come errore esplicito per vedere raw
+        const detail = json?.ParsedResults?.length ? 'ParsedText vuoto' : 'ParsedResults assente'
+        const err = new Error(`Risposta vuota dal servizio OCR (${detail})`)
+        err.rawOcr = json
+        throw err
+      }
 
       ocrResults.push({ name: filename, text })
     } catch (err) {
       console.error('[assistant-ocr] ocr error:', u?.originalFilename, err)
-      ocrResults.push({ name: u?.originalFilename || 'upload.jpg', text: '', error: String(err?.message || err) })
+      ocrResults.push({
+        name: u?.originalFilename || 'upload.jpg',
+        text: '',
+        error: String(err?.message || err),
+        raw: err?.rawOcr ?? undefined,
+      })
     } finally {
       if (u?.filepath) fs.unlink(u.filepath, () => {})
     }
   }
 
-  const rawText = ocrResults.map(r => (r.error ? '' : `### ${r.name}\n${r.text}`)).filter(Boolean).join('\n\n')
+  const okChunks = ocrResults.filter(r => !r.error && r.text)
+  const rawText = okChunks.map(r => `### ${r.name}\n${r.text}`).join('\n\n')
+
   if (!rawText) {
-    return res.status(500).json({
-      error: ocrResults.find(r => r.error)?.error || 'OCR fallito su tutti i file',
+    // tutti falliti o vuoti: ritorna 502 con raw per debug a frontend
+    return res.status(502).json({
+      error: 'Risposta vuota dal servizio OCR',
       ocr: ocrResults,
     })
   }
 
-  // 4) (Opzionale) lista prodotti corrente passata dal frontend
-  //    Può arrivare in JSON (["latte","pane"]) o come "latte, pane"
+  // ---- opzionale: lista prodotti dal frontend ----
   const parseListField = (val) => {
     if (!val) return []
     const s = String(val).trim()
@@ -151,7 +160,6 @@ export default async function handler(req, res) {
       const parsed = JSON.parse(s)
       if (Array.isArray(parsed)) return parsed.map(x => String(x).trim()).filter(Boolean)
     } catch (_) {
-      // non JSON: prova split per virgole/righe
       return s.split(/[\n,;]+/).map(x => x.trim()).filter(Boolean)
     }
     return []
@@ -162,24 +170,24 @@ export default async function handler(req, res) {
     parseListField(fields?.list) ||
     parseListField(fields?.lista)
 
-  // 5) Prompt per il modello – stessa filosofia del tuo assistant.js
+  // ---- prompt modello (come assistant.js ma con le azioni OCR) ----
   const systemPrompt = `
 Sei Jarvis, l’assistente per la finanza domestica.
 
-Input che riceverai:
-- "scontrino": il testo OCR grezzo di uno o più scontrini.
-- "listaProdotti": (opzionale) l'elenco corrente della lista spesa dell'utente.
+Input:
+- "scontrino": testo OCR di uno o più scontrini.
+- "listaProdotti": (opzionale) lista spesa corrente.
 
 Obiettivo:
-1) Riconoscere gli articoli acquistati dallo scontrino (nome, quantità se deducibile, prezzo totale voce).
-2) Confrontare gli articoli riconosciuti con "listaProdotti".
-   - Se un articolo acquistato è presente in "listaProdotti", va nella sezione "removeFromList".
-   - Se un articolo acquistato NON è presente in "listaProdotti" (o se la lista non è fornita), va in "addToStock".
-3) Restituisci **solo JSON** con lo schema seguente:
+1) Estrai articoli acquistati (nome sintetico, quantità se deducibile, prezzo riga).
+2) Confronta con "listaProdotti":
+   - se articolo è nella lista: aggiungilo a "removeFromList".
+   - se non c'è: aggiungilo a "addToStock".
+3) Rispondi SOLO con JSON:
 
 {
   "type": "ocr_actions",
-  "removeFromList": [ "nomeProdotto1", "nomeProdotto2" ],
+  "removeFromList": [ "nomeProdotto1" ],
   "addToStock": [
     { "nome": "prodotto", "quantita": 1, "categoria": "casa" }
   ],
@@ -196,19 +204,15 @@ Obiettivo:
   ]
 }
 
-Note:
-- "categoria" predefinita: "casa"; usa l'ID fisso "4cfaac74-aab4-4d96-b335-6cc64de59afc".
-- Usa la data odierna se non riconosci la data nello scontrino.
-- "quantita" deve essere un numero intero >= 1 (se non noto, 1).
-- "prezzoTotale" è il totale della riga (numero). Se non noto, ometti o usa 0.
-- "removeFromList" e "addToStock" devono contenere SOLO nomi sintetici (es: "latte", "pane"), niente testi lunghi.
-- Nessun testo fuori dal JSON.
+Regole:
+- categoria default: "casa"; category_id fisso: "4cfaac74-aab4-4d96-b335-6cc64de59afc".
+- se data non trovata: usa quella odierna.
+- quantita: intero >= 1 (default 1).
+- remove/add: nomi sintetici (es: "latte", "pane").
+- NIENTE testo fuori dal JSON.
 `
 
-  const userPrompt = JSON.stringify({
-    scontrino: rawText,
-    listaProdotti,
-  })
+  const userPrompt = JSON.stringify({ scontrino: rawText, listaProdotti })
 
   try {
     const completion = await openai.chat.completions.create({
@@ -221,16 +225,12 @@ Note:
     })
 
     const modelAnswer = completion?.choices?.[0]?.message?.content?.trim() || ''
-    // Prova a fare il parse del JSON prodotto dal modello
     let actions = null
     try {
       actions = JSON.parse(modelAnswer)
     } catch {
-      // se non è JSON puro, prova ad estrarlo grezzamente
       const m = modelAnswer.match(/\{[\s\S]*\}$/)
-      if (m) {
-        try { actions = JSON.parse(m[0]) } catch (_) {}
-      }
+      if (m) { try { actions = JSON.parse(m[0]) } catch {} }
     }
 
     if (!actions || typeof actions !== 'object') {
@@ -243,10 +243,10 @@ Note:
     }
 
     return res.status(200).json({
-      ocr: ocrResults,    // elenco per-file (nome + preview testo)
-      text: rawText,      // scontrino concatenato
-      actions,            // JSON strutturato per rimuovere/aggiungere
-      answer: modelAnswer // risposta raw del modello (debug)
+      ocr: ocrResults,
+      text: rawText,
+      actions,
+      answer: modelAnswer,
     })
   } catch (err) {
     console.error('[assistant-ocr] OpenAI error:', err)
