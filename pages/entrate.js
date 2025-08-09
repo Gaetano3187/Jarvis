@@ -25,7 +25,7 @@ function addDaysLocal(date, days) {
   return d;
 }
 
-/** Calcola il periodo corrente usando SOLO date locali */
+/** Calcola il periodo corrente (solo date locali) */
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear();
   const m = today.getMonth();
@@ -46,6 +46,43 @@ function computeCurrentPayPeriod(today, paydayDay) {
   const endDate = isoLocal(end);
   const monthKey = isoLocal(end).slice(0, 7);
   return { startDate, endDate, monthKey };
+}
+
+/** Clamp YYYY-MM-DD dentro [startDateISO, endDateISO] */
+function clampDateToPeriod(dateISO, startDateISO, endDateISO) {
+  if (!dateISO) return startDateISO;
+  const s = startDateISO;
+  const e = endDateISO;
+  if (dateISO < s) return s;
+  if (dateISO > e) return e;
+  return dateISO;
+}
+
+/** Parser importi: accetta "10,50" o "10.50" e rimuove spazi */
+function parseAmountLoose(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Formatta YYYY-MM-DD -> dd/mm/yyyy (IT) */
+function formatIT(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
+  return date.toLocaleDateString('it-IT');
+}
+
+/** Error helper */
+function showError(setter, err) {
+  const msg =
+    err?.message ||
+    err?.error_description ||
+    err?.hint ||
+    (typeof err === 'string' ? err : JSON.stringify(err));
+  setter(msg);
+  console.error('[SUPABASE ERROR]', err);
 }
 
 /** Se manca il carryover per il mese corrente, lo crea come residuo del mese precedente (saldo base) */
@@ -117,75 +154,6 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   console.log('[CARRY] inserted for', monthKeyCurrent);
 }
 
-/** Parser importi: accetta "10,50" o "10.50" e rimuove spazi */
-function parseAmountLoose(v) {
-  if (typeof v === 'number') return v;
-  const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/** Formatta YYYY-MM-DD -> dd/mm/yyyy (IT) */
-function formatIT(iso) {
-  if (!iso) return '';
-  const [y, m, d] = String(iso).split('-').map(Number);
-  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
-  return date.toLocaleDateString('it-IT');
-}
-
-/** Date flessibili in IT: "10/06/2025", "2025-06-10", "giugno 2025", "giugno" (anno corrente). Ritorna YYYY-MM-DD */
-function parseFlexibleDateIT(text, fallbackISO) {
-  if (!text) return fallbackISO;
-  const now = new Date();
-  const curYear = now.getFullYear();
-
-  // 1) dd/mm/yyyy
-  const m1 = text.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
-  if (m1) {
-    const d = Number(m1[1]), m = Number(m1[2]) - 1, y = Number(m1[3]);
-    const dt = new Date(y, m, d);
-    return isoLocal(dt);
-  }
-
-  // 2) yyyy-mm-dd
-  const m2 = text.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (m2) {
-    const y = Number(m2[1]), m = Number(m2[2]) - 1, d = Number(m2[3]);
-    const dt = new Date(y, m, d);
-    return isoLocal(dt);
-  }
-
-  // 3) "mese yyyy" o solo "mese" (IT)
-  const mesi = {
-    gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
-    luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12
-  };
-  const lower = text.toLowerCase();
-  for (const [nome, num] of Object.entries(mesi)) {
-    if (lower.includes(nome)) {
-      // anno opzionale
-      const my = lower.match(new RegExp(`${nome}\\s+(\\d{4})`));
-      const y = my ? Number(my[1]) : curYear;
-      // scegliamo ULTIMO giorno del mese → impatta correttamente mese di competenza
-      const last = new Date(y, num, 0); // trick: day 0 del mese successivo
-      return isoLocal(last);
-    }
-  }
-
-  return fallbackISO;
-}
-
-/** Error helper */
-function showError(setter, err) {
-  const msg =
-    err?.message ||
-    err?.error_description ||
-    err?.hint ||
-    (typeof err === 'string' ? err : JSON.stringify(err));
-  setter(msg);
-  console.error('[SUPABASE ERROR]', err);
-}
-
 /* --------------------------- component --------------------------- */
 function Entrate() {
   const [loading, setLoading] = useState(false);
@@ -205,8 +173,6 @@ function Entrate() {
   const [pocketRows, setPocketRows] = useState([]); // movimenti manuali + spese cash
   const [pocketTopUp, setPocketTopUp] = useState('');
 
-  const [monthExpenses, setMonthExpenses] = useState(0); // opzionale
-
   // OCR / VOCE
   const ocrInputRef = useRef(null);
   const mediaRecRef = useRef(null);
@@ -218,11 +184,16 @@ function Entrate() {
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
   const startDateISO = startDate;
   const endDateISO = endDate;
-  const endExclusiveDate = isoLocal(addDaysLocal(new Date(
-    Number(endDateISO.slice(0,4)),
-    Number(endDateISO.slice(5,7))-1,
-    Number(endDateISO.slice(8,10))
-  ), 1));
+  const endExclusiveDate = isoLocal(
+    addDaysLocal(
+      new Date(
+        Number(endDateISO.slice(0, 4)),
+        Number(endDateISO.slice(5, 7)) - 1,
+        Number(endDateISO.slice(8, 10))
+      ),
+      1
+    )
+  );
 
   // Italiano per UI
   const startDateIT = formatIT(startDateISO);
@@ -240,6 +211,7 @@ function Entrate() {
       } catch {}
       console.log('[UNMOUNT] Entrate page unmount');
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey]);
 
   async function debugFetch(userId) {
@@ -268,12 +240,7 @@ function Entrate() {
 
   async function loadAll() {
     console.log('================ [LOAD ALL] ================');
-    console.log('[PERIODO]',
-      'startDateISO=', startDateISO,
-      'endDateISO=', endDateISO,
-      'endExclusiveDate=', endExclusiveDate,
-      'monthKey=', monthKey
-    );
+    console.log('[PERIODO] startDateISO=', startDateISO, 'endDateISO=', endDateISO, 'endExclusiveDate=', endExclusiveDate, 'monthKey=', monthKey);
 
     setLoading(true);
     setError(null);
@@ -370,18 +337,6 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // 4) (opzionale) Totale spese nel periodo
-      const { data: exp, error: e5 } = await supabase
-        .from('finances')
-        .select('amount, spent_at')
-        .eq('user_id', user.id)
-        .gte('spent_at', startDateISO)
-        .lt('spent_at', endExclusiveDate);
-      if (e5) { console.error('[FETCH] expenses error', e5); throw e5; }
-      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-      console.log('[FETCH] expenses count', exp?.length ?? 0, 'totalExp', totalExp);
-      setMonthExpenses(totalExp);
-
       // DEBUG: ultime 5 righe senza filtri
       await debugFetch(user.id);
 
@@ -395,46 +350,41 @@ function Entrate() {
   }
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
-  // ====== NUOVO: prompt unificato per VOCE (income o pocket) ======
-  function buildUnifiedVoicePrompt(text) {
-    const today = isoLocal(new Date());
-    const example = {
-      type: "income", // "income" | "pocket_topup" | "none"
+  function buildIncomePrompt(userText) {
+    const example = JSON.stringify({
+      type: 'income',
       items: [
-        {
-          amount: 1500.0,
-          source: "Stipendio",     // per income: "Stipendio" | "Lavoro privato" | "Progetto" | "Altro"
-          description: "Stipendio di giugno",
-          receivedAt: "2025-06-30" // YYYY-MM-DD (se si dice solo il mese, usare l'ULTIMO giorno di quel mese)
-        }
+        { source: 'Stipendio', description: 'Stipendio di giugno', amount: 1500, receivedAt: 'YYYY-MM-DD' }
       ]
-    };
-    const example2 = {
-      type: "pocket_topup",
-      items: [
-        {
-          amount: 300.0,
-          note: "Prelievo contanti", // se l'utente dice "prelevato/messo in tasca" → importo positivo
-          date: today
-        }
-      ]
-    };
+    });
     return [
-      'Sei un parser vocale in ITALIANO per ENTRATE e MOVIMENTI CONTANTE.',
-      '- Se il testo parla di stipendio, progetto, lavoro privato, fattura pagata → type="income".',
-      '- Se parla di prelievo/ricarica/contanti in tasca → type="pocket_topup".',
-      '- Se non riconosci nulla → type="none".',
-      'Regole DATE:',
-      '- Ritorna sempre date in formato YYYY-MM-DD.',
-      '- Se l’utente dice solo un mese (es: "giugno 2025" o "giugno"), usa l’ULTIMO giorno di quel mese come data.',
-      'Regole IMPORTI:',
-      '- Ritorna numeri come 1234.56 (punto come decimale).',
-      'OUTPUT SOLO JSON. Esempi:',
-      JSON.stringify(example),
-      JSON.stringify(example2),
+      'Sei Jarvis. Devi estrarre ENTRATE economiche dal testo in italiano.',
+      'Riconosci frasi come: "ho preso lo stipendio", "stipendio di giugno", "mi hanno pagato un lavoro privato", "ho ricevuto un rimborso".',
+      'Se non è presente una data, lascia receivedAt vuoto.',
+      'Rispondi SOLO con JSON come:',
+      example,
       '',
-      'TESTO UTENTE:',
-      text
+      'Testo:',
+      userText,
+    ].join('\n');
+  }
+
+  function buildPocketPrompt(userText) {
+    const example = JSON.stringify({
+      type: 'pocket_topup',
+      items: [
+        { amount: 200.0, note: 'ricarica contanti', date: 'YYYY-MM-DD' }
+      ]
+    });
+    return [
+      'Sei Jarvis. Devi capire se il testo indica un MOVIMENTO di CONTANTE (prelievo/ricarica/uscita).',
+      'Riconosci frasi come: "ho prelevato 300", "ho messo 50 in tasca", "uscita contante 20".',
+      'Se non è presente una data, lascia date vuoto.',
+      'Rispondi SOLO con JSON come:',
+      example,
+      '',
+      'Testo:',
+      userText,
     ].join('\n');
   }
 
@@ -449,42 +399,7 @@ function Entrate() {
     return JSON.parse(answer);
   }
 
-  // ====== OCR rimane com'era (due parser separati) ======
-  function buildPocketPrompt(userText) {
-    const example = JSON.stringify({
-      type: 'pocket_topup',
-      items: [{ amount: 200.0, note: 'ricarica contanti', date: 'YYYY-MM-DD' }],
-    });
-    const none = JSON.stringify({ type: 'none' });
-    return [
-      'Sei Jarvis. Capisci se il testo indica un MOVIMENTO di contante (ricarica o uscita).',
-      'Se si, rispondi SOLO con JSON:',
-      example,
-      'Se non e un movimento contante, restituisci ' + none + '.',
-      '',
-      'Testo:',
-      userText,
-    ].join('\n');
-  }
-
-  function buildIncomePrompt(userText) {
-    const today = isoLocal(new Date());
-    const example = JSON.stringify({
-      type: 'income',
-      items: [{ source: 'Stipendio', description: 'Stipendio di giugno', amount: 1500, receivedAt: '2025-06-30' }],
-    });
-    return [
-      'Sei Jarvis. Estrai ENTRATE economiche da testo in italiano. Restituisci date YYYY-MM-DD.',
-      'Se viene detto solo il mese (es: "giugno"), usa l’ULTIMO giorno del mese.',
-      'Rispondi SOLO con JSON:',
-      example,
-      '',
-      'Testo:',
-      userText,
-    ].join('\n');
-  }
-
-  // Normalizza segni per contante via OCR/Voce
+  // Normalizza segni e clamp per contante via OCR/Voce
   async function parseAssistantForPocket(userText) {
     const data = await callAssistant(buildPocketPrompt(userText));
     if (data.type !== 'pocket_topup' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -493,19 +408,23 @@ function Entrate() {
     if (!user) throw new Error('Sessione scaduta');
 
     const rows = data.items.map((it) => {
-      const raw = parseAmountLoose(it.amount);
+      const raw = Math.abs(parseAmountLoose(it.amount));
       const note = (it.note || '').trim();
       const noteL = note.toLowerCase();
 
+      // di default considero "ricarica" se non riconosco parola chiave
       let delta = raw;
-      if (noteL.includes('preliev') || noteL.includes('ricarica')) delta = Math.abs(raw);
-      else if (noteL.includes('uscit') || noteL.includes('spesa')) delta = -Math.abs(raw);
+      if (noteL.includes('uscit') || noteL.includes('spesa')) delta = -raw;
+      if (noteL.includes('preliev') || noteL.includes('ricarica') || noteL.includes('messo')) delta = raw;
+
+      const dateRaw = it.date && /^\d{4}-\d{2}-\d{2}$/.test(it.date) ? it.date : isoLocal(new Date());
+      const movedAtClamped = clampDateToPeriod(dateRaw, startDateISO, endDateISO);
 
       return {
         user_id: user.id,
         note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
         delta,
-        moved_at: it.date || new Date().toISOString(),
+        moved_at: movedAtClamped, // YYYY-MM-DD (clamped)
       };
     });
 
@@ -513,21 +432,10 @@ function Entrate() {
     const { error } = await supabase.from('pocket_cash').insert(rows);
     if (error) { console.error('[INSERT POCKET OCR ERROR]', error); throw error; }
     console.log('[INSERT POCKET OCR OK]');
-
-    // Probe
-    const { data: probePc, error: probePcErr } = await supabase
-      .from('pocket_cash')
-      .select('id, created_at, moved_at, delta, note')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(5);
-    if (probePcErr) console.error('[PROBE] read back pocket error', probePcErr);
-    console.log('[PROBE] read back pocket last5', probePc);
-
     return true;
   }
 
-  // Entrate via OCR/Voce sempre positive
+  // Entrate via OCR/Voce sempre positive + clamp nel periodo
   async function parseAssistantForIncome(userText) {
     const data = await callAssistant(buildIncomePrompt(userText));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -535,141 +443,30 @@ function Entrate() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
+    const clamp = (isoMaybe) => {
+      const todayISO = isoLocal(new Date());
+      const raw = (isoMaybe && /^\d{4}-\d{2}-\d{2}$/.test(isoMaybe)) ? isoMaybe : todayISO;
+      return clampDateToPeriod(raw, startDateISO, endDateISO);
+    };
+
     for (const it of data.items) {
-      const fallback = isoLocal(new Date());
-      const received = parseFlexibleDateIT(String(it.receivedAt || ''), fallback);
       const amount = Math.abs(parseAmountLoose(it.amount));
-      let src = (it.source || '').trim();
-      let desc = (it.description || it.source || 'Entrata').trim();
+      if (!amount) continue;
 
-      // Normalizza sorgente in base a frasi comuni
-      const base = (src + ' ' + desc).toLowerCase();
-      if (base.includes('stipend')) src = 'Stipendio';
-      else if (base.includes('privat') || base.includes('progett') || base.includes('fattur'))
-        src = 'Lavoro privato';
-
+      const receivedAt = clamp(it.receivedAt);
       const payload = {
         user_id: user.id,
-        source: src || 'Entrata',
-        description: desc || src || 'Entrata',
+        source: (it.source || 'Entrata').trim(),
+        description: (it.description || it.source || 'Entrata').trim(),
         amount,
-        received_at: received
+        received_at: receivedAt,
       };
-      console.log('[INSERT INCOME OCR]', payload);
 
+      console.log('[VOICE] INCOME INSERT', payload);
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) { console.error('[INSERT INCOME OCR ERROR]', error); throw error; }
-      console.log('[INSERT INCOME OCR OK]');
     }
     return true;
-  }
-
-  // ====== NUOVO: parser vocale unificato con fallback locale ======
-  async function parseVoiceUnified(text) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-
-    // 1) prova assistant unificato
-    let parsed = null;
-    try {
-      parsed = await callAssistant(buildUnifiedVoicePrompt(text));
-    } catch (e) {
-      console.warn('[VOICE] assistant unified fallito, applico euristiche locali', e);
-    }
-
-    // 2) euristica locale di fallback (se l’assistant non risponde bene)
-    if (!parsed || !parsed.type || !Array.isArray(parsed.items) || !parsed.items.length) {
-      const low = text.toLowerCase();
-
-      // prelievo/contante
-      if (/(preliev|messo in tasca|contanti|ricaric)/i.test(low)) {
-        const m = low.match(/(\d+(?:[.,]\d+)?)/);
-        const amount = m ? Math.abs(parseAmountLoose(m[1])) : 0;
-        if (amount > 0) {
-          const payload = {
-            user_id: user.id,
-            note: 'Ricarica contanti',
-            delta: amount,
-            moved_at: new Date().toISOString(),
-          };
-          console.log('[VOICE-FB] POCKET INSERT', payload);
-          const { error } = await supabase.from('pocket_cash').insert(payload);
-          if (error) throw error;
-          return true;
-        }
-      }
-
-      // stipendio/lavoro privato
-      if (/(stipend|lavoro privato|progett|fattur|pagat)/i.test(low)) {
-        const m = low.match(/(\d+(?:[.,]\d+)?)/);
-        const amount = m ? Math.abs(parseAmountLoose(m[1])) : 0;
-        const received = parseFlexibleDateIT(low, isoLocal(new Date()));
-        let source = /stipend/i.test(low) ? 'Stipendio' : 'Lavoro privato';
-        const payload = {
-          user_id: user.id,
-          source,
-          description: source,
-          amount,
-          received_at: received
-        };
-        console.log('[VOICE-FB] INCOME INSERT', payload);
-        const { error } = await supabase.from('incomes').insert(payload);
-        if (error) throw error;
-        return true;
-      }
-
-      return false;
-    }
-
-    // 3) handler quando l’assistant ha risposto
-    if (parsed.type === 'pocket_topup') {
-      const rows = parsed.items.map((it) => {
-        const raw = parseAmountLoose(it.amount);
-        const note = (it.note || '').trim().toLowerCase();
-        let delta = raw;
-        if (note.includes('preliev') || note.includes('ricarica')) delta = Math.abs(raw);
-        else if (note.includes('uscit') || note.includes('spesa')) delta = -Math.abs(raw);
-        return {
-          user_id: user.id,
-          note: it.note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-          delta,
-          moved_at: it.date || new Date().toISOString(),
-        };
-      });
-      console.log('[VOICE] POCKET INSERT', rows);
-      const { error } = await supabase.from('pocket_cash').insert(rows);
-      if (error) throw error;
-      return true;
-    }
-
-    if (parsed.type === 'income') {
-      for (const it of parsed.items) {
-        const fallback = isoLocal(new Date());
-        const received = parseFlexibleDateIT(String(it.receivedAt || ''), fallback);
-        const amount = Math.abs(parseAmountLoose(it.amount));
-        let src = (it.source || '').trim();
-        let desc = (it.description || it.source || 'Entrata').trim();
-
-        const base = (src + ' ' + desc).toLowerCase();
-        if (base.includes('stipend')) src = 'Stipendio';
-        else if (base.includes('privat') || base.includes('progett') || base.includes('fattur'))
-          src = 'Lavoro privato';
-
-        const payload = {
-          user_id: user.id,
-          source: src || 'Entrata',
-          description: desc || src || 'Entrata',
-          amount,
-          received_at: received
-        };
-        console.log('[VOICE] INCOME INSERT', payload);
-        const { error } = await supabase.from('incomes').insert(payload);
-        if (error) throw error;
-      }
-      return true;
-    }
-
-    return false;
   }
 
   async function handleOCR(files) {
@@ -681,16 +478,10 @@ function Entrate() {
       const { text } = await res.json();
 
       const handledPocket = await parseAssistantForPocket(text);
-      if (handledPocket) {
-        await loadAll();
-        return;
-      }
+      if (handledPocket) { await loadAll(); return; }
 
       const handledIncome = await parseAssistantForIncome(text);
-      if (handledIncome) {
-        await loadAll();
-        return;
-      }
+      if (handledIncome) { await loadAll(); return; }
 
       setError('Nessun dato riconosciuto da OCR');
     } catch (err) {
@@ -726,9 +517,16 @@ function Entrate() {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
 
-      // Usa parser unificato (copre: stipendio, lavoro privato, prelievi)
-      const ok = await parseVoiceUnified(text);
-      if (ok) {
+      const handledPocket = await parseAssistantForPocket(text);
+      if (handledPocket) {
+        setRecBusy(false);
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
+        await loadAll();
+        return;
+      }
+
+      const handledIncome = await parseAssistantForIncome(text);
+      if (handledIncome) {
         setRecBusy(false);
         streamRef.current?.getTracks?.().forEach((t) => t.stop());
         await loadAll();
@@ -753,29 +551,21 @@ function Entrate() {
       if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
+      const receivedAtRaw = newIncome.receivedAt || isoLocal(new Date());
+      const receivedAt = clampDateToPeriod(receivedAtRaw, startDateISO, endDateISO);
+
       const payload = {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
         amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: newIncome.receivedAt || isoLocal(new Date()),
+        received_at: receivedAt,
       };
 
       console.log('[INSERT INCOME MANUAL]', payload);
 
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) { console.error('[INSERT INCOME MANUAL ERROR]', error); throw error; }
-
-      // Probe: leggo subito quella data
-      const { data: probeInc, error: probeErr } = await supabase
-        .from('incomes')
-        .select('id, amount, received_at')
-        .eq('user_id', user.id)
-        .eq('received_at', payload.received_at)
-        .order('id', { ascending: false })
-        .limit(3);
-      if (probeErr) console.error('[PROBE] read back income error', probeErr);
-      console.log('[PROBE] read back income for', payload.received_at, probeInc);
 
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
@@ -835,33 +625,26 @@ function Entrate() {
       if (userErr) { console.error('[AUTH] getUser error', userErr); throw userErr; }
       if (!user) throw new Error('Sessione scaduta');
 
-      const delta = parseAmountLoose(pocketTopUp);
-      if (!delta) {
+      const deltaRaw = parseAmountLoose(pocketTopUp);
+      if (!deltaRaw) {
         console.warn('[INSERT POCKET MANUAL] delta falsy, skip');
         return;
       }
 
+      const noteDefault = deltaRaw >= 0 ? 'Ricarica contanti' : 'Uscita contanti';
+      const movedAtClamped = clampDateToPeriod(isoLocal(new Date()), startDateISO, endDateISO);
+
       const payload = {
         user_id: user.id,
-        note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
-        delta,
-        moved_at: new Date().toISOString(),
+        note: noteDefault,
+        delta: deltaRaw,
+        moved_at: movedAtClamped, // YYYY-MM-DD clamped
       };
 
       console.log('[INSERT POCKET MANUAL]', payload);
 
       const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) { console.error('[INSERT POCKET MANUAL ERROR]', error); throw error; }
-
-      // Probe: leggo subito ultime righe pocket
-      const { data: probePc, error: probePcErr } = await supabase
-        .from('pocket_cash')
-        .select('id, created_at, moved_at, delta, note')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      if (probePcErr) console.error('[PROBE] read back pocket error', probePcErr);
-      console.log('[PROBE] read back pocket last5', probePc);
 
       setPocketTopUp('');
       await loadAll();
@@ -900,9 +683,8 @@ function Entrate() {
     .filter(r => r.id?.toString().startsWith('pc-') && r.amount > 0)
     .reduce((t, r) => t + r.amount, 0);
 
-  // Saldo disponibile = entrate periodo + carryover - prelievi effettuati
-  const saldoDisponibile = entratePeriodo + carryAmount - prelievi;
-  const saldoDisponibileUI = Math.max(0, saldoDisponibile); // mostrato sempre >= 0
+  // Saldo disponibile = entrate periodo + carryover - prelievi effettuati (mostrato sempre >= 0)
+  const saldoDisponibile = Math.max(0, entratePeriodo + carryAmount - prelievi);
 
   // Contante residuo = somma movimenti (ricariche/prelievi +, spese cash -)
   const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
@@ -924,8 +706,8 @@ function Entrate() {
             <b>{endDateIT}</b>
           </div>
 
-          {/* Disponibilita */}
-          <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
+          {/* Disponibilità */}
+          <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.06)' }}>
             <h3>Disponibilità</h3>
 
             <div className="flex-line metric-sub">
@@ -937,7 +719,7 @@ function Entrate() {
 
             <div className="flex-line">
               <span>Saldo disponibile:</span>
-              <b className="metric metric--saldo">€ {saldoDisponibileUI.toFixed(2)}</b>
+              <b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b>
             </div>
             <div className="flex-line">
               <span>Soldi in tasca (restanti):</span>
