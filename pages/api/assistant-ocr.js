@@ -1,87 +1,79 @@
 // pages/api/assistant-ocr.js
 import formidable from 'formidable';
 import fs from 'fs/promises';
-import mime from 'mime';
+import path from 'path';
 import OpenAI from 'openai';
 
-export const config = {
-  api: { bodyParser: false }, // necessario per multipart/form-data
-};
+export const config = { api: { bodyParser: false } };
 
 /* -------------------------- utils -------------------------- */
 function parseForm(req) {
-  const form = formidable({ multiples: true, maxFileSize: 20 * 1024 * 1024 }); // 20MB
+  const form = formidable({ multiples: true, maxFileSize: 20 * 1024 * 1024 });
   return new Promise((resolve, reject) => {
     form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
   });
 }
-
-function ensureArray(x) {
-  if (!x) return [];
-  return Array.isArray(x) ? x : [x];
-}
-
-async function fileToDataURL(fileObj) {
-  // formidable v2/v3 compat: { filepath } o { path }
-  const fp = fileObj.filepath || fileObj.path;
-  const buf = await fs.readFile(fp);
-  const type =
-    fileObj.mimetype ||
-    mime.getType(fileObj.originalFilename || fileObj.newFilename || '') ||
-    'application/octet-stream';
-  const b64 = buf.toString('base64');
-  return `data:${type};base64,${b64}`;
-}
-
-function safeParseJSON(s, fallback = null) {
-  try { return JSON.parse(s); } catch { return fallback; }
-}
-
+function ensureArray(x) { return !x ? [] : Array.isArray(x) ? x : [x]; }
+function safeParseJSON(s, fallback = null) { try { return JSON.parse(s); } catch { return fallback; } }
 function castQty(n) {
   const v = Number(String(n).replace(',', '.'));
-  if (!Number.isFinite(v) || v <= 0) return 1;
-  // niente decimali nelle qty: arrotonda
-  return Math.max(1, Math.round(v));
+  return !Number.isFinite(v) || v <= 0 ? 1 : Math.max(1, Math.round(v));
 }
-
 function coercePurchases(raw) {
   const out = [];
   for (const p of raw || []) {
     const name = String(p?.name || '').trim();
     if (!name) continue;
-    out.push({
-      name,
-      brand: String(p?.brand || '').trim(),
-      qty: castQty(p?.qty || 1),
-    });
+    out.push({ name, brand: String(p?.brand || '').trim(), qty: castQty(p?.qty || 1) });
   }
   return out;
+}
+
+// mini mappa MIME senza pacchetti esterni
+function extToMime(filename = '') {
+  const ext = path.extname(String(filename).toLowerCase());
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.png':  return 'image/png';
+    case '.webp': return 'image/webp';
+    case '.gif':  return 'image/gif';
+    case '.heic': return 'image/heic';
+    case '.heif': return 'image/heif';
+    case '.pdf':  return 'application/pdf';
+    default:      return 'application/octet-stream';
+  }
+}
+
+async function fileToDataURL(fileObj) {
+  const fp = fileObj.filepath || fileObj.path;
+  const buf = await fs.readFile(fp);
+  const type = fileObj.mimetype || extToMime(fileObj.originalFilename || fileObj.newFilename || '');
+  const b64 = buf.toString('base64');
+  return `data:${type};base64,${b64}`;
 }
 
 /* --------------------- prompt builders --------------------- */
 function buildSystemPrompt() {
   return [
-    'Sei un assistente che LEGGE SCONTRINI DI SUPERMERCATO.',
-    'Devi estrarre SOLO gli articoli acquistati nel seguente JSON valido:',
+    'Sei un assistente che legge SCONTRINI DI SUPERMERCATO.',
+    'Estrai SOLO gli articoli acquistati nel JSON:',
     '{ "purchases":[ { "name":"latte", "brand":"Parmalat", "qty":2 } ] }',
     'Regole:',
-    '- Rispondi SOLO con JSON (nessun testo fuori dal JSON).',
-    '- name: nome/prodotto leggibile (es. "pasta", "latte intero", "passata di pomodoro").',
-    '- brand: opzionale se riconoscibile (es. "Barilla", "Parmalat"), altrimenti stringa vuota.',
-    '- qty: numero pezzi acquistati. Se non evidente, usa 1.',
-    '- Ignora prezzi, totale, sconti, reparti e righe non-prodotto.',
-    '- Non includere spese di servizio, buste, cauzioni, ticket.',
+    '- Rispondi SOLO con JSON valido.',
+    '- name: prodotto leggibile (es. "pasta", "latte intero").',
+    '- brand: opzionale, vuoto se non riconosciuto.',
+    '- qty: numero pezzi (default 1).',
+    '- Ignora prezzi, totali, sconti, reparti, servizi, buste.',
   ].join('\n');
 }
-
 function buildUserPrompt({ hints }) {
   const lines = [
-    'Estrai la lista prodotti acquistati da queste immagini di scontrino.',
-    'Se nello scontrino una riga appare tipo "2 x Latte Parmalat", allora qty=2, name="latte", brand="Parmalat".',
-    'Se un brand non è chiaro, lascia brand="".',
+    'Estrai la lista prodotti acquistati dalle immagini di scontrino.',
+    'Esempio: "2 x Latte Parmalat" => { name:"latte", brand:"Parmalat", qty:2 }.'
   ];
   if (hints?.lexicon?.length) {
-    lines.push('Lessico di riferimento (aiuta a interpretare i nomi): ' + hints.lexicon.slice(0, 200).join(', '));
+    lines.push('Lessico di riferimento: ' + hints.lexicon.slice(0, 200).join(', '));
   }
   return lines.join('\n');
 }
@@ -92,7 +84,6 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ ok: false, data: null, error: 'Method Not Allowed' });
   }
-
   if (!process.env.OPENAI_API_KEY) {
     return res.status(500).json({ ok: false, data: null, error: 'Missing OPENAI_API_KEY' });
   }
@@ -104,13 +95,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ ok: false, data: null, error: 'Bad multipart form: ' + (e?.message || e) });
   }
 
-  // compat con il tuo front-end: assistantId (ignorato), hints (lexicon) ecc.
   const hints = safeParseJSON(fields?.hints, null);
 
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // supporta più file: "files" (come nel tuo codice) o "images"
+    // compat: accetta "files" o "images"
     const fileList = [
       ...ensureArray(files?.files),
       ...ensureArray(files?.images),
@@ -119,15 +109,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, data: { purchases: [] }, warning: 'No files received' });
     }
 
-    // Converte ogni file in dataURL per Vision
+    // converti tutti i file in data URL per Vision
     const imageContents = [];
     for (const f of fileList) {
       try {
         const dataUrl = await fileToDataURL(f);
         imageContents.push({ type: 'input_image', image_url: dataUrl });
-      } catch {
-        // se un file fallisce, proseguiamo con gli altri
-      }
+      } catch { /* salta file corrotti */ }
     }
     if (!imageContents.length) {
       return res.status(200).json({ ok: true, data: { purchases: [] }, warning: 'Files unreadable' });
@@ -136,32 +124,24 @@ export default async function handler(req, res) {
     const systemPrompt = buildSystemPrompt();
     const userPrompt = buildUserPrompt({ hints });
 
-    // Vision chat completion (multimodale) — JSON garantito
     const resp = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: userPrompt },
-            ...imageContents,
-          ],
-        },
+        { role: 'user', content: [{ type: 'text', text: userPrompt }, ...imageContents] },
       ],
       max_tokens: 900,
     });
 
-    const rawText = resp?.choices?.[0]?.message?.content || '{}';
-    let json;
-    try { json = JSON.parse(rawText); } catch { json = {}; }
+    const content = resp?.choices?.[0]?.message?.content || '{}';
+    let parsed; try { parsed = JSON.parse(content); } catch { parsed = {}; }
+    const purchases = coercePurchases(parsed?.purchases);
 
-    const purchases = coercePurchases(json?.purchases);
+    // rispondi sempre con JSON consistente
     return res.status(200).json({ ok: true, data: { purchases } });
   } catch (e) {
-    // fallback: mai HTML/empty, sempre JSON
     return res.status(200).json({
       ok: false,
       data: { purchases: [] },
