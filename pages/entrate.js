@@ -107,7 +107,6 @@ function formatIT(iso) {
     const yy = d.getFullYear();
     return `${dd}/${mm}/${yy}`;
   }
-  // Fallback se ci passa proprio "YYYY-MM-DD"
   const [yy, mm, dd] = String(iso).split('-').map(Number);
   if (yy && mm && dd) return `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${yy}`;
   return String(iso);
@@ -140,7 +139,7 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  const [pocketRows, setPocketRows] = useState([]); // righe estratto conto contante (manuali + spese cash)
+  const [pocketRows, setPocketRows] = useState([]); // movimenti manuali + spese cash
   const [pocketTopUp, setPocketTopUp] = useState('');
 
   const [monthExpenses, setMonthExpenses] = useState(0); // opzionale
@@ -153,6 +152,8 @@ function Entrate() {
   const [recBusy, setRecBusy] = useState(false);
 
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
+  // Finestra esclusiva per includere tutto il giorno finale (timestamp compresi)
+  const endExclusive = new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
 
   useEffect(() => {
     loadAll();
@@ -181,7 +182,7 @@ function Entrate() {
         .select('id, source, description, amount, received_at')
         .eq('user_id', user.id)
         .gte('received_at', startDate)
-        .lte('received_at', endDate)
+        .lt('received_at', endExclusive) // <--- qui
         .order('received_at', { ascending: false });
       if (e1) throw e1;
       setIncomes(inc || []);
@@ -204,7 +205,7 @@ function Entrate() {
         .select('id, created_at, moved_at, note, delta, amount, direction')
         .eq('user_id', user.id)
         .gte('moved_at', startDate)
-        .lte('moved_at', endDate)
+        .lt('moved_at', endExclusive) // <--- qui
         .order('moved_at', { ascending: false });
       if (e3) throw e3;
 
@@ -221,7 +222,7 @@ function Entrate() {
           id: `pc-${row.id}`,
           dateISO,
           label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-          amount: Number(eff || 0), // + ricarica/prelievo ; - uscita manuale (se inserita negativa)
+          amount: Number(eff || 0), // + ricarica/prelievo ; - uscita manuale
         };
       });
 
@@ -232,7 +233,7 @@ function Entrate() {
         .eq('user_id', user.id)
         .eq('payment_method', 'cash')
         .gte('spent_at', startDate)
-        .lte('spent_at', endDate)
+        .lt('spent_at', endExclusive) // <--- qui
         .order('spent_at', { ascending: false });
       if (e4) throw e4;
 
@@ -256,13 +257,13 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // 4) (opzionale) Totale spese del periodo
+      // 4) Totale spese del periodo (se ti serve altrove)
       const { data: exp, error: e5 } = await supabase
         .from('finances')
         .select('amount, spent_at')
         .eq('user_id', user.id)
         .gte('spent_at', startDate)
-        .lte('spent_at', endDate);
+        .lt('spent_at', endExclusive); // <--- qui
       if (e5) throw e5;
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
       setMonthExpenses(totalExp);
@@ -472,7 +473,7 @@ function Entrate() {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Math.abs(parseAmountLoose(newIncome.amount)), // accetta virgola/punto e forza positivo
+        amount: Math.abs(parseAmountLoose(newIncome.amount)),
         received_at: newIncome.receivedAt || new Date().toISOString().slice(0, 10),
       };
 
@@ -534,7 +535,7 @@ function Entrate() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
 
-      const delta = parseAmountLoose(pocketTopUp); // accetta virgola/punto e segno
+      const delta = parseAmountLoose(pocketTopUp);
       if (!delta) return;
 
       const payload = {
@@ -583,7 +584,7 @@ function Entrate() {
   // Saldo disponibile (reale)
   const saldoDisponibile = entratePeriodo + carryAmount - prelievi;
 
-  // Mostra sempre >= 0 come richiesto (se vuoi assoluto, usa Math.abs)
+  // Mostra sempre >= 0 come richiesto
   const saldoDisponibileUI = Math.max(0, saldoDisponibile);
 
   // Contante residuo = somma movimenti (ricariche/prelievi +, spese cash -)
@@ -694,7 +695,7 @@ function Entrate() {
                   <tr key={i.id}>
                     <td>{i.source || '-'}</td>
                     <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString() : '-'}</td>
+                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
                     <td>{Number(i.amount).toFixed(2)}</td>
                     <td><button onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
                   </tr>
@@ -768,7 +769,7 @@ function Entrate() {
               <tbody>
                 {pocketRows.map((m) => (
                   <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString() : '-'}</td>
+                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
                     <td>{m.label}</td>
                     <td style={{ textAlign: 'right' }}>
                       {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
