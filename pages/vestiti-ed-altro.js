@@ -1,125 +1,127 @@
 // pages/vestiti-ed-altro.js
-import React, { useEffect, useRef, useState } from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
-import withAuth from '../hoc/withAuth';
-import { supabase } from '@/lib/supabaseClient';
+import React, { useEffect, useRef, useState } from 'react'
+import Head from 'next/head'
+import Link from 'next/link'
+import withAuth from '../hoc/withAuth'
+import { supabase } from '@/lib/supabaseClient'
 
-const PAYDAY_DAY = 10;
-const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a';
+const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
+const PAYDAY_DAY = 10
 
-/* ========================= Helpers date/format ========================= */
+/* ========================= Helpers data/formato ========================= */
 function isoLocal(date) {
-  const y = date.getFullYear();
-  const m = date.getMonth() + 1;
-  const d = date.getDate();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${y}-${pad(m)}-${pad(d)}`;
+  const y = date.getFullYear()
+  const m = date.getMonth() + 1
+  const d = date.getDate()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${y}-${pad(m)}-${pad(d)}`
 }
 function addDaysLocal(date, days) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  d.setDate(d.getDate() + days);
-  return d;
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  d.setDate(d.getDate() + days)
+  return d
 }
 function computeCurrentPayPeriod(today, paydayDay) {
-  const y = today.getFullYear();
-  const m = today.getMonth();
-  const d = today.getDate();
-  const thisPayday = new Date(y, m, paydayDay);
-  let start, end;
+  const y = today.getFullYear()
+  const m = today.getMonth()
+  const d = today.getDate()
+  const thisPayday = new Date(y, m, paydayDay)
+  let start, end
   if (d >= paydayDay) {
-    start = thisPayday;
-    end = new Date(y, m + 1, paydayDay - 1);
+    start = thisPayday
+    end = new Date(y, m + 1, paydayDay - 1)
   } else {
-    start = new Date(y, m - 1, paydayDay);
-    end = new Date(y, m, paydayDay - 1);
+    start = new Date(y, m - 1, paydayDay)
+    end = new Date(y, m, paydayDay - 1)
   }
-  const startDate = isoLocal(start);
-  const endDate = isoLocal(end);
-  const monthKey = endDate.slice(0, 7);
-  return { startDate, endDate, monthKey };
+  const startDate = isoLocal(start)
+  const endDate = isoLocal(end)
+  const monthKey = endDate.slice(0, 7)
+  return { startDate, endDate, monthKey }
 }
 function formatIT(iso) {
-  if (!iso) return '';
-  const [y, m, d] = String(iso).split('-').map(Number);
-  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
-  return date.toLocaleDateString('it-IT');
+  if (!iso) return ''
+  const [y, m, d] = String(iso).split('-').map(Number)
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1)
+  return date.toLocaleDateString('it-IT')
 }
 function parseAmountLoose(v) {
-  if (typeof v === 'number') return v;
-  const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
+  if (typeof v === 'number') return v
+  const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.')
+  const n = Number(s)
+  return Number.isFinite(n) ? n : 0
 }
 
-/* (opzionale) carryover auto come su Entrate */
+/* ========================= Carryover auto (come Entrate) ========================= */
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const { data: existing, error: e0 } = await supabase
     .from('carryovers')
     .select('id')
     .eq('user_id', userId)
     .eq('month_key', monthKeyCurrent)
-    .maybeSingle();
-  if (e0 && e0.code !== 'PGRST116') throw e0;
-  if (existing) return;
+    .maybeSingle()
+  if (e0 && e0.code !== 'PGRST116') throw e0
+  if (existing) return
 
-  const [yy, mm] = monthKeyCurrent.split('-').map(Number);
-  const prevEnd = new Date(yy, mm - 1, 0);
-  const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
-  const prevStartISO = isoLocal(prevStart);
-  const prevEndISO = isoLocal(prevEnd);
-  const prevKey = prevEndISO.slice(0, 7);
+  const [yy, mm] = monthKeyCurrent.split('-').map(Number)
+  const prevEnd = new Date(yy, mm - 1, 0)
+  const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1)
+  const prevStartISO = isoLocal(prevStart)
+  const prevEndISO = isoLocal(prevEnd)
+  const prevKey = prevEndISO.slice(0, 7)
 
   const { data: incPrev, error: e1 } = await supabase
     .from('incomes')
     .select('amount')
     .eq('user_id', userId)
     .gte('received_at', prevStartISO)
-    .lte('received_at', prevEndISO);
-  if (e1) throw e1;
+    .lte('received_at', prevEndISO)
+  if (e1) throw e1
 
   const { data: expPrev, error: e2 } = await supabase
     .from('finances')
     .select('amount')
     .eq('user_id', userId)
     .gte('spent_at', prevStartISO)
-    .lte('spent_at', prevEndISO);
-  if (e2) throw e2;
+    .lte('spent_at', prevEndISO)
+  if (e2) throw e2
 
   const { data: coPrev, error: e3 } = await supabase
     .from('carryovers')
     .select('amount')
     .eq('user_id', userId)
     .eq('month_key', prevKey)
-    .maybeSingle();
-  if (e3 && e3.code !== 'PGRST116') throw e3;
+    .maybeSingle()
+  if (e3 && e3.code !== 'PGRST116') throw e3
 
-  const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-  const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-  const prevCarry = Number(coPrev?.amount || 0);
-  const saldoPrevBase = totalInc + prevCarry - totalExp;
+  const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0)
+  const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0)
+  const prevCarry = Number(coPrev?.amount || 0)
+  const saldoPrevBase = totalInc + prevCarry - totalExp
 
   const { error: e4 } = await supabase.from('carryovers').insert({
     user_id: userId,
     month_key: monthKeyCurrent,
     amount: Number(saldoPrevBase.toFixed(2)),
     note: 'Auto-carryover da mese precedente',
-  });
-  if (e4) throw e4;
+  })
+  if (e4) throw e4
 }
 
 /* ========================= Component ========================= */
 function VestitiEdAltro() {
-  const [spese, setSpese] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  // dati lista spese (categoria)
+  const [spese, setSpese] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  // metriche/top
-  const [incomes, setIncomes] = useState([]);
-  const [carryover, setCarryover] = useState(null);
-  const [pocketRows, setPocketRows] = useState([]);
+  // metriche / pocket
+  const [incomes, setIncomes] = useState([])
+  const [carryover, setCarryover] = useState(null)
+  const [pocketRows, setPocketRows] = useState([])
 
-  const [recBusy, setRecBusy] = useState(false);
+  // voce / ocr (lasciati invariati)
+  const [recBusy, setRecBusy] = useState(false)
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
@@ -127,16 +129,16 @@ function VestitiEdAltro() {
     prezzoTotale: '',
     spentAt: '',
     paymentMethod: 'card', // 'card' | 'cash'
-  });
+  })
+  const ocrInputRef = useRef(null)
+  const mediaRecRef = useRef(null)
+  const recordedChunks = useRef([])
+  const streamRef = useRef(null)
 
-  const ocrInputRef = useRef(null);
-  const mediaRecRef = useRef(null);
-  const recordedChunks = useRef([]);
-  const streamRef = useRef(null);
-
-  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-  const startDateISO = startDate;
-  const endDateISO = endDate;
+  // periodo 10→9
+  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY)
+  const startDateISO = startDate
+  const endDateISO = endDate
   const endExclusiveDate = isoLocal(
     addDaysLocal(
       new Date(
@@ -146,32 +148,32 @@ function VestitiEdAltro() {
       ),
       1
     )
-  );
-  const startDateIT = formatIT(startDateISO);
-  const endDateIT = formatIT(endDateISO);
+  )
+  const startDateIT = formatIT(startDateISO)
+  const endDateIT = formatIT(endDateISO)
 
   useEffect(() => {
-    loadAll();
+    loadAll()
     return () => {
       try {
         if (mediaRecRef.current && mediaRecRef.current.state === 'recording') {
-          mediaRecRef.current.stop();
+          mediaRecRef.current.stop()
         }
-        streamRef.current?.getTracks?.().forEach((t) => t.stop());
+        streamRef.current?.getTracks?.().forEach((t) => t.stop())
       } catch {}
-    };
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthKey]);
+  }, [monthKey])
 
   async function loadAll() {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      if (!user) throw new Error('Sessione scaduta');
+      const { data: { user }, error: userErr } = await supabase.auth.getUser()
+      if (userErr) throw userErr
+      if (!user) throw new Error('Sessione scaduta')
 
-      await ensureCarryoverAuto(user.id, monthKey);
+      await ensureCarryoverAuto(user.id, monthKey)
 
       // 1) Spese VESTITI del periodo
       const { data: sp, error: eS } = await supabase
@@ -181,9 +183,9 @@ function VestitiEdAltro() {
         .eq('category_id', CATEGORY_ID_VESTITI)
         .gte('spent_at', startDateISO)
         .lt('spent_at', endExclusiveDate)
-        .order('spent_at', { ascending: false });
-      if (eS) throw eS;
-      setSpese(sp || []);
+        .order('spent_at', { ascending: false })
+      if (eS) throw eS
+      setSpese(sp || [])
 
       // 2) Entrate del periodo
       const { data: inc, error: e1 } = await supabase
@@ -192,9 +194,9 @@ function VestitiEdAltro() {
         .eq('user_id', user.id)
         .gte('received_at', startDateISO)
         .lt('received_at', endExclusiveDate)
-        .order('received_at', { ascending: false });
-      if (e1) throw e1;
-      setIncomes(inc || []);
+        .order('received_at', { ascending: false })
+      if (e1) throw e1
+      setIncomes(inc || [])
 
       // 3) Carryover corrente
       const { data: co, error: e2 } = await supabase
@@ -202,39 +204,50 @@ function VestitiEdAltro() {
         .select('id, month_key, amount')
         .eq('user_id', user.id)
         .eq('month_key', monthKey)
-        .maybeSingle();
-      if (e2 && e2.code !== 'PGRST116') throw e2;
-      setCarryover(co || null);
+        .maybeSingle()
+      if (e2 && e2.code !== 'PGRST116') throw e2
+      setCarryover(co || null)
 
-      // 4a) Movimenti pocket manuali nel periodo
-      const { data: pc, error: e3 } = await supabase
+      // 4a) Movimenti pocket manuali (pocket_cash) nel periodo
+      //    (due query: con moved_at non nullo, e con moved_at nullo filtrando created_at)
+      const { data: pcMoved, error: e3a } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, note, delta, amount, direction')
         .eq('user_id', user.id)
-        .or(
-          `and(moved_at.gte.${startDateISO},moved_at.lt.${endExclusiveDate}),and(created_at.gte.${startDateISO},created_at.lt.${endExclusiveDate})`
-        )
+        .not('moved_at', 'is', null)
+        .gte('moved_at', startDateISO)
+        .lt('moved_at', endExclusiveDate)
         .order('moved_at', { ascending: false })
-        .order('created_at', { ascending: false });
-      if (e3) throw e3;
+      if (e3a) throw e3a
 
-      const manualRows = (pc || []).map((row) => {
+      const { data: pcCreated, error: e3b } = await supabase
+        .from('pocket_cash')
+        .select('id, created_at, moved_at, note, delta, amount, direction')
+        .eq('user_id', user.id)
+        .is('moved_at', null)
+        .gte('created_at', startDateISO)
+        .lt('created_at', endExclusiveDate)
+        .order('created_at', { ascending: false })
+      if (e3b) throw e3b
+
+      const pc = [...(pcMoved || []), ...(pcCreated || [])]
+      const manualRows = pc.map((row) => {
         const eff =
           row.delta != null
             ? Number(row.delta || 0)
             : row.amount != null
             ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0)
-            : 0;
-        const dateISO = (row.moved_at || row.created_at || '').slice(0, 10);
+            : 0
+        const dateISO = (row.moved_at || row.created_at || '').slice(0, 10)
         return {
           id: `pc-${row.id}`,
           dateISO,
           label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
           amount: Number(eff || 0),
-        };
-      });
+        }
+      })
 
-      // 4b) Spese in contante (tutte le categorie) nel periodo → righe negative
+      // 4b) Spese in CONTANTI (tutte le categorie) nel periodo → righe negative
       const { data: finCash, error: e4 } = await supabase
         .from('finances')
         .select('id, description, amount, spent_at')
@@ -242,41 +255,44 @@ function VestitiEdAltro() {
         .eq('payment_method', 'cash')
         .gte('spent_at', startDateISO)
         .lt('spent_at', endExclusiveDate)
-        .order('spent_at', { ascending: false });
-      if (e4) throw e4;
+        .order('spent_at', { ascending: false })
+      if (e4) throw e4
+
       const cashRows = (finCash || []).map((f) => {
-        const dateISO = (f.spent_at || '').slice(0, 10);
-        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-        const store = m ? m[1] : 'Punto vendita';
-        const dett = m ? m[2] : f.description || '';
+        const dateISO = (f.spent_at || '').slice(0, 10)
+        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/)
+        const store = m ? m[1] : 'Punto vendita'
+        const dett = m ? m[2] : (f.description || '')
         return {
           id: `fin-${f.id}`,
           dateISO,
           label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
           amount: -Math.abs(Number(f.amount) || 0),
-        };
-      });
+        }
+      })
 
       const rows = [...manualRows, ...cashRows]
         .filter((r) => Number.isFinite(r.amount) && r.amount !== 0)
-        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
-      setPocketRows(rows);
+        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''))
+      setPocketRows(rows)
     } catch (err) {
       const msg =
         err?.message ||
         err?.error_description ||
         err?.hint ||
-        (typeof err === 'string' ? err : JSON.stringify(err));
-      setError(msg);
-      console.error('[VESTITI LOAD ERROR]', err);
+        (typeof err === 'string' ? err : JSON.stringify(err))
+      setError(msg)
+      console.error('[VESTITI LOAD ERROR]', err)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   }
 
-  /* ========================= OCR / Voce ========================= */
+  /* ========================= OCR / Voce (INVARIATI) ========================= */
+  // Mantieni la tua /api/ocr, /api/stt e /api/assistant già funzionanti.
+  // Qui sotto solo i wrapper minimi per richiamarli.
+
   function buildOCRPrompt(userText) {
-    // rileva SHOP, prodotti multipli, qty, importo, data, e "contanti" -> payment_method cash
     const example = JSON.stringify(
       {
         type: 'expense_list',
@@ -287,13 +303,13 @@ function VestitiEdAltro() {
             quantita: 1,
             prezzoTotale: 39.9,
             data: '2025-08-06',
-            paymentMethod: 'card', // 'card' | 'cash'
+            paymentMethod: 'card',
           },
         ],
       },
       null,
       2
-    );
+    )
     return [
       'Sei Jarvis. Dal testo OCR estrai TUTTE le voci di spesa (anche multiple).',
       'Riconosci se è stato pagato in CONTANTI (parole come "contanti", "cash"): in tal caso paymentMethod="cash", altrimenti "card".',
@@ -303,7 +319,7 @@ function VestitiEdAltro() {
       '',
       'TESTO_OCR:',
       userText,
-    ].join('\n');
+    ].join('\n')
   }
   function buildVoicePrompt(userText) {
     const example = JSON.stringify(
@@ -322,7 +338,7 @@ function VestitiEdAltro() {
       },
       null,
       2
-    );
+    )
     return [
       'Trascrizione vocale utente. Estrai voci di spesa VESTITI/ALTRO.',
       'Se trovi parole come "in contanti", usa paymentMethod="cash"; altrimenti "card".',
@@ -332,113 +348,107 @@ function VestitiEdAltro() {
       '',
       'TESTO:',
       userText,
-    ].join('\n');
+    ].join('\n')
   }
-
   async function callAssistant(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt }),
-    });
-    const { answer, error: apiErr } = await res.json();
-    if (!res.ok || apiErr) throw new Error(apiErr || String(res.status));
-    return JSON.parse(answer);
+    })
+    const { answer, error: apiErr } = await res.json()
+    if (!res.ok || apiErr) throw new Error(apiErr || String(res.status))
+    return JSON.parse(answer)
   }
-
   async function handleOCR(files) {
-    if (!files?.length) return;
+    if (!files?.length) return
     try {
-      const fd = new FormData();
-      files.forEach((f) => fd.append('images', f));
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd });
-      const { text } = await res.json();
-
-      const data = await callAssistant(buildOCRPrompt(text));
-      await upsertFromAssistant(data);
+      const fd = new FormData()
+      files.forEach((f) => fd.append('images', f))
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const { text } = await res.json()
+      const data = await callAssistant(buildOCRPrompt(text))
+      await upsertFromAssistant(data)
     } catch (err) {
-      console.error(err);
-      setError('OCR fallito');
+      console.error(err)
+      setError('OCR fallito')
     }
   }
-
   const toggleRec = async () => {
     if (recBusy) {
-      try { mediaRecRef.current?.stop(); } catch {}
-      return;
+      try { mediaRecRef.current?.stop() } catch {}
+      return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      mediaRecRef.current = new MediaRecorder(stream);
-      recordedChunks.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      mediaRecRef.current = new MediaRecorder(stream)
+      recordedChunks.current = []
       mediaRecRef.current.ondataavailable = (e) => {
-        if (e.data?.size) recordedChunks.current.push(e.data);
-      };
-      mediaRecRef.current.onstop = processVoice;
-      mediaRecRef.current.start();
-      setRecBusy(true);
+        if (e.data?.size) recordedChunks.current.push(e.data)
+      }
+      mediaRecRef.current.onstop = processVoice
+      mediaRecRef.current.start()
+      setRecBusy(true)
     } catch {
-      setError('Microfono non disponibile');
+      setError('Microfono non disponibile')
     }
-  };
-
+  }
   const processVoice = async () => {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData();
-    fd.append('audio', blob, 'voice.webm');
-
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' })
+    const fd = new FormData()
+    fd.append('audio', blob, 'voice.webm')
     try {
-      const res = await fetch('/api/stt', { method: 'POST', body: fd });
-      const { text } = await res.json();
-
-      const data = await callAssistant(buildVoicePrompt(text));
-      await upsertFromAssistant(data);
+      const res = await fetch('/api/stt', { method: 'POST', body: fd })
+      const { text } = await res.json()
+      const data = await callAssistant(buildVoicePrompt(text))
+      await upsertFromAssistant(data)
     } catch (err) {
-      console.error(err);
-      setError('STT fallito');
+      console.error(err)
+      setError('STT fallito')
     } finally {
-      setRecBusy(false);
-      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
+      setRecBusy(false)
+      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()) } catch {}
     }
-  };
-
+  }
   async function upsertFromAssistant(data) {
     if (!data || data.type !== 'expense_list' || !Array.isArray(data.items) || !data.items.length) {
-      setError('Nessuna voce valida rilevata');
-      return;
+      setError('Nessuna voce valida rilevata')
+      return
     }
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return setError('Sessione scaduta');
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return setError('Sessione scaduta')
 
     const rows = data.items.map((it) => {
-      let spentAt;
-      if (it.data === 'oggi') spentAt = isoLocal(new Date());
-      else if (it.data === 'ieri') spentAt = isoLocal(addDaysLocal(new Date(), -1));
-      else spentAt = it.data || isoLocal(new Date());
+      let spentAt
+      if (it.data === 'oggi') spentAt = isoLocal(new Date())
+      else if (it.data === 'ieri') spentAt = isoLocal(addDaysLocal(new Date(), -1))
+      else spentAt = it.data || isoLocal(new Date())
 
-      const pm = (it.paymentMethod || '').toLowerCase() === 'cash' ? 'cash' : 'card';
+      const pm = (it.paymentMethod || '').toLowerCase() === 'cash' ? 'cash' : 'card'
+      const store = (it.puntoVendita || 'Negozio').toString().trim()
+      const dett  = (it.dettaglio || 'Acquisto').toString().trim()
 
       return {
         user_id: user.id,
         category_id: CATEGORY_ID_VESTITI,
-        description: `[${it.puntoVendita || 'Negozio'}] ${it.dettaglio || 'Acquisto'}`,
+        description: `[${store}] ${dett}`,
         amount: Math.abs(parseAmountLoose(it.prezzoTotale)),
         qty: Number(it.quantita) || 1,
         spent_at: spentAt,
         payment_method: pm,
-      };
-    });
+      }
+    })
 
-    const { error: dbErr } = await supabase.from('finances').insert(rows);
+    const { error: dbErr } = await supabase.from('finances').insert(rows)
     if (dbErr) {
-      setError(dbErr.message || 'Errore salvataggio spese');
-      return;
+      setError(dbErr.message || 'Errore salvataggio spese')
+      return
     }
-    await loadAll();
+    await loadAll()
 
-    const last = rows[0];
-    const m = (last.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+    const last = rows[0]
+    const m = (last.description || '').match(/^\[(.*?)\]\s*(.*)$/)
     setNuovaSpesa({
       puntoVendita: m ? m[1] : '',
       dettaglio: m ? m[2] : '',
@@ -446,16 +456,16 @@ function VestitiEdAltro() {
       prezzoTotale: String(last.amount ?? ''),
       spentAt: last.spent_at,
       paymentMethod: last.payment_method || 'card',
-    });
+    })
   }
 
-  /* ========================= CRUD manuale ========================= */
+  /* ========================= CRUD manuale (INVARIATO) ========================= */
   const handleAdd = async (e) => {
-    e.preventDefault();
-    setError(null);
+    e.preventDefault()
+    setError(null)
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return setError('Sessione scaduta');
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return setError('Sessione scaduta')
 
       const row = {
         user_id: user.id,
@@ -465,10 +475,10 @@ function VestitiEdAltro() {
         spent_at: nuovaSpesa.spentAt || isoLocal(new Date()),
         qty: parseInt(nuovaSpesa.quantita, 10) || 1,
         payment_method: nuovaSpesa.paymentMethod === 'cash' ? 'cash' : 'card',
-      };
+      }
 
-      const { error: insertError } = await supabase.from('finances').insert(row);
-      if (insertError) throw insertError;
+      const { error: insertError } = await supabase.from('finances').insert(row)
+      if (insertError) throw insertError
 
       setNuovaSpesa({
         puntoVendita: '',
@@ -477,43 +487,37 @@ function VestitiEdAltro() {
         prezzoTotale: '',
         spentAt: '',
         paymentMethod: 'card',
-      });
-      await loadAll();
+      })
+      await loadAll()
     } catch (err) {
       const msg =
         err?.message ||
         err?.error_description ||
         err?.hint ||
-        (typeof err === 'string' ? err : JSON.stringify(err));
-      setError(msg);
+        (typeof err === 'string' ? err : JSON.stringify(err))
+      setError(msg)
     }
-  };
-
+  }
   const handleDelete = async (id) => {
     try {
-      const { error } = await supabase.from('finances').delete().eq('id', id);
-      if (error) throw error;
-      setSpese((prev) => prev.filter((r) => r.id !== id));
-      // ricarico metriche/pocket per coerenza
-      await loadAll();
+      const { error } = await supabase.from('finances').delete().eq('id', id)
+      if (error) throw error
+      setSpese((prev) => prev.filter((r) => r.id !== id))
+      await loadAll()
     } catch (err) {
-      setError(err.message || 'Errore eliminazione');
+      setError(err.message || 'Errore eliminazione')
     }
-  };
+  }
 
   /* ========================= Metriche ========================= */
-  const entratePeriodo = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
-  const carryAmount = Number(carryover?.amount || 0);
-
-  // prelievi = movimenti manuali positivi (solo pc-)
+  const entratePeriodo = incomes.reduce((t, r) => t + Number(r.amount || 0), 0)
+  const carryAmount = Number(carryover?.amount || 0)
   const prelievi = pocketRows
     .filter((r) => r.id?.toString().startsWith('pc-') && r.amount > 0)
-    .reduce((t, r) => t + r.amount, 0);
-
-  const saldoDisponibile = Math.max(0, entratePeriodo + carryAmount - prelievi);
-  const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
-
-  const totale = spese.reduce((t, r) => t + (Number(r.amount) || 0), 0);
+    .reduce((t, r) => t + r.amount, 0)
+  const saldoDisponibile = Math.max(0, entratePeriodo + carryAmount - prelievi)
+  const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0)
+  const totale = spese.reduce((t, r) => t + (Number(r.amount) || 0), 0)
 
   /* ========================= UI ========================= */
   return (
@@ -522,7 +526,7 @@ function VestitiEdAltro() {
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 className="title">🛍 Lista Supermercato – Vestiti ed Altro</h2>
+          <h2 className="title">🛍️ Vestiti ed Altro</h2>
 
           {/* Periodo corrente */}
           <div className="periodo-row">
@@ -551,7 +555,7 @@ function VestitiEdAltro() {
             </div>
           </div>
 
-          {/* Pulsanti */}
+          {/* Pulsanti OCR / Voce */}
           <div className="table-buttons">
             <button className="btn-vocale" onClick={toggleRec}>{recBusy ? '⏹ Stop' : '🎙 Voce'}</button>
             <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>📷 OCR</button>
@@ -566,7 +570,7 @@ function VestitiEdAltro() {
             />
           </div>
 
-          {/* Form inserimento */}
+          {/* Form inserimento manuale */}
           <form className="input-section" onSubmit={handleAdd}>
             <label>Punto vendita / Servizio</label>
             <input
@@ -633,7 +637,7 @@ function VestitiEdAltro() {
                 </thead>
                 <tbody>
                   {spese.map((r) => {
-                    const m = (r.description || '').match(/^\[(.*?)\]\s*(.*)$/) || [];
+                    const m = (r.description || '').match(/^\[(.*?)\]\s*(.*)$/) || []
                     return (
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
@@ -644,7 +648,7 @@ function VestitiEdAltro() {
                         <td>{r.payment_method === 'cash' ? 'Contanti' : 'Carta'}</td>
                         <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
                       </tr>
-                    );
+                    )
                   })}
                 </tbody>
               </table>
@@ -710,15 +714,13 @@ function VestitiEdAltro() {
         .flex-line { display: flex; justify-content: space-between; margin: .3rem 0; gap: 1rem; }
         .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; margin-top: .5rem; }
         .error { color: #f87171; margin-top: 1rem; }
-
-        /* Metriche grandi e colorate (coerenti con Entrate) */
         .metric { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
         .metric-sub { font-size: 1rem; opacity: .85; }
-        .metric--saldo { color: #22c55e; }   /* verde */
-        .metric--pocket { color: #06b6d4; }  /* ciano */
+        .metric--saldo { color: #22c55e; }
+        .metric--pocket { color: #06b6d4; }
       `}</style>
     </>
-  );
+  )
 }
 
-export default withAuth(VestitiEdAltro);
+export default withAuth(VestitiEdAltro)
