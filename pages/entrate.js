@@ -133,6 +133,48 @@ function formatIT(iso) {
   return date.toLocaleDateString('it-IT');
 }
 
+/** Date flessibili in IT: "10/06/2025", "2025-06-10", "giugno 2025", "giugno" (anno corrente). Ritorna YYYY-MM-DD */
+function parseFlexibleDateIT(text, fallbackISO) {
+  if (!text) return fallbackISO;
+  const now = new Date();
+  const curYear = now.getFullYear();
+
+  // 1) dd/mm/yyyy
+  const m1 = text.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
+  if (m1) {
+    const d = Number(m1[1]), m = Number(m1[2]) - 1, y = Number(m1[3]);
+    const dt = new Date(y, m, d);
+    return isoLocal(dt);
+  }
+
+  // 2) yyyy-mm-dd
+  const m2 = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m2) {
+    const y = Number(m2[1]), m = Number(m2[2]) - 1, d = Number(m2[3]);
+    const dt = new Date(y, m, d);
+    return isoLocal(dt);
+  }
+
+  // 3) "mese yyyy" o solo "mese" (IT)
+  const mesi = {
+    gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
+    luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12
+  };
+  const lower = text.toLowerCase();
+  for (const [nome, num] of Object.entries(mesi)) {
+    if (lower.includes(nome)) {
+      // anno opzionale
+      const my = lower.match(new RegExp(`${nome}\\s+(\\d{4})`));
+      const y = my ? Number(my[1]) : curYear;
+      // scegliamo ULTIMO giorno del mese → impatta correttamente mese di competenza
+      const last = new Date(y, num, 0); // trick: day 0 del mese successivo
+      return isoLocal(last);
+    }
+  }
+
+  return fallbackISO;
+}
+
 /** Error helper */
 function showError(setter, err) {
   const msg =
@@ -353,6 +395,61 @@ function Entrate() {
   }
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
+  // ====== NUOVO: prompt unificato per VOCE (income o pocket) ======
+  function buildUnifiedVoicePrompt(text) {
+    const today = isoLocal(new Date());
+    const example = {
+      type: "income", // "income" | "pocket_topup" | "none"
+      items: [
+        {
+          amount: 1500.0,
+          source: "Stipendio",     // per income: "Stipendio" | "Lavoro privato" | "Progetto" | "Altro"
+          description: "Stipendio di giugno",
+          receivedAt: "2025-06-30" // YYYY-MM-DD (se si dice solo il mese, usare l'ULTIMO giorno di quel mese)
+        }
+      ]
+    };
+    const example2 = {
+      type: "pocket_topup",
+      items: [
+        {
+          amount: 300.0,
+          note: "Prelievo contanti", // se l'utente dice "prelevato/messo in tasca" → importo positivo
+          date: today
+        }
+      ]
+    };
+    return [
+      'Sei un parser vocale in ITALIANO per ENTRATE e MOVIMENTI CONTANTE.',
+      '- Se il testo parla di stipendio, progetto, lavoro privato, fattura pagata → type="income".',
+      '- Se parla di prelievo/ricarica/contanti in tasca → type="pocket_topup".',
+      '- Se non riconosci nulla → type="none".',
+      'Regole DATE:',
+      '- Ritorna sempre date in formato YYYY-MM-DD.',
+      '- Se l’utente dice solo un mese (es: "giugno 2025" o "giugno"), usa l’ULTIMO giorno di quel mese come data.',
+      'Regole IMPORTI:',
+      '- Ritorna numeri come 1234.56 (punto come decimale).',
+      'OUTPUT SOLO JSON. Esempi:',
+      JSON.stringify(example),
+      JSON.stringify(example2),
+      '',
+      'TESTO UTENTE:',
+      text
+    ].join('\n');
+  }
+
+  async function callAssistant(prompt) {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    const { answer, error: apiErr } = await res.json();
+    if (!res.ok || apiErr) throw new Error(apiErr || String(res.status));
+    return JSON.parse(answer);
+  }
+
+  // ====== OCR rimane com'era (due parser separati) ======
   function buildPocketPrompt(userText) {
     const example = JSON.stringify({
       type: 'pocket_topup',
@@ -374,27 +471,17 @@ function Entrate() {
     const today = isoLocal(new Date());
     const example = JSON.stringify({
       type: 'income',
-      items: [{ source: 'Stipendio', description: 'Stipendio', amount: 1500, receivedAt: today }],
+      items: [{ source: 'Stipendio', description: 'Stipendio di giugno', amount: 1500, receivedAt: '2025-06-30' }],
     });
     return [
-      'Sei Jarvis. Estrai ENTRATE economiche.',
+      'Sei Jarvis. Estrai ENTRATE economiche da testo in italiano. Restituisci date YYYY-MM-DD.',
+      'Se viene detto solo il mese (es: "giugno"), usa l’ULTIMO giorno del mese.',
       'Rispondi SOLO con JSON:',
       example,
       '',
       'Testo:',
       userText,
     ].join('\n');
-  }
-
-  async function callAssistant(prompt) {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    const { answer, error: apiErr } = await res.json();
-    if (!res.ok || apiErr) throw new Error(apiErr || String(res.status));
-    return JSON.parse(answer);
   }
 
   // Normalizza segni per contante via OCR/Voce
@@ -449,34 +536,140 @@ function Entrate() {
     if (!user) throw new Error('Sessione scaduta');
 
     for (const it of data.items) {
-      const dataIncasso = it.receivedAt || isoLocal(new Date());
+      const fallback = isoLocal(new Date());
+      const received = parseFlexibleDateIT(String(it.receivedAt || ''), fallback);
       const amount = Math.abs(parseAmountLoose(it.amount));
+      let src = (it.source || '').trim();
+      let desc = (it.description || it.source || 'Entrata').trim();
+
+      // Normalizza sorgente in base a frasi comuni
+      const base = (src + ' ' + desc).toLowerCase();
+      if (base.includes('stipend')) src = 'Stipendio';
+      else if (base.includes('privat') || base.includes('progett') || base.includes('fattur'))
+        src = 'Lavoro privato';
 
       const payload = {
         user_id: user.id,
-        source: it.source || 'Entrata',
-        description: it.description || it.source || 'Entrata',
+        source: src || 'Entrata',
+        description: desc || src || 'Entrata',
         amount,
-        received_at: dataIncasso
+        received_at: received
       };
       console.log('[INSERT INCOME OCR]', payload);
 
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) { console.error('[INSERT INCOME OCR ERROR]', error); throw error; }
       console.log('[INSERT INCOME OCR OK]');
-
-      // Probe: leggo subito quella data, senza filtri di periodo
-      const { data: probeInc, error: probeErr } = await supabase
-        .from('incomes')
-        .select('id, amount, received_at')
-        .eq('user_id', user.id)
-        .eq('received_at', payload.received_at)
-        .order('id', { ascending: false })
-        .limit(3);
-      if (probeErr) console.error('[PROBE] read back income error]', probeErr);
-      console.log('[PROBE] read back income for', payload.received_at, probeInc);
     }
     return true;
+  }
+
+  // ====== NUOVO: parser vocale unificato con fallback locale ======
+  async function parseVoiceUnified(text) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
+
+    // 1) prova assistant unificato
+    let parsed = null;
+    try {
+      parsed = await callAssistant(buildUnifiedVoicePrompt(text));
+    } catch (e) {
+      console.warn('[VOICE] assistant unified fallito, applico euristiche locali', e);
+    }
+
+    // 2) euristica locale di fallback (se l’assistant non risponde bene)
+    if (!parsed || !parsed.type || !Array.isArray(parsed.items) || !parsed.items.length) {
+      const low = text.toLowerCase();
+
+      // prelievo/contante
+      if (/(preliev|messo in tasca|contanti|ricaric)/i.test(low)) {
+        const m = low.match(/(\d+(?:[.,]\d+)?)/);
+        const amount = m ? Math.abs(parseAmountLoose(m[1])) : 0;
+        if (amount > 0) {
+          const payload = {
+            user_id: user.id,
+            note: 'Ricarica contanti',
+            delta: amount,
+            moved_at: new Date().toISOString(),
+          };
+          console.log('[VOICE-FB] POCKET INSERT', payload);
+          const { error } = await supabase.from('pocket_cash').insert(payload);
+          if (error) throw error;
+          return true;
+        }
+      }
+
+      // stipendio/lavoro privato
+      if (/(stipend|lavoro privato|progett|fattur|pagat)/i.test(low)) {
+        const m = low.match(/(\d+(?:[.,]\d+)?)/);
+        const amount = m ? Math.abs(parseAmountLoose(m[1])) : 0;
+        const received = parseFlexibleDateIT(low, isoLocal(new Date()));
+        let source = /stipend/i.test(low) ? 'Stipendio' : 'Lavoro privato';
+        const payload = {
+          user_id: user.id,
+          source,
+          description: source,
+          amount,
+          received_at: received
+        };
+        console.log('[VOICE-FB] INCOME INSERT', payload);
+        const { error } = await supabase.from('incomes').insert(payload);
+        if (error) throw error;
+        return true;
+      }
+
+      return false;
+    }
+
+    // 3) handler quando l’assistant ha risposto
+    if (parsed.type === 'pocket_topup') {
+      const rows = parsed.items.map((it) => {
+        const raw = parseAmountLoose(it.amount);
+        const note = (it.note || '').trim().toLowerCase();
+        let delta = raw;
+        if (note.includes('preliev') || note.includes('ricarica')) delta = Math.abs(raw);
+        else if (note.includes('uscit') || note.includes('spesa')) delta = -Math.abs(raw);
+        return {
+          user_id: user.id,
+          note: it.note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
+          delta,
+          moved_at: it.date || new Date().toISOString(),
+        };
+      });
+      console.log('[VOICE] POCKET INSERT', rows);
+      const { error } = await supabase.from('pocket_cash').insert(rows);
+      if (error) throw error;
+      return true;
+    }
+
+    if (parsed.type === 'income') {
+      for (const it of parsed.items) {
+        const fallback = isoLocal(new Date());
+        const received = parseFlexibleDateIT(String(it.receivedAt || ''), fallback);
+        const amount = Math.abs(parseAmountLoose(it.amount));
+        let src = (it.source || '').trim();
+        let desc = (it.description || it.source || 'Entrata').trim();
+
+        const base = (src + ' ' + desc).toLowerCase();
+        if (base.includes('stipend')) src = 'Stipendio';
+        else if (base.includes('privat') || base.includes('progett') || base.includes('fattur'))
+          src = 'Lavoro privato';
+
+        const payload = {
+          user_id: user.id,
+          source: src || 'Entrata',
+          description: desc || src || 'Entrata',
+          amount,
+          received_at: received
+        };
+        console.log('[VOICE] INCOME INSERT', payload);
+        const { error } = await supabase.from('incomes').insert(payload);
+        if (error) throw error;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   async function handleOCR(files) {
@@ -533,16 +726,9 @@ function Entrate() {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
 
-      const handledPocket = await parseAssistantForPocket(text);
-      if (handledPocket) {
-        setRecBusy(false);
-        streamRef.current?.getTracks?.().forEach((t) => t.stop());
-        await loadAll();
-        return;
-      }
-
-      const handledIncome = await parseAssistantForIncome(text);
-      if (handledIncome) {
+      // Usa parser unificato (copre: stipendio, lavoro privato, prelievi)
+      const ok = await parseVoiceUnified(text);
+      if (ok) {
         setRecBusy(false);
         streamRef.current?.getTracks?.().forEach((t) => t.stop());
         await loadAll();
@@ -659,7 +845,7 @@ function Entrate() {
         user_id: user.id,
         note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
         delta,
-        moved_at: new Date().toISOString(), // qui può restare ISO pieno (timestamp), lo filtri con created_at fallback
+        moved_at: new Date().toISOString(),
       };
 
       console.log('[INSERT POCKET MANUAL]', payload);
