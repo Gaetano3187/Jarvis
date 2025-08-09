@@ -335,8 +335,8 @@ Ora estrai **solo** JSON spesa (stesso schema):
         </div>
       </div>
 
-           <style jsx>{`
-        .vestiti-ed-altro-container1 {
+               <style jsx>{`
+        .spese-casa-container1 {
           width: 100%;
           display: flex;
           align-items: center;
@@ -346,7 +346,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
           padding: 2rem;
           font-family: Inter, sans-serif;
         }
-        .vestiti-ed-altro-container2 {
+        .spese-casa-container2 {
           background: rgba(0, 0, 0, 0.6);
           padding: 2rem;
           border-radius: 1rem;
@@ -355,36 +355,28 @@ Ora estrai **solo** JSON spesa (stesso schema):
           max-width: 800px;
           width: 100%;
         }
-        .title {
-          margin-bottom: 1rem;
-          font-size: 1.5rem;
-        }
-        .table-buttons {
-          display: flex;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
-        }
-        .btn-vocale,
-        .btn-ocr,
-        .btn-manuale {
+        .title { margin-bottom: 1rem; font-size: 1.5rem; }
+        .table-buttons { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+        .btn-vocale, .btn-ocr, .btn-manuale {
+          display: inline-block;
+          text-align: center;
           background: #10b981;
           color: #fff;
           border: none;
           padding: 0.5rem 1rem;
           border-radius: 0.5rem;
           cursor: pointer;
+          text-decoration: none;
         }
-        .btn-ocr {
-          background: #f43f5e;
-        }
+        .btn-ocr { background: #f43f5e; }
+        .btn-vocale[disabled] { opacity: 0.6; cursor: not-allowed; }
         .input-section {
           display: flex;
           flex-direction: column;
           gap: 0.75rem;
           margin-bottom: 1.5rem;
         }
-        input,
-        textarea {
+        input, textarea, select {
           width: 100%;
           padding: 0.6rem;
           border: none;
@@ -392,22 +384,13 @@ Ora estrai **solo** JSON spesa (stesso schema):
           background: rgba(255, 255, 255, 0.1);
           color: #fff;
         }
-        textarea {
-          resize: vertical;
-          min-height: 4.5rem;
-        }
-        .custom-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        .custom-table th,
-        .custom-table td {
+        textarea { resize: vertical; min-height: 4.5rem; }
+        .custom-table { width: 100%; border-collapse: collapse; }
+        .custom-table th, .custom-table td {
           padding: 0.75rem 1rem;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .custom-table thead {
-          background: #1f2937;
-        }
+        .custom-table thead { background: #1f2937; }
         .total-box {
           margin-top: 1rem;
           background: rgba(34, 197, 94, 0.8);
@@ -416,13 +399,9 @@ Ora estrai **solo** JSON spesa (stesso schema):
           text-align: right;
           font-weight: 600;
         }
-        .error {
-          color: #f87171;
-          margin-top: 1rem;
-        }
+        .error { color: #f87171; margin-top: 1rem; }
       `}</style>
     </>
   )
 }
-
 export default withAuth(vestiti-ed-altro)
