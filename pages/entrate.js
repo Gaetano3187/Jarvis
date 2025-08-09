@@ -5,7 +5,7 @@ import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import { supabase } from '@/lib/supabaseClient';
 
-/** Giorno di accredito stipendio (1..28) — usato solo per calcolare il periodo */
+/** Giorno “payday” usato solo per calcolare il periodo corrente */
 const PAYDAY_DAY = 10;
 
 /* --------------------------- helpers --------------------------- */
@@ -112,7 +112,7 @@ function formatIT(iso) {
   return String(iso);
 }
 
-/** Error helper: mostra messaggi utili e logga in console */
+/** Error helper */
 function showError(setter, err) {
   const msg =
     err?.message ||
@@ -139,7 +139,7 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  const [pocketRows, setPocketRows] = useState([]); // righe manuali + spese cash
+  const [pocketRows, setPocketRows] = useState([]); // movimenti manuali + spese cash
   const [pocketTopUp, setPocketTopUp] = useState('');
 
   const [monthExpenses, setMonthExpenses] = useState(0); // opzionale
@@ -152,7 +152,7 @@ function Entrate() {
   const [recBusy, setRecBusy] = useState(false);
 
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-  // fine-giorno esclusiva: giorno dopo alle 00:00
+  // Fine-giorno esclusiva: include tutto l’ultimo giorno anche se TIMESTAMP
   const endExclusive = new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
 
   useEffect(() => {
@@ -215,7 +215,9 @@ function Entrate() {
           : (row.amount != null
               ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0)
               : 0);
+
         const dateISO = (row.moved_at || row.created_at || '').slice(0, 10);
+
         return {
           id: `pc-${row.id}`,
           dateISO,
@@ -254,7 +256,7 @@ function Entrate() {
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
       setPocketRows(rows);
 
-      // 4) Spese totali del periodo (opzionale)
+      // 4) (opzionale) Spese totali del periodo
       const { data: exp, error: e5 } = await supabase
         .from('finances')
         .select('amount, spent_at')
@@ -359,13 +361,6 @@ function Entrate() {
     for (const it of data.items) {
       const dataIncasso = it.receivedAt || new Date().toISOString().slice(0, 10);
       const amount = Math.abs(parseAmountLoose(it.amount));
-
-      console.log('[INSERT INCOME OCR/VOICE]', {
-        source: it.source || 'Entrata',
-        description: it.description || it.source || 'Entrata',
-        amount,
-        received_at: dataIncasso
-      });
 
       const { error } = await supabase.from('incomes').insert({
         user_id: user.id,
@@ -476,13 +471,8 @@ function Entrate() {
 
       console.log('[INSERT INCOME MANUAL]', payload);
 
-      const { data: ins, error } = await supabase
-        .from('incomes')
-        .insert(payload)
-        .select('id, source, description, amount, received_at')
-        .single();
+      const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
-      console.log('[INSERTED INCOME ROW]', ins);
 
       setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
       await loadAll();
@@ -583,7 +573,7 @@ function Entrate() {
     .filter(r => r.id?.toString().startsWith('pc-') && r.amount > 0)
     .reduce((t, r) => t + r.amount, 0);
 
-  // Saldo disponibile (reale)
+  // Saldo disponibile = entrate periodo + carryover - prelievi effettuati
   const saldoDisponibile = entratePeriodo + carryAmount - prelievi;
   const saldoDisponibileUI = Math.max(0, saldoDisponibile); // mostrato sempre >= 0
 
