@@ -1490,6 +1490,8 @@ export default function ListeProdotti() {
                     <th style={styles.th}>Confezioni</th>
                     <th style={styles.th}>Unità/conf.</th>
                     <th style={styles.th}>Residuo unità</th>
+              <th style={styles.th}>Giorni rimasti</th>
+              <th style={styles.th}>Livello</th>
                     <th style={styles.th}>Scadenza</th>
                     <th style={styles.th}></th>
                   </tr>
