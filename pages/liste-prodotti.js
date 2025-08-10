@@ -326,6 +326,37 @@ function buildExpiryPrompt(itemName, brand, ocrText) {
   ].join('\n');
 }
 
+/* --------- Prompt builder: INTENTO VOCALE SCORTE/SCADENZE (unificato) --------- */
+function buildInventoryIntentPrompt(text) {
+  return [
+    'Sei Jarvis. Capisci un comando VOCALE per SCORTE & SCADENZE.',
+    'Decidi l’intento e produci SOLO JSON conforme agli schemi:',
+    '',
+    'Se è aggiornamento scorte:',
+    '{ "intent":"stock_update", "updates":[ { "name":"latte", "mode":"packs|units", "value":3 }, ... ] }',
+    '',
+    'Se è scadenze:',
+    '{ "intent":"expiry", "expiries":[ { "name":"latte", "expiresAt":"YYYY-MM-DD" }, ... ] }',
+    '',
+    'REGOLE:',
+    '- Se compaiono date o parole: "scad", "scadenza", "scade", "entro", usa intent="expiry".',
+    '- Altrimenti usa intent="stock_update".',
+    '- Normalizza i nomi ai prodotti comuni (latte, pasta, yogurt, ecc.).',
+    '- "bottiglie/pacchi/confezioni/scatole" ⇒ mode="packs". "unità/pz/pezzi/vasetti/uova/barrette" ⇒ mode="units".',
+    '- value è un numero. Ignora numeri che sembrano anni (es. 2025) per stock_update.',
+    '',
+    'ESEMPI:',
+    'Testo: "il latte scade il 15/07/2025 e lo yogurt il 10 agosto 2025"',
+    'Output: { "intent":"expiry", "expiries":[{"name":"latte","expiresAt":"2025-07-15"},{"name":"yogurt","expiresAt":"2025-08-10"}] }',
+    '',
+    'Testo: "latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità"',
+    'Output: { "intent":"stock_update", "updates":[{"name":"latte","mode":"packs","value":3},{"name":"pasta","mode":"packs","value":4},{"name":"ferrero fiesta","mode":"units","value":3}] }',
+    '',
+    'Testo utente:',
+    text
+  ].join('\n');
+}
+
 /* ------------- Fallback parser OCR locale (packs/units) ------------- */
 function parseReceiptPurchases(ocrText) {
   const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
@@ -372,28 +403,46 @@ function parseReceiptPurchases(ocrText) {
   return out;
 }
 
-/* --------- Parser VOCALE per aggiornare scorte --------- */
+/* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
-  const parts = t.split(/[,;]+|\be\b|\band\b/).map(s=>s.trim()).filter(Boolean);
+
+  // Evita di splittare su "e" quando fa parte di una data o contesto numerico
+  const parts = t
+    .split(/[,;]+/g) // prima separiamo per virgole/punto e virgola
+    .map(s => s.trim())
+    .filter(Boolean);
+
   const res = [];
   for (let chunk of parts) {
-    const m = chunk.match(/^(.*?)(?:sono|e'|è|=)?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
-    if (!m) continue;
-    let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
-    const n = Number(String(m[2]).replace(',','.')) || 0;
-    const tag = (m[3]||'').toLowerCase();
+    // Scarta blocchi che parlano di scadenze/date
+    if (/scad|scadenza|scade|entro/.test(chunk)) continue;
+    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(chunk)) continue;
+    if (/\b20\d{2}\b/.test(chunk)) continue; // evita anni tipo 2025
 
-    if (!name) continue;
+    // Prova anche a scomporre per " e " SOLO se non ci sono numeri a destra/sinistra che sembrano date
+    const mini = chunk.split(/\s+e\s+/g).filter(Boolean);
+    const candidates = mini.length>1 ? mini : [chunk];
 
-    for (const lex of GROCERY_LEXICON) {
-      if (isSimilar(name, lex)) { name = lex; break; }
-    }
+    for (const c of candidates) {
+      const m = c.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
+      if (!m) continue;
+      let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
+      const n = Number(String(m[2]).replace(',','.')) || 0;
+      const tag = (m[3]||'').toLowerCase();
 
-    if (/unit|pz|pezzi|barrett|vasett|uova/.test(tag)) {
-      res.push({ name, mode:'units', value:n });
-    } else {
-      res.push({ name, mode:'packs', value:n });
+      if (!name) continue;
+      if (n >= 1000) continue; // evita numeri anomali trattati come qty
+
+      for (const lex of GROCERY_LEXICON) {
+        if (isSimilar(name, lex)) { name = lex; break; }
+      }
+
+      if (/unit|pz|pezzi|barrett|vasett|uova/.test(tag)) {
+        res.push({ name, mode:'units', value:n });
+      } else {
+        res.push({ name, mode:'packs', value:n });
+      }
     }
   }
   return res;
@@ -428,17 +477,11 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale: SCADENZE
-  const expMediaRef = useRef(null);
-  const expChunksRef = useRef([]);
-  const expStreamRef = useRef(null);
-  const [expRecBusy, setExpRecBusy] = useState(false);
-
-  // Vocale: AGGIORNA SCORTE
-  const updMediaRef = useRef(null);
-  const updChunksRef = useRef([]);
-  const updStreamRef = useRef(null);
-  const [updRecBusy, setUpdRecBusy] = useState(false);
+  // Vocale: INVENTARIO UNIFICATO (Scorte + Scadenze)
+  const invMediaRef = useRef(null);
+  const invChunksRef = useRef([]);
+  const invStreamRef = useRef(null);
+  const [invRecBusy, setInvRecBusy] = useState(false);
 
   // OCR input (scontrini)
   const ocrInputRef = useRef(null);
@@ -674,62 +717,7 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- Vocale: SCADENZE ---------------- */
-  async function startVoiceExpiry() {
-    if (expRecBusy) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      expStreamRef.current = stream;
-      expMediaRef.current = new MediaRecorder(stream);
-      expChunksRef.current = [];
-      expMediaRef.current.ondataavailable = (e) => { if (e.data?.size) expChunksRef.current.push(e.data); };
-      expMediaRef.current.onstop = processVoiceExpiry;
-      expMediaRef.current.start();
-      setExpRecBusy(true);
-      setTimeout(() => { try { if (expMediaRef.current && expMediaRef.current.state === 'recording') expMediaRef.current.stop(); } catch {} }, 12000);
-    } catch {
-      alert('Microfono non disponibile');
-    }
-  }
-  function stopVoiceExpiry() { try { expMediaRef.current?.stop(); } catch {} }
-
-  async function processVoiceExpiry() {
-    const blob = new Blob(expChunksRef.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'expiry.webm');
-    try {
-      setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method:'POST', body: fd }, 25000);
-      const { text } = await res.json();
-      if (DEBUG) console.log('[STT expiry] text:', text);
-
-      const pairs = parseExpiryPairs(
-        text || '',
-        GROCERY_LEXICON,
-        stock.map(s => s.name)
-      );
-
-      if (!pairs.length) { showToast('Nessuna scadenza trovata', 'err'); return; }
-      let hit = 0;
-      setStock(prev => {
-        const arr = [...prev];
-        for (const p of pairs) {
-          const idx = arr.findIndex(s => isSimilar(s.name, p.name));
-          if (idx >= 0) { arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt }; hit++; }
-        }
-        return arr;
-      });
-      showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
-    } finally {
-      setBusy(false);
-      setExpRecBusy(false);
-      try { expStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-      expMediaRef.current = null;
-      expStreamRef.current = null;
-      expChunksRef.current = [];
-    }
-  }
-
-  /* ----- OCR: supporto decremento su entrambe le liste ----- */
+  /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
     const decList = (listKey) => {
@@ -939,108 +927,155 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- Vocale: AGGIORNA SCORTE ---------------- */
-  async function startVoiceStockUpdate() {
-    if (updRecBusy) return;
+  /* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
+  async function toggleVoiceInventory() {
+    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      updStreamRef.current = stream;
-      updMediaRef.current = new MediaRecorder(stream);
-      updChunksRef.current = [];
-      updMediaRef.current.ondataavailable = (e) => { if (e.data?.size) updChunksRef.current.push(e.data); };
-      updMediaRef.current.onstop = processVoiceStockUpdate;
-      updMediaRef.current.start();
-      setUpdRecBusy(true);
-      setTimeout(() => { try { if (updMediaRef.current && updMediaRef.current.state === 'recording') updMediaRef.current.stop(); } catch {} }, 12000);
+      invStreamRef.current = stream;
+      invMediaRef.current = new MediaRecorder(stream);
+      invChunksRef.current = [];
+      invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
+      invMediaRef.current.onstop = processVoiceInventory;
+      invMediaRef.current.start();
+      setInvRecBusy(true);
     } catch {
       alert('Microfono non disponibile');
     }
   }
-  function stopVoiceStockUpdate(){ try { updMediaRef.current?.stop(); } catch {} }
 
-  async function processVoiceStockUpdate() {
-    const blob = new Blob(updChunksRef.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'stock-update.webm');
-    let applied = 0;
+  async function processVoiceInventory() {
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
     try {
       setBusy(true);
       const res = await timeoutFetch('/api/stt', { method:'POST', body: fd }, 25000);
       const { text } = await res.json();
-      if (DEBUG) console.log('[STT stock-update] text:', text);
+      if (DEBUG) console.log('[STT inventory] text:', text);
       if (!text) { showToast('Nessun testo riconosciuto', 'err'); return; }
 
-      const updates = parseStockUpdateText(text);
-      if (!updates.length) { showToast('Nessun aggiornamento valido trovato', 'err'); return; }
+      // Heuristica veloce
+      const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
 
-      setStock(prev => {
-        const arr = [...prev];
-        let appliedLocal = 0;
+      // Parser locali
+      let localIntent = looksExpiry ? 'expiry' : 'stock_update';
+      let localExpiries = looksExpiry ? parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name)) : [];
+      let localUpdates = !looksExpiry ? parseStockUpdateText(text) : [];
 
-        for (const u of updates) {
-          let idx = arr.findIndex(s => isSimilar(s.name, u.name));
-          if (idx < 0) {
-            // crea nuova riga scorte
-            if (u.mode === 'units') {
-              arr.unshift({
-                name: u.name, brand: '',
-                packs: 1, unitsPerPack: Number(u.value||1), unitLabel:'unità',
-                expiresAt:'', baselinePacks:1, lastRestockAt: new Date().toISOString().slice(0,10),
-                avgDailyUnits:0
-              });
-            } else {
-              arr.unshift({
-                name: u.name, brand: '',
-                packs: Number(u.value||0), unitsPerPack:1, unitLabel:'unità',
-                expiresAt:'', baselinePacks:Number(u.value||0), lastRestockAt: new Date().toISOString().slice(0,10),
-                avgDailyUnits:0
-              });
-            }
-            appliedLocal++;
-            continue;
+      let intent = localIntent;
+      let updates = localUpdates;
+      let expiries = localExpiries;
+
+      // Se locale non trova nulla, chiedi all'Assistant con esempi
+      if ((intent === 'expiry' && !expiries.length) || (intent === 'stock_update' && !updates.length)) {
+        try {
+          const prompt = buildInventoryIntentPrompt(text);
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+          }, 25000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+          const pIntent = parsed?.intent;
+          if (pIntent === 'expiry') {
+            intent = 'expiry';
+            expiries = ensureArray(parsed?.expiries).map(e => ({ name:String(e.name||'').trim(), expiresAt: toISODate(e.expiresAt) })).filter(e=>e.name && e.expiresAt);
+          } else if (pIntent === 'stock_update') {
+            intent = 'stock_update';
+            updates = ensureArray(parsed?.updates).map(u => ({
+              name:String(u.name||'').trim(),
+              mode:(u.mode==='units'?'units':'packs'),
+              value: Math.max(0, Number(u.value||0))
+            })).filter(u => u.name && u.value>0);
           }
-
-          const old = arr[idx];
-          let packs = Number(old.packs||0);
-          let unitsPerPack = Number(old.unitsPerPack||1);
-          let unitLabel = old.unitLabel || 'unità';
-
-          if (u.mode === 'packs') {
-            packs = Number(u.value||0);
-          } else {
-            const totalUnits = Number(u.value||0);
-            packs = unitsPerPack ? (totalUnits / unitsPerPack) : totalUnits;
-          }
-
-          // consumo medio (unità/giorno)
-          let avgDailyUnits = old?.avgDailyUnits || 0;
-          if (old?.lastRestockAt && old?.baselinePacks > packs) {
-            const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
-            const usedUnits = Math.max(0, (Number(old.baselinePacks)*unitsPerPack) - (packs*unitsPerPack));
-            const day = usedUnits / days;
-            avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
-          }
-
-          const baselinePacks = Math.max(Number(old.baselinePacks||0), packs);
-
-          arr[idx] = { ...old, packs, unitsPerPack, unitLabel, avgDailyUnits, baselinePacks };
-          appliedLocal++;
+        } catch (e) {
+          if (DEBUG) console.warn('[Assistant intent fallback error]', e);
         }
+      }
 
-        applied = appliedLocal;
-        return arr;
-      });
+      if (intent === 'expiry' && expiries.length) {
+        let hit = 0;
+        setStock(prev => {
+          const arr = [...prev];
+          for (const p of expiries) {
+            const idx = arr.findIndex(s => isSimilar(s.name, p.name));
+            if (idx >= 0) { arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt }; hit++; }
+          }
+          return arr;
+        });
+        showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
+        return;
+      }
 
-      showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
+      if (intent === 'stock_update' && updates.length) {
+        let applied = 0;
+        setStock(prev => {
+          const arr = [...prev];
+          for (const u of updates) {
+            let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+            if (idx < 0) {
+              // crea nuova riga scorte
+              if (u.mode === 'units') {
+                arr.unshift({
+                  name: u.name, brand: '',
+                  packs: 1, unitsPerPack: Number(u.value||1), unitLabel:'unità',
+                  expiresAt:'', baselinePacks:1, lastRestockAt: new Date().toISOString().slice(0,10),
+                  avgDailyUnits:0
+                });
+              } else {
+                arr.unshift({
+                  name: u.name, brand: '',
+                  packs: Number(u.value||0), unitsPerPack:1, unitLabel:'unità',
+                  expiresAt:'', baselinePacks:Number(u.value||0), lastRestockAt: new Date().toISOString().slice(0,10),
+                  avgDailyUnits:0
+                });
+              }
+              applied++;
+              continue;
+            }
+
+            const old = arr[idx];
+            let packs = Number(old.packs||0);
+            let unitsPerPack = Number(old.unitsPerPack||1);
+            let unitLabel = old.unitLabel || 'unità';
+
+            if (u.mode === 'packs') {
+              packs = Number(u.value||0);
+            } else {
+              const totalUnits = Number(u.value||0);
+              packs = unitsPerPack ? (totalUnits / unitsPerPack) : totalUnits;
+            }
+
+            // consumo medio (unità/giorno)
+            let avgDailyUnits = old?.avgDailyUnits || 0;
+            if (old?.lastRestockAt && old?.baselinePacks > packs) {
+              const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
+              const usedUnits = Math.max(0, (Number(old.baselinePacks)*unitsPerPack) - (packs*unitsPerPack));
+              const day = usedUnits / days;
+              avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
+            }
+
+            const baselinePacks = Math.max(Number(old.baselinePacks||0), packs);
+            arr[idx] = { ...old, packs, unitsPerPack, unitLabel, avgDailyUnits, baselinePacks };
+            applied++;
+          }
+          return arr;
+        });
+        showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
+        return;
+      }
+
+      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
     } catch (e) {
-      console.error('[Stock Update] error', e);
-      showToast(`Errore aggiornamento scorte: ${e?.message || e}`, 'err');
+      console.error('[Voice Inventory] error', e);
+      showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
     } finally {
       setBusy(false);
-      setUpdRecBusy(false);
-      try { updStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-      updMediaRef.current = null;
-      updStreamRef.current = null;
-      updChunksRef.current = [];
+      setInvRecBusy(false);
+      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      invMediaRef.current = null;
+      invStreamRef.current = null;
+      invChunksRef.current = [];
     }
   }
 
@@ -1165,15 +1200,10 @@ export default function ListeProdotti() {
             <div style={styles.scorteHeader}>
               <h3 style={{...styles.h3, marginBottom:0}}>📊 Stato Scorte</h3>
               <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                {!expRecBusy ? (
-                  <button onClick={startVoiceExpiry} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Scadenze</button>
+                {!invRecBusy ? (
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Scadenze/Scorte</button>
                 ) : (
-                  <button onClick={stopVoiceExpiry} style={styles.voiceBtnSmallStop}>⏹️ Stop Vocale</button>
-                )}
-                {!updRecBusy ? (
-                  <button onClick={startVoiceStockUpdate} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Aggiorna Scorte</button>
-                ) : (
-                  <button onClick={stopVoiceStockUpdate} style={styles.voiceBtnSmallStop}>⏹️ Stop Aggiornamento</button>
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmallStop}>⏹️ Stop</button>
                 )}
                 <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
                 <input
@@ -1234,10 +1264,10 @@ export default function ListeProdotti() {
               onChange={(e)=>handleRowOcrChange(Array.from(e.target.files||[]))}
             />
             <p style={{opacity:.75, marginTop:8}}>
-              Dillo così: “il latte scade il 15/07/2025; il burro il 12/08/2026; la passata di pomodoro scade il 10 giugno 2025”.
+              Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
             </p>
             <p style={{opacity:.75, marginTop:4}}>
-              Aggiorna scorte dicendo: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+              Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
             </p>
           </div>
 
