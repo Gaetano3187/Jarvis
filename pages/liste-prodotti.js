@@ -1510,88 +1510,41 @@ setLists(prev => {
             )}
           </div>
 
-          {/* Stato scorte */}
-          <div style={styles.sectionXL}>
-            <div style={styles.scorteHeader}>
-              <h3 style={{...styles.h3, marginBottom:0}}>📊 Stato Scorte</h3>
-              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                {!invRecBusy ? (
-                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Scadenze/Scorte</button>
-                ) : (
-                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmallStop}>⏹️ Stop</button>
-                )}
-                <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
-                <input
-                  ref={ocrInputRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  capture="environment"
-                  multiple
-                  hidden
-                  onChange={(e) => handleOCR(Array.from(e.target.files || []))}
-                />
-              </div>
-            </div>
-
-            {stock.length === 0 ? (
-              <p style={{opacity:.8, marginTop:8}}>Nessun dato scorte</p>
-            ) : (
-              <table style={{...styles.table, marginTop:10}}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Prodotto</th>
-                    <th style={styles.th}>Marca</th>
-                    <th style={styles.th}>Confezioni</th>
-                    <th style={styles.th}>Unità/conf.</th>
-                    <th style={styles.th}>Residuo unità</th>
-              <th style={styles.th}>Giorni rimasti</th>
-              <th style={styles.th}>Livello</th>
-                    <th style={styles.th}>Scadenza</th>
-                    <th style={styles.th}></th>
-                  </tr>
-                </thead>
-  <tbody>
-  {stock.map((s, i) => (
-    <tr key={i}>
-      {/* Prodotto + meta + barra mini sotto */}
-      <td style={styles.td}>
-        <div style={{fontWeight:700}}>{s.name}</div>
-        <div style={{opacity:.75, fontSize:12}}>
-          {s.brand || '—'} · {(s.packs ?? 0).toFixed?.(2) ?? s.packs} conf · {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}/conf
-        </div>
-        <StockBarMini row={s}/>
-      </td>
-
-      {/* Marca */}
-      <td style={styles.td}>{s.brand || '-'}</td>
-
-      {/* Confezioni */}
-      <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
-
-      {/* Unità/conf. */}
-      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-
-      {/* Unità residue */}
-      <td style={styles.td}>{totalUnitsOf(s)}</td>
-
-      {/* Giorni rimasti */}
-      <td style={styles.td}><DaysBadge expiresAt={s.expiresAt} /></td>
-
+     <tbody>
+  {stocks.map((s, i) => (
+    <tr key={s.id ?? i}>
       {/* Scadenza */}
-      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
+      <td style={styles.td}>
+        {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
+      </td>
 
       {/* Azioni: SOLO OCR / Modifica / Elimina */}
       <td style={styles.td}>
-        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-          <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-          <button onClick={() => editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-          <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => openRowOcr(i)}
+            style={styles.ocrInlineBtn}
+            disabled={busy}
+          >
+            📷 OCR
+          </button>
+          <button
+            onClick={() => editStockRow(i)}
+            style={styles.actionGhost}
+          >
+            ✎ Modifica
+          </button>
+          <button
+            onClick={() => deleteStockRow(i)}
+            style={styles.actionGhostDanger}
+          >
+            🗑 Elimina
+          </button>
         </div>
       </td>
     </tr>
   ))}
 </tbody>
-
                  <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
                         <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
@@ -1609,6 +1562,23 @@ setLists(prev => {
                   ))}
                 </tbody>
               </table>
+ <input
+    ref={rowOcrInputRef}
+    type="file"
+    accept="image/*,application/pdf"
+    capture="environment"
+    hidden
+    onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
+  />
+
+  <p style={{ opacity: .75, marginTop: 8 }}>
+    Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
+  </p>
+  <p style={{ opacity: .75, marginTop: 4 }}>
+    Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+    Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
+  </p>
+</div>
             )}
             {/* input file unico per OCR scadenza di riga */}
             <input
