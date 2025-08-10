@@ -846,26 +846,23 @@ export default function ListeProdotti() {
 
   const decList = (listKey) => {
     const arr = [...(next[listKey] || [])];
-
     for (const p of purchases) {
       const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
 
-      // 1) match stretto: nome+brand+unitsPerPack
+      // 1) match stretto: nome+brand+UPP
       let idx = arr.findIndex(i =>
         isSimilar(i.name, p.name) &&
         (!p.brand || isSimilar(i.brand || '', p.brand || '')) &&
-        Number(i.unitsPerPack || 1) === Number(p.unitsPerPack || 1)
+        Number(i.unitsPerPack||1) === Number(p.unitsPerPack||1)
       );
-
-      // 2) fallback: ignora unitsPerPack (nome+brand soltanto)
+      // 2) match medio: nome+brand (ignora UPP)
       if (idx < 0) {
         idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
           (!p.brand || isSimilar(i.brand || '', p.brand || ''))
         );
       }
-
-      // 3) ulteriore fallback: solo nome simile
+      // 3) match morbido: solo nome
       if (idx < 0) {
         idx = arr.findIndex(i => isSimilar(i.name, p.name));
       }
@@ -873,13 +870,9 @@ export default function ListeProdotti() {
       if (idx >= 0) {
         const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
         arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
-        if (newQty <= 0) {
-          // rimuovi dalla lista se quantità esaurita
-          arr.splice(idx, 1);
-        }
+        if (newQty <= 0) arr.splice(idx, 1);
       }
     }
-
     next[listKey] = arr;
   };
 
@@ -887,6 +880,7 @@ export default function ListeProdotti() {
   decList(LIST_TYPES.ONLINE);
   return next;
 }
+
 
 
   /* ---------------- OCR: scontrini ---------------- */
