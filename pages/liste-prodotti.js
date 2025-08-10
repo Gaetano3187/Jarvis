@@ -116,7 +116,7 @@ function toISODate(any) {
     const M = String(num[2]).padStart(2, '0');
     let y = String(num[3]);
     if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
-    return ${y}-${M}-${d};
+   return `${y}-${M}-${d}`;
   }
   const mIt = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
   const mm = s.toLowerCase().match(/(\d{1,2})\s+([a-zà-ú]+)\s+(\d{2,4})/i);
@@ -128,7 +128,7 @@ function toISODate(any) {
       let y = String(mm[3]);
       if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
       const M = String(idx+1).padStart(2, '0');
-      return ${y}-${M}-${d};
+      return `${y}-${M}-${d}
     }
   }
   return '';
