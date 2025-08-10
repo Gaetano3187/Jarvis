@@ -47,6 +47,12 @@ function isSimilar(a,b){
   return j>=0.5 || (inter>=1 && (A.size===1 || B.size===1));
 }
 
+/* ——— capisce se l’utente vuole “impostare a …” invece di aggiungere ——— */
+function wantsAbsoluteSet(text) {
+  const t = normKey(text);
+  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+}
+
 /* ---------------- parser liste (aggiunta rapida da testo) ---------------- */
 function parseLinesToItems(text) {
   const chunks = String(text || '')
@@ -333,10 +339,10 @@ function buildInventoryIntentPrompt(text) {
     'Decidi l’intento e produci SOLO JSON conforme agli schemi:',
     '',
     'Se è aggiornamento scorte:',
-    '{ "intent":"stock_update", "updates":[ { "name":"latte", "mode":"packs|units", "value":3 }, ... ] }',
+    '{ "intent":"stock_update", "updates":[ { "name":"latte", "mode":"packs|units", "value":3 } ] }',
     '',
     'Se è scadenze:',
-    '{ "intent":"expiry", "expiries":[ { "name":"latte", "expiresAt":"YYYY-MM-DD" }, ... ] }',
+    '{ "intent":"expiry", "expiries":[ { "name":"latte", "expiresAt":"YYYY-MM-DD" } ] }',
     '',
     'REGOLE:',
     '- Se compaiono date o parole: "scad", "scadenza", "scade", "entro", usa intent="expiry".',
@@ -407,42 +413,44 @@ function parseReceiptPurchases(ocrText) {
 function parseStockUpdateText(text) {
   const t = normKey(text);
 
-  // Evita di splittare su "e" quando fa parte di una data o contesto numerico
+  // spezzatura "soft"
   const parts = t
-    .split(/[,;]+/g) // prima separiamo per virgole/punto e virgola
+    .split(/[,;]+/g)
     .map(s => s.trim())
     .filter(Boolean);
 
   const res = [];
+  const absolute = wantsAbsoluteSet(text); // se frasi tipo "porta a...", usiamo set come default del batch
+
   for (let chunk of parts) {
     // Scarta blocchi che parlano di scadenze/date
     if (/scad|scadenza|scade|entro/.test(chunk)) continue;
     if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(chunk)) continue;
     if (/\b20\d{2}\b/.test(chunk)) continue; // evita anni tipo 2025
 
-    // Prova anche a scomporre per " e " SOLO se non ci sono numeri a destra/sinistra che sembrano date
-    const mini = chunk.split(/\s+e\s+/g).filter(Boolean);
-    const candidates = mini.length>1 ? mini : [chunk];
+    // scomponi " e " solo dopo la prima scrematura
+    const candidates = chunk.split(/\s+e\s+/g).filter(Boolean);
 
-    for (const c of candidates) {
+    for (const c of (candidates.length ? candidates : [chunk])) {
       const m = c.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
       if (!m) continue;
       let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
-      const n = Number(String(m[2]).replace(',','.')) || 0;
+      if (!name) continue;
+
+      let value = Number(String(m[2]).replace(',','.')) || 0;
+      if (!Number.isFinite(value) || value <= 0) continue;
+      if (value >= 1000) continue; // difesa su numeri assurdi
       const tag = (m[3]||'').toLowerCase();
 
-      if (!name) continue;
-      if (n >= 1000) continue; // evita numeri anomali trattati come qty
+      // normalizza nome
+      for (const lex of GROCERY_LEXICON) { if (isSimilar(name, lex)) { name = lex; break; } }
 
-      for (const lex of GROCERY_LEXICON) {
-        if (isSimilar(name, lex)) { name = lex; break; }
-      }
+      const mode = /unit|pz|pezzi|barrett|vasett|uova/.test(tag) ? 'units' : 'packs';
 
-      if (/unit|pz|pezzi|barrett|vasett|uova/.test(tag)) {
-        res.push({ name, mode:'units', value:n });
-      } else {
-        res.push({ name, mode:'packs', value:n });
-      }
+      // op: se la frase complessiva conteneva pattern "porta a ..." → set, altrimenti add
+      const op = absolute ? 'set' : 'add';
+
+      res.push({ name, mode, value, op });
     }
   }
   return res;
@@ -966,7 +974,7 @@ export default function ListeProdotti() {
       let updates = localUpdates;
       let expiries = localExpiries;
 
-      // Se locale non trova nulla, chiedi all'Assistant con esempi
+      // Se locale non trova nulla, prova Assistant
       if ((intent === 'expiry' && !expiries.length) || (intent === 'stock_update' && !updates.length)) {
         try {
           const prompt = buildInventoryIntentPrompt(text);
@@ -985,7 +993,8 @@ export default function ListeProdotti() {
             updates = ensureArray(parsed?.updates).map(u => ({
               name:String(u.name||'').trim(),
               mode:(u.mode==='units'?'units':'packs'),
-              value: Math.max(0, Number(u.value||0))
+              value: Math.max(0, Number(u.value||0)),
+              op: 'add' // di default aggiunge se non specificato
             })).filter(u => u.name && u.value>0);
           }
         } catch (e) {
@@ -1011,52 +1020,76 @@ export default function ListeProdotti() {
         let applied = 0;
         setStock(prev => {
           const arr = [...prev];
+          const todayISO = new Date().toISOString().slice(0,10);
+
           for (const u of updates) {
             let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+            const isSet = (u.op === 'set');
+            const isUnits = (u.mode === 'units');
+
             if (idx < 0) {
               // crea nuova riga scorte
-              if (u.mode === 'units') {
-                arr.unshift({
-                  name: u.name, brand: '',
-                  packs: 1, unitsPerPack: Number(u.value||1), unitLabel:'unità',
-                  expiresAt:'', baselinePacks:1, lastRestockAt: new Date().toISOString().slice(0,10),
-                  avgDailyUnits:0
-                });
+              if (isUnits) {
+                // senza info pregresse: se "set" → packs = ceil(units), upp=1; se "add" → 1 conf. da N unità
+                if (isSet) {
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: Math.max(1, Math.ceil(Number(u.value||1))),
+                    unitsPerPack: 1, unitLabel:'unità',
+                    expiresAt:'', baselinePacks: Math.max(1, Math.ceil(Number(u.value||1))),
+                    lastRestockAt: todayISO, avgDailyUnits:0
+                  });
+                } else {
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: 1, unitsPerPack: Math.max(1, Math.round(Number(u.value||1))), unitLabel:'unità',
+                    expiresAt:'', baselinePacks:1,
+                    lastRestockAt: todayISO, avgDailyUnits:0
+                  });
+                }
               } else {
+                // mode packs
+                const p = Math.max(0, Number(u.value||0));
                 arr.unshift({
                   name: u.name, brand: '',
-                  packs: Number(u.value||0), unitsPerPack:1, unitLabel:'unità',
-                  expiresAt:'', baselinePacks:Number(u.value||0), lastRestockAt: new Date().toISOString().slice(0,10),
-                  avgDailyUnits:0
+                  packs: p, unitsPerPack:1, unitLabel:'unità',
+                  expiresAt:'', baselinePacks: p,
+                  lastRestockAt: todayISO, avgDailyUnits:0
                 });
               }
               applied++;
               continue;
             }
 
+            // Esiste già
             const old = arr[idx];
-            let packs = Number(old.packs||0);
-            let unitsPerPack = Number(old.unitsPerPack||1);
-            let unitLabel = old.unitLabel || 'unità';
+            const upp = Math.max(1, Number(old.unitsPerPack || 1));
+            const unitLabel = old.unitLabel || 'unità';
+            let packs = Number(old.packs || 0);
 
-            if (u.mode === 'packs') {
-              packs = Number(u.value||0);
+            if (isUnits) {
+              const currentUnits = packs * upp;
+              const valUnits = Math.max(0, Number(u.value || 0));
+              const newUnits = isSet ? valUnits : (currentUnits + valUnits);
+              packs = newUnits / upp; // confezioni decimali permesse
             } else {
-              const totalUnits = Number(u.value||0);
-              packs = unitsPerPack ? (totalUnits / unitsPerPack) : totalUnits;
+              const valPacks = Math.max(0, Number(u.value || 0));
+              packs = isSet ? valPacks : (packs + valPacks);
             }
 
-            // consumo medio (unità/giorno)
+            // consumo medio (unità/giorno) se diminuisce rispetto alla baseline precedente
             let avgDailyUnits = old?.avgDailyUnits || 0;
-            if (old?.lastRestockAt && old?.baselinePacks > packs) {
+            if (old?.lastRestockAt && Number(old.baselinePacks||0) * upp > packs * upp) {
               const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
-              const usedUnits = Math.max(0, (Number(old.baselinePacks)*unitsPerPack) - (packs*unitsPerPack));
+              const usedUnits = (Number(old.baselinePacks||0)*upp) - (packs*upp);
               const day = usedUnits / days;
               avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
             }
 
-            const baselinePacks = Math.max(Number(old.baselinePacks||0), packs);
-            arr[idx] = { ...old, packs, unitsPerPack, unitLabel, avgDailyUnits, baselinePacks };
+            // riallineo baseline al nuovo livello dopo l'operazione
+            const baselinePacks = packs;
+
+            arr[idx] = { ...old, packs, unitsPerPack: upp, unitLabel, avgDailyUnits, baselinePacks, lastRestockAt: todayISO };
             applied++;
           }
           return arr;
@@ -1268,6 +1301,7 @@ export default function ListeProdotti() {
             </p>
             <p style={{opacity:.75, marginTop:4}}>
               Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+              Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
             </p>
           </div>
 
