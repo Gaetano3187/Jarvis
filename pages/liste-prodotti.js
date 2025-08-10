@@ -1532,7 +1532,7 @@ export default function ListeProdotti() {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround() {}
 
-/* ---------------- styles (ottimizzati) ---------------- */
+/* ---------------- styles (ottimizzati e CHIUSI correttamente) ---------------- */
 const styles = {
   page: {
     width: '100%',
@@ -1546,8 +1546,6 @@ const styles = {
     fontFamily:
       'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
-  // ... resto degli stili
-};
 
   card: {
     width: '100%',
@@ -1566,7 +1564,7 @@ const styles = {
     marginBottom: 12,
     flexWrap: 'wrap',
   },
-   homeBtn: {
+  homeBtn: {
     background: '#6366f1',
     color: '#fff',
     padding: '8px 12px',
