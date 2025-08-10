@@ -1026,52 +1026,66 @@ export default function ListeProdotti() {
   }
 
   /* ---------------- Modifica / Elimina scorte ---------------- */
-  function editStockRow(i) {
-    const it = stock[i];
-    if (!it) return;
-    const name = prompt('Nome prodotto:', it.name);
-    if (name == null || !name.trim()) return;
-    const brand = prompt('Marca (opzionale):', it.brand || '');
-    if (brand == null) return;
+ function editStockRow(i) {
+  const it = stock[i];
+  if (!it) return;
 
-    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
-    if (packsStr == null) return;
-    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+  const name = prompt('Nome prodotto:', it.name);
+  if (name == null || !name.trim()) return;
 
-    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
-    if (uppStr == null) return;
-    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+  const brand = prompt('Marca (opzionale):', it.brand || '');
+  if (brand == null) return;
 
-    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
-    if (unitLabel == null) return;
+  const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+  if (packsStr == null) return;
+  const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
 
-    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
-    const ex = expStr ? toISODate(expStr) : '';
+  const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+  if (uppStr == null) return;
+  const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
 
-    setStock(prev => {
-      const arr = [...prev];
-      const old = arr[i];
-      const todayISO = new Date().toISOString().slice(0,10);
-      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+  const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+  if (unitLabel == null) return;
 
-      // aumento? allora è restock
-      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-      const wasUnits = Number(old.packs || 0) * uppOld;
-      const nowUnits = packs * unitsPerPack;
-      const restock = nowUnits > wasUnits;
+  const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+  const ex = expStr ? toISODate(expStr) : '';
 
-      arr[i] = {
-        ...old,
-        name: name.trim(),
-        brand: (brand||'').trim(),
-        packs, unitsPerPack, unitLabel,
-        expiresAt: ex || '',
-        avgDailyUnits,
-        ...(restock ? restockTouch(packs, todayISO) : {})
-      };
-      return arr;
-    });
-  }
+  setStock(prev => {
+    const arr = [...prev];
+    const old = arr[i];
+    const todayISO = new Date().toISOString().slice(0,10);
+
+    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+    const wasUnits = Number(old.packs || 0) * uppOld;
+    const nowUnits = packs * unitsPerPack;
+
+    let avgDailyUnits = old?.avgDailyUnits || 0;
+    if (old?.lastRestockAt && wasUnits > nowUnits) {
+      // diminuzione → apprendi consumo osservato
+      const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
+      const usedUnits = wasUnits - nowUnits;
+      const obs = usedUnits / days;
+      avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*obs) : obs;
+    } else {
+      // decay leggero per non cristallizzare
+      avgDailyUnits = avgDailyUnits * 0.98;
+    }
+
+    const restock = nowUnits > wasUnits;
+
+    arr[i] = {
+      ...old,
+      name: name.trim(),
+      brand: (brand||'').trim(),
+      packs, unitsPerPack, unitLabel,
+      expiresAt: ex || '',
+      avgDailyUnits,
+      ...(restock ? restockTouch(packs, todayISO) : {})
+    };
+    return arr;
+  });
+}
+
 
   function deleteStockRow(i) {
     const it = stock[i];
