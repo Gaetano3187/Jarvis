@@ -691,18 +691,28 @@ export default function ListeProdotti() {
     const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
     const moveLabel = item.unitLabel || 'unità';
 
-    // 1) aggiorna la lista
-    setLists(prev => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || [])
-        .map(i => {
-          if (i.id !== id) return i;
-          const newQty = Math.max(0, Number(i.qty || 0) - movePacks);
-          return { ...i, qty: newQty, purchased: true };
-        })
-        .filter(i => Number(i.qty || 0) > 0);
-      return next;
-    });
+   // 1) aggiorna la lista corrente: scala movePacks dall'item con id, marca purchased se va a 0, rimuovi gli 0
+setLists(prev => {
+  const next = { ...prev };
+  const list = Array.isArray(prev?.[currentList]) ? prev[currentList] : [];
+
+  next[currentList] = list
+    .map(i => {
+      if (i.id !== id) return i;
+      const curr = Number(i.qty ?? 0);
+      const dec  = Number(movePacks ?? 0);
+      const newQty = Math.max(0, curr - dec);
+      return {
+        ...i,
+        qty: newQty,
+        purchased: newQty === 0 ? true : i.purchased
+      };
+    })
+    .filter(i => Number(i.qty ?? 0) > 0); // elimina righe a 0
+
+  return next;
+});
+
 
     // 2) aggiorna scorte
     setStock(prev => {
