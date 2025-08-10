@@ -52,7 +52,7 @@ function isSimilar(a,b){
   return j>=0.5 || (inter>=1 && (A.size===1 || B.size===1));
 }
 
-function unitsFrom(packs, perPack){ 
+function unitsFrom(packs, perPack){
   const P = Math.max(0, Number(packs||0));
   const U = Math.max(1, Number(perPack||1));
   return P * U;
@@ -528,7 +528,9 @@ export default function ListeProdotti() {
     e.preventDefault();
     const packs = Math.max(1, Math.round(Number(String(form.packs).replace(',', '.')) || 1));
     // se l'utente non sa perPack, prova dal catalogo
-    const perPack = Math.max(1, Math.round(Number(String(form.perPack).replace(',', '.')) || 0))) || fillPerPackFromCatalog(form.name, form.brand, 1);
+    const perPack =
+      Math.max(1, Math.round(Number(String(form.perPack).replace(',', '.')) || 0)) ||
+      fillPerPackFromCatalog(form.name, form.brand, 1);
     const name = form.name.trim();
     const brand = form.brand.trim();
     if (!name) return;
@@ -653,7 +655,6 @@ export default function ListeProdotti() {
         }, 25000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
-        if (DEBUG) console.log('[Assistant list] raw answer:', typeof answer==='string'?answer:JSON.stringify(answer,null,2));
         const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
         const arr = Array.isArray(parsed?.items) ? parsed.items : [];
         if (arr.length) {
