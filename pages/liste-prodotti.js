@@ -1510,7 +1510,7 @@ setLists(prev => {
             )}
           </div>
 
-     <tbody>
+   <tbody>
   {stocks.map((s, i) => (
     <tr key={s.id ?? i}>
       {/* Scadenza */}
@@ -1545,6 +1545,23 @@ setLists(prev => {
     </tr>
   ))}
 </tbody>
+<input
+  ref={rowOcrInputRef}
+  type="file"
+  accept="image/*,application/pdf"
+  capture="environment"
+  hidden
+  onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
+/>
+
+<p style={{ opacity: .75, marginTop: 8 }}>
+  Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
+</p>
+<p style={{ opacity: .75, marginTop: 4 }}>
+  Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+  Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
+</p>
+
                  <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
                         <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
