@@ -210,6 +210,24 @@ function timeoutFetch(url, opts={}, ms=25000) {
 
 /* ---------------- Confezioni × Unità helpers ---------------- */
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+function baselineUnitsOf(s){
+  const upp = Math.max(1, Number(s.unitsPerPack || 1));
+  const baselinePacks = Number(s.baselinePacks || 0);
+  const currentUnits = totalUnitsOf(s);
+  const baselineUnits = baselinePacks > 0 ? baselinePacks * upp : currentUnits || upp;
+  // evita che la barra superi 100% se la baseline è bassa
+  return Math.max(baselineUnits, currentUnits || 0);
+}
+
+function percentRemaining(s){
+  const cur = totalUnitsOf(s);
+  const base = Math.max(1, baselineUnitsOf(s));
+  return Math.max(0, Math.min(100, Math.round((cur / base) * 100)));
+}
+
+function hueForPercent(p){ // 0→rosso, 100→verde
+  return Math.round((p / 100) * 120);
+}
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
 function extractPackInfo(str){
@@ -950,51 +968,68 @@ export default function ListeProdotti() {
 
   /* ---------------- Modifica / Elimina scorte ---------------- */
   function editStockRow(i) {
-    const it = stock[i];
-    if (!it) return;
-    const name = prompt('Nome prodotto:', it.name);
-    if (name == null || !name.trim()) return;
-    const brand = prompt('Marca (opzionale):', it.brand || '');
-    if (brand == null) return;
+  const it = stock[i];
+  if (!it) return;
 
-    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
-    if (packsStr == null) return;
-    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+  const name = prompt('Nome prodotto:', it.name);
+  if (name == null || !name.trim()) return;
 
-    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
-    if (uppStr == null) return;
-    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+  const brand = prompt('Marca (opzionale):', it.brand || '');
+  if (brand == null) return;
 
-    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
-    if (unitLabel == null) return;
+  const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+  if (packsStr == null) return;
+  let packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
 
-    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
-    const ex = expStr ? toISODate(expStr) : '';
+  const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+  if (uppStr == null) return;
+  const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
 
-    setStock(prev => {
-      const arr = [...prev];
-      const old = arr[i];
-      const todayISO = new Date().toISOString().slice(0,10);
-      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+  const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+  if (unitLabel == null) return;
 
-      // aumento? allora è restock
-      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-      const wasUnits = Number(old.packs || 0) * uppOld;
-      const nowUnits = packs * unitsPerPack;
-      const restock = nowUnits > wasUnits;
+  const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+  const ex = expStr ? toISODate(expStr) : '';
 
-      arr[i] = {
-        ...old,
-        name: name.trim(),
-        brand: (brand||'').trim(),
-        packs, unitsPerPack, unitLabel,
-        expiresAt: ex || '',
-        avgDailyUnits,
-        ...(restock ? restockTouch(packs, todayISO) : {})
-      };
-      return arr;
-    });
+  // NEW: residuo unità totale (prioritario per calibrare i consumi)
+  const curUnits = Math.max(0, Math.round((Number(it.packs||0)) * Math.max(1, Number(it.unitsPerPack||1))));
+  const residStr = prompt('Residuo unità totale (opzionale, PRIORITARIO per calibrare i consumi):', String(curUnits));
+  let residUnits = null;
+  if (residStr != null && String(residStr).trim() !== '') {
+    const v = Number(String(residStr).replace(',','.'));
+    if (Number.isFinite(v) && v >= 0) residUnits = v;
   }
+  if (residUnits != null) {
+    packs = residUnits / unitsPerPack; // calcolo confezioni dal residuo
+  }
+
+  setStock(prev => {
+    const arr = [...prev];
+    const old = arr[i];
+    const todayISO = new Date().toISOString().slice(0,10);
+
+    // consumo medio
+    const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+
+    // aumento? consideralo restock
+    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+    const wasUnits = Number(old.packs || 0) * uppOld;
+    const nowUnits = packs * unitsPerPack;
+    const restock = nowUnits > wasUnits;
+
+    arr[i] = {
+      ...old,
+      name: name.trim(),
+      brand: (brand||'').trim(),
+      packs, unitsPerPack, unitLabel,
+      expiresAt: ex || '',
+      avgDailyUnits,
+      ...(restock ? restockTouch(packs, todayISO) : {})
+    };
+    return arr;
+  });
+}
+
 
   function deleteStockRow(i) {
     const it = stock[i];
@@ -1437,39 +1472,29 @@ export default function ListeProdotti() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stock.map((s, i) => (
-                    <tr key={i}>
-                      <td style={styles.td}>{s.name}</td>
-                      <td style={styles.td}>{s.brand || '-'}</td>
-                      <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
-                      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-                      <td style={styles.td}>
-                        {totalUnitsOf(s)}
-                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
-                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
-                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
-                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
-                        </div>
-                      </td>
-                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
-                      <td style={styles.td}>
-                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                  <td style={styles.td}>
+  {/* valore corrente */}
+  <div style={{display:'flex', alignItems:'center', gap:10}}>
+    <strong>{totalUnitsOf(s)}</strong>
+    <span style={{opacity:.8, fontSize:12}}>unità</span>
+  </div>
 
-                          {/* Controlli rapidi confezioni */}
-                          <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost} title="− 1 confezione">−1 conf.</button>
-                          <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost} title="+ 1 confezione">+1 conf.</button>
-
-                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {/* input file unico per OCR scadenza di riga */}
+  {/* barra livello: usa baseline come “pieno” (fallback a packs correnti) */}
+  {(() => {
+    const upp = Math.max(1, Number(s.unitsPerPack || 1));
+    const cur = Math.max(0, Math.round((Number(s.packs||0))*upp));
+    const max = Math.max(1, Math.round((Number(s.baselinePacks ?? s.packs ?? 0))*upp));
+    const ratio = Math.min(1, cur / max);
+    const pct = Math.round(ratio * 100);
+    const hue = Math.round(ratio * 120); // 0=rosso, 120=verde
+    return (
+      <div style={styles.levelBar} title={`Residuo: ${pct}%`}>
+        <div style={{ ...styles.levelBarInner, width: pct + '%', background: `hsl(${hue} 70% 45%)` }} />
+      </div>
+    );
+  })()}
+</td>
+           {/* input file unico per OCR scadenza di riga */}
             <input
               ref={rowOcrInputRef}
               type="file"
@@ -1791,6 +1816,19 @@ const styles = {
     background: 'rgba(245,158,11,.18)',
     border: '1px solid rgba(245,158,11,.7)',
     color: '#fffbeb',
+  },
+    levelBar: {
+    width: '100%',
+    height: 8,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.12)',
+    border: '1px solid rgba(255,255,255,.18)',
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  levelBarInner: {
+    height: '100%',
+    transition: 'width .25s ease',
   },
   daysBadgeRed: {
     background: 'rgba(239,68,68,.18)',
