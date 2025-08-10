@@ -208,8 +208,66 @@ function timeoutFetch(url, opts={}, ms=25000) {
     .finally(()=>clearTimeout(t));
 }
 
-/* ---------------- Confezioni × Unità helpers ---------------- */
-function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+//* ---------------- Confezioni × Unità helpers ---------------- */
+function totalUnitsOf(s){
+  const packs = Math.max(0, Number(s.packs || 0));
+  const upp = Math.max(1, Number(s.unitsPerPack || 1));
+  return packs * upp;
+}
+/* --------- Giorni rimasti & badge --------- */
+function daysLeft(expiresAt){
+  if(!expiresAt) return null;
+  const end = new Date(expiresAt);
+  const today = new Date();
+  return Math.ceil((end - today)/86400000);
+}
+function daysBadgeKind(d){
+  if(d == null) return 'gray';
+  if(d > 14) return 'green';
+  if(d >= 7) return 'amber';
+  return 'red';
+}
+function DaysBadge({ expiresAt }){
+  const d = daysLeft(expiresAt);
+  const kind = daysBadgeKind(d);
+  const base = styles.daysBadgeBase;
+  const tone = kind==='green' ? styles.daysBadgeGreen :
+               kind==='amber' ? styles.daysBadgeAmber :
+               kind==='red' ? styles.daysBadgeRed : styles.daysBadgeGray;
+  return (
+    <span style={{...base, ...tone}}>
+      {d==null ? '—' : (d < 0 ? 'Scaduto' : (d===1 ? '1 giorno' : `${d} giorni`))}
+    </span>
+  );
+}
+
+/* --------- Barra livello stock (vs baseline) --------- */
+function stockPercentLeft(row){
+  const upp = Math.max(1, Number(row.unitsPerPack||1));
+  const units = Math.max(0, Number(row.packs||0) * upp);
+  let baseUnits = Number(row.baselinePacks!=null ? row.baselinePacks : row.packs) * upp;
+  if (!Number.isFinite(baseUnits) || baseUnits <= 0) baseUnits = Math.max(1, units || 1);
+  return Math.max(0, Math.min(100, Math.round((units/baseUnits)*100)));
+}
+function StockBar({ row }){
+  const pct = stockPercentLeft(row);
+  const barOuter = {
+    position:'relative', width: '160px', height: 10,
+    background: 'rgba(255,255,255,.12)', borderRadius: 999, overflow:'hidden',
+    border: '1px solid rgba(255,255,255,.2)'
+  };
+  // colore dinamico: >50 verde, 20–50 ambra, <20 rosso
+  let innerTone = '#16a34a';
+  if (pct <= 50) innerTone = '#f59e0b';
+  if (pct <= 20) innerTone = '#ef4444';
+  const barInner = { width: `${pct}%`, height:'100%', background: innerTone };
+  return (
+    <div style={{display:'flex', alignItems:'center', gap:8}}>
+      <div style={barOuter}><div style={barInner}/></div>
+      <span style={{opacity:.8, fontSize:12}}>{pct}%</span>
+    </div>
+  );
+}
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
 function extractPackInfo(str){
