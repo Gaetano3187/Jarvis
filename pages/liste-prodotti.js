@@ -1433,7 +1433,7 @@ export default function ListeProdotti() {
             )}
           </div>
 
-          {/* Stato scorte */}
+       {/* Stato scorte */}
 <div style={styles.sectionXL}>
   <div style={styles.scorteHeader}>
     <h3 style={{ ...styles.h3, marginBottom: 0 }}>📊 Stato Scorte</h3>
@@ -1495,7 +1495,7 @@ export default function ListeProdotti() {
                 const curUnits = Math.max(0, Math.round((Number(s.packs || 0)) * upp));
                 const baseUnits = Math.max(curUnits, Math.round((Number(s.baselinePacks ?? s.packs ?? 0)) * upp));
                 const pct = baseUnits > 0 ? Math.min(100, Math.round((curUnits / baseUnits) * 100)) : 100;
-                const hue = Math.round((pct / 100) * 120); // 0=rosso, 120=verde
+                const hue = Math.round((pct / 100) * 120);
                 return (
                   <div style={styles.levelWrap} title={`Residuo: ${pct}%`}>
                     <div style={styles.levelTrack}>
@@ -1511,7 +1511,7 @@ export default function ListeProdotti() {
               {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
             </td>
 
-            {/* Azioni semplificate: OCR, Modifica, Elimina */}
+            {/* Azioni semplificate */}
             <td style={styles.td}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
@@ -1525,7 +1525,7 @@ export default function ListeProdotti() {
     </table>
   )}
 
-  {/* input file unico per OCR scadenza di riga */}
+  {/* Input file unico per OCR scadenza di riga */}
   <input
     ref={rowOcrInputRef}
     type="file"
@@ -1543,6 +1543,7 @@ export default function ListeProdotti() {
     Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
   </p>
 </div>
+
 
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
