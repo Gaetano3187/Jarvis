@@ -1542,8 +1542,8 @@ export default function ListeProdotti() {
                 </thead>
                 <tbody>
                   {stock.map((s, i) => (
-                   <tr key={i}>
-  {/* Prodotto: nome + barra mini sotto la descrizione */}
+                 tr key={i}>
+  {/* Prodotto: nome + meta + barra mini sotto */}
   <td style={styles.td}>
     <div style={{fontWeight:700}}>{s.name}</div>
     <div style={{opacity:.75, fontSize:12}}>
