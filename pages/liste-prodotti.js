@@ -1533,11 +1533,6 @@ export default function ListeProdotti() {
   <DaysBadge expiresAt={s.expiresAt} />
 </td>
 
-{/* Livello (vs baseline) */}
-<td style={styles.td}>
-  <StockBar row={s} />
-</td>
-
 {/* Scadenza */}
 <td style={styles.td}>
   {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
