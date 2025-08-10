@@ -1759,7 +1759,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-  ocrInlineBtn: {
+    ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -1768,9 +1768,9 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  },
+  }, // <-- VIRGOLA QUI
 
-    /* ---------- Badge “Giorni rimasti” ---------- */
+  /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -1802,4 +1802,6 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
+}; // <-- e chiudi l’oggetto con punto e virgola
+
 
