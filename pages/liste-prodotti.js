@@ -1557,8 +1557,9 @@ export default function ListeProdotti() {
                      onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
               <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs}
                      onChange={e => setStockForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width:120}} required />
-              <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
-                     onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width:120}} required />
+           <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
+       onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))}
+       style={{...styles.input, width:120}} required />
               <input placeholder="Etichetta unità (es. bottiglie)" value={stockForm.unitLabel}
                      onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width:180}} />
               <input placeholder="Scadenza YYYY-MM-DD (opz.)" value={stockForm.expiresAt}
