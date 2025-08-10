@@ -1523,30 +1523,44 @@ export default function ListeProdotti() {
                 </thead>
                 <tbody>
                   {stock.map((s, i) => (
-                    <tr key={i}>
-                     <td style={styles.td}>
-  {totalUnitsOf(s)}
-</td>
+                   <tr key={i}>
+  {/* Prodotto: nome + barra mini sotto la descrizione */}
+  <td style={styles.td}>
+    <div style={{fontWeight:700}}>{s.name}</div>
+    <div style={{opacity:.75, fontSize:12}}>
+      {(s.packs ?? 0).toFixed?.(2) ?? s.packs} conf · {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}/conf
+    </div>
+    <StockBarMini row={s}/>
+  </td>
 
-{/* Giorni rimasti */}
-<td style={styles.td}>
-  <DaysBadge expiresAt={s.expiresAt} />
-</td>
+  {/* Marca */}
+  <td style={styles.td}>{s.brand || '-'}</td>
 
-{/* Scadenza */}
-<td style={styles.td}>
-  {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
-</td>
+  {/* Confezioni */}
+  <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
 
-{/* Azioni (solo OCR, Modifica, Elimina) */}
-<td style={styles.td}>
-  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-    <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-    <button onClick={() => editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-    <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-  </div>
-</td>
-                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
+  {/* Unità/conf. */}
+  <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
+
+  {/* Unità residue (solo numero) */}
+  <td style={styles.td}>{totalUnitsOf(s)}</td>
+
+  {/* Giorni rimasti */}
+  <td style={styles.td}><DaysBadge expiresAt={s.expiresAt} /></td>
+
+  {/* Scadenza */}
+  <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
+
+  {/* Azioni: SOLO OCR / Modifica / Elimina */}
+  <td style={styles.td}>
+    <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+      <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+      <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+      <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+    </div>
+  </td>
+</tr>
+                 <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
                         <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
                           <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
