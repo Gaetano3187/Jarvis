@@ -1499,18 +1499,33 @@ export default function ListeProdotti() {
                 <tbody>
                   {stock.map((s, i) => (
                     <tr key={i}>
-                      <td style={styles.td}>{s.name}</td>
-                      <td style={styles.td}>{s.brand || '-'}</td>
-                      <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
-                      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-                      <td style={styles.td}>
-                        {totalUnitsOf(s)}
-                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
-                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
-                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
-                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
-                        </div>
-                      </td>
+                     <td style={styles.td}>
+  {totalUnitsOf(s)}
+</td>
+
+{/* Giorni rimasti */}
+<td style={styles.td}>
+  <DaysBadge expiresAt={s.expiresAt} />
+</td>
+
+{/* Livello (vs baseline) */}
+<td style={styles.td}>
+  <StockBar row={s} />
+</td>
+
+{/* Scadenza */}
+<td style={styles.td}>
+  {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
+</td>
+
+{/* Azioni (solo OCR, Modifica, Elimina) */}
+<td style={styles.td}>
+  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+    <button onClick={() => editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+    <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+  </div>
+</td>
                       <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
                       <td style={styles.td}>
                         <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
