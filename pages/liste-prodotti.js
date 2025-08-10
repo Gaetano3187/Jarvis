@@ -54,58 +54,6 @@ function wantsAbsoluteSet(text) {
 }
 
 /* ---------------- parser liste (aggiunta rapida da testo) ---------------- */
-function extractPackInfo(str){
-  const s = normKey(str);
-  let packs = 1;
-  let unitsPerPack = 1;
-  let unitLabel = 'unità';
-
-  // "2 confezioni da 6", "1 pacco x 10 pz"
-  let m = s.match(/(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?)?/i);
-  if (m){
-    packs = Number(m[1]);
-    unitsPerPack = Number(m[2]);
-    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
-    return { packs, unitsPerPack, unitLabel };
-  }
-
-  // "4x125" → 1 conf. da 4 unità
-  m = s.match(/(\d+)\s*[x×]\s*\d+\s*(?:g|kg|ml|cl|l|lt)?/i);
-  if (m){
-    packs = 1;
-    unitsPerPack = Number(m[1]);
-    return { packs, unitsPerPack, unitLabel };
-  }
-
-  // "10 pz"/"10 unità"/"10 vasetti"/"10 uova"
-  m = s.match(/(\d+)\s*(pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova)\b/i);
-  if (m){
-    packs = 1;
-    unitsPerPack = Number(m[1]);
-    unitLabel = m[2].replace(/pz|pezzi/i,'unità');
-    return { packs, unitsPerPack, unitLabel };
-  }
-
-  // "3 bottiglie"/"2 pacchi"/"2 confezioni"
-  m = s.match(/(\d+)\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)/i);
-  if (m){
-    packs = Number(m[1]);
-    unitsPerPack = 1;
-    unitLabel = (m[2].toLowerCase().startsWith('bott') ? 'bottiglie' : 'unità');
-    return { packs, unitsPerPack, unitLabel };
-  }
-
-  // leading qty "2 latte" → 2 conf. da 1
-  m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
-  if (m){
-    packs = Number(String(m[1]).replace(',','.')) || 1;
-    unitsPerPack = 1;
-    return { packs, unitsPerPack, unitLabel };
-  }
-
-  return { packs, unitsPerPack, unitLabel };
-}
-
 function parseLinesToItems(text) {
   const chunks = String(text || '')
     .split(/[\n,;]+/g)
@@ -117,13 +65,13 @@ function parseLinesToItems(text) {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) continue;
 
-    const packInfo = extractPackInfo(s); // {packs, unitsPerPack, unitLabel}
-    let packs = Number(packInfo.packs || 1);
-
-    // Nome + brand
+    let qty = 1;
+    const mQty = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
     let rest = s;
-    const mQtyLead = rest.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
-    if (mQtyLead) rest = mQtyLead[2].trim();
+    if (mQty) {
+      qty = Number(String(mQty[1]).replace(',', '.')) || 1;
+      rest = mQty[2].trim();
+    }
 
     let name = rest, brand = '';
     const marca = rest.match(/\b(?:marca|brand)\s+([^\s].*)$/i);
@@ -134,7 +82,10 @@ function parseLinesToItems(text) {
       const parts = rest.split(' ');
       if (parts.length > 1) {
         const last = parts[parts.length - 1];
-        if (/^[A-ZÀ-ÖØ-Þ]/.test(last)) { brand = last; name = parts.slice(0, -1).join(' '); }
+        if (/^[A-ZÀ-ÖØ-Þ]/.test(last)) {
+          brand = last;
+          name = parts.slice(0, -1).join(' ');
+        }
       }
     }
 
@@ -146,9 +97,7 @@ function parseLinesToItems(text) {
         id: 'tmp-' + Math.random().toString(36).slice(2),
         name,
         brand: brand || '',
-        qty: Number.isFinite(packs) && packs > 0 ? packs : 1, // confezioni richieste
-        unitsPerPack: Number(packInfo.unitsPerPack || 1),
-        unitLabel: packInfo.unitLabel || 'unità',
+        qty: Number.isFinite(qty) && qty > 0 ? qty : 1, // qty = confezioni richieste nella lista
         purchased: false,
       });
     }
@@ -183,14 +132,6 @@ function toISODate(any) {
     }
   }
   return '';
-}
-
-function daysLeft(expiresAt){
-  if(!expiresAt) return null;
-  const end = new Date(expiresAt);
-  const start = new Date();
-  const ms = end.setHours(0,0,0,0) - start.setHours(0,0,0,0);
-  return Math.floor(ms/86400000);
 }
 
 /** Parser scadenze più severo e ampliato */
@@ -269,20 +210,59 @@ function timeoutFetch(url, opts={}, ms=25000) {
 
 /* ---------------- Confezioni × Unità helpers ---------------- */
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
-function baselineUnitsOf(s){
-  const upp = Math.max(1, Number(s.unitsPerPack || 1));
-  const baselinePacks = Number(s.baselinePacks || 0);
-  const currentUnits = totalUnitsOf(s);
-  const baselineUnits = baselinePacks > 0 ? baselinePacks * upp : currentUnits || upp;
-  return Math.max(baselineUnits, currentUnits || 0);
-}
-function percentRemaining(s){
-  const cur = totalUnitsOf(s);
-  const base = Math.max(1, baselineUnitsOf(s));
-  return Math.max(0, Math.min(100, Math.round((cur / base) * 100)));
-}
-function hueForPercent(p){ // 0→rosso, 100→verde
-  return Math.round((p / 100) * 120);
+
+/** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
+function extractPackInfo(str){
+  const s = normKey(str);
+
+  let packs = 1;
+  let unitsPerPack = 1;
+  let unitLabel = 'unità';
+
+  // "2 confezioni da 6", "1 pacco x 10 pz"
+  let m = s.match(/(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?)?/i);
+  if (m){
+    packs = Number(m[1]);
+    unitsPerPack = Number(m[2]);
+    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
+    return { packs, unitsPerPack, unitLabel };
+  }
+
+  // "4x125" → 1 conf. da 4 unità (grammatura ignorata)
+  m = s.match(/(\d+)\s*[x×]\s*\d+\s*(?:g|kg|ml|cl|l|lt)?/i);
+  if (m){
+    packs = 1;
+    unitsPerPack = Number(m[1]);
+    return { packs, unitsPerPack, unitLabel };
+  }
+
+  // "10 pz"/"10 unità"/"10 vasetti"/"10 uova"
+  m = s.match(/(\d+)\s*(pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova)\b/i);
+  if (m){
+    packs = 1;
+    unitsPerPack = Number(m[1]);
+    unitLabel = m[2].replace(/pz|pezzi/i,'unità');
+    return { packs, unitsPerPack, unitLabel };
+  }
+
+  // "3 bottiglie"/"2 pacchi"/"2 confezioni"
+  m = s.match(/(\d+)\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)/i);
+  if (m){
+    packs = Number(m[1]);
+    unitsPerPack = 1;
+    unitLabel = (m[2].toLowerCase().startsWith('bott') ? 'bottiglie' : 'unità');
+    return { packs, unitsPerPack, unitLabel };
+  }
+
+  // leading qty "2 latte" → 2 conf. da 1
+  m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
+  if (m){
+    packs = Number(String(m[1]).replace(',','.')) || 1;
+    unitsPerPack = 1;
+    return { packs, unitsPerPack, unitLabel };
+  }
+
+  return { packs, unitsPerPack, unitLabel };
 }
 
 /* ------------- Prompt builder: scontrino ------------- */
@@ -476,25 +456,6 @@ function parseStockUpdateText(text) {
   return res;
 }
 
-/* ---------- calcoli consumo/aggiornamento ---------- */
-function computeNewAvgDailyUnits(old, newPacks) {
-  const upp = Math.max(1, Number(old.unitsPerPack || 1));
-  const oldUnits = Number(old.packs || 0) * upp;
-  const newUnits = Number(newPacks || 0) * upp;
-  let avg = old?.avgDailyUnits || 0;
-
-  if (old?.lastRestockAt && newUnits < oldUnits) {
-    const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
-    const usedUnits = oldUnits - newUnits;
-    const day = usedUnits / days;
-    avg = avg ? (0.6*avg + 0.4*day) : day;
-  }
-  return avg;
-}
-function restockTouch(baselineFromPacks, lastDateISO) {
-  return { baselinePacks: baselineFromPacks, lastRestockAt: lastDateISO };
-}
-
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
@@ -505,11 +466,11 @@ export default function ListeProdotti() {
     [LIST_TYPES.ONLINE]: [],
   });
 
-  // Form Lista (con confezioni + unità/conf.)
-  const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+  const [form, setForm] = useState({ name: '', brand: '', qty: '1' });
 
   // Scorte & critici
-  // Record scorta: { name, brand, packs, unitsPerPack, unitLabel, expiresAt?, baselinePacks?, lastRestockAt?, avgDailyUnits? }
+  // Record scorta:
+  // { name, brand, packs, unitsPerPack, unitLabel, expiresAt?, baselinePacks?, lastRestockAt?, avgDailyUnits? }
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
 
@@ -537,11 +498,6 @@ export default function ListeProdotti() {
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
-  // Form Aggiunta Scorta manuale
-  const [stockForm, setStockForm] = useState({
-    name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
-  });
-
   const curItems = lists[currentList] || [];
 
   /* --------------- derivati: prodotti critici --------------- */
@@ -552,21 +508,16 @@ export default function ListeProdotti() {
 
     const crit = stock.filter(p => {
       const packs = Number(p.packs || 0);
-      const upp = Math.max(1, Number(p.unitsPerPack || 1));
-      const totalUnits = packs * upp;
-
-      const baselinePacks = Number(p.baselinePacks || 0);
-      const baselineUnits = baselinePacks * upp;
-
+      const baseline = Number(p.baselinePacks || 0);
       const last = p.lastRestockAt ? new Date(p.lastRestockAt) : null;
 
       const nearExp = p.expiresAt ? ((new Date(p.expiresAt)) - today) <= tenDays : false;
       const oldEnough = last ? (today - last) > twoDays : false;
 
-      const lowAbsoluteUnits = totalUnits < 2; // < 2 unità
-      const lowPercentUnits  = baselineUnits > 0 ? (totalUnits <= baselineUnits * 0.2) : false; // residuo <=20%
+      const lowAbsolute = packs < 2;
+      const lowPercent  = baseline > 0 ? (packs <= baseline * 0.2) : false;
 
-      return nearExp || (oldEnough && (lowAbsoluteUnits || lowPercentUnits));
+      return nearExp || (oldEnough && (lowAbsolute || lowPercent));
     });
 
     setCritical(crit);
@@ -580,34 +531,22 @@ export default function ListeProdotti() {
   /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
     e.preventDefault();
+    const qty = Math.max(1, Number(String(form.qty).replace(',', '.')) || 1);
     const name = form.name.trim();
-    if (!name) return;
     const brand = form.brand.trim();
-    const packs = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
-    const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
-    const unitLabel = (form.unitLabel || 'unità').trim() || 'unità';
+    if (!name) return;
 
     setLists(prev => {
       const next = { ...prev };
       const items = [...(prev[currentList] || [])];
-      const idx = items.findIndex(i =>
-        i.name.toLowerCase() === name.toLowerCase() &&
-        (i.brand||'').toLowerCase() === brand.toLowerCase() &&
-        Number(i.unitsPerPack||1) === unitsPerPack
-      );
-      if (idx >= 0) {
-        items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + packs };
-      } else {
-        items.push({
-          id: 'tmp-' + Math.random().toString(36).slice(2),
-          name, brand, qty: packs, unitsPerPack, unitLabel, purchased: false
-        });
-      }
+      const idx = items.findIndex(i => i.name.toLowerCase() === name.toLowerCase() && (i.brand||'').toLowerCase() === brand.toLowerCase());
+      if (idx >= 0) items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + qty };
+      else items.push({ id: 'tmp-' + Math.random().toString(36).slice(2), name, brand, qty, purchased: false });
       next[currentList] = items;
       return next;
     });
 
-    setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+    setForm({ name: '', brand: '', qty: '1' });
   }
 
   function removeItem(id) {
@@ -634,8 +573,6 @@ export default function ListeProdotti() {
     if (!item) return;
 
     const movePacks = Math.max(1, Math.min(Number(item.qty || 0), Number(amount || 1)));
-    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-    const moveLabel = item.unitLabel || 'unità';
 
     // 1) aggiorna la lista
     setLists(prev => {
@@ -661,17 +598,18 @@ export default function ListeProdotti() {
         arr[idx] = {
           ...old,
           packs: newPacks,
-          unitsPerPack: old.unitsPerPack || moveUPP,
-          unitLabel: old.unitLabel || moveLabel,
-          ...restockTouch(newPacks, todayISO)
+          unitsPerPack: old.unitsPerPack || 1,
+          unitLabel: old.unitLabel || 'unità',
+          baselinePacks: newPacks,
+          lastRestockAt: todayISO
         };
       } else {
         arr.unshift({
           name: item.name,
           brand: item.brand || '',
           packs: movePacks,
-          unitsPerPack: moveUPP,
-          unitLabel: moveLabel,
+          unitsPerPack: 1,
+          unitLabel: 'unità',
           expiresAt: '',
           baselinePacks: movePacks,
           lastRestockAt: todayISO,
@@ -717,8 +655,8 @@ export default function ListeProdotti() {
         const payload = {
           prompt: [
             'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
-            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }, ...] }',
-            'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
+            '{ "items":[{ "name":"latte","brand":"Parmalat","qty":2 }, ...] }',
+            'Se manca brand metti stringa vuota, qty default 1.',
             'Voci comuni: ' + GROCERY_LEXICON.join(', '),
             'Testo:', text
           ].join('\n'),
@@ -740,17 +678,11 @@ export default function ListeProdotti() {
                 id: 'tmp-' + Math.random().toString(36).slice(2),
                 name: String(raw.name||'').trim(),
                 brand: String(raw.brand||'').trim(),
-                qty: Math.max(1, Number(raw.packs||raw.qty||1)),
-                unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
-                unitLabel: String(raw.unitLabel||'unità'),
+                qty: Math.max(1, Number(raw.qty||1)),
                 purchased: false,
               };
               if (!it.name) continue;
-              const idx = existing.findIndex(i =>
-                i.name.toLowerCase() === it.name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-              );
+              const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand||'').toLowerCase() === it.brand.toLowerCase());
               if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
               else existing.push(it);
             }
@@ -769,11 +701,7 @@ export default function ListeProdotti() {
             const target = currentList;
             const existing = [...(prev[target] || [])];
             for (const it of local) {
-              const idx = existing.findIndex(i =>
-                i.name.toLowerCase() === it.name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-              );
+              const idx = existing.findIndex(i => i.name.toLowerCase() === it.name.toLowerCase() && (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase());
               if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
               else existing.push(it);
             }
@@ -804,11 +732,7 @@ export default function ListeProdotti() {
       const arr = [...(next[listKey] || [])];
       for (const p of purchases) {
         const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1)); // qty legacy → packs
-        const idx = arr.findIndex(i =>
-          isSimilar(i.name, p.name) &&
-          (!p.brand || isSimilar(i.brand || '', p.brand || '')) &&
-          Number(i.unitsPerPack||1) === Number(p.unitsPerPack||1)
-        );
+        const idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!p.brand || isSimilar(i.brand || '', p.brand || '')));
         if (idx >= 0) {
           const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
           arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
@@ -873,7 +797,8 @@ export default function ListeProdotti() {
                 packs: newPacks,
                 unitsPerPack: old.unitsPerPack || pack.unitsPerPack,
                 unitLabel: old.unitLabel || pack.unitLabel,
-                ...restockTouch(newPacks, todayISO)
+                baselinePacks: newPacks,
+                lastRestockAt: todayISO
               };
             } else {
               arr.unshift({
@@ -907,6 +832,58 @@ export default function ListeProdotti() {
       setBusy(false);
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
+  }
+
+  /* ---------------- Modifica / Elimina scorte ---------------- */
+  function editStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    const name = prompt('Nome prodotto:', it.name);
+    if (name == null || !name.trim()) return;
+    const brand = prompt('Marca (opzionale):', it.brand || '');
+    if (brand == null) return;
+
+    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+    if (packsStr == null) return;
+    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+
+    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+    if (uppStr == null) return;
+    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+
+    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+    if (unitLabel == null) return;
+
+    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+    const ex = expStr ? toISODate(expStr) : '';
+
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[i];
+      let avgDailyUnits = old?.avgDailyUnits || 0;
+      if (old?.lastRestockAt && (old.packs*old.unitsPerPack) > (packs*unitsPerPack)) {
+        const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
+        const usedUnits = (old.packs*old.unitsPerPack) - (packs*unitsPerPack);
+        const day = usedUnits / days;
+        avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
+      }
+      arr[i] = {
+        ...old,
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        packs, unitsPerPack, unitLabel,
+        expiresAt: ex || '',
+        avgDailyUnits
+      };
+      return arr;
+    });
+  }
+
+  function deleteStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    if (!confirm(`Eliminare "${it.name}${it.brand? ` (${it.brand})`:''}" dalle scorte?`)) return;
+    setStock(prev => prev.filter((_, idx) => idx !== i));
   }
 
   /* ---------------- OCR scadenza per riga ---------------- */
@@ -980,7 +957,7 @@ export default function ListeProdotti() {
     const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
     try {
       setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+      const res = await timeoutFetch('/api/stt', { method:'POST', body: fd }, 25000);
       const { text } = await res.json();
       if (DEBUG) console.log('[STT inventory] text:', text);
       if (!text) { showToast('Nessun testo riconosciuto', 'err'); return; }
@@ -1017,7 +994,7 @@ export default function ListeProdotti() {
               name:String(u.name||'').trim(),
               mode:(u.mode==='units'?'units':'packs'),
               value: Math.max(0, Number(u.value||0)),
-              op: 'add' // default
+              op: 'add' // di default aggiunge se non specificato
             })).filter(u => u.name && u.value>0);
           }
         } catch (e) {
@@ -1053,6 +1030,7 @@ export default function ListeProdotti() {
             if (idx < 0) {
               // crea nuova riga scorte
               if (isUnits) {
+                // senza info pregresse: se "set" → packs = ceil(units), upp=1; se "add" → 1 conf. da N unità
                 if (isSet) {
                   arr.unshift({
                     name: u.name, brand: '',
@@ -1070,6 +1048,7 @@ export default function ListeProdotti() {
                   });
                 }
               } else {
+                // mode packs
                 const p = Math.max(0, Number(u.value||0));
                 arr.unshift({
                   name: u.name, brand: '',
@@ -1098,7 +1077,7 @@ export default function ListeProdotti() {
               packs = isSet ? valPacks : (packs + valPacks);
             }
 
-            // consumo medio se diminuisce rispetto alla baseline
+            // consumo medio (unità/giorno) se diminuisce rispetto alla baseline precedente
             let avgDailyUnits = old?.avgDailyUnits || 0;
             if (old?.lastRestockAt && Number(old.baselinePacks||0) * upp > packs * upp) {
               const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
@@ -1107,14 +1086,10 @@ export default function ListeProdotti() {
               avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
             }
 
-            // riallineo baseline se è un restock
-            const restock = (packs * upp) > (Number(old.packs || 0) * upp);
-            const after = { ...old, packs, unitsPerPack: upp, unitLabel, avgDailyUnits };
-            if (restock) {
-              after.baselinePacks = packs;
-              after.lastRestockAt = todayISO;
-            }
-            arr[idx] = after;
+            // riallineo baseline al nuovo livello dopo l'operazione
+            const baselinePacks = packs;
+
+            arr[idx] = { ...old, packs, unitsPerPack: upp, unitLabel, avgDailyUnits, baselinePacks, lastRestockAt: todayISO };
             applied++;
           }
           return arr;
@@ -1135,49 +1110,6 @@ export default function ListeProdotti() {
       invStreamRef.current = null;
       invChunksRef.current = [];
     }
-  }
-
-  /* ---------------- Aggiunta SCORTE manuale ---------------- */
-  function addManualStock(e) {
-    e.preventDefault();
-    const name = stockForm.name.trim();
-    if (!name) return;
-    const brand = (stockForm.brand || '').trim();
-    const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
-    const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
-    const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
-    const ex = toISODate(stockForm.expiresAt || '');
-    const todayISO = new Date().toISOString().slice(0,10);
-
-    setStock(prev => {
-      const arr = [...prev];
-      const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
-      if (idx >= 0) {
-        const old = arr[idx];
-        const newPacks = Number(old.packs || 0) + packs;
-        arr[idx] = {
-          ...old,
-          packs: newPacks,
-          unitsPerPack: old.unitsPerPack || unitsPerPack,
-          unitLabel: old.unitLabel || unitLabel,
-          expiresAt: ex || old.expiresAt || '',
-          ...restockTouch(newPacks, todayISO)
-        };
-      } else {
-        arr.unshift({
-          name, brand,
-          packs, unitsPerPack, unitLabel,
-          expiresAt: ex || '',
-          baselinePacks: packs,
-          lastRestockAt: todayISO,
-          avgDailyUnits: 0
-        });
-      }
-      return arr;
-    });
-
-    setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
-    showToast('Scorta aggiunta ✓', 'ok');
   }
 
   /* ---------------- render ---------------- */
@@ -1228,9 +1160,7 @@ export default function ListeProdotti() {
                       <div style={styles.qtyBadge}>{it.qty}</div>
                       <div>
                         <div style={styles.itemName}>{it.name}</div>
-                        <div style={styles.itemBrand}>
-                          {(it.brand || '—')} · {it.unitsPerPack} {(it.unitLabel || 'unità')}/conf.
-                        </div>
+                        <div style={styles.itemBrand}>{it.brand || '—'}</div>
                       </div>
                     </div>
                     <div style={styles.itemActions}>
@@ -1253,8 +1183,8 @@ export default function ListeProdotti() {
                       )}
 
                       <div style={{display:'flex', gap:6}}>
-                        <button title="Diminuisci confezioni" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
-                        <button title="Aumenta confezioni" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
+                        <button title="Diminuisci quantità" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
+                        <button title="Aumenta quantità" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
                       </div>
                       <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionGhostDanger}>🗑 Elimina</button>
                     </div>
@@ -1264,24 +1194,20 @@ export default function ListeProdotti() {
             )}
           </div>
 
-          {/* Form aggiunta manuale (Lista) */}
+          {/* Form aggiunta manuale */}
           <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
+            <h3 style={styles.h3}>Aggiungi prodotto</h3>
             <form onSubmit={addManualItem} style={styles.formRow}>
               <input placeholder="Prodotto (es. latte)" value={form.name}
                      onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
               <input placeholder="Marca (es. Parmalat)" value={form.brand}
                      onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-              <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
-                     onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
-              <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
-                     onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
-              <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
-                     onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
+              <input placeholder="Q.tà (confezioni)" inputMode="decimal" value={form.qty}
+                     onChange={e => setForm(f => ({...f, qty: e.target.value}))} style={{...styles.input, width: 140}} required />
               <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
             </form>
             <p style={{opacity:.8, marginTop: 6}}>
-              Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
+              Suggerimenti voce: “2 latte parmalat; 3 pasta barilla; uova”.
             </p>
           </div>
 
@@ -1305,391 +1231,153 @@ export default function ListeProdotti() {
           {/* Stato scorte */}
           <div style={styles.sectionXL}>
             <div style={styles.scorteHeader}>
-              <h3 style={{ ...styles.h3, marginBottom: 0 }}>📊 Stato Scorte</h3>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <h3 style={{...styles.h3, marginBottom:0}}>📊 Stato Scorte</h3>
+              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
                 {!invRecBusy ? (
-                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmall} disabled={busy}>
-                    🎙 Vocale Scadenze/Scorte
-                  </button>
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Scadenze/Scorte</button>
                 ) : (
                   <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmallStop}>⏹️ Stop</button>
                 )}
-                <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>
-                  📷 OCR Scontrini
-                </button>
+                <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
                 <input
                   ref={ocrInputRef}
                   type="file"
                   accept="image/*,application/pdf"
-                  capture="environment                               blocco del codice vecchio📷 OCR Scontrini
-      </button>
-      <input
-        ref={ocrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        capture="environment"
-        multiple
-        hidden
-        onChange={(e) => handleOCR(Array.from(e.target.files || []))}
-      />
-    </div>
-  </div>
-
-  {stock.length === 0 ? (
-    <p style={{ opacity: .8, marginTop: 8 }}>Nessun dato scorte</p>
-  ) : (
-    <table style={{ ...styles.table, marginTop: 10 }}>
-      <thead>
-        <tr>
-          <th style={styles.th}>Prodotto</th>
-          <th style={styles.th}>Marca</th>
-          <th style={styles.th}>Confezioni</th>
-          <th style={styles.th}>Unità/conf.</th>
-          <th style={styles.th}>Residuo unità</th>
-          <th style={styles.th}>Scadenza</th>
-          <th style={styles.th}></th>
-        </tr>
-      </thead>
-      <tbody>
-        {stock.map((s, i) => (
-          <tr key={i}>
-            <td style={styles.td}>{s.name}</td>
-            <td style={styles.td}>{s.brand || '-'}</td>
-            <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
-            <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-
-            {/* Residuo + barra */}
-            <td style={styles.td}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <strong>{totalUnitsOf(s)}</strong>
-                <span style={{ opacity: .8, fontSize: 12 }}>unità</span>
+                  capture="environment"
+                  multiple
+                  hidden
+                  onChange={(e) => handleOCR(Array.from(e.target.files || []))}
+                />
               </div>
+            </div>
 
-              {(() => {
-                const upp = Math.max(1, Number(s.unitsPerPack || 1));
-                const curUnits = Math.max(0, Math.round((Number(s.packs || 0)) * upp));
-                const baseUnits = Math.max(curUnits, Math.round((Number(s.baselinePacks ?? s.packs ?? 0)) * upp));
-                const pct = baseUnits > 0 ? Math.min(100, Math.round((curUnits / baseUnits) * 100)) : 100;
-                const hue = Math.round((pct / 100) * 120);
-                return (
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )}
+            {stock.length === 0 ? (
+              <p style={{opacity:.8, marginTop:8}}>Nessun dato scorte</p>
+            ) : (
+              <table style={{...styles.table, marginTop:10}}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Prodotto</th>
+                    <th style={styles.th}>Marca</th>
+                    <th style={styles.th}>Confezioni</th>
+                    <th style={styles.th}>Unità/conf.</th>
+                    <th style={styles.th}>Tot. unità</th>
+                    <th style={styles.th}>Scadenza</th>
+                    <th style={styles.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stock.map((s, i) => (
+                    <tr key={i}>
+                      <td style={styles.td}>{s.name}</td>
+                      <td style={styles.td}>{s.brand || '-'}</td>
+                      <td style={styles.td}>{s.packs ?? '-'}</td>
+                      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
+                      <td style={styles.td}>{totalUnitsOf(s)}</td>
+                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
+                      <td style={styles.td}>
+                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {/* input file unico per OCR scadenza di riga */}
+            <input
+              ref={rowOcrInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              capture="environment"
+              hidden
+              onChange={(e)=>handleRowOcrChange(Array.from(e.target.files||[]))}
+            />
+            <p style={{opacity:.75, marginTop:8}}>
+              Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
+            </p>
+            <p style={{opacity:.75, marginTop:4}}>
+              Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+              Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
+            </p>
+          </div>
 
-  {/* Input file unico per OCR scadenza di riga */}
-  <input
-    ref={rowOcrInputRef}
-    type="file"
-    accept="image/*,application/pdf"
-    capture="environment"
-    hidden
-    onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
-  />
-
-  <p style={{ opacity: .75, marginTop: 8 }}>
-    Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
-  </p>
-  <p style={{ opacity: .75, marginTop: 4 }}>
-    Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
-    Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
-  </p>
-</div>
-);  // <-- chiusura del return
-
-}  // <-- chiusura della funzione componente
+          {/* Toast */}
+          {toast && (
+            <div style={{
+              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
+              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
+              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
+            }}>
+              {toast.msg}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
 
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
-function theMediaWorkaround() {}
+function theMediaWorkaround(){}
 
-/* ---------------- styles (ottimizzati e CHIUSI correttamente) ---------------- */
+/* ---------------- styles ---------------- */
 const styles = {
   page: {
-    width: '100%',
-    minHeight: '100vh',
-    background: '#0f172a',
-    padding: 24,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#fff',
-    fontFamily:
-      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+    width: '100%', minHeight: '100vh', background: '#0f172a',
+    padding: 34, display: 'flex', alignItems: 'center', justifyContent:'center', color:'#fff',
+    fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif'
   },
+  card: { width:'100%', maxWidth: 1000, background:'rgba(0,0,0,.6)', borderRadius: 16, padding: 26, boxShadow: '0 6px 16px rgba(0,0,0,.3)' },
+  headerRow: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 12 },
+  homeBtn: { background:'#6366f1', color:'#fff', padding:'8px 12px', borderRadius:10, textDecoration:'none' },
 
-  card: {
-    width: '100%',
-    maxWidth: 1000,
-    background: 'rgba(0,0,0,.6)',
-    borderRadius: 16,
-    padding: 22,
-    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
-  },
+  switchRow: { display:'flex', gap:12, margin: '18px 0 12px' },
+  switchBtn: { background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.15)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer' },
+  switchBtnActive: { background:'#06b6d4', border:'0', color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  headerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 12,
-    flexWrap: 'wrap',
-  },
-  homeBtn: {
-    background: '#6366f1',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    textDecoration: 'none',
-    fontWeight: 700,
-  },
+  toolsRow: { display:'flex', flexWrap:'wrap', gap:12, margin:'14px 0 6px' },
 
-  switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
-  switchBtn: {
-    background: 'rgba(255,255,255,.08)',
-    border: '1px solid rgba(255,255,255,.15)',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  switchBtnActive: {
-    background: '#06b6d4',
-    border: 0,
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
+  voiceBtn: { background:'#6366f1', border:0, color:'#fff', padding:'10px 14px', borderRadius:12, cursor:'pointer', fontWeight:800 },
 
-  toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
+  sectionLarge: { marginTop: 36, marginBottom: 10 },
+  sectionXL: { marginTop: 46, marginBottom: 12 },
+  h3: { margin:'6px 0 14px' },
 
-  voiceBtn: {
-    background: '#6366f1',
-    border: 0,
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
-
-  sectionLarge: { marginTop: 30, marginBottom: 10 },
-  sectionXL: { marginTop: 38, marginBottom: 12 },
-  h3: { margin: '6px 0 12px' },
-
-  listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
+  listGrid: { display:'flex', flexDirection:'column', gap:14 },
   itemRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    background: 'rgba(255,255,255,.05)',
-    border: '1px solid rgba(255,255,255,.12)',
-    borderRadius: 12,
-    padding: '10px 12px',
-    gap: 8,
-    flexWrap: 'wrap',
+    display:'flex', alignItems:'center', justifyContent:'space-between',
+    background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.12)',
+    borderRadius:12, padding:'10px 12px'
   },
-  itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
-  qtyBadge: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 10,
-    background: 'rgba(99,102,241,.25)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 800,
-  },
-  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.8 },
+  itemMain: { display:'flex', alignItems:'center', gap:12 },
+  qtyBadge: { minWidth:36, height:36, borderRadius:12, background:'rgba(99,102,241,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800 },
+  itemName: { fontSize:16, fontWeight:700 },
+  itemBrand: { fontSize:12, opacity:.8 },
 
-  itemActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  actionSuccess: {
-    background: '#16a34a',
-    border: 0,
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
-  actionDanger: {
-    background: '#ef4444',
-    border: 0,
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
-  actionGhost: {
-    background: 'rgba(255,255,255,.12)',
-    border: '1px solid rgba(255,255,255,.2)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-  actionGhostDanger: {
-    background: 'rgba(239,68,68,.1)',
-    border: '1px solid rgba(239,68,68,.6)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
+  itemActions: { display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', justifyContent:'flex-end' },
+  actionSuccess: { background:'#16a34a', border:0, color:'#fff', padding:'8px 10px', borderRadius:10, cursor:'pointer', fontWeight:800 },
+  actionDanger: { background:'#ef4444', border:0, color:'#fff', padding:'8px 10px', borderRadius:10, cursor:'pointer', fontWeight:800 },
+  actionGhost: { background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
+  actionGhostDanger: { background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.6)', color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
 
-  formRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    alignItems: 'center',
-  },
+  formRow: { display:'flex', flexWrap:'wrap', gap:10, alignItems:'center' },
   input: {
-    padding: '10px 12px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.15)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    minWidth: 160,
-    flex: '1 1 160px',
+    padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)',
+    background: 'rgba(255,255,255,.06)', color: '#fff', minWidth: 200
   },
-  primaryBtn: {
-    background: '#16a34a',
-    border: 0,
-    color: '#fff',
-    padding: '10px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
+  primaryBtn: { background:'#16a34a', border:0, color:'#fff', padding:'10px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
 
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    background: 'rgba(255,255,255,.04)',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  th: {
-    textAlign: 'left',
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.12)',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.08)',
-    verticalAlign: 'middle',
-  },
+  table: { width:'100%', borderCollapse:'collapse', background:'rgba(255,255,255,.04)', borderRadius:12, overflow:'hidden' },
+  th: { textAlign:'left', padding:'10px', borderBottom:'1px solid rgba(255,255,255,.12)' },
+  td: { padding:'10px', borderBottom:'1px solid rgba(255,255,255,.08)' },
 
-  scorteHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-
-  voiceBtnSmall: {
-    background: '#6366f1',
-    border: 0,
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-  voiceBtnSmallStop: {
-    background: '#ef4444',
-    border: 0,
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-  ocrBtnSmall: {
-    background: '#06b6d4',
-    border: 0,
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-  ocrInlineBtn: {
-    background: 'rgba(6,182,212,.15)',
-    border: '1px solid rgba(6,182,212,.6)',
-    color: '#e0fbff',
-    padding: '6px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-
-  /* ---------- Badge “Giorni rimasti” ---------- */
-  daysBadgeBase: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 34,
-    height: 26,
-    padding: '0 8px',
-    borderRadius: 999,
-    fontWeight: 800,
-    fontSize: 12,
-  },
-  daysBadgeGreen: {
-    background: 'rgba(22,163,74,.18)',
-    border: '1px solid rgba(22,163,74,.7)',
-    color: '#dcfce7',
-  },
-  daysBadgeAmber: {
-    background: 'rgba(245,158,11,.18)',
-    border: '1px solid rgba(245,158,11,.7)',
-    color: '#fffbeb',
-  },
-  daysBadgeRed: {
-    background: 'rgba(239,68,68,.18)',
-    border: '1px solid rgba(239,68,68,.7)',
-    color: '#fee2e2',
-  },
-  daysBadgeGray: {
-    background: 'rgba(148,163,184,.18)',
-    border: '1px solid rgba(148,163,184,.6)',
-    color: '#e2e8f0',
-  },
-
-  /* ---------- Barra livello ---------- */
-  levelBar: {
-    width: '100%',
-    height: 8,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,.12)',
-    border: '1px solid rgba(255,255,255,.18)',
-    overflow: 'hidden',
-    marginTop: 6,
-  },
-  levelBarInner: {
-    height: '100%',
-    transition: 'width .25s ease',
-  },
+  scorteHeader: { display:'flex', alignItems:'center', justifyContent:'space-between' },
+  voiceBtnSmall: { background:'#6366f1', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:700 },
+  voiceBtnSmallStop: { background:'#ef4444', border:0, color:'#fff', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
+  ocrBtnSmall: { background:'#06b6d4', border:0, color:'#0b1220', padding:'8px 12px', borderRadius:10, cursor:'pointer', fontWeight:800 },
+  ocrInlineBtn: { background:'rgba(6,182,212,.15)', border:'1px solid rgba(6,182,212,.6)', color:'#e0fbff', padding:'6px 10px', borderRadius:10, cursor:'pointer', fontWeight:700 }
 };
