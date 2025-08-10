@@ -1497,28 +1497,6 @@ export default function ListeProdotti() {
                 const pct = baseUnits > 0 ? Math.min(100, Math.round((curUnits / baseUnits) * 100)) : 100;
                 const hue = Math.round((pct / 100) * 120);
                 return (
-                  <div style={styles.levelWrap} title={`Residuo: ${pct}%`}>
-                    <div style={styles.levelTrack}>
-                      <div style={{ ...styles.levelFill, width: pct + '%', background: `hsl(${hue} 70% 45%)` }} />
-                    </div>
-                    <span style={styles.levelPct}>{pct}%</span>
-                  </div>
-                );
-              })()}
-            </td>
-
-            <td style={styles.td}>
-              {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
-            </td>
-
-            {/* Azioni semplificate */}
-            <td style={styles.td}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-                <button onClick={() => editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-                <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-              </div>
-            </td>
           </tr>
         ))}
       </tbody>
@@ -1543,10 +1521,12 @@ export default function ListeProdotti() {
     Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
   </p>
 </div>
+);  // <-- chiusura del return
 
+}  // <-- chiusura della funzione componente
 
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
-function theMediaWorkaround(){}
+function theMediaWorkaround() {}
 
 /* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
@@ -1554,7 +1534,7 @@ const styles = {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1562,6 +1542,8 @@ const styles = {
     fontFamily:
       'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
+  // ... resto degli stili
+};
 
   card: {
     width: '100%',
