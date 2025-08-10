@@ -249,24 +249,35 @@ function stockPercentLeft(row){
   if (!Number.isFinite(baseUnits) || baseUnits <= 0) baseUnits = Math.max(1, units || 1);
   return Math.max(0, Math.min(100, Math.round((units/baseUnits)*100)));
 }
-function StockBar({ row }){
+function StockBarMini({ row }){
   const pct = stockPercentLeft(row);
-  const barOuter = {
-    position:'relative', width: '160px', height: 10,
+  const outer = {
+    position:'relative', width: 120, height: 6,
     background: 'rgba(255,255,255,.12)', borderRadius: 999, overflow:'hidden',
     border: '1px solid rgba(255,255,255,.2)'
   };
-  // colore dinamico: >50 verde, 20–50 ambra, <20 rosso
   let innerTone = '#16a34a';
   if (pct <= 50) innerTone = '#f59e0b';
   if (pct <= 20) innerTone = '#ef4444';
-  const barInner = { width: `${pct}%`, height:'100%', background: innerTone };
+  const inner = { width: pct ? `${pct}%` : '0.5%', height:'100%', background: innerTone };
   return (
-    <div style={{display:'flex', alignItems:'center', gap:8}}>
-      <div style={barOuter}><div style={barInner}/></div>
-      <span style={{opacity:.8, fontSize:12}}>{pct}%</span>
+    <div style={{display:'inline-flex', alignItems:'center', gap:6, marginTop:4}}>
+      <div style={outer}><div style={inner}/></div>
+      <span style={{opacity:.7, fontSize:11}}>{pct}%</span>
     </div>
   );
+}
+
+function DaysBadge({ expiresAt }){
+  if (!expiresAt) return <span style={{...styles.daysBadgeBase, ...styles.daysBadgeGray}}>—</span>;
+  const end = new Date(expiresAt + 'T00:00:00');
+  const now = new Date();
+  const days = Math.ceil((end - now)/86400000);
+  let tone = styles.daysBadgeGreen;
+  if (days <= 10) tone = styles.daysBadgeAmber;
+  if (days <= 2)  tone = styles.daysBadgeRed;
+  if (days <  0)  return <span style={{...styles.daysBadgeBase, ...styles.daysBadgeRed}}>scad.</span>;
+  return <span style={{...styles.daysBadgeBase, ...tone}}>{days}g</span>;
 }
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
