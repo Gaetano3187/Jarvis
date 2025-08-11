@@ -1468,10 +1468,6 @@ function saveEditRow(rowKey){
             )}
           </div>
 
-      import React, { useCallback, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-
-/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
   page: {
     width: '100%',
@@ -2070,17 +2066,16 @@ export default function ListeProdottiPage() {
                 borderRadius: 10,
                 boxShadow: '0 6px 16px rgba(0,0,0,.35)',
                 zIndex: 9999,
-              }}
+             }}
             >
               {toast.msg}
             </div>
           )}
-        </div>
-      </div>
-    </>
+        </div> {/* fine card / container principale */}
+      </div> {/* fine page wrapper */}
+    </main>
   );
 }
-
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
