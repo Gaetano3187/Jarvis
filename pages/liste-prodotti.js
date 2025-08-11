@@ -1456,7 +1456,8 @@ export default function ListeProdotti() {
     <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
     <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
   </div>
-</td>
+</td>   
+                  
               </tr>
                   ))}
                 </tbody>
