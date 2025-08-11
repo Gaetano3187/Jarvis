@@ -1653,13 +1653,17 @@ return (
               color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
             }}>
               {toast.msg}
-            </div>
-          )}
-        </div>{/* /card */}
-      </div>{/* /page */}
-    </>         {/* ✅ chiusura del Fragment */}
-  );            {/* ✅ chiusura del return */}
-}               {/* ✅ chiusura della funzione componente */}
+                   {/* Toast */}
+        {toast && ( /* ... */ )}
+
+      </div>       {/* chiusura contenitore interno */}
+    </div>         {/* chiusura pagina */}
+  </>              {/* ⬅️ chiusura del Fragment */}
+);                 {/* chiusura return */}
+}                  {/* chiusura funzione componente */}
+
+// (facoltativo) cose dopo, tipo:
+const styles = { /* ... */ };
 
 
 /* ---------------- styles (ottimizzati) ---------------- */
