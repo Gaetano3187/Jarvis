@@ -1500,38 +1500,71 @@ function saveEditRow(rowKey) {
                 </thead>
                 <tbody>
                   {stock.map((s, i) => (
-                    <tr key={i}>
-                      <td style={styles.td}>{s.name}</td>
-                      <td style={styles.td}>{s.brand || '-'}</td>
-                      <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
-                      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-                      <td style={styles.td}>
-                        {totalUnitsOf(s)}
-                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
-                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
-                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
-                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
-                        </div>
-                      </td>
-                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
-                      <td style={styles.td}>
-                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-
-                          {/* Controlli rapidi confezioni */}
-                          <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost} title="− 1 confezione">−1 conf.</button>
-                          <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost} title="+ 1 confezione">+1 conf.</button>
-
-                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {/* input file unico per OCR scadenza di riga */}
+  <tr key={i}>
+    <td style={styles.td}>
+      {editingRowKey === i ? (
+        <input value={draftRow?.name ?? ''} onChange={e => handleDraftChange('name', e.target.value)} />
+      ) : (
+        s.name
+      )}
+    </td>
+    <td style={styles.td}>
+      {editingRowKey === i ? (
+        <input value={draftRow?.brand ?? ''} onChange={e => handleDraftChange('brand', e.target.value)} />
+      ) : (
+        s.brand || '-'
+      )}
+    </td>
+    <td style={styles.td}>
+      {editingRowKey === i ? (
+        <input type="number" min="0" value={draftRow?.packs ?? 0} onChange={e => handleDraftChange('packs', e.target.value)} />
+      ) : (
+        (s.packs ?? 0).toFixed?.(2) ?? s.packs
+      )}
+    </td>
+    <td style={styles.td}>
+      {editingRowKey === i ? (
+        <>
+          <input type="number" min="1" value={draftRow?.unitsPerPack ?? 1} onChange={e => handleDraftChange('unitsPerPack', e.target.value)} style={{ width: 60 }} />
+          <input value={draftRow?.unitLabel ?? ''} onChange={e => handleDraftChange('unitLabel', e.target.value)} style={{ width: 80, marginLeft: 6 }} />
+        </>
+      ) : (
+        `${s.unitsPerPack ?? 1} ${s.unitLabel || 'unità'}`
+      )}
+    </td>
+    <td style={styles.td}>
+      {editingRowKey === i ? (
+        <input type="number" min="0" value={draftRow?.residueUnits ?? 0} onChange={e => handleDraftChange('residueUnits', e.target.value)} />
+      ) : (
+        totalUnitsOf(s)
+      )}
+    </td>
+    <td style={styles.td}>
+      {editingRowKey === i ? (
+        <input type="date" value={draftRow?.expiresAt ?? ''} onChange={e => handleDraftChange('expiresAt', e.target.value)} />
+      ) : (
+        s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
+      )}
+    </td>
+    <td style={styles.td}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+        {editingRowKey === i ? (
+          <>
+            <button onClick={() => saveEditRow(i)} style={styles.actionGhost}>💾 Salva</button>
+            <button onClick={cancelEditRow} style={styles.actionGhost}>↩ Annulla</button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => startEditRow(i, s)} style={styles.actionGhost}>✎ Modifica</button>
+            <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+          </>
+        )}
+      </div>
+    </td>
+  </tr>
+))}
+           {/* input file unico per OCR scadenza di riga */}
             <input
               ref={rowOcrInputRef}
               type="file"
