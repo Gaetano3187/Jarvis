@@ -239,14 +239,19 @@ function DaysBadge({ expiresAt }){
       {d==null ? '—' : (d < 0 ? 'Scaduto' : (d===1 ? '1 giorno' : `${d} giorni`))}
     </span>
   );
-function StockBarMini({ row }) {
-stockbar
+const StockBarMini = ({ row }) => {
   const upp = Math.max(1, Number(row.unitsPerPack || 1));
   const totalUnits = totalUnitsOf(row);
   const baselinePacks = Number(row.baselinePacks || row.packs || 0);
   const baselineUnits = baselinePacks * upp;
   const pct = baselineUnits > 0 ? Math.min(100, (totalUnits / baselineUnits) * 100) : 0;
 
+  return (
+    <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.2)', borderRadius: 3 }}>
+      <div style={{ height: '100%', width: `${pct}%`, background: '#16a34a', borderRadius: 3 }} />
+    </div>
+  );
+};
   return (
     <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.2)', borderRadius: 3 }}>
       <div style={{ height: '100%', width: `${pct}%`, background: '#16a34a', borderRadius: 3 }} />
