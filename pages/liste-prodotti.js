@@ -859,28 +859,54 @@ function saveRowEdit(index){
   }
 
   /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
-  function decrementAcrossBothLists(prevLists, purchases) {
-    const next = { ...prevLists };
-    const decList = (listKey) => {
-      const arr = [...(next[listKey] || [])];
-      for (const p of purchases) {
-        const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1)); // qty legacy → packs
-        const idx = arr.findIndex(i =>
+ /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
+function decrementAcrossBothLists(prevLists, purchases) {
+  const next = { ...prevLists };
+
+  const decList = (listKey) => {
+    const arr = [...(next[listKey] || [])];
+
+    for (const p of purchases) {
+      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+      const brand = (p.brand || '').trim();
+      const upp = Number(p.unitsPerPack ?? 1);
+
+      // 1) match stretto: nome ~, brand (se presente) ~, unitsPerPack uguali
+      let idx = arr.findIndex(i =>
+        isSimilar(i.name, p.name) &&
+        (!brand || isSimilar(i.brand || '', brand)) &&
+        Number(i.unitsPerPack || 1) === upp
+      );
+
+      // 2) se non trovato: ignora unitsPerPack
+      if (idx < 0) {
+        idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
-          (!p.brand || isSimilar(i.brand || '', p.brand || '')) &&
-          Number(i.unitsPerPack||1) === Number(p.unitsPerPack||1)
+          (!brand || isSimilar(i.brand || '', brand))
         );
-        if (idx >= 0) {
-          const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
-          arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
-        }
       }
-      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-    };
-    decList(LIST_TYPES.SUPERMARKET);
-    decList(LIST_TYPES.ONLINE);
-    return next;
-  }
+
+      // 3) estremo: solo nome
+      if (idx < 0) {
+        idx = arr.findIndex(i => isSimilar(i.name, p.name));
+      }
+
+      if (idx >= 0) {
+        const cur = arr[idx];
+        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+        arr[idx] = { ...cur, qty: newQty, purchased: true };
+      }
+    }
+
+    // rimuovi dalla lista quelli portati a zero e marcati come comprati
+    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+  };
+
+  decList(LIST_TYPES.SUPERMARKET);
+  decList(LIST_TYPES.ONLINE);
+  return next;
+}
+
 
   /* ---------------- OCR: scontrini ---------------- */
   async function handleOCR(files) {
