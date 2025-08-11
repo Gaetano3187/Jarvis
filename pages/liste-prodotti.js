@@ -215,16 +215,11 @@ function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
 // Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
 function residueInfo(s){
-  function residueInfo(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
   const current = Math.max(0, Number(s.packs || 0) * upp);
   const baseline = Math.max(upp, Number(s.baselinePacks || 0) * upp) || current || upp;
   const pct = baseline ? clamp01(current / baseline) : 1;
-
-  const avg = Math.max(0, Number(s.avgDailyUnits || 0));
-  const daysLeft = avg > 0 ? Math.ceil(current / avg) : null; // null = non stimabile ancora
-
-  return { current, baseline, pct, daysLeft };
+  return { current, baseline, pct };
 }
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
@@ -1115,7 +1110,27 @@ function decrementAcrossBothLists(prevLists, purchases) {
     const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
     const ex = expStr ? toISODate(expStr) : '';
 
-         };
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[i];
+      const todayISO = new Date().toISOString().slice(0,10);
+      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+
+      // aumento? allora è restock
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = Number(old.packs || 0) * uppOld;
+      const nowUnits = packs * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      arr[i] = {
+        ...old,
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        packs, unitsPerPack, unitLabel,
+        expiresAt: ex || '',
+        avgDailyUnits,
+        ...(restock ? restockTouch(packs, todayISO) : {})
+      };
       return arr;
     });
   }
