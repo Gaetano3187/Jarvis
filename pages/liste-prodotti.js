@@ -594,18 +594,20 @@ function saveRowEdit(index){
     const nowUnits = packs * unitsPerPack;
     const restock = nowUnits > wasUnits;
     const todayISO = new Date().toISOString().slice(0,10);
+    const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
 
     arr[index] = {
       ...old,
       name, brand,
       packs, unitsPerPack, unitLabel,
-      expiresAt,
-      ...(restock ? restockTouch(packs, todayISO) : {})
-    };
-    return arr;
-  });
-  setEditingRow(null);
-}
+     expiresAt,
+           avgDailyUnits,
+       ...(restock ? restockTouch(packs, todayISO) : {})
+     };
+     return arr;
+   });
+   setEditingRow(null);
+ }
   // Stato UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
