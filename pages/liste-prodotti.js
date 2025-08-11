@@ -963,6 +963,61 @@ export default function ListeProdotti() {
   }
 
   /* ---------------- Modifica / Elimina scorte ---------------- */
+ /* ---------------- Modifica / Elimina scorte ---------------- */
+ 
+  function editStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    const name = prompt('Nome prodotto:', it.name);
+    if (name == null || !name.trim()) return;
+    const brand = prompt('Marca (opzionale):', it.brand || '');
+    if (brand == null) return;
+
+    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+    if (packsStr == null) return;
+    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+
+    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+    if (uppStr == null) return;
+    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+
+    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+    if (unitLabel == null) return;
+
+    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+    const ex = expStr ? toISODate(expStr) : '';
+
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[i];
+      const todayISO = new Date().toISOString().slice(0,10);
+      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+
+      // aumento? allora è restock
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = Number(old.packs || 0) * uppOld;
+      const nowUnits = packs * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      arr[i] = {
+        ...old,
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        packs, unitsPerPack, unitLabel,
+        expiresAt: ex || '',
+        avgDailyUnits,
+        ...(restock ? restockTouch(packs, todayISO) : {})
+      };
+      return arr;
+    });
+  }
+
+  function deleteStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
+    setStock(prev => prev.filter((_, idx) => idx !== i));
+  }
   function editStockRow(i) {
     const it = stock[i];
     if (!it) return;
