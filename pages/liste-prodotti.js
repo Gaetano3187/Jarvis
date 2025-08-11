@@ -546,7 +546,13 @@ export default function ListeProdotti() {
   });
 
   // Form Lista (ora con confezioni + unità/conf.)
-  const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+  const [form, setForm] = useState({
+    name: '',
+    brand: '',
+    packs: '1',
+    unitsPerPack: '1',
+    unitLabel: 'unità',
+  });
 
   // Scorte & critici
   // Record scorta:
@@ -580,10 +586,46 @@ export default function ListeProdotti() {
 
   // Form Aggiunta Scorta manuale
   const [stockForm, setStockForm] = useState({
-    name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
+    name: '',
+    brand: '',
+    packs: '1',
+    unitsPerPack: '1',
+    unitLabel: 'unità',
+    expiresAt: '',
   });
 
   const curItems = lists[currentList] || [];
+
+  /* --------------- derivati: prodotti critici --------------- */
+  useEffect(() => {
+    const today = new Date();
+    const tenDays = 10 * 24 * 60 * 60 * 1000;
+    const twoDays = 2 * 24 * 60 * 60 * 1000;
+
+    const crit = stock.filter((p) => {
+      const packs = Number(p.packs || 0);
+      const upp = Math.max(1, Number(p.unitsPerPack || 1));
+      const totalUnits = packs * upp;
+
+      const baselinePacks = Number(p.baselinePacks || 0);
+      const baselineUnits = baselinePacks * upp;
+
+      const last = p.lastRestockAt ? new Date(p.lastRestockAt) : null;
+
+      const nearExp = p.expiresAt
+        ? new Date(p.expiresAt) - today <= tenDays
+        : false;
+      const oldEnough = last ? today - last > twoDays : false;
+
+      const lowAbsoluteUnits = totalUnits < 2; // < 2 unità
+      const lowPercentUnits =
+        baselineUnits > 0 ? totalUnits <= baselineUnits * 0.2 : false; // residuo <=20% (80% consumato)
+
+      return nearExp || (oldEnough && (lowAbsoluteUnits || lowPercentUnits));
+    });
+
+    setCritical(crit);
+  }, [stock]);
 
   /* --------------- derivati: prodotti critici --------------- */
   useEffect(() => {
