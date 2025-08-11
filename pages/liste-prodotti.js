@@ -1892,6 +1892,34 @@ inputTableXs: {
   width: 110,
   minWidth: 0,
 },
+  inputTable: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+
 }; // <-- e chiudi l’oggetto con punto e virgola
 
 
