@@ -1567,31 +1567,161 @@ function saveRowEdit(index){
                     <th style={styles.th}></th>
                   </tr>
                 </thead>
-                <tbody>
-                  {stock.map((s, i) => (
-                    <tr key={i}>
-                      <td style={styles.td}>{s.name}</td>
-                      <td style={styles.td}>{s.brand || '-'}</td>
-                      <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
-                      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-                      <td style={styles.td}>{totalUnitsOf(s)}</td>
-                        {totalUnitsOf(s)}
-                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
-                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
-                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
-                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
-                        </div>
-                    <td style={styles.td}>
-  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-    <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-    <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-    <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-  </div>
-</td>   
-                  
-              </tr>
-                  ))}
-                </tbody>
+               <tbody>
+  {stock.map((s, i) => {
+    const isEditing = editingRow === i;
+
+    return (
+      <tr key={i}>
+        {/* Prodotto */}
+        <td style={styles.td}>
+          {!isEditing ? (
+            s.name
+          ) : (
+            <input
+              value={editDraft.name}
+              onChange={(e) => handleEditDraftChange('name', e.target.value)}
+              style={styles.input}
+            />
+          )}
+        </td>
+
+        {/* Marca */}
+        <td style={styles.td}>
+          {!isEditing ? (
+            s.brand || '-'
+          ) : (
+            <input
+              value={editDraft.brand}
+              onChange={(e) => handleEditDraftChange('brand', e.target.value)}
+              style={styles.input}
+            />
+          )}
+        </td>
+
+        {/* Confezioni */}
+        <td style={styles.td}>
+          {!isEditing ? (
+            (s.packs ?? 0).toFixed?.(2) ?? s.packs
+          ) : (
+            <input
+              inputMode="decimal"
+              value={editDraft.packs}
+              onChange={(e) => handleEditDraftChange('packs', e.target.value)}
+              style={{ ...styles.input, width: 120 }}
+              placeholder="Confezioni"
+            />
+          )}
+        </td>
+
+        {/* Unità/conf. + Etichetta */}
+        <td style={styles.td}>
+          {!isEditing ? (
+            <>
+              {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}
+            </>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                inputMode="decimal"
+                value={editDraft.unitsPerPack}
+                onChange={(e) => handleEditDraftChange('unitsPerPack', e.target.value)}
+                style={{ ...styles.input, width: 120 }}
+                placeholder="Unità/conf."
+              />
+              <input
+                value={editDraft.unitLabel}
+                onChange={(e) => handleEditDraftChange('unitLabel', e.target.value)}
+                style={{ ...styles.input, width: 150 }}
+                placeholder="Etichetta"
+              />
+            </div>
+          )}
+        </td>
+
+        {/* Residuo unità */}
+        <td style={styles.td}>
+          {!isEditing ? (
+            (Number(s.packs || 0) * Number(s.unitsPerPack || 1))
+          ) : (
+            <input
+              inputMode="decimal"
+              value={editDraft.residueUnits}
+              onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
+              style={{ ...styles.input, width: 140 }}
+              placeholder="Residuo unità"
+            />
+          )}
+        </td>
+
+        {/* Scadenza */}
+        <td style={styles.td}>
+          {!isEditing ? (
+            s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
+          ) : (
+            <input
+              value={editDraft.expiresAt}
+              onChange={(e) => handleEditDraftChange('expiresAt', e.target.value)}
+              style={{ ...styles.input, width: 150 }}
+              placeholder="YYYY-MM-DD"
+            />
+          )}
+        </td>
+
+        {/* Azioni: SOLO OCR / Modifica (o Salva/Annulla) / Elimina */}
+        <td style={styles.td}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => openRowOcr(i)}
+              style={styles.ocrInlineBtn}
+              disabled={busy}
+              title="Rileva scadenza da foto"
+            >
+              📷 OCR
+            </button>
+
+            {!isEditing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => startRowEdit(i, s)}
+                  style={styles.actionGhost}
+                >
+                  ✎ Modifica
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteStockRow(i)}
+                  style={styles.actionGhostDanger}
+                >
+                  🗑 Elimina
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => saveRowEdit(i)}
+                  style={styles.actionSuccess}
+                >
+                  💾 Salva
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelRowEdit}
+                  style={styles.actionGhost}
+                >
+                  ✖ Annulla
+                </button>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
               </table>
             )}
             {/* input file unico per OCR scadenza di riga */}
