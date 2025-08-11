@@ -1443,7 +1443,7 @@ export default function ListeProdotti() {
                       <td style={styles.td}>{s.brand || '-'}</td>
                       <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
                       <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
-                      <td style={styles.td}>
+                      <td style={styles.td}>{totalUnitsOf(s)}</td>
                         {totalUnitsOf(s)}
                         <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
                         <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
