@@ -1703,55 +1703,105 @@ function decrementAcrossBothLists(prevLists, purchases) {
         </td>
 
         {/* Residuo unità */}
-       <td style={styles.td}>
+<td style={styles.td}>
   {(() => {
-    const { current, baseline, pct } = residueInfo(s);
+    // Dati correnti
+    const upp = Math.max(1, Number(s.unitsPerPack || 1));
+    const currentUnits = Math.max(0, Number(s.packs || 0) * upp);
+    const baselineUnits =
+      Math.max(upp, Number(s.baselinePacks || 0) * upp) || currentUnits || upp;
+    const pct = baselineUnits ? currentUnits / baselineUnits : 1;
+    const pctNum = Math.round(pct * 100);
 
+    // Scadenza/colore barra
+    const soon = daysToExpiry(s.expiresAt) <= 10;
+    const barColor = soon ? '#ef4444' : colorForPct(pct);
+    const isLow = soon || pct < 0.20;
+
+    // EDIT MODE: anteprima in base a residueUnits/unitsPerPack dell’editor
     if (editingRow === i) {
-      const uppPreview = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
-      const ruPreviewRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-      const currentPreview = Number.isFinite(ruPreviewRaw) ? Math.max(0, ruPreviewRaw) : current;
-      const baselinePreview = baseline || uppPreview;
-      const pctPreview = clamp01(currentPreview / (baselinePreview || uppPreview));
-
+      const draftUpp = Math.max(
+        1,
+        Number(editDraft.unitsPerPack || s.unitsPerPack || 1)
+      );
+      const ruDraft = Number(
+        String(editDraft.residueUnits ?? '').replace(',', '.')
+      );
+      const curPreview = Number.isFinite(ruDraft) ? Math.max(0, ruDraft) : currentUnits;
+      const basePreview = baselineUnits || draftUpp;
+      const pctPreview = basePreview ? Math.max(0, Math.min(1, curPreview / basePreview)) : 1;
+      const pctPreviewNum = Math.round(pctPreview * 100);
       const expIso = (editDraft.expiresAt ?? s.expiresAt) || '';
-      const soon = daysToExpiry(expIso) <= 10;
-
-      const barColor = soon ? '#ef4444' : colorForPct(pctPreview);
-      const isLow = soon || pctPreview < 0.20;
+      const soonDraft = daysToExpiry(expIso) <= 10;
+      const colorDraft = soonDraft ? '#ef4444' : colorForPct(pctPreview);
+      const isLowDraft = soonDraft || pctPreview < 0.20;
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input
-            inputMode="decimal"
-            value={editDraft.residueUnits ?? String(current)}
-            onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
-            style={{ ...styles.input, width: 150 }}
-            placeholder="Residuo unità"
-          />
-     <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-   <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
-     <div
-       className={isLow ? 'jarvisLow' : undefined}
-       style={{
-         ...styles.progressBar,
-         width: `${pctPreview * 100}%`,
-         background: barColor,
-       }}
-     />
-   </div>
-   <span style={{ minWidth: 38, textAlign: 'right', opacity: .9 }}>
-     {Math.round(pctPreview * 100)}%
-   </span>
-   <span style={{ opacity:.8, fontSize:12 }}>
-     ≈ {Number.isFinite(Number(s.avgDailyUnits)) && Number(s.avgDailyUnits) > 0
-          ? Number(s.avgDailyUnits).toFixed(2)
-          : '—'} u/g
-   </span>
- </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap:'wrap' }}>
+            <input
+              inputMode="decimal"
+              value={editDraft.residueUnits ?? String(currentUnits)}
+              onChange={(e) =>
+                handleEditDraftChange('residueUnits', e.target.value)
+              }
+              style={{ ...styles.input, width: 150 }}
+              placeholder="Residuo unità"
+            />
+            <div
+              style={styles.progressWrap}
+              title={`${Math.round(curPreview)}/${Math.round(basePreview)} unità`}
+            >
+              <div
+                className={isLowDraft ? 'jarvisLow' : undefined}
+                style={{
+                  ...styles.progressBar,
+                  width: `${pctPreview * 100}%`,
+                  background: colorDraft,
+                }}
+              />
+            </div>
+            <span style={{ opacity: 0.9, fontSize: 12 }}>{pctPreviewNum}%</span>
+          </div>
+          {s.avgDailyUnits ? (
+            <div style={{ opacity: 0.8, fontSize: 12 }}>
+              Consumo medio: ~{Number(s.avgDailyUnits).toFixed(2)} u/g
+            </div>
+          ) : null}
         </div>
       );
     }
+
+    // VIEW MODE
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap:'wrap' }}>
+          <span title="Residuo unità">{Math.round(currentUnits)}</span>
+          <div
+            style={styles.progressWrap}
+            title={`${Math.round(currentUnits)}/${Math.round(baselineUnits)} unità`}
+          >
+            <div
+              className={isLow ? 'jarvisLow' : undefined}
+              style={{
+                ...styles.progressBar,
+                width: `${pct * 100}%`,
+                background: barColor,
+              }}
+            />
+          </div>
+          <span style={{ opacity: 0.9, fontSize: 12 }}>{pctNum}%</span>
+        </div>
+        {s.avgDailyUnits ? (
+          <div style={{ opacity: 0.8, fontSize: 12 }}>
+            Consumo medio: ~{Number(s.avgDailyUnits).toFixed(2)} u/g
+          </div>
+        ) : null}
+      </div>
+    );
+  })()}
+</td>
+
 
     const soon = isExpiringSoon(s);
     const barColor = soon ? '#ef4444' : colorForPct(pct);
