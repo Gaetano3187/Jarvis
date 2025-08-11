@@ -210,6 +210,41 @@ function timeoutFetch(url, opts={}, ms=25000) {
 
 /* ---------------- Confezioni × Unità helpers ---------------- */
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+// clamp 0..1
+function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
+
+// Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
+function residueInfo(s){
+  const upp = Math.max(1, Number(s.unitsPerPack || 1));
+  const current = Math.max(0, Number(s.packs || 0) * upp);
+  const baseline = Math.max(upp, Number(s.baselinePacks || 0) * upp) || current || upp;
+  const pct = baseline ? clamp01(current / baseline) : 1;
+  return { current, baseline, pct };
+}
+
+// Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
+const RESIDUE_THRESHOLDS = { green: 0.60, amber: 0.30 };
+
+function colorForPct(p){
+  const x = clamp01(p);
+  if (x >= RESIDUE_THRESHOLDS.green) return '#16a34a'; // verde
+  if (x >= RESIDUE_THRESHOLDS.amber) return '#f59e0b'; // ambra
+  return '#ef4444';                                    // rosso
+}
+
+// Giorni alla scadenza (∞ se non impostata/non valida)
+function daysToExpiry(iso){
+  if (!iso) return Infinity;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return Infinity;
+  const now = new Date();
+  return Math.floor((d - now) / 86400000);
+}
+
+// True se scade entro N giorni (default 10)
+function isExpiringSoon(s, days=10){
+  return daysToExpiry(s?.expiresAt) <= days;
+}
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
 function extractPackInfo(str){
@@ -1801,6 +1836,17 @@ function decrementAcrossBothLists(prevLists, purchases) {
               {toast.msg}
             </div>
           )}
+<style jsx>{`
+  @keyframes jarvisPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
+    70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+  }
+  .jarvisLow {
+    animation: jarvisPulse 1.5s infinite;
+  }
+`}</style>
+
         </div>
       </div>
     </>
