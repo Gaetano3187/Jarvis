@@ -1728,7 +1728,7 @@ const styles = {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1736,7 +1736,6 @@ const styles = {
     fontFamily:
       'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
-
   card: {
     width: '100%',
     maxWidth: 1000,
@@ -1745,7 +1744,6 @@ const styles = {
     padding: 22,
     boxShadow: '0 6px 16px rgba(0,0,0,.3)',
   },
-
   headerRow: {
     display: 'flex',
     alignItems: 'center',
@@ -1762,7 +1760,6 @@ const styles = {
     textDecoration: 'none',
     fontWeight: 700,
   },
-
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
     background: 'rgba(255,255,255,.08)',
@@ -1782,9 +1779,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 800,
   },
-
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
-
   voiceBtn: {
     background: '#6366f1',
     border: 0,
@@ -1794,11 +1789,9 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 800,
   },
-
   sectionLarge: { marginTop: 30, marginBottom: 10 },
   sectionXL: { marginTop: 38, marginBottom: 12 },
   h3: { margin: '6px 0 12px' },
-
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
   itemRow: {
     display: 'flex',
@@ -1824,7 +1817,6 @@ const styles = {
   },
   itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
   itemBrand: { fontSize: 12, opacity: 0.8 },
-
   itemActions: {
     display: 'flex',
     alignItems: 'center',
@@ -1868,7 +1860,6 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
   },
-
   formRow: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -1881,7 +1872,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
+    minWidth: 160,
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -1894,7 +1885,6 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-
   table: {
     width: '100%',
     borderCollapse: 'collapse',
@@ -1914,7 +1904,6 @@ const styles = {
     borderBottom: '1px solid rgba(255,255,255,.08)',
     verticalAlign: 'middle',
   },
-
   scorteHeader: {
     display: 'flex',
     alignItems: 'center',
@@ -1922,7 +1911,6 @@ const styles = {
     gap: 10,
     flexWrap: 'wrap',
   },
-
   voiceBtnSmall: {
     background: '#6366f1',
     border: 0,
@@ -1953,7 +1941,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-    ocrInlineBtn: {
+  ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -1962,9 +1950,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  }, // <-- VIRGOLA QUI
-
-  /* ---------- Badge “Giorni rimasti” ---------- */
+  },
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -1996,4 +1982,5 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-}; // <-- e chiudi l’oggetto con punto e virgola
+};
+
