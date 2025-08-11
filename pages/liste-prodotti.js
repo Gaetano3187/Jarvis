@@ -11,7 +11,7 @@ const API_ASSISTANT_TEXT = '/api/assistant';
 const API_OCR = '/api/ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
-/* ----------------- Lessico supermercato ----------------- */
+/* ----------------- Lessico supermercato ----------------- */ 
 const GROCERY_LEXICON = [
   'latte','latte ps','latte parzialmente scremato','latte intero','latte uht','latte zymil',
   'yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
