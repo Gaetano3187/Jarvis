@@ -561,6 +561,68 @@ export default function ListeProdotti() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
   }
+// --- Stato e funzioni per Modifica riga ---
+const [editingRowKey, setEditingRowKey] = useState(null);
+const [draftRow, setDraftRow] = useState(null);
+
+function totalUnitsOf(s) {
+  const packs = Math.max(0, Number(s.packs || 0));
+  const upp = Math.max(1, Number(s.unitsPerPack || 1));
+  return packs * upp;
+}
+
+function startEditRow(rowKey, rowData) {
+  setEditingRowKey(rowKey);
+  setDraftRow({
+    ...rowData,
+    name: rowData.name || '',
+    brand: rowData.brand || '',
+    packs: Number(rowData.packs ?? 0),
+    unitsPerPack: Number(rowData.unitsPerPack ?? 1),
+    residueUnits: Number(rowData.residueUnits ?? 0),
+    unitLabel: rowData.unitLabel || '',
+    expiresAt: rowData.expiresAt || '',
+    purchasedAt: rowData.purchasedAt || rowData.lastRestockAt || ''
+  });
+}
+
+function cancelEditRow() {
+  setEditingRowKey(null);
+  setDraftRow(null);
+}
+
+function handleDraftChange(field, value) {
+  setDraftRow(prev => ({ ...prev, [field]: value }));
+}
+
+function saveEditRow(rowKey) {
+  setStock(prev => {
+    const arr = [...prev];
+    const idx = typeof rowKey === 'number'
+      ? rowKey
+      : arr.findIndex(s => (s._key || `${s.name}|${s.brand||''}`) === rowKey);
+    if (idx < 0) return prev;
+    const d = draftRow;
+    const packs = Math.max(0, Number(d.packs || 0));
+    const upp = Math.max(1, Number(d.unitsPerPack || 1));
+    const residueUnits = Math.max(0, Number(d.residueUnits || 0));
+    arr[idx] = {
+      ...arr[idx],
+      name: d.name.trim(),
+      brand: (d.brand||'').trim(),
+      packs,
+      unitsPerPack: upp,
+      unitLabel: (d.unitLabel||'').trim(),
+      residueUnits,
+      expiresAt: d.expiresAt || '',
+      purchasedAt: d.purchasedAt || '',
+      baselinePacks: packs
+    };
+    return arr;
+  });
+  setEditingRowKey(null);
+  setDraftRow(null);
+}
 
   /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
