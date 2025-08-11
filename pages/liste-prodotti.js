@@ -1700,69 +1700,50 @@ function decrementAcrossBothLists(prevLists, purchases) {
           )}
         </td>
 
-        {/* Residuo unità */}
-       <td style={styles.td}>
+      {/* Residuo unità */}
+<td style={styles.td}>
   {(() => {
-    const { current, baseline, pct } = residueInfo(s);
+    // Unità correnti, baseline e % residua
+    const { current, baseline, pctRemain } = residueInfo(s);
 
-    if (editingRow === i) {
-      const uppPreview = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
-      const ruPreviewRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-      const currentPreview = Number.isFinite(ruPreviewRaw) ? Math.max(0, ruPreviewRaw) : current;
-      const baselinePreview = baseline || uppPreview;
-      const pctPreview = clamp01(currentPreview / (baselinePreview || uppPreview));
+    // % consumo = 1 - % residua
+    const pctUsed = 1 - pctRemain;
 
-      const expIso = (editDraft.expiresAt ?? s.expiresAt) || '';
-      const soon = daysToExpiry(expIso) <= 10;
+    // Colore/animazione: rosso se scade entro 10gg, altrimenti per soglie
+    const soon = isExpiringSoon(s);
+    const barColor = soon ? '#ef4444' : colorForPct(pctRemain);
+    const isLow = soon || pctRemain < 0.20; // <20% → pulsa
 
-      const barColor = soon ? '#ef4444' : colorForPct(pctPreview);
-      const isLow = soon || pctPreview < 0.20;
-
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input
-            inputMode="decimal"
-            value={editDraft.residueUnits ?? String(current)}
-            onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
-            style={{ ...styles.input, width: 150 }}
-            placeholder="Residuo unità"
-          />
-          <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {/* Riga: numero unità + barra + % consumo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>{Math.round(current)}u</span>
+          <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
             <div
               className={isLow ? 'jarvisLow' : undefined}
               style={{
                 ...styles.progressBar,
-                width: `${pctPreview * 100}%`,
+                width: `${pctRemain * 100}%`,
                 background: barColor,
               }}
             />
           </div>
+          <span style={{ opacity: .85, minWidth: 52, textAlign: 'right' }}>
+            {Math.round(pctUsed * 100)}% consumo
+          </span>
         </div>
-      );
-    }
 
-    const soon = isExpiringSoon(s);
-    const barColor = soon ? '#ef4444' : colorForPct(pct);
-    const isLow = soon || pct < 0.20;
-
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>{Math.round(current)}</span>
-        <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
-          <div
-            className={isLow ? 'jarvisLow' : undefined}
-            style={{
-              ...styles.progressBar,
-              width: `${pct * 100}%`,
-              background: barColor,
-            }}
-          />
+        {/* Controlli esistenti per aggiornare il residuo (se li vuoi tenere) */}
+        <div style={{ display: 'inline-flex', gap: 6 }}>
+          <button onClick={() => setResidualUnits(i)} style={{ ...styles.actionGhost, marginTop: 4 }}>✎ Imposta</button>
+          <button onClick={() => addOneUnit(i, -1)} style={{ ...styles.actionGhost, marginTop: 4 }} title="− 1 unità">−1</button>
+          <button onClick={() => addOneUnit(i, +1)} style={{ ...styles.actionGhost, marginTop: 4 }} title="+ 1 unità">+1</button>
         </div>
       </div>
     );
   })()}
 </td>
-
         {/* Scadenza */}
         <td style={styles.td}>
           {!isEditing ? (
@@ -1884,7 +1865,9 @@ function decrementAcrossBothLists(prevLists, purchases) {
               {toast.msg}
             </div>
           )}
-<style jsx>{`
+        </div>
+      </div>
+          <style jsx>{`
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
     70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
@@ -1894,9 +1877,6 @@ function decrementAcrossBothLists(prevLists, purchases) {
     animation: jarvisPulse 1.5s infinite;
   }
 `}</style>
-
-        </div>
-      </div>
     </>
   );
 }
