@@ -1558,12 +1558,13 @@ function saveEditRow(rowKey) {
           <>
             <button onClick={() => startEditRow(i, s)} style={styles.actionGhost}>✎ Modifica</button>
             <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-          </>
-        )}
-      </div>
-    </td>
-  </tr>
-))}
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  ))}
+</tbody>
            {/* input file unico per OCR scadenza di riga */}
             <input
               ref={rowOcrInputRef}
