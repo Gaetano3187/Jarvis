@@ -157,7 +157,7 @@ function Entrate() {
       const { data: inc } = await supabase.from('incomes')
         .select('id, source, description, amount, received_at, received_date')
         .eq('user_id', user.id)
-        .gte('received_date', startDate)
+        .gte('received_at', `${startDate}T00:00:00Z`).lte('received_at', `${endDate}T23:59:59Z`)
         .lte('received_date', endDate)
         .order('received_at', { ascending: false });
       setIncomes(inc || []);
@@ -172,7 +172,7 @@ function Entrate() {
       const { data: pc } = await supabase.from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
-        .gte('moved_date', startDate).lte('moved_date', endDate)
+    .gte('moved_at', `${startDate}T00:00:00Z`).lte('moved_at', `${endDate}T23:59:59Z`)
         .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
 
       const manualRows = (pc || []).map((row) => {
