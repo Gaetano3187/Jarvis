@@ -2068,14 +2068,19 @@ export default function ListeProdottiPage() {
                 zIndex: 9999,
              }}
             >
-              {toast.msg}
-            </div>
-          )}
-        </div> {/* fine card / container principale */}
-      </div> {/* fine page wrapper */}
+             {toast.msg}
+        </div>
+      )}
     </main>
   );
-}
+} // <-- chiude la funzione
+
+// (facoltativo) helpers fuori dalla funzione
+function theMediaWorkaround() {}
+
+const styles = {
+  /* ... */
+}; // <-- qui NON devono esserci tag JSX dopo
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
