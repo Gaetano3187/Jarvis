@@ -1472,79 +1472,119 @@ setLists(prev => {
             )}
           </div>
 
-          {/* Form aggiunta manuale (Lista) */}
-          <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
-            <form onSubmit={addManualItem} style={styles.formRow}>
-              <input placeholder="Prodotto (es. latte)" value={form.name}
-                     onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-              <input placeholder="Marca (es. Parmalat)" value={form.brand}
-                     onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-              <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
-                     onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
-              <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
-                     onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
-              <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
-                     onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
-              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
-            </form>
-            <p style={{opacity:.8, marginTop: 6}}>
-              Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
-            </p>
-          </div>
+         {/* Form aggiunta manuale (Lista) */}
+<div style={styles.sectionLarge}>
+  <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
+  <form onSubmit={addManualItem} style={styles.formRow}>
+    <input
+      placeholder="Prodotto (es. latte)"
+      value={form.name}
+      onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+      style={styles.input}
+      required
+    />
+    <input
+      placeholder="Marca (es. Parmalat)"
+      value={form.brand}
+      onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+      style={styles.input}
+    />
+    <input
+      placeholder="Confezioni"
+      inputMode="decimal"
+      value={form.packs}
+      onChange={e => setForm(f => ({ ...f, packs: e.target.value }))}
+      style={{ ...styles.input, width: 140 }}
+      required
+    />
+    <input
+      placeholder="Unità/conf."
+      inputMode="decimal"
+      value={form.unitsPerPack}
+      onChange={e => setForm(f => ({ ...f, unitsPerPack: e.target.value }))}
+      style={{ ...styles.input, width: 140 }}
+      required
+    />
+    <input
+      placeholder="Etichetta (es. bottiglie)"
+      value={form.unitLabel}
+      onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
+      style={{ ...styles.input, width: 170 }}
+    />
+    <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
+  </form>
+  <p style={{ opacity: .8, marginTop: 6 }}>
+    Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
+  </p>
+</div>
 
-          {/* Prodotti in esaurimento / scadenza */}
-          <div style={styles.sectionXL}>
-            <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
-            {critical.length === 0 ? (
-              <p style={{opacity:.8}}>Nessun prodotto critico</p>
-            ) : (
-              <ul style={{margin:'6px 0 0', paddingLeft: '18px'}}>
-                {critical.map((p, i) => (
-                  <li key={i}>
-                    {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
-                    {p.expiresAt ? ` — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')}` : ''}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+{/* Prodotti in esaurimento / scadenza */}
+<div style={styles.sectionXL}>
+  <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
+  {critical.length === 0 ? (
+    <p style={{ opacity: .8 }}>Nessun prodotto critico</p>
+  ) : (
+    <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+      {critical.map((p, i) => (
+        <li key={i}>
+          {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
+          {p.expiresAt ? ` — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')}` : ''}
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
 
-   <tbody>
-  {stocks.map((s, i) => (
-    <tr key={s.id ?? i}>
-      {/* Scadenza */}
-      <td style={styles.td}>
-        {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
-      </td>
+{/* Tabella scorte (solo colonne di esempio: Scadenza, Azioni) */}
+{Array.isArray(stocks) && stocks.length > 0 ? (
+  <table style={styles.table}>
+    <thead>
+      <tr>
+        <th style={styles.th}>Scadenza</th>
+        <th style={styles.th}>Azioni</th>
+      </tr>
+    </thead>
+    <tbody>
+      {stocks.map((s, i) => (
+        <tr key={s.id ?? i}>
+          {/* Scadenza */}
+          <td style={styles.td}>
+            {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
+          </td>
 
-      {/* Azioni: SOLO OCR / Modifica / Elimina */}
-      <td style={styles.td}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => openRowOcr(i)}
-            style={styles.ocrInlineBtn}
-            disabled={busy}
-          >
-            📷 OCR
-          </button>
-          <button
-            onClick={() => editStockRow(i)}
-            style={styles.actionGhost}
-          >
-            ✎ Modifica
-          </button>
-          <button
-            onClick={() => deleteStockRow(i)}
-            style={styles.actionGhostDanger}
-          >
-            🗑 Elimina
-          </button>
-        </div>
-      </td>
-    </tr>
-  ))}
-</tbody>
+          {/* Azioni: SOLO OCR / Modifica / Elimina */}
+          <td style={styles.td}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => openRowOcr(i)}
+                style={styles.ocrInlineBtn}
+                disabled={busy}
+              >
+                📷 OCR
+              </button>
+              <button
+                onClick={() => editStockRow(i)}
+                style={styles.actionGhost}
+              >
+                ✎ Modifica
+              </button>
+              <button
+                onClick={() => deleteStockRow(i)}
+                style={styles.actionGhostDanger}
+              >
+                🗑 Elimina
+              </button>
+            </div>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+) : (
+  <p style={{ opacity: .75, marginTop: 8 }}>Nessun prodotto in lista.</p>
+)}
+
+{/* input file unico per OCR scadenza di riga — FUORI dalla tabella */}
 <input
   ref={rowOcrInputRef}
   type="file"
@@ -1561,60 +1601,6 @@ setLists(prev => {
   Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
   Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
 </p>
-
-                 <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
-                      <td style={styles.td}>
-                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-
-                          {/* Controlli rapidi confezioni */}
-                          <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost} title="− 1 confezione">−1 conf.</button>
-                          <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost} title="+ 1 confezione">+1 conf.</button>
-
-                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
- <input
-    ref={rowOcrInputRef}
-    type="file"
-    accept="image/*,application/pdf"
-    capture="environment"
-    hidden
-    onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
-  />
-
-  <p style={{ opacity: .75, marginTop: 8 }}>
-    Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
-  </p>
-  <p style={{ opacity: .75, marginTop: 4 }}>
-    Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
-    Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
-  </p>
-</div>
-            )}
-            {/* input file unico per OCR scadenza di riga */}
-            <input
-              ref={rowOcrInputRef}
-              type="file"
-              accept="image/*,application/pdf"
-              capture="environment"
-              hidden
-              onChange={(e)=>handleRowOcrChange(Array.from(e.target.files||[]))}
-            />
-            <p style={{opacity:.75, marginTop:8}}>
-              Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
-            </p>
-            <p style={{opacity:.75, marginTop:4}}>
-              Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
-              Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
-            </p>
-          </div>
-
           {/* Aggiungi SCORTA manuale */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
