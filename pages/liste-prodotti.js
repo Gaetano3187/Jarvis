@@ -1514,20 +1514,14 @@ export default function ListeProdotti() {
                       <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
                       <td style={styles.td}>{totalUnitsOf(s)}</td>
                         {totalUnitsOf(s)}
-                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
-                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
-                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
-                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
-                        </div>
-                    <td style={styles.td}>
-  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-    <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-    <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-    <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                        <td style={styles.td}>{totalUnitsOf(s)}</td>
+  {totalUnitsOf(s)}
+  <div style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
+    <button onClick={() => addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
+    <button onClick={() => addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
   </div>
-</td>   
-                  
-              </tr>
+</td>                               
+            </tr>
                   ))}
                 </tbody>
               </table>
