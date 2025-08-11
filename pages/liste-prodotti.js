@@ -1450,21 +1450,14 @@ export default function ListeProdotti() {
                           <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
                           <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
                         </div>
-                      </td>
-                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
-                      <td style={styles.td}>
-                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-
-                          {/* Controlli rapidi confezioni */}
-                          <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost} title="− 1 confezione">−1 conf.</button>
-                          <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost} title="+ 1 confezione">+1 conf.</button>
-
-                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-                        </div>
-                      </td>
-                    </tr>
+                    <td style={styles.td}>
+  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+    <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+    <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+    <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+  </div>
+</td>
+              </tr>
                   ))}
                 </tbody>
               </table>
