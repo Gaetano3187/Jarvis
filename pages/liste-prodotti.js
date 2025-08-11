@@ -963,7 +963,6 @@ export default function ListeProdotti() {
   }
 
   /* ---------------- Modifica / Elimina scorte ---------------- */
- /* ---------------- Modifica / Elimina scorte ---------------- */
  
   function editStockRow(i) {
     const it = stock[i];
