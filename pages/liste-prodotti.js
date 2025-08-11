@@ -1604,7 +1604,7 @@ export default function ListeProdotti() {
         {/* Scadenza */}
         <td style={styles.td}>
           {!isEditing ? (
-            s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
+      formatDateOrDash(s.expiresAt)
           ) : (
             <input
               value={draftRow?.expiresAt ?? (s.expiresAt || '')}
