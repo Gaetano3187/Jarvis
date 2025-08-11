@@ -210,6 +210,18 @@ function timeoutFetch(url, opts={}, ms=25000) {
 
 /* ---------------- Confezioni × Unità helpers ---------------- */
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+// Residuo mostrato: se esiste residueUnits lo usa, altrimenti packs×unitsPerPack
+function displayedResidueUnits(s){
+  const ru = Number(s?.residueUnits ?? NaN);
+  return Number.isFinite(ru) ? Math.max(0, ru) : (Number(s.packs||0) * Number(s.unitsPerPack||1));
+}
+
+// Formatta YYYY-MM-DD o restituisce "-"
+function formatDateOrDash(iso){
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString('it-IT');
+}
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
 function extractPackInfo(str){
