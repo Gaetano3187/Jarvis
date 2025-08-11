@@ -1701,19 +1701,67 @@ function decrementAcrossBothLists(prevLists, purchases) {
         </td>
 
         {/* Residuo unità */}
-        <td style={styles.td}>
-          {!isEditing ? (
-            (Number(s.packs || 0) * Number(s.unitsPerPack || 1))
-          ) : (
-            <input
-              inputMode="decimal"
-              value={editDraft.residueUnits}
-              onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
-              style={{ ...styles.input, width: 140 }}
-              placeholder="Residuo unità"
+       <td style={styles.td}>
+  {(() => {
+    const { current, baseline, pct } = residueInfo(s);
+
+    if (editingRow === i) {
+      const uppPreview = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
+      const ruPreviewRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+      const currentPreview = Number.isFinite(ruPreviewRaw) ? Math.max(0, ruPreviewRaw) : current;
+      const baselinePreview = baseline || uppPreview;
+      const pctPreview = clamp01(currentPreview / (baselinePreview || uppPreview));
+
+      const expIso = (editDraft.expiresAt ?? s.expiresAt) || '';
+      const soon = daysToExpiry(expIso) <= 10;
+
+      const barColor = soon ? '#ef4444' : colorForPct(pctPreview);
+      const isLow = soon || pctPreview < 0.20;
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <input
+            inputMode="decimal"
+            value={editDraft.residueUnits ?? String(current)}
+            onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
+            style={{ ...styles.input, width: 150 }}
+            placeholder="Residuo unità"
+          />
+          <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
+            <div
+              className={isLow ? 'jarvisLow' : undefined}
+              style={{
+                ...styles.progressBar,
+                width: `${pctPreview * 100}%`,
+                background: barColor,
+              }}
             />
-          )}
-        </td>
+          </div>
+        </div>
+      );
+    }
+
+    const soon = isExpiringSoon(s);
+    const barColor = soon ? '#ef4444' : colorForPct(pct);
+    const isLow = soon || pct < 0.20;
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>{Math.round(current)}</span>
+        <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
+          <div
+            className={isLow ? 'jarvisLow' : undefined}
+            style={{
+              ...styles.progressBar,
+              width: `${pct * 100}%`,
+              background: barColor,
+            }}
+          />
+        </div>
+      </div>
+    );
+  })()}
+</td>
 
         {/* Scadenza */}
         <td style={styles.td}>
