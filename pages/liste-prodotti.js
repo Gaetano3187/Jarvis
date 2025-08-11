@@ -2174,7 +2174,22 @@ inputTableSm: {
   width: 90,
   minWidth: 0,
 },
-inputTableXs: {
+progressWrap: {
+  position: 'relative',
+  width: 120,
+  height: 10,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,.15)',
+  overflow: 'hidden',
+  flex: '0 0 120px',
+},
+progressBar: {
+  position: 'absolute',
+  inset: 0,
+  width: '0%',
+  transition: 'width .25s ease, background-color .25s ease',
+},
+  inputTableXs: {
   padding: '6px 8px',
   borderRadius: 8,
   border: '1px solid rgba(255,255,255,.2)',
