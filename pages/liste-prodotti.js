@@ -1706,30 +1706,24 @@ function decrementAcrossBothLists(prevLists, purchases) {
         </td>
 
         {/* Residuo unità */}
+{/* Residuo unità */}
 <td style={styles.td}>
   {(() => {
     // Dati correnti
     const upp = Math.max(1, Number(s.unitsPerPack || 1));
     const currentUnits = Math.max(0, Number(s.packs || 0) * upp);
-    const baselineUnits =
-      Math.max(upp, Number(s.baselinePacks || 0) * upp) || currentUnits || upp;
+    const baselineUnits = Math.max(upp, Number(s.baselinePacks || 0) * upp) || currentUnits || upp;
     const pct = baselineUnits ? currentUnits / baselineUnits : 1;
     const pctNum = Math.round(pct * 100);
 
-    // Scadenza/colore barra
     const soon = daysToExpiry(s.expiresAt) <= 10;
     const barColor = soon ? '#ef4444' : colorForPct(pct);
     const isLow = soon || pct < 0.20;
 
-    // EDIT MODE: anteprima in base a residueUnits/unitsPerPack dell’editor
-    if (editingRow === i) {
-      const draftUpp = Math.max(
-        1,
-        Number(editDraft.unitsPerPack || s.unitsPerPack || 1)
-      );
-      const ruDraft = Number(
-        String(editDraft.residueUnits ?? '').replace(',', '.')
-      );
+    // EDIT MODE
+    if (isEditing) {
+      const draftUpp = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
+      const ruDraft = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
       const curPreview = Number.isFinite(ruDraft) ? Math.max(0, ruDraft) : currentUnits;
       const basePreview = baselineUnits || draftUpp;
       const pctPreview = basePreview ? Math.max(0, Math.min(1, curPreview / basePreview)) : 1;
@@ -1745,23 +1739,14 @@ function decrementAcrossBothLists(prevLists, purchases) {
             <input
               inputMode="decimal"
               value={editDraft.residueUnits ?? String(currentUnits)}
-              onChange={(e) =>
-                handleEditDraftChange('residueUnits', e.target.value)
-              }
+              onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
               style={{ ...styles.input, width: 150 }}
               placeholder="Residuo unità"
             />
-            <div
-              style={styles.progressWrap}
-              title={`${Math.round(curPreview)}/${Math.round(basePreview)} unità`}
-            >
+            <div style={styles.progressWrap} title={`${Math.round(curPreview)}/${Math.round(basePreview)} unità`}>
               <div
                 className={isLowDraft ? 'jarvisLow' : undefined}
-                style={{
-                  ...styles.progressBar,
-                  width: `${pctPreview * 100}%`,
-                  background: colorDraft,
-                }}
+                style={{ ...styles.progressBar, width: `${pctPreview * 100}%`, background: colorDraft }}
               />
             </div>
             <span style={{ opacity: 0.9, fontSize: 12 }}>{pctPreviewNum}%</span>
@@ -1780,17 +1765,10 @@ function decrementAcrossBothLists(prevLists, purchases) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap:'wrap' }}>
           <span title="Residuo unità">{Math.round(currentUnits)}</span>
-          <div
-            style={styles.progressWrap}
-            title={`${Math.round(currentUnits)}/${Math.round(baselineUnits)} unità`}
-          >
+          <div style={styles.progressWrap} title={`${Math.round(currentUnits)}/${Math.round(baselineUnits)} unità`}>
             <div
               className={isLow ? 'jarvisLow' : undefined}
-              style={{
-                ...styles.progressBar,
-                width: `${pct * 100}%`,
-                background: barColor,
-              }}
+              style={{ ...styles.progressBar, width: `${pct * 100}%`, background: barColor }}
             />
           </div>
           <span style={{ opacity: 0.9, fontSize: 12 }}>{pctNum}%</span>
@@ -1806,7 +1784,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
 </td>
 
 
-    const soon = isExpiringSoon(s);
+const soon = isExpiringSoon(s);
     const barColor = soon ? '#ef4444' : colorForPct(pct);
     const isLow = soon || pct < 0.20;
 
