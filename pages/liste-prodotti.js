@@ -1,3 +1,4 @@
+
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -1388,7 +1389,7 @@ export default function ListeProdotti() {
     setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
     showToast('Scorta aggiunta ✓', 'ok');
   }
- /* ---------------- render ---------------- */
+/* ---------------- render ---------------- */
 return (
   <>
     <Head><title>🛍 Lista Prodotti</title></Head>
@@ -1397,8 +1398,10 @@ return (
       <div style={styles.card}>
         {/* Header */}
         <div style={styles.headerRow}>
-          <h2 style={{margin:0}}>🛍 Lista Prodotti</h2>
-          <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
+          <h2 style={{ margin: 0 }}>🛍 Lista Prodotti</h2>
+          <Link href="/home" legacyBehavior>
+            <a style={styles.homeBtn}>Home</a>
+          </Link>
         </div>
 
         {/* Switch lista */}
@@ -1417,42 +1420,43 @@ return (
           </button>
         </div>
 
-       {/* Comandi Lista / Inventario */}
-<div style={styles.toolsRow}>
-  <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
-    {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
-  </button>
-  <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-    {invRecBusy ? '⏹️ Stop' : '🎙 Scorte/Scadenze'}
-  </button>
-  <button
-    onClick={() => ocrInputRef.current?.click()}
-    style={styles.ocrBtnSmall}
-    disabled={busy}
-    title="OCR scontrino"
-  >
-    📷 OCR Scontrino
-  </button>
-  <input
-    ref={ocrInputRef}
-    type="file"
-    accept="image/*,application/pdf"
-    multiple
-    hidden
-    onChange={(e)=>handleOCR(Array.from(e.target.files||[]))}
-  />
-</div>
-
+        {/* Comandi Lista / Inventario */}
+        <div style={styles.toolsRow}>
+          <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
+            {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
+          </button>
+          <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+            {invRecBusy ? '⏹️ Stop' : '🎙 Scorte/Scadenze'}
+          </button>
+          <button
+            onClick={() => ocrInputRef.current?.click()}
+            style={styles.ocrBtnSmall}
+            disabled={busy}
+            title="OCR scontrino"
+          >
+            📷 OCR Scontrino
+          </button>
+          <input
+            ref={ocrInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            multiple
+            hidden
+            onChange={(e) => handleOCR(Array.from(e.target.files || []))}
+          />
         </div>
 
         {/* Lista corrente */}
         <div style={styles.sectionLarge}>
           <h3 style={styles.h3}>
-            Lista corrente: <span style={{opacity:.85}}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+            Lista corrente:{' '}
+            <span style={{ opacity: .85 }}>
+              {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
+            </span>
           </h3>
 
           {curItems.length === 0 ? (
-            <p style={{opacity:.8}}>Nessun prodotto ancora</p>
+            <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
           ) : (
             <div style={styles.listGrid}>
               {curItems.map((it) => (
@@ -1485,7 +1489,7 @@ return (
                       </button>
                     )}
 
-                    <div style={{display:'flex', gap:6}}>
+                    <div style={{ display: 'flex', gap: 6 }}>
                       <button title="Diminuisci confezioni" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
                       <button title="Aumenta confezioni" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
                     </div>
@@ -1552,7 +1556,7 @@ return (
             <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
               {critical.map((p, i) => (
                 <li key={i}>
-                  {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità{' '}
+                  {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel || 'unità'} = {totalUnitsOf(p)} unità{' '}
                   {p.expiresAt ? (
                     <>
                       — Scadenza: {new Date(p.expiresAt).toLocaleDateString('it-IT')} <DaysBadge expiresAt={p.expiresAt} />
@@ -1584,18 +1588,18 @@ return (
                   <td style={styles.td}>{s.name}</td>
                   <td style={styles.td}>{s.brand || '—'}</td>
                   <td style={styles.td}>
-                    {Number(s.packs||0).toFixed(2)}
-                    <div style={{marginTop:6}}><StockBarMini row={s} /></div>
+                    {Number(s.packs || 0).toFixed(2)}
+                    <div style={{ marginTop: 6 }}><StockBarMini row={s} /></div>
                   </td>
                   <td style={styles.td}>{s.unitsPerPack} {s.unitLabel || 'unità'}</td>
                   <td style={styles.td}>
                     {totalUnitsOf(s)} unità
-                    <div style={{display:'flex', gap:6, marginTop:6}}>
-                      <button onClick={()=>addOneUnit(i,-1)} style={styles.actionGhost}>−1 unità</button>
-                      <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost}>+1 unità</button>
-                      <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost}>−1 conf.</button>
-                      <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost}>+1 conf.</button>
-                      <button onClick={()=>setResidualUnits(i)} style={styles.actionGhost}>✎ Imposta residuo</button>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                      <button onClick={() => addOneUnit(i, -1)} style={styles.actionGhost}>−1 unità</button>
+                      <button onClick={() => addOneUnit(i, +1)} style={styles.actionGhost}>+1 unità</button>
+                      <button onClick={() => addOnePack(i, -1)} style={styles.actionGhost}>−1 conf.</button>
+                      <button onClick={() => addOnePack(i, +1)} style={styles.actionGhost}>+1 conf.</button>
+                      <button onClick={() => setResidualUnits(i)} style={styles.actionGhost}>✎ Imposta residuo</button>
                     </div>
                   </td>
                   <td style={styles.td}>
@@ -1642,99 +1646,62 @@ return (
             <input
               placeholder="Prodotto (es. latte)"
               value={stockForm.name}
-              onChange={e => setStockForm(f => ({...f, name: e.target.value}))}
+              onChange={e => setStockForm(f => ({ ...f, name: e.target.value }))}
               style={styles.input}
               required
             />
             <input
               placeholder="Marca (opzionale)"
               value={stockForm.brand}
-              onChange={e => setStockForm(f => ({...f, brand: e.target.value}))}
+              onChange={e => setStockForm(f => ({ ...f, brand: e.target.value }))}
               style={styles.input}
             />
             <input
               placeholder="Confezioni"
               inputMode="decimal"
               value={stockForm.packs}
-              onChange={e => setStockForm(f => ({...f, packs: e.target.value}))}
-              style={{...styles.input, width:120}}
+              onChange={e => setStockForm(f => ({ ...f, packs: e.target.value }))}
+              style={{ ...styles.input, width: 120 }}
               required
             />
             <input
               placeholder="Unità/conf."
               inputMode="decimal"
               value={stockForm.unitsPerPack}
-              onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))}
-              style={{...styles.input, width:120}}
+              onChange={e => setStockForm(f => ({ ...f, unitsPerPack: e.target.value }))}
+              style={{ ...styles.input, width: 120 }}
               required
             />
             <input
               placeholder="Etichetta unità (es. bottiglie)"
               value={stockForm.unitLabel}
-              onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))}
-              style={{...styles.input, width:180}}
+              onChange={e => setStockForm(f => ({ ...f, unitLabel: e.target.value }))}
+              style={{ ...styles.input, width: 180 }}
             />
             <input
               placeholder="Scadenza YYYY-MM-DD (opz.)"
               value={stockForm.expiresAt}
-              onChange={e => setStockForm(f => ({...f, expiresAt: e.target.value}))}
-              style={{...styles.input, width:200}}
+              onChange={e => setStockForm(f => ({ ...f, expiresAt: e.target.value }))}
+              style={{ ...styles.input, width: 200 }}
             />
             <button style={styles.primaryBtn} disabled={busy}>Aggiungi alle scorte</button>
           </form>
-          <p style={{opacity:.8, marginTop:6}}>
+          <p style={{ opacity: .8, marginTop: 6 }}>
             Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
           </p>
         </div>
-
-           return (
-  <>
-    <div style={styles.page}>
-      <div style={styles.card}>
-        {/* ... TUTTO il contenuto della pagina ... */}
-
-        {/* Toast */}
-        {toast && (
-          <div
-            style={{
-              position: 'fixed',
-              bottom: 20,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              background:
-                toast.type === 'ok'
-                  ? '#16a34a'
-                  : toast.type === 'err'
-                  ? '#ef4444'
-                  : '#334155',
-              color: '#fff',
-              padding: '10px 14px',
-              borderRadius: 10,
-              boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-              zIndex: 9999,
-            }}
-          >
-            {toast.msg}
-          </div>
-        )}
-      </div> {/* chiusura card */}
-    </div>   {/* chiusura page */}
-  </>        {/* chiusura Fragment */}
+      </div>
+    </div>
+  </>
 );
-}            // chiusura funzione componente
 
 /* ---------------- styles (unica definizione!) ---------------- */
 const styles = {
-  /* ... */
-};
-
-
-
   page: {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1887,7 +1854,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
+    minWidth: 160,
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -2003,5 +1970,5 @@ const styles = {
     color: '#e2e8f0',
   },
 };
-      export default ListeProdotti; 
 
+} // fine function ListeProdotti
