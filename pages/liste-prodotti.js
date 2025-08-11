@@ -1115,27 +1115,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
     const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
     const ex = expStr ? toISODate(expStr) : '';
 
-    setStock(prev => {
-      const arr = [...prev];
-      const old = arr[i];
-      const todayISO = new Date().toISOString().slice(0,10);
-      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
-
-      // aumento? allora è restock
-      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-      const wasUnits = Number(old.packs || 0) * uppOld;
-      const nowUnits = packs * unitsPerPack;
-      const restock = nowUnits > wasUnits;
-
-      arr[i] = {
-        ...old,
-        name: name.trim(),
-        brand: (brand||'').trim(),
-        packs, unitsPerPack, unitLabel,
-        expiresAt: ex || '',
-        avgDailyUnits,
-        ...(restock ? restockTouch(packs, todayISO) : {})
-      };
+         };
       return arr;
     });
   }
