@@ -550,7 +550,10 @@ export default function ListeProdotti() {
   // Form Aggiunta Scorta manuale
   const [stockForm, setStockForm] = useState({
     name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
-    
+   
+      // Edit inline - Stato Scorte
+const [editingRowKey, setEditingRowKey] = useState(null);
+const [draftRow, setDraftRow] = useState(null);
   });
 
   const curItems = lists[currentList] || [];
