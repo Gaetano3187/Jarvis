@@ -498,7 +498,7 @@ export default function ListeProdotti() {
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
   // 
-  const [editingRow, setEditingRow] = useState(null)
+  const [editingRow, setEditingRow] = useState(null);
   const [editDraft, setEditDraft] = useState({
     name: '',
     brand: '',
@@ -507,73 +507,7 @@ export default function ListeProdotti() {
     unitLabel: 'unità',
     expiresAt: ''
   });
-  });
-}
-
-function startRowEdit(index, row){
-  setEditingRow(index);
-  setEditDraft({
-    name: row.name || '',
-    brand: row.brand || '',
-    packs: String(Number(row.packs ?? 0)),
-    unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
-    unitLabel: row.unitLabel || 'unità',
-    expiresAt: row.expiresAt || '',
-    // consenti di modificare anche il residuo come unità totali
-    residueUnits: String(Number(row.packs || 0) * Number(row.unitsPerPack || 1)),
-  });
-}
-
-function handleEditDraftChange(field, value){
-  setEditDraft(prev => ({ ...prev, [field]: value }));
-}
-
-function cancelRowEdit(){
-  setEditingRow(null);
-  setEditDraft({
-    name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
-  });
-}
-
-function saveRowEdit(index){
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[index];
-    if(!old) return prev;
-
-    const name = (editDraft.name || '').trim();
-    const brand = (editDraft.brand || '').trim();
-    const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
-    const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
-    const expiresAt = toISODate(editDraft.expiresAt || '');
-
-    // Se l'utente ha messo il Residuo unità, lo usiamo per ricalcolare le confezioni
-    const ru = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-    let packs;
-    if (Number.isFinite(ru)) {
-      packs = Math.max(0, ru / unitsPerPack);
-    } else {
-      packs = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
-    }
-
-    // Aggiorna baseline/lastRestockAt se è un restock
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const wasUnits = Number(old.packs || 0) * uppOld;
-    const nowUnits = packs * unitsPerPack;
-    const restock = nowUnits > wasUnits;
-    const todayISO = new Date().toISOString().slice(0,10);
-
-    arr[index] = {
-      ...old,
-      name, brand,
-      packs, unitsPerPack, unitLabel,
-      expiresAt,
-      ...(restock ? restockTouch(packs, todayISO) : {})
-    };
-    return arr;
-  });
-  setEditingRow(null);
-}
+// 
 
   // Stato UI
   const [busy, setBusy] = useState(false);
@@ -1579,8 +1513,14 @@ function saveRowEdit(index){
                       <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
                       <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
                       <td style={styles.td}>{totalUnitsOf(s)}</td>
-  {totalUnitsOf(s)}
-   <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                        {totalUnitsOf(s)}
+                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
+                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
+                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
+                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
+                        </div>
+                    <td style={styles.td}>
+  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
     <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
     <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
     <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
