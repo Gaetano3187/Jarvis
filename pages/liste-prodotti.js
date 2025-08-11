@@ -567,12 +567,12 @@ function cancelRowEdit(){
   });
 }
 
+
 function saveRowEdit(index){
-  function saveRowEdit(index){
   setStock(prev => {
     const arr = [...prev];
     const old = arr[index];
-    if(!old) return prev;
+    if (!old) return prev;
 
     const name = (editDraft.name || '').trim();
     const brand = (editDraft.brand || '').trim();
@@ -611,47 +611,6 @@ function saveRowEdit(index){
   });
   setEditingRow(null);
 }
-
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[index];
-    if(!old) return prev;
-
-    const name = (editDraft.name || '').trim();
-    const brand = (editDraft.brand || '').trim();
-    const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
-    const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
-    const expiresAt = toISODate(editDraft.expiresAt || '');
-
-    // Se l'utente ha messo il Residuo unità, lo usiamo per ricalcolare le confezioni
-    const ru = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-    let packs;
-    if (Number.isFinite(ru)) {
-      packs = Math.max(0, ru / unitsPerPack);
-    } else {
-      packs = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
-    }
-
-    // Aggiorna baseline/lastRestockAt se è un restock
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const wasUnits = Number(old.packs || 0) * uppOld;
-    const nowUnits = packs * unitsPerPack;
-    const restock = nowUnits > wasUnits;
-    const todayISO = new Date().toISOString().slice(0,10);
-    const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
-
-    arr[index] = {
-      ...old,
-      name, brand,
-      packs, unitsPerPack, unitLabel,
-     expiresAt,
-           avgDailyUnits,
-       ...(restock ? restockTouch(packs, todayISO) : {})
-     };
-     return arr;
-   });
-   setEditingRow(null);
- }
   // Stato UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
