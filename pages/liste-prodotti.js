@@ -1468,15 +1468,13 @@ function saveEditRow(rowKey){
             )}
           </div>
 
-         {/* Stato scorte */}
+        {/* Stato scorte */}
 <div style={styles.sectionXL}>
   <div style={styles.scorteHeader}>
     <h3 style={{ ...styles.h3, marginBottom: 0 }}>📊 Stato Scorte</h3>
-
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       {!invRecBusy ? (
         <button
-          type="button"
           onClick={toggleVoiceInventory}
           style={styles.voiceBtnSmall}
           disabled={busy}
@@ -1485,7 +1483,6 @@ function saveEditRow(rowKey){
         </button>
       ) : (
         <button
-          type="button"
           onClick={toggleVoiceInventory}
           style={styles.voiceBtnSmallStop}
         >
@@ -1494,7 +1491,6 @@ function saveEditRow(rowKey){
       )}
 
       <button
-        type="button"
         onClick={() => ocrInputRef.current?.click()}
         style={styles.ocrBtnSmall}
         disabled={busy}
@@ -1535,23 +1531,23 @@ function saveEditRow(rowKey){
             <td style={styles.td}>{s.name}</td>
             <td style={styles.td}>{s.brand || '-'}</td>
             <td style={styles.td}>
-              {(s.packs ?? 0).toFixed?.(2) ?? s.packs}
+              {typeof s.packs === 'number'
+                ? (s.packs ?? 0).toFixed(2)
+                : s.packs ?? '-'}
             </td>
             <td style={styles.td}>
-              {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}
+              {(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}
             </td>
             <td style={styles.td}>
               {totalUnitsOf(s)}
               <button
-                type="button"
                 onClick={() => setResidualUnits(i)}
                 style={{ ...styles.actionGhost, marginLeft: 8 }}
               >
                 ✎ Imposta
               </button>
-              <div style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
+              <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
                 <button
-                  type="button"
                   onClick={() => addOneUnit(i, -1)}
                   style={styles.actionGhost}
                   title="− 1 unità"
@@ -1559,14 +1555,13 @@ function saveEditRow(rowKey){
                   −1
                 </button>
                 <button
-                  type="button"
                   onClick={() => addOneUnit(i, +1)}
                   style={styles.actionGhost}
                   title="+ 1 unità"
                 >
                   +1
                 </button>
-              </div>
+              </span>
             </td>
             <td style={styles.td}>
               {s.expiresAt
@@ -1576,7 +1571,6 @@ function saveEditRow(rowKey){
             <td style={styles.td}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
-                  type="button"
                   onClick={() => openRowOcr(i)}
                   style={styles.ocrInlineBtn}
                   disabled={busy}
@@ -1586,7 +1580,6 @@ function saveEditRow(rowKey){
 
                 {/* Controlli rapidi confezioni */}
                 <button
-                  type="button"
                   onClick={() => addOnePack(i, -1)}
                   style={styles.actionGhost}
                   title="− 1 confezione"
@@ -1594,7 +1587,6 @@ function saveEditRow(rowKey){
                   −1 conf.
                 </button>
                 <button
-                  type="button"
                   onClick={() => addOnePack(i, +1)}
                   style={styles.actionGhost}
                   title="+ 1 confezione"
@@ -1603,14 +1595,12 @@ function saveEditRow(rowKey){
                 </button>
 
                 <button
-                  type="button"
                   onClick={() => editStockRow(i)}
                   style={styles.actionGhost}
                 >
                   ✎ Modifica
                 </button>
                 <button
-                  type="button"
                   onClick={() => deleteStockRow(i)}
                   style={styles.actionGhostDanger}
                 >
@@ -1635,20 +1625,17 @@ function saveEditRow(rowKey){
   />
 
   <p style={{ opacity: 0.75, marginTop: 8 }}>
-    Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto
-    2025”.
+    Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
   </p>
   <p style={{ opacity: 0.75, marginTop: 4 }}>
-    Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3
-    unità”. Per impostare il totale invece di aggiungere: “latte <b>porta a</b>{' '}
-    3 bottiglie”.
+    Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+    Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
   </p>
 </div>
 
 {/* Aggiungi SCORTA manuale */}
 <div style={styles.sectionLarge}>
   <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
-
   <form onSubmit={addManualStock} style={styles.formRow}>
     <input
       placeholder="Prodotto (es. latte)"
@@ -1697,7 +1684,7 @@ function saveEditRow(rowKey){
       }
       style={{ ...styles.input, width: 200 }}
     />
-    <button type="submit" style={styles.primaryBtn} disabled={busy}>
+    <button style={styles.primaryBtn} disabled={busy}>
       Aggiungi alle scorte
     </button>
   </form>
@@ -1708,7 +1695,7 @@ function saveEditRow(rowKey){
 </div>
 
 {/* Toast */}
-{toast && (
+{toast ? (
   <div
     style={{
       position: 'fixed',
@@ -1730,7 +1717,8 @@ function saveEditRow(rowKey){
   >
     {toast.msg}
   </div>
-)}
+) : null}
+
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
