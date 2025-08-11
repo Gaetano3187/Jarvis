@@ -1375,30 +1375,32 @@ return (
           </button>
         </div>
 
-        {/* Comandi Lista / Inventario */}
-        <div style={styles.toolsRow}>
-          <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
-            {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
-          </button>
-          <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-            {invRecBusy ? '⏹️ Stop' : '🎙 Scorte/Scadenze'}
-          </button>
-          <button
-            onClick={() => ocrInputRef.current?.click()}
-            style={styles.ocrBtnSmall}
-            disabled={busy}
-            title="OCR scontrino"
-          >
-            📷 OCR Scontrino
-          </button>
-          <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            multiple
-            hidden
-            onChange={(e)=>handleOCR(Array.from(e.target.files||[]))}
-          />
+       {/* Comandi Lista / Inventario */}
+<div style={styles.toolsRow}>
+  <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
+    {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
+  </button>
+  <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+    {invRecBusy ? '⏹️ Stop' : '🎙 Scorte/Scadenze'}
+  </button>
+  <button
+    onClick={() => ocrInputRef.current?.click()}
+    style={styles.ocrBtnSmall}
+    disabled={busy}
+    title="OCR scontrino"
+  >
+    📷 OCR Scontrino
+  </button>
+  <input
+    ref={ocrInputRef}
+    type="file"
+    accept="image/*,application/pdf"
+    multiple
+    hidden
+    onChange={(e)=>handleOCR(Array.from(e.target.files||[]))}
+  />
+</div>
+
         </div>
 
         {/* Lista corrente */}
