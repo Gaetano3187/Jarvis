@@ -1729,16 +1729,26 @@ function decrementAcrossBothLists(prevLists, purchases) {
             style={{ ...styles.input, width: 150 }}
             placeholder="Residuo unità"
           />
-          <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
-            <div
-              className={isLow ? 'jarvisLow' : undefined}
-              style={{
-                ...styles.progressBar,
-                width: `${pctPreview * 100}%`,
-                background: barColor,
-              }}
-            />
-          </div>
+     <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+   <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
+     <div
+       className={isLow ? 'jarvisLow' : undefined}
+       style={{
+         ...styles.progressBar,
+         width: `${pctPreview * 100}%`,
+         background: barColor,
+       }}
+     />
+   </div>
+   <span style={{ minWidth: 38, textAlign: 'right', opacity: .9 }}>
+     {Math.round(pctPreview * 100)}%
+   </span>
+   <span style={{ opacity:.8, fontSize:12 }}>
+     ≈ {Number.isFinite(Number(s.avgDailyUnits)) && Number(s.avgDailyUnits) > 0
+          ? Number(s.avgDailyUnits).toFixed(2)
+          : '—'} u/g
+   </span>
+ </div>
         </div>
       );
     }
