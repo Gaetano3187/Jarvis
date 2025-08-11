@@ -2185,10 +2185,13 @@ progressWrap: {
 },
 progressBar: {
   position: 'absolute',
-  inset: 0,
-  width: '0%',
+  left: 0,          // <-- usa left/top/bottom (NON inset)
+  top: 0,
+  bottom: 0,
+  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
   transition: 'width .25s ease, background-color .25s ease',
 },
+
   inputTableXs: {
   padding: '6px 8px',
   borderRadius: 8,
