@@ -497,10 +497,22 @@ export default function ListeProdotti() {
   // { name, brand, packs, unitsPerPack, unitLabel, expiresAt?, baselinePacks?, lastRestockAt?, avgDailyUnits? }
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
+  // 
+  const [editingRow, setEditingRow] = useState(null);
+  const [editDraft, setEditDraft] = useState({
+    name: '',
+    brand: '',
+    packs: '0',
+    unitsPerPack: '1',
+    unitLabel: 'unità',
+    expiresAt: ''
+  });
+// 
 
   // Stato UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
+  
 
   // Vocale: LISTA
   theMediaWorkaround();
@@ -521,10 +533,12 @@ export default function ListeProdotti() {
   // OCR scadenza per riga
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
+  
 
   // Form Aggiunta Scorta manuale
   const [stockForm, setStockForm] = useState({
     name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
+    
   });
 
   const curItems = lists[currentList] || [];
