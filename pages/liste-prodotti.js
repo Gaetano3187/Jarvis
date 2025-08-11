@@ -1486,7 +1486,7 @@ function saveEditRow(rowKey) {
             {stock.length === 0 ? (
               <p style={{opacity:.8, marginTop:8}}>Nessun dato scorte</p>
             ) : (
-              <table style={styles.table}>
+             <table style={styles.table}>
   <thead>
     <tr>
       <th style={styles.th}>Prodotto</th>
@@ -1499,71 +1499,115 @@ function saveEditRow(rowKey) {
     </tr>
   </thead>
   <tbody>
-    {stock.map((s, i) => (
-      <tr key={s._key ?? i}>
-        <td style={styles.td}>
-          {editingRowKey === i ? (
-            <input value={draftRow?.name ?? ''} onChange={e => handleDraftChange('name', e.target.value)} />
-          ) : (
-            s.name
-          )}
-        </td>
-        <td style={styles.td}>
-          {editingRowKey === i ? (
-            <input value={draftRow?.brand ?? ''} onChange={e => handleDraftChange('brand', e.target.value)} />
-          ) : (
-            s.brand || '-'
-          )}
-        </td>
-        <td style={styles.td}>
-          {editingRowKey === i ? (
-            <input type="number" min="0" value={draftRow?.packs ?? 0} onChange={e => handleDraftChange('packs', e.target.value)} />
-          ) : (
-            ((s.packs ?? 0)?.toFixed ? (s.packs ?? 0).toFixed(2) : s.packs ?? 0)
-          )}
-        </td>
-        <td style={styles.td}>
-          {editingRowKey === i ? (
-            <>
-              <input type="number" min="1" value={draftRow?.unitsPerPack ?? 1} onChange={e => handleDraftChange('unitsPerPack', e.target.value)} style={{ width: 60 }} />
-              <input value={draftRow?.unitLabel ?? ''} onChange={e => handleDraftChange('unitLabel', e.target.value)} style={{ width: 80, marginLeft: 6 }} />
-            </>
-          ) : (
-            `${s.unitsPerPack ?? 1} ${s.unitLabel || 'unità'}`
-          )}
-        </td>
-        <td style={styles.td}>
-          {editingRowKey === i ? (
-            <input type="number" min="0" value={draftRow?.residueUnits ?? 0} onChange={e => handleDraftChange('residueUnits', e.target.value)} />
-          ) : (
-            totalUnitsOf(s)
-          )}
-        </td>
-        <td style={styles.td}>
-          {editingRowKey === i ? (
-            <input type="date" value={draftRow?.expiresAt ?? ''} onChange={e => handleDraftChange('expiresAt', e.target.value)} />
-          ) : (
-            s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
-          )}
-        </td>
-        <td style={styles.td}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+    {stock.map(function (s, i) {
+      return (
+        <tr key={(s && s._key) ? s._key : i}>
+          <td style={styles.td}>
             {editingRowKey === i ? (
-              <>
-                <button onClick={() => saveEditRow(i)} style={styles.actionGhost}>💾 Salva</button>
-                <button onClick={cancelEditRow} style={styles.actionGhost}>↩ Annulla</button>
-              </>
+              <input
+                value={(draftRow && draftRow.name) ? draftRow.name : ''}
+                onChange={(e) => handleDraftChange('name', e.target.value)}
+              />
             ) : (
-              <>
-                <button onClick={() => startEditRow(i, s)} style={styles.actionGhost}>✎ Modifica</button>
-                <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-              </>
+              s.name
             )}
-          </div>
-        </td>
-      </tr>
-    ))}
+          </td>
+
+          <td style={styles.td}>
+            {editingRowKey === i ? (
+              <input
+                value={(draftRow && draftRow.brand) ? draftRow.brand : ''}
+                onChange={(e) => handleDraftChange('brand', e.target.value)}
+              />
+            ) : (
+              (s.brand && s.brand.length ? s.brand : '-')
+            )}
+          </td>
+
+          <td style={styles.td}>
+            {editingRowKey === i ? (
+              <input
+                type="number"
+                min="0"
+                value={(draftRow && typeof draftRow.packs !== 'undefined') ? draftRow.packs : 0}
+                onChange={(e) => handleDraftChange('packs', e.target.value)}
+              />
+            ) : (
+              (typeof s.packs === 'number'
+                ? s.packs.toFixed(2)
+                : (s.packs ? String(s.packs) : '0'))
+            )}
+          </td>
+
+          <td style={styles.td}>
+            {editingRowKey === i ? (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="number"
+                  min="1"
+                  value={(draftRow && typeof draftRow.unitsPerPack !== 'undefined') ? draftRow.unitsPerPack : 1}
+                  onChange={(e) => handleDraftChange('unitsPerPack', e.target.value)}
+                  style={{ width: 60 }}
+                />
+                <input
+                  value={(draftRow && draftRow.unitLabel) ? draftRow.unitLabel : ''}
+                  onChange={(e) => handleDraftChange('unitLabel', e.target.value)}
+                  style={{ width: 80 }}
+                />
+              </div>
+            ) : (
+              ((s && typeof s.unitsPerPack !== 'undefined' ? s.unitsPerPack : 1) +
+               ' ' +
+               (s && s.unitLabel ? s.unitLabel : 'unità'))
+            )}
+          </td>
+
+          <td style={styles.td}>
+            {editingRowKey === i ? (
+              <input
+                type="number"
+                min="0"
+                value={(draftRow && typeof draftRow.residueUnits !== 'undefined') ? draftRow.residueUnits : 0}
+                onChange={(e) => handleDraftChange('residueUnits', e.target.value)}
+              />
+            ) : (
+              totalUnitsOf(s)
+            )}
+          </td>
+
+          <td style={styles.td}>
+            {editingRowKey === i ? (
+              <input
+                type="date"
+                value={(draftRow && draftRow.expiresAt) ? draftRow.expiresAt : ''}
+                onChange={(e) => handleDraftChange('expiresAt', e.target.value)}
+              />
+            ) : (
+              (s && s.expiresAt
+                ? new Date(s.expiresAt).toLocaleDateString('it-IT')
+                : '-')
+            )}
+          </td>
+
+          <td style={styles.td}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+              {editingRowKey === i ? (
+                <React.Fragment>
+                  <button onClick={() => saveEditRow(i)} style={styles.actionGhost}>💾 Salva</button>
+                  <button onClick={cancelEditRow} style={styles.actionGhost}>↩ Annulla</button>
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <button onClick={() => startEditRow(i, s)} style={styles.actionGhost}>✎ Modifica</button>
+                  <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                </React.Fragment>
+              )}
+            </div>
+          </td>
+        </tr>
+      );
+    })}
   </tbody>
 </table>
            {/* input file unico per OCR scadenza di riga */}
