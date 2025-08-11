@@ -1,4 +1,4 @@
-// pages/liste-prodotti.js
+mi ha scritto questo codice ma ti sei bloccato qui sugli stili riesci a completare o ti incollo il vecchio codice degli stili?// pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -7,8 +7,8 @@ const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
 
 // Endpoints esistenti
-const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
-const API_OCR = '/api/ocr';                  // usa il tuo ocr.js
+const API_ASSISTANT_TEXT = '/api/assistant';
+const API_OCR = '/api/ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
 /* ----------------- Lessico supermercato ----------------- */
@@ -66,7 +66,7 @@ function parseLinesToItems(text) {
     if (!s) continue;
 
     // Prova a ricavare confezioni/unità da testo
-    const packInfo = extractPackInfo(s); // {packs, unitsPerPack, unitLabel}
+    const packInfo = extractPackInfo(s);
     let packs = Number(packInfo.packs || 1);
 
     // Nome + brand
@@ -239,45 +239,6 @@ function DaysBadge({ expiresAt }){
       {d==null ? '—' : (d < 0 ? 'Scaduto' : (d===1 ? '1 giorno' : `${d} giorni`))}
     </span>
   );
-}
-
-/* --------- Barra livello stock (vs baseline) --------- */
-function stockPercentLeft(row){
-  const upp = Math.max(1, Number(row.unitsPerPack||1));
-  const units = Math.max(0, Number(row.packs||0) * upp);
-  let baseUnits = Number(row.baselinePacks!=null ? row.baselinePacks : row.packs) * upp;
-  if (!Number.isFinite(baseUnits) || baseUnits <= 0) baseUnits = Math.max(1, units || 1);
-  return Math.max(0, Math.min(100, Math.round((units/baseUnits)*100)));
-}
-function StockBarMini({ row }){
-  const pct = stockPercentLeft(row);
-  const outer = {
-    position:'relative', width: 120, height: 6,
-    background: 'rgba(255,255,255,.12)', borderRadius: 999, overflow:'hidden',
-    border: '1px solid rgba(255,255,255,.2)'
-  };
-  let innerTone = '#16a34a';
-  if (pct <= 50) innerTone = '#f59e0b';
-  if (pct <= 20) innerTone = '#ef4444';
-  const inner = { width: pct ? `${pct}%` : '0.5%', height:'100%', background: innerTone };
-  return (
-    <div style={{display:'inline-flex', alignItems:'center', gap:6, marginTop:4}}>
-      <div style={outer}><div style={inner}/></div>
-      <span style={{opacity:.7, fontSize:11}}>{pct}%</span>
-    </div>
-  );
-}
-
-function DaysBadge({ expiresAt }){
-  if (!expiresAt) return <span style={{...styles.daysBadgeBase, ...styles.daysBadgeGray}}>—</span>;
-  const end = new Date(expiresAt + 'T00:00:00');
-  const now = new Date();
-  const days = Math.ceil((end - now)/86400000);
-  let tone = styles.daysBadgeGreen;
-  if (days <= 10) tone = styles.daysBadgeAmber;
-  if (days <= 2)  tone = styles.daysBadgeRed;
-  if (days <  0)  return <span style={{...styles.daysBadgeBase, ...styles.daysBadgeRed}}>scad.</span>;
-  return <span style={{...styles.daysBadgeBase, ...tone}}>{days}g</span>;
 }
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
@@ -478,26 +439,22 @@ function parseReceiptPurchases(ocrText) {
   return out;
 }
 
-/* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
+/* --------- Parser VOCALE per aggiornare scorte --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
-
-  // spezzatura "soft"
   const parts = t
     .split(/[,;]+/g)
     .map(s => s.trim())
     .filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text); // se frasi tipo "porta a...", usiamo set come default del batch
+  const absolute = wantsAbsoluteSet(text);
 
   for (let chunk of parts) {
-    // Scarta blocchi che parlano di scadenze/date
     if (/scad|scadenza|scade|entro/.test(chunk)) continue;
     if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(chunk)) continue;
-    if (/\b20\d{2}\b/.test(chunk)) continue; // evita anni tipo 2025
+    if (/\b20\d{2}\b/.test(chunk)) continue;
 
-    // scomponi " e " solo dopo la prima scrematura
     const candidates = chunk.split(/\s+e\s+/g).filter(Boolean);
 
     for (const c of (candidates.length ? candidates : [chunk])) {
@@ -508,15 +465,12 @@ function parseStockUpdateText(text) {
 
       let value = Number(String(m[2]).replace(',','.')) || 0;
       if (!Number.isFinite(value) || value <= 0) continue;
-      if (value >= 1000) continue; // difesa su numeri assurdi
+      if (value >= 1000) continue;
       const tag = (m[3]||'').toLowerCase();
 
-      // normalizza nome
       for (const lex of GROCERY_LEXICON) { if (isSimilar(name, lex)) { name = lex; break; } }
 
       const mode = /unit|pz|pezzi|barrett|vasett|uova/.test(tag) ? 'units' : 'packs';
-
-      // op: se la frase complessiva conteneva pattern "porta a ..." → set, altrimenti add
       const op = absolute ? 'set' : 'add';
 
       res.push({ name, mode, value, op });
@@ -548,6 +502,9 @@ function restockTouch(baselineFromPacks, lastDateISO) {
   };
 }
 
+/** Piccolo workaround per evitare warning su più MediaRecorder */
+function theMediaWorkaround(){}
+
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
@@ -562,8 +519,7 @@ export default function ListeProdotti() {
   const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
 
   // Scorte & critici
-  // Record scorta:
-  // { name, brand, packs, unitsPerPack, unitLabel, expiresAt?, baselinePacks?, lastRestockAt?, avgDailyUnits? }
+  // Record scorta: { name, brand, packs, unitsPerPack, unitLabel, expiresAt?, baselinePacks?, lastRestockAt?, avgDailyUnits? }
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
 
@@ -618,7 +574,7 @@ export default function ListeProdotti() {
       const oldEnough = last ? (today - last) > twoDays : false;
 
       const lowAbsoluteUnits = totalUnits < 2; // < 2 unità
-      const lowPercentUnits  = baselineUnits > 0 ? (totalUnits <= baselineUnits * 0.2) : false; // residuo <=20% (80% consumato)
+      const lowPercentUnits  = baselineUnits > 0 ? (totalUnits <= baselineUnits * 0.2) : false; // residuo <=20%
 
       return nearExp || (oldEnough && (lowAbsoluteUnits || lowPercentUnits));
     });
@@ -691,28 +647,21 @@ export default function ListeProdotti() {
     const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
     const moveLabel = item.unitLabel || 'unità';
 
-   // 1) aggiorna la lista corrente: scala movePacks dall'item con id, marca purchased se va a 0, rimuovi gli 0
-setLists(prev => {
-  const next = { ...prev };
-  const list = Array.isArray(prev?.[currentList]) ? prev[currentList] : [];
-
-  next[currentList] = list
-    .map(i => {
-      if (i.id !== id) return i;
-      const curr = Number(i.qty ?? 0);
-      const dec  = Number(movePacks ?? 0);
-      const newQty = Math.max(0, curr - dec);
-      return {
-        ...i,
-        qty: newQty,
-        purchased: newQty === 0 ? true : i.purchased
-      };
-    })
-    .filter(i => Number(i.qty ?? 0) > 0); // elimina righe a 0
-
-  return next;
-});
-
+    // 1) aggiorna lista: scala quantità e rimuovi eventuali 0
+    setLists(prev => {
+      const next = { ...prev };
+      const list = Array.isArray(prev?.[currentList]) ? prev[currentList] : [];
+      next[currentList] = list
+        .map(i => {
+          if (i.id !== id) return i;
+          const curr = Number(i.qty ?? 0);
+          const dec  = Number(movePacks ?? 0);
+          const newQty = Math.max(0, curr - dec);
+          return { ...i, qty: newQty, purchased: newQty === 0 ? true : i.purchased };
+        })
+        .filter(i => Number(i.qty ?? 0) > 0);
+      return next;
+    });
 
     // 2) aggiorna scorte
     setStock(prev => {
@@ -748,10 +697,7 @@ setLists(prev => {
 
   /* ---------------- Vocale: LISTA (aggiunta veloce) ---------------- */
   async function toggleRecList() {
-    if (recBusy) {
-      try { mediaRecRef.current?.stop(); } catch {}
-      return;
-    }
+    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -781,7 +727,7 @@ setLists(prev => {
         const payload = {
           prompt: [
             'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
-            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }, ...] }',
+            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }] }',
             'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
             'Voci comuni: ' + GROCERY_LEXICON.join(', '),
             'Testo:', text
@@ -862,47 +808,40 @@ setLists(prev => {
   }
 
   /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
- function decrementAcrossBothLists(prevLists, purchases) {
-  const next = { ...prevLists };
+  function decrementAcrossBothLists(prevLists, purchases) {
+    const next = { ...prevLists };
 
-  const decList = (listKey) => {
-    const arr = [...(next[listKey] || [])];
-    for (const p of purchases) {
-      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-
-      // 1) match stretto: nome+brand+UPP
-      let idx = arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        (!p.brand || isSimilar(i.brand || '', p.brand || '')) &&
-        Number(i.unitsPerPack||1) === Number(p.unitsPerPack||1)
-      );
-      // 2) match medio: nome+brand (ignora UPP)
-      if (idx < 0) {
-        idx = arr.findIndex(i =>
+    const decList = (listKey) => {
+      const arr = [...(next[listKey] || [])];
+      for (const p of purchases) {
+        const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+        let idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
-          (!p.brand || isSimilar(i.brand || '', p.brand || ''))
+          (!p.brand || isSimilar(i.brand || '', p.brand || '')) &&
+          Number(i.unitsPerPack||1) === Number(p.unitsPerPack||1)
         );
+        if (idx < 0) {
+          idx = arr.findIndex(i =>
+            isSimilar(i.name, p.name) &&
+            (!p.brand || isSimilar(i.brand || '', p.brand || ''))
+          );
+        }
+        if (idx < 0) {
+          idx = arr.findIndex(i => isSimilar(i.name, p.name));
+        }
+        if (idx >= 0) {
+          const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
+          arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
+          if (newQty <= 0) arr.splice(idx, 1);
+        }
       }
-      // 3) match morbido: solo nome
-      if (idx < 0) {
-        idx = arr.findIndex(i => isSimilar(i.name, p.name));
-      }
+      next[listKey] = arr;
+    };
 
-      if (idx >= 0) {
-        const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
-        arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
-        if (newQty <= 0) arr.splice(idx, 1);
-      }
-    }
-    next[listKey] = arr;
-  };
-
-  decList(LIST_TYPES.SUPERMARKET);
-  decList(LIST_TYPES.ONLINE);
-  return next;
-}
-
-
+    decList(LIST_TYPES.SUPERMARKET);
+    decList(LIST_TYPES.ONLINE);
+    return next;
+  }
 
   /* ---------------- OCR: scontrini ---------------- */
   async function handleOCR(files) {
@@ -931,8 +870,6 @@ setLists(prev => {
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       let purchases = ensureArray(parsed?.purchases);
-
-      // fallback locale
       if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
 
       // 3) aggiorna liste, scorte e finanze
@@ -992,7 +929,7 @@ setLists(prev => {
     }
   }
 
-  /* ---------------- Utilità: applica delta packs/units a riga scorta ---------------- */
+  /* ---------------- Utilità: delta su riga scorta ---------------- */
   function applyDeltaToStock(idx, { addPacks = 0, addUnits = 0, setPacks = null, setUnits = null }) {
     setStock(prev => {
       const arr = [...prev];
@@ -1015,7 +952,6 @@ setLists(prev => {
 
       const avgDailyUnits = computeNewAvgDailyUnits(row, newPacks);
 
-      // se aumento rispetto allo stato precedente → consideralo restock (aggiorno baseline/lastRestock)
       const wasUnits = Number(row.packs || 0) * upp;
       const nowUnits = newPacks * upp;
       const restock = nowUnits > wasUnits;
@@ -1030,12 +966,8 @@ setLists(prev => {
     });
   }
 
-  function addOnePack(i, delta) {
-    applyDeltaToStock(i, { addPacks: delta });
-  }
-  function addOneUnit(i, delta) {
-    applyDeltaToStock(i, { addUnits: delta });
-  }
+  function addOnePack(i, delta) { applyDeltaToStock(i, { addPacks: delta }); }
+  function addOneUnit(i, delta) { applyDeltaToStock(i, { addUnits: delta }); }
   function setResidualUnits(i) {
     const it = stock[i];
     if (!it) return;
@@ -1047,66 +979,63 @@ setLists(prev => {
   }
 
   /* ---------------- Modifica / Elimina scorte ---------------- */
- function editStockRow(i) {
-  const it = stock[i];
-  if (!it) return;
+  function editStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
 
-  const name = prompt('Nome prodotto:', it.name);
-  if (name == null || !name.trim()) return;
+    const name = prompt('Nome prodotto:', it.name);
+    if (name == null || !name.trim()) return;
 
-  const brand = prompt('Marca (opzionale):', it.brand || '');
-  if (brand == null) return;
+    const brand = prompt('Marca (opzionale):', it.brand || '');
+    if (brand == null) return;
 
-  const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
-  if (packsStr == null) return;
-  const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+    if (packsStr == null) return;
+    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
 
-  const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
-  if (uppStr == null) return;
-  const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+    if (uppStr == null) return;
+    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
 
-  const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
-  if (unitLabel == null) return;
+    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+    if (unitLabel == null) return;
 
-  const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
-  const ex = expStr ? toISODate(expStr) : '';
+    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+    const ex = expStr ? toISODate(expStr) : '';
 
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[i];
-    const todayISO = new Date().toISOString().slice(0,10);
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[i];
+      const todayISO = new Date().toISOString().slice(0,10);
 
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const wasUnits = Number(old.packs || 0) * uppOld;
-    const nowUnits = packs * unitsPerPack;
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = Number(old.packs || 0) * uppOld;
+      const nowUnits = packs * unitsPerPack;
 
-    let avgDailyUnits = old?.avgDailyUnits || 0;
-    if (old?.lastRestockAt && wasUnits > nowUnits) {
-      // diminuzione → apprendi consumo osservato
-      const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
-      const usedUnits = wasUnits - nowUnits;
-      const obs = usedUnits / days;
-      avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*obs) : obs;
-    } else {
-      // decay leggero per non cristallizzare
-      avgDailyUnits = avgDailyUnits * 0.98;
-    }
+      let avgDailyUnits = old?.avgDailyUnits || 0;
+      if (old?.lastRestockAt && wasUnits > nowUnits) {
+        const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
+        const usedUnits = wasUnits - nowUnits;
+        const obs = usedUnits / days;
+        avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*obs) : obs;
+      } else {
+        avgDailyUnits = avgDailyUnits * 0.98;
+      }
 
-    const restock = nowUnits > wasUnits;
+      const restock = nowUnits > wasUnits;
 
-    arr[i] = {
-      ...old,
-      name: name.trim(),
-      brand: (brand||'').trim(),
-      packs, unitsPerPack, unitLabel,
-      expiresAt: ex || '',
-      avgDailyUnits,
-      ...(restock ? restockTouch(packs, todayISO) : {})
-    };
-    return arr;
-  });
-}
-
+      arr[i] = {
+        ...old,
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        packs, unitsPerPack, unitLabel,
+        expiresAt: ex || '',
+        avgDailyUnits,
+        ...(restock ? restockTouch(packs, todayISO) : {})
+      };
+      return arr;
+    });
+  }
 
   function deleteStockRow(i) {
     const it = stock[i];
@@ -1191,10 +1120,8 @@ setLists(prev => {
       if (DEBUG) console.log('[STT inventory] text:', text);
       if (!text) { showToast('Nessun testo riconosciuto', 'err'); return; }
 
-      // Heuristica veloce
       const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
 
-      // Parser locali
       let localIntent = looksExpiry ? 'expiry' : 'stock_update';
       let localExpiries = looksExpiry ? parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name)) : [];
       let localUpdates = !looksExpiry ? parseStockUpdateText(text) : [];
@@ -1203,7 +1130,6 @@ setLists(prev => {
       let updates = localUpdates;
       let expiries = localExpiries;
 
-      // Se locale non trova nulla, prova Assistant
       if ((intent === 'expiry' && !expiries.length) || (intent === 'stock_update' && !updates.length)) {
         try {
           const prompt = buildInventoryIntentPrompt(text);
@@ -1223,7 +1149,7 @@ setLists(prev => {
               name:String(u.name||'').trim(),
               mode:(u.mode==='units'?'units':'packs'),
               value: Math.max(0, Number(u.value||0)),
-              op: 'add' // di default aggiunge se non specificato
+              op: 'add'
             })).filter(u => u.name && u.value>0);
           }
         } catch (e) {
@@ -1257,7 +1183,6 @@ setLists(prev => {
             const isUnits = (u.mode === 'units');
 
             if (idx < 0) {
-              // crea nuova riga scorte
               if (isUnits) {
                 if (isSet) {
                   arr.unshift({
@@ -1288,7 +1213,6 @@ setLists(prev => {
               continue;
             }
 
-            // Esiste già
             const old = arr[idx];
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const unitLabel = old.unitLabel || 'unità';
@@ -1298,13 +1222,12 @@ setLists(prev => {
               const currentUnits = packs * upp;
               const valUnits = Math.max(0, Number(u.value || 0));
               const newUnits = isSet ? valUnits : (currentUnits + valUnits);
-              packs = newUnits / upp; // confezioni decimali permesse
+              packs = newUnits / upp;
             } else {
               const valPacks = Math.max(0, Number(u.value || 0));
               packs = isSet ? valPacks : (packs + valPacks);
             }
 
-            // consumo medio (unità/giorno) se diminuisce rispetto alla baseline precedente
             let avgDailyUnits = old?.avgDailyUnits || 0;
             if (old?.lastRestockAt && Number(old.baselinePacks||0) * upp > packs * upp) {
               const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
@@ -1313,11 +1236,8 @@ setLists(prev => {
               avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
             }
 
-            // riallineo baseline se è un restock
             const restock = (packs * upp) > (Number(old.packs || 0) * upp);
-            const after = {
-              ...old, packs, unitsPerPack: upp, unitLabel, avgDailyUnits
-            };
+            const after = { ...old, packs, unitsPerPack: upp, unitLabel, avgDailyUnits };
             if (restock) {
               after.baselinePacks = packs;
               after.lastRestockAt = todayISO;
@@ -1413,11 +1333,30 @@ setLists(prev => {
             </button>
           </div>
 
-          {/* Comandi Lista */}
+          {/* Comandi Lista / Inventario */}
           <div style={styles.toolsRow}>
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
+            <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+              {invRecBusy ? '⏹️ Stop' : '🎙 Scorte/Scadenze'}
+            </button>
+            <button
+              onClick={() => ocrInputRef.current?.click()}
+              style={styles.ocrBtnSmall}
+              disabled={busy}
+              title="OCR scontrino"
+            >
+              📷 OCR Scontrino
+            </button>
+            <input
+              ref={ocrInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              hidden
+              onChange={(e)=>handleOCR(Array.from(e.target.files||[]))}
+            />
           </div>
 
           {/* Lista corrente */}
@@ -1472,135 +1411,144 @@ setLists(prev => {
             )}
           </div>
 
-         {/* Form aggiunta manuale (Lista) */}
-<div style={styles.sectionLarge}>
-  <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
-  <form onSubmit={addManualItem} style={styles.formRow}>
-    <input
-      placeholder="Prodotto (es. latte)"
-      value={form.name}
-      onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-      style={styles.input}
-      required
-    />
-    <input
-      placeholder="Marca (es. Parmalat)"
-      value={form.brand}
-      onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-      style={styles.input}
-    />
-    <input
-      placeholder="Confezioni"
-      inputMode="decimal"
-      value={form.packs}
-      onChange={e => setForm(f => ({ ...f, packs: e.target.value }))}
-      style={{ ...styles.input, width: 140 }}
-      required
-    />
-    <input
-      placeholder="Unità/conf."
-      inputMode="decimal"
-      value={form.unitsPerPack}
-      onChange={e => setForm(f => ({ ...f, unitsPerPack: e.target.value }))}
-      style={{ ...styles.input, width: 140 }}
-      required
-    />
-    <input
-      placeholder="Etichetta (es. bottiglie)"
-      value={form.unitLabel}
-      onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
-      style={{ ...styles.input, width: 170 }}
-    />
-    <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
-  </form>
-  <p style={{ opacity: .8, marginTop: 6 }}>
-    Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
-  </p>
-</div>
+          {/* Form aggiunta manuale (Lista) */}
+          <div style={styles.sectionLarge}>
+            <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
+            <form onSubmit={addManualItem} style={styles.formRow}>
+              <input
+                placeholder="Prodotto (es. latte)"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                style={styles.input}
+                required
+              />
+              <input
+                placeholder="Marca (es. Parmalat)"
+                value={form.brand}
+                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+                style={styles.input}
+              />
+              <input
+                placeholder="Confezioni"
+                inputMode="decimal"
+                value={form.packs}
+                onChange={e => setForm(f => ({ ...f, packs: e.target.value }))}
+                style={{ ...styles.input, width: 140 }}
+                required
+              />
+              <input
+                placeholder="Unità/conf."
+                inputMode="decimal"
+                value={form.unitsPerPack}
+                onChange={e => setForm(f => ({ ...f, unitsPerPack: e.target.value }))}
+                style={{ ...styles.input, width: 140 }}
+                required
+              />
+              <input
+                placeholder="Etichetta (es. bottiglie)"
+                value={form.unitLabel}
+                onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
+                style={{ ...styles.input, width: 170 }}
+              />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
+            </form>
+            <p style={{ opacity: .8, marginTop: 6 }}>
+              Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
+            </p>
+          </div>
 
-{/* Prodotti in esaurimento / scadenza */}
-<div style={styles.sectionXL}>
-  <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
-  {critical.length === 0 ? (
-    <p style={{ opacity: .8 }}>Nessun prodotto critico</p>
-  ) : (
-    <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
-      {critical.map((p, i) => (
-        <li key={i}>
-          {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
-          {p.expiresAt ? ` — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')}` : ''}
-        </li>
-      ))}
-    </ul>
-  )}
-</div>
+          {/* Prodotti in esaurimento / scadenza */}
+          <div style={styles.sectionXL}>
+            <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
+            {critical.length === 0 ? (
+              <p style={{ opacity: .8 }}>Nessun prodotto critico</p>
+            ) : (
+              <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+                {critical.map((p, i) => (
+                  <li key={i}>
+                    {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità{' '}
+                    {p.expiresAt ? (
+                      <>
+                        — Scadenza: {new Date(p.expiresAt).toLocaleDateString('it-IT')} <DaysBadge expiresAt={p.expiresAt} />
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-{/* Tabella scorte (solo colonne di esempio: Scadenza, Azioni) */}
-{Array.isArray(stocks) && stocks.length > 0 ? (
-  <table style={styles.table}>
-    <thead>
-      <tr>
-        <th style={styles.th}>Scadenza</th>
-        <th style={styles.th}>Azioni</th>
-      </tr>
-    </thead>
-    <tbody>
-      {stocks.map((s, i) => (
-        <tr key={s.id ?? i}>
-          {/* Scadenza */}
-          <td style={styles.td}>
-            {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}
-          </td>
+          {/* Tabella scorte */}
+          {Array.isArray(stock) && stock.length > 0 ? (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Prodotto</th>
+                  <th style={styles.th}>Marca</th>
+                  <th style={styles.th}>Confezioni</th>
+                  <th style={styles.th}>Unità/conf.</th>
+                  <th style={styles.th}>Residuo</th>
+                  <th style={styles.th}>Scadenza</th>
+                  <th style={styles.th}>Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stock.map((s, i) => (
+                  <tr key={s.id ?? i}>
+                    <td style={styles.td}>{s.name}</td>
+                    <td style={styles.td}>{s.brand || '—'}</td>
+                    <td style={styles.td}>
+                      {Number(s.packs||0).toFixed(2)}
+                      <div style={{marginTop:6}}><StockBarMini row={s} /></div>
+                    </td>
+                    <td style={styles.td}>{s.unitsPerPack} {s.unitLabel || 'unità'}</td>
+                    <td style={styles.td}>
+                      {totalUnitsOf(s)} unità
+                      <div style={{display:'flex', gap:6, marginTop:6}}>
+                        <button onClick={()=>addOneUnit(i,-1)} style={styles.actionGhost}>−1 unità</button>
+                        <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost}>+1 unità</button>
+                        <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost}>−1 conf.</button>
+                        <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost}>+1 conf.</button>
+                        <button onClick={()=>setResidualUnits(i)} style={styles.actionGhost}>✎ Imposta residuo</button>
+                      </div>
+                    </td>
+                    <td style={styles.td}>
+                      {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}{' '}
+                      <DaysBadge expiresAt={s.expiresAt} />
+                    </td>
+                    <td style={styles.td}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+                        <button onClick={() => editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+                        <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p style={{ opacity: .75, marginTop: 8 }}>Nessuna scorta presente.</p>
+          )}
 
-          {/* Azioni: SOLO OCR / Modifica / Elimina */}
-          <td style={styles.td}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                onClick={() => openRowOcr(i)}
-                style={styles.ocrInlineBtn}
-                disabled={busy}
-              >
-                📷 OCR
-              </button>
-              <button
-                onClick={() => editStockRow(i)}
-                style={styles.actionGhost}
-              >
-                ✎ Modifica
-              </button>
-              <button
-                onClick={() => deleteStockRow(i)}
-                style={styles.actionGhostDanger}
-              >
-                🗑 Elimina
-              </button>
-            </div>
-          </td>
-        </tr>
-      ))}
-    </tbody>
-  </table>
-) : (
-  <p style={{ opacity: .75, marginTop: 8 }}>Nessun prodotto in lista.</p>
-)}
+          {/* input file per OCR scadenza di riga */}
+          <input
+            ref={rowOcrInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            capture="environment"
+            hidden
+            onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
+          />
 
-{/* input file unico per OCR scadenza di riga — FUORI dalla tabella */}
-<input
-  ref={rowOcrInputRef}
-  type="file"
-  accept="image/*,application/pdf"
-  capture="environment"
-  hidden
-  onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
-/>
+          <p style={{ opacity: .75, marginTop: 8 }}>
+            Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
+          </p>
+          <p style={{ opacity: .75, marginTop: 4 }}>
+            Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+            Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
+          </p>
 
-<p style={{ opacity: .75, marginTop: 8 }}>
-  Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
-</p>
-<p style={{ opacity: .75, marginTop: 4 }}>
-  Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
-  Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
-</p>
           {/* Aggiungi SCORTA manuale */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
@@ -1611,9 +1559,9 @@ setLists(prev => {
                      onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
               <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs}
                      onChange={e => setStockForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width:120}} required />
-           <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
-       onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))}
-       style={{...styles.input, width:120}} required />
+              <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
+                     onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))}
+                     style={{...styles.input, width:120}} required />
               <input placeholder="Etichetta unità (es. bottiglie)" value={stockForm.unitLabel}
                      onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width:180}} />
               <input placeholder="Scadenza YYYY-MM-DD (opz.)" value={stockForm.expiresAt}
@@ -1640,8 +1588,6 @@ setLists(prev => {
     </>
   );
 }
-/** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
-function theMediaWorkaround(){}
 
 /* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
