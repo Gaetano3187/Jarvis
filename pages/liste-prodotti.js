@@ -1645,7 +1645,7 @@ return (
           </p>
         </div>
 
-               {/* Toast */}
+            {/* Toast */}
 {toast && (
   <div
     style={{
@@ -1669,10 +1669,16 @@ return (
     {toast.msg}
   </div>
 )}
-
+</div>   {/* chiusura contenitore interno */}
+</div>   {/* chiusura pagina */}
+</>      {/* chiusura Fragment */}
+);       {/* chiusura return */}
+}        {/* chiusura funzione componente */}
 
 /* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
+};
+
   page: {
     width: '100%',
     minHeight: '100vh',
