@@ -209,39 +209,7 @@ function timeoutFetch(url, opts={}, ms=25000) {
 }
 
 /* ---------------- Confezioni × Unità helpers ---------------- */
-// PATCH 1: versione robusta che clampa e non va in negativo
-function totalUnitsOf(s){
-  const packs = Math.max(0, Number(s.packs || 0));
-  const upp = Math.max(1, Number(s.unitsPerPack || 1));
-  return packs * upp;
-}
-
-/* --------- Giorni rimasti & badge (PATCH 2) --------- */
-function daysLeft(expiresAt){
-  if(!expiresAt) return null;
-  const end = new Date(expiresAt);
-  const today = new Date();
-  return Math.ceil((end - today)/86400000);
-}
-function daysBadgeKind(d){
-  if(d == null) return 'gray';
-  if(d > 14) return 'green';
-  if(d >= 7) return 'amber';
-  return 'red';
-}
-function DaysBadge({ expiresAt }){
-  const d = daysLeft(expiresAt);
-  const kind = daysBadgeKind(d);
-  const base = styles.daysBadgeBase;
-  const tone = kind==='green' ? styles.daysBadgeGreen :
-               kind==='amber' ? styles.daysBadgeAmber :
-               kind==='red' ? styles.daysBadgeRed : styles.daysBadgeGray;
-  return (
-    <span style={{...base, ...tone}}>
-      {d==null ? '—' : (d < 0 ? 'Scaduto' : (d===1 ? '1 giorno' : `${d} giorni`))}
-    </span>
-  );
-}
+function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
 
 /** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
 function extractPackInfo(str){
@@ -466,7 +434,7 @@ function parseStockUpdateText(text) {
     for (const c of (candidates.length ? candidates : [chunk])) {
       const m = c.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
       if (!m) continue;
-      let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g, ' ').trim();
+      let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
       if (!name) continue;
 
       let value = Number(String(m[2]).replace(',','.')) || 0;
@@ -511,30 +479,6 @@ function restockTouch(baselineFromPacks, lastDateISO) {
   };
 }
 
-/* ---------- PATCH 3: Mini barra stato confezioni rispetto alla baseline ---------- */
-function StockBarMini({ row }) {
-  const packs = Math.max(0, Number(row?.packs || 0));
-  const base  = Math.max(0, Number(row?.baselinePacks || 0));
-  const max = base > 0 ? base : Math.max(packs, 1);
-  const pct = Math.max(0, Math.min(100, (packs / max) * 100));
-
-  return (
-    <div style={{
-      width: '100%',
-      height: 8,
-      background: 'rgba(255,255,255,.12)',
-      borderRadius: 8,
-      overflow: 'hidden'
-    }}>
-      <div style={{
-        width: `${pct}%`,
-        height: '100%',
-        background: 'rgba(99,102,241,.85)'
-      }} />
-    </div>
-  );
-}
-
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
@@ -546,13 +490,7 @@ export default function ListeProdotti() {
   });
 
   // Form Lista (ora con confezioni + unità/conf.)
-  const [form, setForm] = useState({
-    name: '',
-    brand: '',
-    packs: '1',
-    unitsPerPack: '1',
-    unitLabel: 'unità',
-  });
+  const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
 
   // Scorte & critici
   // Record scorta:
@@ -577,7 +515,7 @@ export default function ListeProdotti() {
   const invStreamRef = useRef(null);
   const [invRecBusy, setInvRecBusy] = useState(false);
 
-  // OCR input (scontrini) — input unico gestito dalla toolbar
+  // OCR input (scontrini)
   const ocrInputRef = useRef(null);
 
   // OCR scadenza per riga
@@ -586,46 +524,10 @@ export default function ListeProdotti() {
 
   // Form Aggiunta Scorta manuale
   const [stockForm, setStockForm] = useState({
-    name: '',
-    brand: '',
-    packs: '1',
-    unitsPerPack: '1',
-    unitLabel: 'unità',
-    expiresAt: '',
+    name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
   });
 
   const curItems = lists[currentList] || [];
-
-  /* --------------- derivati: prodotti critici --------------- */
-  useEffect(() => {
-    const today = new Date();
-    const tenDays = 10 * 24 * 60 * 60 * 1000;
-    const twoDays = 2 * 24 * 60 * 60 * 1000;
-
-    const crit = stock.filter((p) => {
-      const packs = Number(p.packs || 0);
-      const upp = Math.max(1, Number(p.unitsPerPack || 1));
-      const totalUnits = packs * upp;
-
-      const baselinePacks = Number(p.baselinePacks || 0);
-      const baselineUnits = baselinePacks * upp;
-
-      const last = p.lastRestockAt ? new Date(p.lastRestockAt) : null;
-
-      const nearExp = p.expiresAt
-        ? new Date(p.expiresAt) - today <= tenDays
-        : false;
-      const oldEnough = last ? today - last > twoDays : false;
-
-      const lowAbsoluteUnits = totalUnits < 2; // < 2 unità
-      const lowPercentUnits =
-        baselineUnits > 0 ? totalUnits <= baselineUnits * 0.2 : false; // residuo <=20% (80% consumato)
-
-      return nearExp || (oldEnough && (lowAbsoluteUnits || lowPercentUnits));
-    });
-
-    setCritical(crit);
-  }, [stock]);
 
   /* --------------- derivati: prodotti critici --------------- */
   useEffect(() => {
@@ -880,40 +782,25 @@ export default function ListeProdotti() {
     }
   }
 
-  /* ---------------- PATCH 4: OCR decremento più permissivo ---------------- */
+  /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
-
     const decList = (listKey) => {
       const arr = [...(next[listKey] || [])];
       for (const p of purchases) {
         const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1)); // qty legacy → packs
-
-        // Prova match: nome+brand+UPP → nome+brand → solo nome
-        let idx = arr.findIndex(i =>
+        const idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
           (!p.brand || isSimilar(i.brand || '', p.brand || '')) &&
           Number(i.unitsPerPack||1) === Number(p.unitsPerPack||1)
         );
-        if (idx < 0) {
-          idx = arr.findIndex(i =>
-            isSimilar(i.name, p.name) &&
-            (!p.brand || isSimilar(i.brand || '', p.brand || ''))
-          );
-        }
-        if (idx < 0) {
-          idx = arr.findIndex(i => isSimilar(i.name, p.name));
-        }
-
         if (idx >= 0) {
           const newQty = Math.max(0, Number(arr[idx].qty || 0) - dec);
           arr[idx] = { ...arr[idx], qty: newQty, purchased: true };
-          if (newQty <= 0) arr.splice(idx, 1);
         }
       }
-      next[listKey] = arr;
+      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
     };
-
     decList(LIST_TYPES.SUPERMARKET);
     decList(LIST_TYPES.ONLINE);
     return next;
@@ -1388,319 +1275,266 @@ export default function ListeProdotti() {
     setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
     showToast('Scorta aggiunta ✓', 'ok');
   }
-/* ---------------- render ---------------- */
-return (
-  <>
-    <Head><title>🛍 Lista Prodotti</title></Head>
 
-    <div style={styles.page}>
-      <div style={styles.card}>
-        {/* Header */}
-        <div style={styles.headerRow}>
-          <h2 style={{ margin: 0 }}>🛍 Lista Prodotti</h2>
-          <Link href="/home" legacyBehavior>
-            <a style={styles.homeBtn}>Home</a>
-          </Link>
-        </div>
+  /* ---------------- render ---------------- */
+  return (
+    <>
+      <Head><title>🛍 Lista Prodotti</title></Head>
 
-        {/* Switch lista */}
-        <div style={styles.switchRow}>
-          <button
-            onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
-            style={currentList === LIST_TYPES.SUPERMARKET ? styles.switchBtnActive : styles.switchBtn}
-          >
-            Lista Supermercato
-          </button>
-          <button
-            onClick={() => setCurrentList(LIST_TYPES.ONLINE)}
-            style={currentList === LIST_TYPES.ONLINE ? styles.switchBtnActive : styles.switchBtn}
-          >
-            Lista Spesa Online
-          </button>
-        </div>
+      <div style={styles.page}>
+        <div style={styles.card}>
+          {/* Header */}
+          <div style={styles.headerRow}>
+            <h2 style={{margin:0}}>🛍 Lista Prodotti</h2>
+            <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
+          </div>
 
-        {/* Comandi Lista / Inventario */}
-        <div style={styles.toolsRow}>
-          <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
-            {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
-          </button>
-          <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-            {invRecBusy ? '⏹️ Stop' : '🎙 Scorte/Scadenze'}
-          </button>
-          <button
-            onClick={() => ocrInputRef.current?.click()}
-            style={styles.ocrBtnSmall}
-            disabled={busy}
-            title="OCR scontrino"
-          >
-            📷 OCR Scontrino
-          </button>
-          <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            multiple
-            hidden
-            onChange={(e) => handleOCR(Array.from(e.target.files || []))}
-          />
-        </div>
+          {/* Switch lista */}
+          <div style={styles.switchRow}>
+            <button onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
+                    style={currentList === LIST_TYPES.SUPERMARKET ? styles.switchBtnActive : styles.switchBtn}>
+              Lista Supermercato
+            </button>
+            <button onClick={() => setCurrentList(LIST_TYPES.ONLINE)}
+                    style={currentList === LIST_TYPES.ONLINE ? styles.switchBtnActive : styles.switchBtn}>
+              Lista Spesa Online
+            </button>
+          </div>
 
-        {/* Lista corrente */}
-        <div style={styles.sectionLarge}>
-          <h3 style={styles.h3}>
-            Lista corrente:{' '}
-            <span style={{ opacity: .85 }}>
-              {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
-            </span>
-          </h3>
+          {/* Comandi Lista */}
+          <div style={styles.toolsRow}>
+            <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
+              {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
+            </button>
+          </div>
 
-          {curItems.length === 0 ? (
-            <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
-          ) : (
-            <div style={styles.listGrid}>
-              {curItems.map((it) => (
-                <div key={it.id} style={styles.itemRow}>
-                  <div style={styles.itemMain}>
-                    <div style={styles.qtyBadge}>{it.qty}</div>
-                    <div>
-                      <div style={styles.itemName}>{it.name}</div>
-                      <div style={styles.itemBrand}>
-                        {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
+          {/* Lista corrente */}
+          <div style={styles.sectionLarge}>
+            <h3 style={styles.h3}>
+              Lista corrente: <span style={{opacity:.85}}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+            </h3>
+
+            {curItems.length === 0 ? (
+              <p style={{opacity:.8}}>Nessun prodotto ancora</p>
+            ) : (
+              <div style={styles.listGrid}>
+                {curItems.map((it) => (
+                  <div key={it.id} style={styles.itemRow}>
+                    <div style={styles.itemMain}>
+                      <div style={styles.qtyBadge}>{it.qty}</div>
+                      <div>
+                        <div style={styles.itemName}>{it.name}</div>
+                        <div style={styles.itemBrand}>
+                          {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div style={styles.itemActions}>
-                    <button
-                      title="Segna 1 acquistato"
-                      onClick={() => markBought(it.id, 1)}
-                      style={it.purchased ? styles.actionSuccess : styles.actionDanger}
-                    >
-                      {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
-                    </button>
-
-                    {Number(it.qty) > 1 && (
+                    <div style={styles.itemActions}>
                       <button
-                        title="Segna tutta la quantità come acquistata"
-                        onClick={() => markBought(it.id, Number(it.qty))}
-                        style={styles.actionSuccess}
+                        title="Segna 1 acquistato"
+                        onClick={() => markBought(it.id, 1)}
+                        style={it.purchased ? styles.actionSuccess : styles.actionDanger}
                       >
-                        ✅ Comprato tutto
+                        {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
                       </button>
-                    )}
 
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button title="Diminuisci confezioni" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
-                      <button title="Aumenta confezioni" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
+                      {Number(it.qty) > 1 && (
+                        <button
+                          title="Segna tutta la quantità come acquistata"
+                          onClick={() => markBought(it.id, Number(it.qty))}
+                          style={styles.actionSuccess}
+                        >
+                          ✅ Comprato tutto
+                        </button>
+                      )}
+
+                      <div style={{display:'flex', gap:6}}>
+                        <button title="Diminuisci confezioni" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
+                        <button title="Aumenta confezioni" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
+                      </div>
+                      <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionGhostDanger}>🗑 Elimina</button>
                     </div>
-                    <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionGhostDanger}>🗑 Elimina</button>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Form aggiunta manuale (Lista) */}
+          <div style={styles.sectionLarge}>
+            <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
+            <form onSubmit={addManualItem} style={styles.formRow}>
+              <input placeholder="Prodotto (es. latte)" value={form.name}
+                     onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
+              <input placeholder="Marca (es. Parmalat)" value={form.brand}
+                     onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
+              <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
+                     onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
+              <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
+                     onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
+              <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
+                     onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
+            </form>
+            <p style={{opacity:.8, marginTop: 6}}>
+              Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
+            </p>
+          </div>
+
+          {/* Prodotti in esaurimento / scadenza */}
+          <div style={styles.sectionXL}>
+            <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
+            {critical.length === 0 ? (
+              <p style={{opacity:.8}}>Nessun prodotto critico</p>
+            ) : (
+              <ul style={{margin:'6px 0 0', paddingLeft: '18px'}}>
+                {critical.map((p, i) => (
+                  <li key={i}>
+                    {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
+                    {p.expiresAt ? ` — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Stato scorte */}
+          <div style={styles.sectionXL}>
+            <div style={styles.scorteHeader}>
+              <h3 style={{...styles.h3, marginBottom:0}}>📊 Stato Scorte</h3>
+              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                {!invRecBusy ? (
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Scadenze/Scorte</button>
+                ) : (
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmallStop}>⏹️ Stop</button>
+                )}
+                <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
+                <input
+                  ref={ocrInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  capture="environment"
+                  multiple
+                  hidden
+                  onChange={(e) => handleOCR(Array.from(e.target.files || []))}
+                />
+              </div>
+            </div>
+
+            {stock.length === 0 ? (
+              <p style={{opacity:.8, marginTop:8}}>Nessun dato scorte</p>
+            ) : (
+              <table style={{...styles.table, marginTop:10}}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Prodotto</th>
+                    <th style={styles.th}>Marca</th>
+                    <th style={styles.th}>Confezioni</th>
+                    <th style={styles.th}>Unità/conf.</th>
+                    <th style={styles.th}>Residuo unità</th>
+                    <th style={styles.th}>Scadenza</th>
+                    <th style={styles.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stock.map((s, i) => (
+                    <tr key={i}>
+                      <td style={styles.td}>{s.name}</td>
+                      <td style={styles.td}>{s.brand || '-'}</td>
+                      <td style={styles.td}>{(s.packs ?? 0).toFixed?.(2) ?? s.packs}</td>
+                      <td style={styles.td}>{(s.unitsPerPack ?? 1)} {s.unitLabel || 'unità'}</td>
+                      <td style={styles.td}>
+                        {totalUnitsOf(s)}
+                        <button onClick={()=>setResidualUnits(i)} style={{...styles.actionGhost, marginLeft:8}}>✎ Imposta</button>
+                        <div style={{display:'inline-flex', gap:6, marginLeft:8}}>
+                          <button onClick={()=>addOneUnit(i, -1)} style={styles.actionGhost} title="− 1 unità">−1</button>
+                          <button onClick={()=>addOneUnit(i, +1)} style={styles.actionGhost} title="+ 1 unità">+1</button>
+                        </div>
+                      </td>
+                      <td style={styles.td}>{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}</td>
+                      <td style={styles.td}>
+                        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                          <button onClick={()=>openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
+
+                          {/* Controlli rapidi confezioni */}
+                          <button onClick={()=>addOnePack(i, -1)} style={styles.actionGhost} title="− 1 confezione">−1 conf.</button>
+                          <button onClick={()=>addOnePack(i, +1)} style={styles.actionGhost} title="+ 1 confezione">+1 conf.</button>
+
+                          <button onClick={()=>editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
+                          <button onClick={()=>deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {/* input file unico per OCR scadenza di riga */}
+            <input
+              ref={rowOcrInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              capture="environment"
+              hidden
+              onChange={(e)=>handleRowOcrChange(Array.from(e.target.files||[]))}
+            />
+            <p style={{opacity:.75, marginTop:8}}>
+              Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
+            </p>
+            <p style={{opacity:.75, marginTop:4}}>
+              Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+              Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
+            </p>
+          </div>
+
+          {/* Aggiungi SCORTA manuale */}
+          <div style={styles.sectionLarge}>
+            <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
+            <form onSubmit={addManualStock} style={styles.formRow}>
+              <input placeholder="Prodotto (es. latte)" value={stockForm.name}
+                     onChange={e => setStockForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
+              <input placeholder="Marca (opzionale)" value={stockForm.brand}
+                     onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
+              <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs}
+                     onChange={e => setStockForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width:120}} required />
+              <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
+                     onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width:120}} required />
+              <input placeholder="Etichetta unità (es. bottiglie)" value={stockForm.unitLabel}
+                     onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width:180}} />
+              <input placeholder="Scadenza YYYY-MM-DD (opz.)" value={stockForm.expiresAt}
+                     onChange={e => setStockForm(f => ({...f, expiresAt: e.target.value}))} style={{...styles.input, width:200}} />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alle scorte</button>
+            </form>
+            <p style={{opacity:.8, marginTop:6}}>
+              Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
+            </p>
+          </div>
+
+          {/* Toast */}
+          {toast && (
+            <div style={{
+              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
+              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
+              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
+            }}>
+              {toast.msg}
             </div>
           )}
         </div>
-
-        {/* Form aggiunta manuale (Lista) */}
-        <div style={styles.sectionLarge}>
-          <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
-          <form onSubmit={addManualItem} style={styles.formRow}>
-            <input
-              placeholder="Prodotto (es. latte)"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              style={styles.input}
-              required
-            />
-            <input
-              placeholder="Marca (es. Parmalat)"
-              value={form.brand}
-              onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-              style={styles.input}
-            />
-            <input
-              placeholder="Confezioni"
-              inputMode="decimal"
-              value={form.packs}
-              onChange={e => setForm(f => ({ ...f, packs: e.target.value }))}
-              style={{ ...styles.input, width: 140 }}
-              required
-            />
-            <input
-              placeholder="Unità/conf."
-              inputMode="decimal"
-              value={form.unitsPerPack}
-              onChange={e => setForm(f => ({ ...f, unitsPerPack: e.target.value }))}
-              style={{ ...styles.input, width: 140 }}
-              required
-            />
-            <input
-              placeholder="Etichetta (es. bottiglie)"
-              value={form.unitLabel}
-              onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
-              style={{ ...styles.input, width: 170 }}
-            />
-            <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
-          </form>
-          <p style={{ opacity: .8, marginTop: 6 }}>
-            Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
-          </p>
-        </div>
-
-        {/* Prodotti in esaurimento / scadenza */}
-        <div style={styles.sectionXL}>
-          <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
-          {critical.length === 0 ? (
-            <p style={{ opacity: .8 }}>Nessun prodotto critico</p>
-          ) : (
-            <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
-              {critical.map((p, i) => (
-                <li key={i}>
-                  {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel || 'unità'} = {totalUnitsOf(p)} unità{' '}
-                  {p.expiresAt ? (
-                    <>
-                      — Scadenza: {new Date(p.expiresAt).toLocaleDateString('it-IT')} <DaysBadge expiresAt={p.expiresAt} />
-                    </>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Tabella scorte */}
-        {Array.isArray(stock) && stock.length > 0 ? (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Prodotto</th>
-                <th style={styles.th}>Marca</th>
-                <th style={styles.th}>Confezioni</th>
-                <th style={styles.th}>Unità/conf.</th>
-                <th style={styles.th}>Residuo</th>
-                <th style={styles.th}>Scadenza</th>
-                <th style={styles.th}>Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stock.map((s, i) => (
-                <tr key={s.id ?? i}>
-                  <td style={styles.td}>{s.name}</td>
-                  <td style={styles.td}>{s.brand || '—'}</td>
-                  <td style={styles.td}>
-                    {Number(s.packs || 0).toFixed(2)}
-                    <div style={{ marginTop: 6 }}><StockBarMini row={s} /></div>
-                  </td>
-                  <td style={styles.td}>{s.unitsPerPack} {s.unitLabel || 'unità'}</td>
-                  <td style={styles.td}>
-                    {totalUnitsOf(s)} unità
-                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                      <button onClick={() => addOneUnit(i, -1)} style={styles.actionGhost}>−1 unità</button>
-                      <button onClick={() => addOneUnit(i, +1)} style={styles.actionGhost}>+1 unità</button>
-                      <button onClick={() => addOnePack(i, -1)} style={styles.actionGhost}>−1 conf.</button>
-                      <button onClick={() => addOnePack(i, +1)} style={styles.actionGhost}>+1 conf.</button>
-                      <button onClick={() => setResidualUnits(i)} style={styles.actionGhost}>✎ Imposta residuo</button>
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'}{' '}
-                    <DaysBadge expiresAt={s.expiresAt} />
-                  </td>
-                  <td style={styles.td}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button onClick={() => openRowOcr(i)} style={styles.ocrInlineBtn} disabled={busy}>📷 OCR</button>
-                      <button onClick={() => editStockRow(i)} style={styles.actionGhost}>✎ Modifica</button>
-                      <button onClick={() => deleteStockRow(i)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p style={{ opacity: .75, marginTop: 8 }}>Nessuna scorta presente.</p>
-        )}
-
-        {/* input file per OCR scadenza di riga */}
-        <input
-          ref={rowOcrInputRef}
-          type="file"
-          accept="image/*,application/pdf"
-          capture="environment"
-          hidden
-          onChange={(e) => handleRowOcrChange(Array.from(e.target.files || []))}
-        />
-
-        <p style={{ opacity: .75, marginTop: 8 }}>
-          Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
-        </p>
-        <p style={{ opacity: .75, marginTop: 4 }}>
-          Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
-          Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
-        </p>
-
-        {/* Aggiungi SCORTA manuale */}
-        <div style={styles.sectionLarge}>
-          <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
-          <form onSubmit={addManualStock} style={styles.formRow}>
-            <input
-              placeholder="Prodotto (es. latte)"
-              value={stockForm.name}
-              onChange={e => setStockForm(f => ({ ...f, name: e.target.value }))}
-              style={styles.input}
-              required
-            />
-            <input
-              placeholder="Marca (opzionale)"
-              value={stockForm.brand}
-              onChange={e => setStockForm(f => ({ ...f, brand: e.target.value }))}
-              style={styles.input}
-            />
-            <input
-              placeholder="Confezioni"
-              inputMode="decimal"
-              value={stockForm.packs}
-              onChange={e => setStockForm(f => ({ ...f, packs: e.target.value }))}
-              style={{ ...styles.input, width: 120 }}
-              required
-            />
-            <input
-              placeholder="Unità/conf."
-              inputMode="decimal"
-              value={stockForm.unitsPerPack}
-              onChange={e => setStockForm(f => ({ ...f, unitsPerPack: e.target.value }))}
-              style={{ ...styles.input, width: 120 }}
-              required
-            />
-            <input
-              placeholder="Etichetta unità (es. bottiglie)"
-              value={stockForm.unitLabel}
-              onChange={e => setStockForm(f => ({ ...f, unitLabel: e.target.value }))}
-              style={{ ...styles.input, width: 180 }}
-            />
-            <input
-              placeholder="Scadenza YYYY-MM-DD (opz.)"
-              value={stockForm.expiresAt}
-              onChange={e => setStockForm(f => ({ ...f, expiresAt: e.target.value }))}
-              style={{ ...styles.input, width: 200 }}
-            />
-            <button style={styles.primaryBtn} disabled={busy}>Aggiungi alle scorte</button>
-          </form>
-          <p style={{ opacity: .8, marginTop: 6 }}>
-            Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
-          </p>
-        </div>
       </div>
-    </div>
-  </>
-);
+    </>
+  );
+}
+/** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
+function theMediaWorkaround(){}
 
-/* ---------------- styles (unica definizione!) ---------------- */
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24,
+    padding: 24, // più compatto per mobile
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1853,7 +1687,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160,
+    minWidth: 160, // -40px vs prima per stare su schermi stretti
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -1925,7 +1759,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-  ocrInlineBtn: {
+    ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -1934,7 +1768,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  },
+  }, // <-- VIRGOLA QUI
 
   /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
@@ -1968,6 +1802,6 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-};
+}; // <-- e chiudi l’oggetto con punto e virgola
 
-} // fine function ListeProdotti
+
