@@ -1645,25 +1645,30 @@ return (
           </p>
         </div>
 
-                  {/* Toast */}
-          {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
-            }}>
-              {toast.msg}
-                   {/* Toast */}
-        {toast && ( /* ... */ )}
-
-      </div>       {/* chiusura contenitore interno */}
-    </div>         {/* chiusura pagina */}
-  </>              {/* ⬅️ chiusura del Fragment */}
-);                 {/* chiusura return */}
-}                  {/* chiusura funzione componente */}
-
-// (facoltativo) cose dopo, tipo:
-const styles = { /* ... */ };
+               {/* Toast */}
+{toast && (
+  <div
+    style={{
+      position: 'fixed',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background:
+        toast.type === 'ok'
+          ? '#16a34a'
+          : toast.type === 'err'
+          ? '#ef4444'
+          : '#334155',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: 10,
+      boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+      zIndex: 9999,
+    }}
+  >
+    {toast.msg}
+  </div>
+)}
 
 
 /* ---------------- styles (ottimizzati) ---------------- */
