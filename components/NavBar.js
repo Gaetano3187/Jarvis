@@ -1,6 +1,6 @@
 // components/NavBar.js
 import Link from 'next/link';
-import Image from 'next/image';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 
 const links = [
@@ -19,19 +19,17 @@ export default function NavBar() {
 
   return (
     <>
+      {/* Font display per il brand */}
+      <Head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" rel="stylesheet" />
+      </Head>
+
       <nav className="nav">
         <div className="inner scroll-fade">
-          {/* Brand con logo da /public/favicon.ico */}
+          {/* Brand solo testo con effetto caleidoscopio */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
-            <span className="brand-mark">
-              <Image
-                src="/favicon.ico"  // ← viene da public/
-                alt="Jarvis logo"
-                width={28}
-                height={28}
-                priority
-              />
-            </span>
             <span className="brand-text">JARVIS</span>
           </Link>
 
@@ -58,18 +56,25 @@ export default function NavBar() {
         </div>
       </nav>
 
-      {/* spazio per non far coprire i contenuti dalla nav fissa */}
+      {/* Non coprire i contenuti */}
       <style jsx global>{`
-        :root { --nav-h: 78px; }
-        @media (max-width: 540px){ :root { --nav-h: 86px; } }
+        :root { --nav-h: 84px; }
+        @media (max-width: 540px){ :root { --nav-h: 92px; } }
         body { padding-top: calc(var(--nav-h) + env(safe-area-inset-top, 0px)); }
+
+        /* Variabile animabile per l'angolo del gradiente (kaleidoscopio) */
+        @property --ang {
+          syntax: '<angle>';
+          inherits: false;
+          initial-value: 0deg;
+        }
       `}</style>
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.62);
-          --nav-brd: rgba(255,255,255,.10);
-          --text: #f7fafc;
+          --nav-bg: rgba(2,6,23,.66);
+          --nav-brd: rgba(255,255,255,.12);
+          --text: #f8fafc;
         }
 
         .nav{
@@ -86,61 +91,45 @@ export default function NavBar() {
           display: flex; align-items: center; gap: 18px;
           padding: 0 16px;
           overflow-x: auto; scrollbar-width: none;
-          justify-content: center;  /* centrata su mobile/desktop */
+          justify-content: center;          /* centrata anche su mobile */
         }
-        .inner::-webkit-scrollbar{ display:none; }
+        .inner::-webkit-scrollbar{ display: none; }
 
-        /* Brand super luminoso + scintilla */
+        /* Brand: font distintivo + caleidoscopio */
         .brand{
-          display: inline-flex; align-items: center; gap: 12px;
-          padding: 8px 10px; text-decoration: none; position: relative;
-        }
-        .brand-mark{
-          position: relative; display: inline-grid; place-items: center;
-          width: 32px; height: 32px;
-          border-radius: 10px;
-          overflow: hidden;
-          /* glow forte intorno al logo */
-          filter:
-            drop-shadow(0 0 10px rgba(56,189,248,.85))
-            drop-shadow(0 0 28px rgba(167,139,250,.65))
-            drop-shadow(0 0 44px rgba(255,255,255,.45));
-          animation: brandPulse 2.4s ease-in-out infinite;
-        }
-        .brand-mark :global(img){
-          width: 28px; height: 28px; border-radius: 6px;
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
-        }
-        /* scintilla animata (niente cerchio pulsante dietro) */
-        .brand-mark::after{
-          content:"";
-          position:absolute; right:-2px; top:-2px;
-          width:18px; height:18px;
-          background:
-            radial-gradient(circle at 50% 50%, #fff 0 30%, transparent 45%),
-            conic-gradient(from 0deg, #fff 0 22%, transparent 22% 100%);
-          filter:
-            drop-shadow(0 0 6px #fff)
-            drop-shadow(0 0 18px rgba(56,189,248,.9))
-            drop-shadow(0 0 26px rgba(167,139,250,.8));
-          mix-blend-mode: screen;
-          border-radius: 50%;
-          animation: sparkleSpin 1.6s linear infinite;
-          pointer-events: none;
+          display: inline-flex; align-items: center;
+          padding: 8px 12px; text-decoration: none;
         }
         .brand-text{
-          font-weight: 900; letter-spacing: .2rem; font-size: 1.02rem;
-          background: linear-gradient(90deg, #fff, #e0f2fe, #a78bfa, #fff);
-          background-size: 260% auto;
-          -webkit-background-clip: text; background-clip: text;
+          font-family: 'Audiowide', system-ui, sans-serif;
+          font-size: clamp(1.12rem, 2.8vw, 1.34rem);
+          letter-spacing: .32rem; font-weight: 900;
           color: transparent;
+          background:
+            conic-gradient(from var(--ang),
+              #ffffff,
+              #e879f9,
+              #60a5fa,
+              #22d3ee,
+              #a78bfa,
+              #ffffff);
+          -webkit-background-clip: text; background-clip: text;
           text-shadow:
-            0 0 10px rgba(255,255,255,.45),
-            0 0 28px rgba(56,189,248,.35);
-          animation: shimmerText 3.6s linear infinite;
+            0 0 14px rgba(255,255,255,.55),
+            0 0 28px rgba(56,189,248,.45),
+            0 0 44px rgba(167,139,250,.45);
+          animation:
+            kscope 6s linear infinite,
+            glowPulse 2.2s ease-in-out infinite;
+          will-change: filter;
+        }
+        @keyframes kscope { to { --ang: 360deg; } }
+        @keyframes glowPulse {
+          0%,100% { filter: brightness(1.08) saturate(1.05); }
+          50%     { filter: brightness(1.35) saturate(1.15); }
         }
 
-        /* Links */
+        /* Lista link */
         .track{ display:flex; gap: 12px; list-style:none; margin:0; padding:0; }
         .item{ white-space: nowrap; }
 
@@ -156,9 +145,9 @@ export default function NavBar() {
         .glow{
           position: absolute; inset: -14px -22px; z-index: 0;
           background:
-            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 18%), transparent 60%),
-            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 16%), transparent 62%);
-          filter: blur(16px);
+            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 22%), transparent 60%),
+            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 20%), transparent 62%);
+          filter: blur(18px);
           opacity: 0; transition: opacity .25s ease;
           pointer-events: none;
         }
@@ -169,45 +158,39 @@ export default function NavBar() {
           -webkit-background-clip: text; background-clip: text;
           color: transparent;
           text-shadow:
-            0 0 12px rgba(255,255,255,.25),
-            0 0 18px color-mix(in srgb, var(--c1), #fff 20%);
+            0 0 12px rgba(255,255,255,.28),
+            0 0 18px color-mix(in srgb, var(--c1), #fff 22%);
           animation: shimmerText 6s linear infinite;
         }
         .link:hover{ transform: translateY(-1px); }
-        .link:hover .glow{ opacity: .9; }
-        .link:hover .label{ animation-duration: 3.2s; filter: brightness(1.15); }
+        .link:hover .glow{ opacity: .95; }
+        .link:hover .label{ animation-duration: 3.2s; filter: brightness(1.18); }
+        @keyframes shimmerText { to { background-position: -220% center; } }
 
-        /* Attivo super luminoso */
+        /* Attivo: molto luminoso */
         .link.is-active{
-          background: rgba(255,255,255,.10);
-          border-color: rgba(255,255,255,.16);
+          background: rgba(255,255,255,.12);
+          border-color: rgba(255,255,255,.18);
           box-shadow:
             0 10px 26px rgba(0,0,0,.35),
-            0 0 0 1px rgba(255,255,255,.08) inset,
-            0 0 24px color-mix(in srgb, var(--c1), #fff 30%),
-            0 0 48px color-mix(in srgb, var(--c2), #fff 30%);
+            0 0 0 1px rgba(255,255,255,.10) inset,
+            0 0 24px color-mix(in srgb, var(--c1), #fff 38%),
+            0 0 58px color-mix(in srgb, var(--c2), #fff 38%),
+            0 0 96px rgba(255,255,255,.3);
         }
         .link.is-active .glow{ opacity: 1; }
         .link.is-active .label{
           text-shadow:
-            0 0 18px #fff,
-            0 0 28px color-mix(in srgb, var(--c1), #fff 40%),
-            0 0 36px color-mix(in srgb, var(--c2), #fff 35%);
+            0 0 22px #fff,
+            0 0 34px color-mix(in srgb, var(--c1), #fff 45%),
+            0 0 48px color-mix(in srgb, var(--c2), #fff 40%);
           animation-duration: 2.2s;
-          filter: brightness(1.25);
-        }
-
-        /* Effetti */
-        @keyframes shimmerText { to { background-position: -260% center; } }
-        @keyframes sparkleSpin { to { transform: rotate(360deg); } }
-        @keyframes brandPulse {
-          0%,100% { filter: drop-shadow(0 0 10px rgba(56,189,248,.85)) drop-shadow(0 0 28px rgba(167,139,250,.65)) drop-shadow(0 0 44px rgba(255,255,255,.45)); }
-          50%     { filter: drop-shadow(0 0 16px rgba(56,189,248,1))   drop-shadow(0 0 38px rgba(167,139,250,.9))  drop-shadow(0 0 60px rgba(255,255,255,.7)); }
+          filter: brightness(1.3);
         }
 
         @media (max-width: 520px){
           .inner{ gap: 12px; justify-content: center; }
-          .brand-text{ font-size: .98rem; letter-spacing: .18rem; }
+          .brand-text{ font-size: 1.08rem; letter-spacing: .28rem; }
         }
       `}</style>
     </>
