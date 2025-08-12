@@ -24,7 +24,7 @@ export default function NavBar() {
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-skin">
               <span className="brand-glow" aria-hidden="true" />
-              <span className="brand-text">JARVIS</span>
+              <span className="brand-text brand-text--stone">JARVIS</span>
             </span>
 
             {/* Equalizzatore + alternanza immagine */}
@@ -53,7 +53,7 @@ export default function NavBar() {
                     style={{ ['--c1']: c1, ['--c2']: c2 }}
                     title={label}
                   >
-                    <span className="glow" />
+                    {/* niente glow dietro i link */}
                     <span className="label">{label}</span>
                   </Link>
                 </li>
@@ -84,14 +84,14 @@ export default function NavBar() {
           padding: 0 16px; gap: 32px; overflow: hidden;
         }
 
-        /* BRAND (tutte le animazioni ripristinate) */
+        /* BRAND (animazioni) */
         .brand{
           display:inline-flex; align-items:center; gap:22px;
           padding:8px 8px 8px 0; text-decoration:none; margin-right:28px;
         }
         .brand-skin{
           position: relative; display: inline-grid; place-items: center;
-          animation: toneSync 14s linear infinite;
+          animation: toneSync 14s linear infinite; /* sincronizza tono glow */
         }
         .brand-glow{
           position:absolute; inset:-14px -20px; pointer-events:none;
@@ -101,34 +101,47 @@ export default function NavBar() {
           filter: blur(20px);
           animation: brandPulse 2.3s ease-in-out infinite;
         }
+
+        /* === SCRITTA "SCOLPITA NELLA PIETRA" === */
         .brand-text{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .30rem;
           font-size: clamp(1.65rem, 3.6vw, 2rem);
           line-height: 1;
-
-          /* riempimento kaleidoscopico CHIARO */
-          background: conic-gradient(from 0deg,
-            #bfffe7 0%, #7ee9ff 16%, #a7c8ff 32%, #d1b8ff 48%, #ffd6ff 64%, #a7c8ff 80%, #bfffe7 100%);
+          white-space: nowrap;
+        }
+        .brand-text--stone{
+          /* riempimento pietra con venature leggere */
+          background:
+            linear-gradient(180deg, #f2f2f2 0%, #d9d9d9 40%, #cfcfcf 60%, #bdbdbd 100%),
+            radial-gradient(120% 180% at 20% 0%, rgba(255,255,255,.25), transparent 55%),
+            radial-gradient(120% 180% at 80% 100%, rgba(0,0,0,.10), transparent 60%),
+            repeating-linear-gradient(45deg, rgba(0,0,0,.03) 0 2px, rgba(255,255,255,.03) 2px 4px);
           background-size: 200% 200%;
           -webkit-background-clip: text; background-clip: text; color: transparent;
 
-          /* RILIEVO: bordo meno scuro + highlight + ombra */
-          -webkit-text-stroke: 0.8px rgba(0,0,0,.22);   /* bordo più chiaro */
+          /* incisione/rilievo: bordo leggero + ombre/luci opposte */
+          -webkit-text-stroke: 0.7px rgba(0,0,0,.22);
           paint-order: stroke fill;
-          text-shadow:
-            0 -1px 0 rgba(255,255,255,.75),             /* highlight superiore */
-            0 1px 1px rgba(0,0,0,.25),                  /* leggera ombra inferiore */
-            0 2px 3px rgba(0,0,0,.25),                  /* profondità */
-            0 0 26px rgba(56,189,248,.80),              /* glow blu */
-            0 0 46px rgba(167,139,250,.65);             /* glow violetto */
 
-          filter: brightness(1.9) contrast(1.06) saturate(1.1);
-          animation: kaleido 6.2s linear infinite, glowBreath 2.4s ease-in-out infinite;
-          white-space: nowrap;
+          /* scolpito (concavo): luce sopra/sinistra, ombra sotto/destra */
+          text-shadow:
+            -1px -1px 0 rgba(255,255,255,.70),   /* cresta chiara in alto-sx */
+             1px  1px 0 rgba(0,0,0,.40),        /* taglio scuro in basso-dx */
+            -2px -2px 1px rgba(255,255,255,.35), /* highlight più ampio */
+             2px  2px 2px rgba(0,0,0,.35),       /* profondità */
+             0    1px 2px rgba(0,0,0,.28),       /* ombra morbida */
+             0    0   30px rgba(56,189,248,.55), /* alone freddo delicato */
+             0    0   54px rgba(167,139,250,.40);
+
+          /* più brillante per non risultare scura */
+          filter: brightness(1.25) contrast(1.05) saturate(1.05);
+
+          /* movimento delicato delle venature (effetto “vivo” ma pietra) */
+          animation: kaleidoStone 12s linear infinite, glowBreath 2.4s ease-in-out infinite;
         }
 
-        /* Equalizzatore + immagine alternata (bgAlt, barHop) */
+        /* Equalizzatore blu/verde */
         .brand-anim{ width: 140px; height: 24px; display:inline-grid; place-items:center; }
         .eqbox{
           position: relative; width: 100%; height: 100%;
@@ -145,7 +158,7 @@ export default function NavBar() {
         }
         .bar{
           width: 9px; height: 10px; border-radius: 3px; transform-origin: bottom center;
-          background: linear-gradient(to top, #22c55e 0%, #38bdf8 60%, #60a5fa 100%); /* blu/verde */
+          background: linear-gradient(to top, #22c55e 0%, #38bdf8 60%, #60a5fa 100%);
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.35),
             0 0 12px rgba(56,189,248,.55),
@@ -159,7 +172,7 @@ export default function NavBar() {
         .b5{ animation-duration: 1.26s; animation-delay: .20s; }
         .b6{ animation-duration: .88s;  animation-delay: .25s; }
 
-        /* MENU */
+        /* MENU (niente glow di sfondo) */
         .track{ display:flex; gap:16px; list-style:none; margin:0; padding:0; }
         .item{ white-space:nowrap; }
         .link{
@@ -170,51 +183,46 @@ export default function NavBar() {
           transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
           border:1px solid transparent; isolation:isolate;
         }
-        .glow{
-          position:absolute; inset:-18px -28px; z-index:0;
-          background:
-            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 24%), transparent 60%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 20%), transparent 62%);
-          filter: blur(24px); opacity:0; transition:opacity .25s ease; pointer-events:none;
-        }
         .label{
           position:relative; z-index:1; font-weight:900; letter-spacing:.05rem;
           background: linear-gradient(90deg, var(--c1), var(--c2));
           background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
-          text-shadow: 0 0 18px rgba(255,255,255,.22), 0 0 38px color-mix(in srgb, var(--c2), #fff 22%);
-          animation: shimmerText 6s linear infinite; filter: brightness(1.45);
+          text-shadow: 0 0 16px rgba(255,255,255,.16);
+          animation: shimmerText 6s linear infinite; filter: brightness(1.25);
         }
         .link:hover{ transform: translateY(-1px); }
-        .link:hover .glow{ opacity:1; }
         .link.is-active{
-          background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.26);
-          box-shadow: 0 16px 36px rgba(0,0,0,.36), 0 0 0 1px rgba(255,255,255,.08) inset;
-          filter: brightness(1.18);
+          background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.22);
+          box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
+          filter: brightness(1.12);
         }
-        .link.is-active .glow{ opacity:1; filter: brightness(1.35); }
         .link.is-active .label{
           text-shadow:
-            0 0 30px color-mix(in srgb, var(--c1), #fff 45%),
-            0 0 58px color-mix(in srgb, var(--c2), #fff 36%),
-            0 0 78px rgba(255,255,255,.36);
-          animation-duration: 2.2s; filter: brightness(1.7);
+            0 0 28px color-mix(in srgb, var(--c1), #fff 40%),
+            0 0 46px color-mix(in srgb, var(--c2), #fff 30%),
+            0 0 64px rgba(255,255,255,.28);
+          animation-duration: 2.2s; filter: brightness(1.5);
         }
 
-        /* ANIMAZIONI (ripristinate) */
+        /* ANIMAZIONI */
         @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes kaleido     { to { background-position: 200% 200%; } }
         @keyframes toneSync    { to { filter: hue-rotate(360deg); } }
         @keyframes glowBreath  {
-          0%,100% { text-shadow: 0 -1px 0 rgba(255,255,255,.75), 0 1px 1px rgba(0,0,0,.25), 0 2px 3px rgba(0,0,0,.25), 0 0 26px rgba(56,189,248,.8), 0 0 46px rgba(167,139,250,.65); }
-          50%     { text-shadow: 0 -1px 0 rgba(255,255,255,.9),  0 1px 1px rgba(0,0,0,.25), 0 2px 3px rgba(0,0,0,.25), 0 0 38px rgba(56,189,248,1), 0 0 70px rgba(167,139,250,.85); }
+          0%,100% { text-shadow:
+            -1px -1px 0 rgba(255,255,255,.70), 1px 1px 0 rgba(0,0,0,.40),
+            -2px -2px 1px rgba(255,255,255,.35), 2px 2px 2px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.28),
+            0 0 26px rgba(56,189,248,.55), 0 0 48px rgba(167,139,250,.40); }
+          50%     { text-shadow:
+            -1px -1px 0 rgba(255,255,255,.85), 1px 1px 0 rgba(0,0,0,.46),
+            -2px -2px 2px rgba(255,255,255,.45), 2px 2px 3px rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.30),
+            0 0 38px rgba(56,189,248,.80), 0 0 70px rgba(167,139,250,.60); }
         }
         @keyframes brandPulse  { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:.98; transform: scale(1.05); } }
         @keyframes barHop      { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
-        @keyframes bgAlt       {
-          0%,42%   { opacity: 0; }
-          50%,92%  { opacity: .95; }
-          100%     { opacity: 0; }
-        }
+        @keyframes bgAlt       { 0%,42% { opacity: 0; } 50%,92% { opacity: .95; } 100% { opacity: 0; } }
+
+        /* movimento “venature” della pietra: lento e sobrio */
+        @keyframes kaleidoStone { to { background-position: 180% 160%, 0 0, 0 0, 0 0; } }
 
         @media (max-width: 560px){
           .inner{ gap:22px; padding:0 12px; }
