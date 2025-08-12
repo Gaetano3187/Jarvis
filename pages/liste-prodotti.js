@@ -482,88 +482,84 @@ function looksLikeSetResidue(text) {
   const t = normKey(text);
   return /\b(sono|ce\s+ne\s+sono|ce\s+n'?e\s+sono|ne\s+ho|adesso\s+sono|ora\s+sono|in\s+totale\s+sono)\b/.test(t);
 }
+/** Rileva se il testo specifica esplicitamente la struttura "confezioni da X" */
+function hasExplicitPackStructure(text){
+  const s = normKey(text);
+  return /(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*\d+/.test(s);
+}
 
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
 /* --------- Parser VOCALE per aggiornare scorte (esteso) --------- */
+/* --------- Parser VOCALE scorte con "inerzia" su righe esistenti --------- */
 function parseStockUpdateText(text) {
-const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
-
-  // Spezzatura morbida
+  const t = normKey(text);
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text); // “porta a … / imposta a …”
+  const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”
 
   for (let rawChunk of parts) {
-    // Skip se parla di scadenze/date
     if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
     if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
     if (/\b20\d{2}\b/.test(rawChunk)) continue;
 
-    // Spezza su “ e ”, poi processa ogni pezzetto
     const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
 
     for (const chunk of chunks) {
-      // 2.a) Caso “solo nome” → +1 confezione, 1 unità/conf., residuo aggiornato dal flusso applicativo
-      if (!/\d/.test(chunk)) {
-        const nameOnly = guessProductName(chunk);
-        if (nameOnly) {
-          res.push({ name: nameOnly, mode: 'packs', value: 1, op: 'add', _upp: 1 });
-        }
-        continue;
-      }
+      const name = guessProductName(chunk);
+      if (!name) continue;
 
-      // 2.b) Caso “una confezione di latte da 6 bottiglie” (ordine libero)
-      // Trova il nome presente nel chunk
-      let name = '';
-      for (const lex of GROCERY_LEXICON) { if (isSimilar(chunk, lex)) { name = lex; break; } }
-      if (!name) name = guessProductName(chunk);
-
-      // Estrai pattern confezioni/unità da testo completo
+      // Rileva struttura esplicita "confezioni da X"
+      const explicit = hasExplicitPackStructure(chunk);
       const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
 
-      // 2.c) Caso “latte sono 2 bottiglie / sono due …” → set residuo (units), NO modifica packs/upp
-      if (looksLikeSetResidue(chunk)) {
-        // Trova numero + unità/“due”
-        let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|unit[aà]|pz|pezzi|vasetti|uova|barrette)?$/i);
-        if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
-          const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
-          const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
-          if (w) m = [null, String(map[w[1].toLowerCase()]), '']; // finto match
-        }
-        const val = m ? Number(String(m[1]).replace(',','.')) : NaN;
-        if (name && Number.isFinite(val) && val > 0) {
-          res.push({ name, mode: 'units', value: val, op: 'setResidue' });
-          continue;
-        }
+      // Numero finale (anche "sono 3 ...")
+      let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
+      // Parole 2..10 come numero
+      if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
+        const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
+        const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
+        m = w ? [null, String(map[w[1].toLowerCase()]), ''] : null;
       }
 
-      // 2.d) Caso classico “latte 3 bottiglie / pasta 2 pacchi …”
-      const mClassic = chunk.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
-      if (mClassic) {
-        let nm = (mClassic[1]||'').trim();
-        if (!nm) nm = name;
-        for (const lex of GROCERY_LEXICON) { if (isSimilar(nm, lex)) { nm = lex; break; } }
+      const valNum = m ? Number(String(m[1]).replace(',','.')) : NaN;
+      const tag = (m && m[2] ? m[2].toLowerCase() : '');
 
-        const value = Math.max(0, Number(String(mClassic[2]).replace(',','.')) || 0);
-        if (!nm || !value) continue;
-
-        const tag = (mClassic[3]||'').toLowerCase();
-        const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott/.test(tag);
-        const mode = asUnits ? 'units' : 'packs';
-        const op = absolute ? 'set' : 'add';
-
-        // Se abbiamo già capito le unità/conf. dal testo, portiamole nel payload (_upp)
-        const _upp = Number(pack.unitsPerPack || (asUnits ? value : 1)) || 1;
-
-        res.push({ name: nm, mode, value, op, _upp });
+      // 1) Caso SOLO NOME → incrementa (nuovo: 1 conf × 1); su riga esistente poi tratteremo come “set residuo = 1”
+      if (!/\d/.test(chunk)) {
+        res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
         continue;
       }
 
-      // 2.e) Fallback “ho capito le confezioni dal testo”
-      if (name && (pack.packs || pack.unitsPerPack)) {
-        res.push({ name, mode: 'packs', value: Math.max(1, Number(pack.packs||1)), op: 'add', _upp: Math.max(1, Number(pack.unitsPerPack||1)) });
+      // 2) Caso ESPRESSO “confezione/i da X” → è un vero restock strutturale
+      if (explicit) {
+        const packs = Math.max(1, Number(pack.packs || 1));
+        const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
+        res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp });
+        continue;
       }
+
+      // 3) Caso numerico semplice (“latte 3 bottiglie”, “pasta 4 pacchi”, “fiesta 3 unità”)
+      const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
+      const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
+      if (!value) continue;
+
+      // Di default: sarà interpretato come “set residuo” se la riga esiste;
+      // se NON esiste, creeremo la struttura migliore:
+      // - se tag è "units-like" → packs=1, upp=value
+      // - se tag è "packs-like" → packs=value, upp=1
+      const packsLike = /pacc|conf|scatol/.test(tag);
+      const hintPacks = packsLike ? value : 1;
+      const hintUpp   = packsLike ? 1 : value;
+
+      res.push({
+        name,
+        mode: asUnits ? 'units' : 'packs',
+        value,
+        op: absolute ? 'set' : 'maybeResidue',
+        _packs: Math.max(1, hintPacks),
+        _upp: Math.max(1, hintUpp),
+      });
     }
   }
   return res;
