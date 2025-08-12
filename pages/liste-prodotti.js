@@ -1903,108 +1903,203 @@ function decrementAcrossBothLists(prevLists, purchases) {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* ---------------- styles (ottimizzati) ---------------- */
+/* ---------------- styles (Caleidoscopio + titoli in rilievo + sheen) ---------------- */
 const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
-    background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    color: '#fff',
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#fff',
     fontFamily:
       'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+
+    /* Sfondo caleidoscopio (multi-layer) */
+    background:
+      'radial-gradient(120% 120% at 20% 0%, rgba(167,139,250,.18), transparent 60%),' +
+      'radial-gradient(120% 120% at 80% 100%, rgba(34,211,238,.16), transparent 60%),' +
+      'conic-gradient(from 0deg at 50% 50%, #0b1220, #0e1726, #0b1220)',
+    backgroundSize: '200% 200%, 200% 200%, 200% 200%',
+    animation: 'kaleidoBg 18s linear infinite',
   },
 
+  // Card principale con rilievo + sheen
   card: {
     width: '100%',
-    maxWidth: 1000,
-    background: 'rgba(0,0,0,.6)',
-    borderRadius: 16,
+    maxWidth: 1100,
+    position: 'relative',
+    borderRadius: 18,
     padding: 22,
-    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)),' + // film leggero
+      'linear-gradient(180deg, rgba(0,0,0,.62), rgba(0,0,0,.46))',
+    border: '1px solid rgba(255,255,255,.10)',
+    boxShadow:
+      '0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04)',
+    overflow: 'hidden',
+    animation: 'panelGlow 6s ease-in-out infinite alternate',
   },
 
   headerRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: 14,
     flexWrap: 'wrap',
   },
+
   homeBtn: {
-    background: '#6366f1',
+    background:
+      'linear-gradient(145deg, rgba(99,102,241,1), rgba(59,130,246,1))',
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     textDecoration: 'none',
-    fontWeight: 700,
+    fontWeight: 800,
+    border: '1px solid rgba(99,102,241,.55)',
+    boxShadow: '0 6px 18px rgba(99,102,241,.35)',
+    transition: 'transform .18s ease, box-shadow .18s ease',
   },
 
+  // Switch liste
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
-    background: 'rgba(255,255,255,.08)',
-    border: '1px solid rgba(255,255,255,.15)',
+    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.14)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  switchBtnActive: {
-    background: '#06b6d4',
-    border: 0,
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     cursor: 'pointer',
     fontWeight: 800,
+    backdropFilter: 'blur(3px)',
+    boxShadow: '0 6px 16px rgba(0,0,0,.25)',
+  },
+  switchBtnActive: {
+    background:
+      'linear-gradient(145deg, rgba(6,182,212,.92), rgba(59,130,246,.92))',
+    border: '1px solid rgba(59,130,246,.75)',
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 900,
+    boxShadow: '0 10px 24px rgba(59,130,246,.35)',
+    animation: 'btnBreath 3s ease-in-out infinite',
   },
 
-  toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
-
+  // Barra strumenti
+  toolsRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 10,
+    margin: '14px 0 8px',
+    padding: 8,
+    borderRadius: 14,
+    background: 'rgba(255,255,255,.04)',
+    border: '1px solid rgba(255,255,255,.10)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)',
+  },
   voiceBtn: {
-    background: '#6366f1',
-    border: 0,
+    background:
+      'linear-gradient(145deg, rgba(99,102,241,1), rgba(56,189,248,1))',
+    border: '1px solid rgba(99,102,241,.6)',
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
+    boxShadow: '0 10px 20px rgba(99,102,241,.35)',
+    transition: 'transform .18s ease, box-shadow .18s ease',
+    animation: 'btnBreath 3.4s ease-in-out infinite',
   },
 
-  sectionLarge: { marginTop: 30, marginBottom: 10 },
-  sectionXL: { marginTop: 38, marginBottom: 12 },
-  h3: { margin: '6px 0 12px' },
+  // Pannelli sezioni in rilievo
+  sectionLarge: {
+    marginTop: 26,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 16,
+    background: 'rgba(0,0,0,.48)',
+    border: '1px solid rgba(255,255,255,.10)',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.05), 0 8px 20px rgba(0,0,0,.28)',
+  },
+  sectionXL: {
+    marginTop: 34,
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 16,
+    background: 'rgba(0,0,0,.52)',
+    border: '1px solid rgba(255,255,255,.12)',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.06), 0 10px 26px rgba(0,0,0,.30)',
+  },
 
+  // Titoli sezioni (stile evidenziato + sheen come home)
+  h3: {
+    margin: '6px 0 12px',
+    fontWeight: 900,
+    letterSpacing: '.25px',
+    fontSize: 18,
+    lineHeight: 1.15,
+    position: 'relative',
+
+    // Testo con gradiente e contorno leggero
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.55) 40%, rgba(255,255,255,.9)),' + // gloss
+      'linear-gradient(90deg, #34d399, #22d3ee, #60a5fa, #a78bfa, #f0abfc, #60a5fa, #34d399)',
+    backgroundSize: '200% 200%, 300% 300%',
+    backgroundPosition: '50% 0%, 0% 50%',
+    WebkitBackgroundClip: 'text',
+    backgroundClip: 'text',
+    color: 'transparent',
+    WebkitTextFillColor: 'transparent',
+
+    // rilievo
+    textShadow:
+      '-1px -1px 0 rgba(255,255,255,.35), 1px 1px 0 rgba(0,0,0,.35),' +
+      '0 2px 6px rgba(0,0,0,.25)',
+    WebkitTextStroke: '0.35px rgba(0,0,0,.22)',
+    paintOrder: 'stroke fill',
+
+    // animazioni (se presenti i keyframe)
+    animation: 'titleShimmer 7s linear infinite, sheenSweep 5s ease-in-out infinite',
+  },
+
+  // Lista corrente
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
   itemRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'rgba(255,255,255,.05)',
-    border: '1px solid rgba(255,255,255,.12)',
-    borderRadius: 12,
-    padding: '10px 12px',
-    gap: 8,
+    gap: 10,
     flexWrap: 'wrap',
+    padding: '12px 14px',
+    borderRadius: 14,
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03))',
+    border: '1px solid rgba(255,255,255,.12)',
+    boxShadow: '0 4px 14px rgba(0,0,0,.25)',
   },
-  itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
+  itemMain: { display: 'flex', alignItems: 'center', gap: 12, minWidth: 280, flex: 1 },
   qtyBadge: {
-    minWidth: 34,
-    height: 34,
+    minWidth: 36,
+    height: 36,
     borderRadius: 10,
-    background: 'rgba(99,102,241,.25)',
+    background:
+      'linear-gradient(145deg, rgba(99,102,241,.35), rgba(59,130,246,.35))',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: 800,
+    fontWeight: 900,
+    border: '1px solid rgba(99,102,241,.55)',
+    boxShadow: '0 4px 12px rgba(99,102,241,.28)',
   },
-  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.8 },
+  itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
+  itemBrand: { fontSize: 12, opacity: 0.85 },
 
   itemActions: {
     display: 'flex',
@@ -2015,30 +2110,32 @@ const styles = {
   },
   actionSuccess: {
     background: '#16a34a',
-    border: 0,
+    border: '1px solid rgba(22,163,74,.7)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
+    boxShadow: '0 6px 16px rgba(22,163,74,.35)',
   },
   actionDanger: {
     background: '#ef4444',
-    border: 0,
+    border: '1px solid rgba(239,68,68,.7)',
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 900,
+    boxShadow: '0 6px 16px rgba(239,68,68,.35)',
+  },
+  actionGhost: {
+    background: 'rgba(255,255,255,.10)',
+    border: '1px solid rgba(255,255,255,.22)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
-  },
-  actionGhost: {
-    background: 'rgba(255,255,255,.12)',
-    border: '1px solid rgba(255,255,255,.2)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
   },
   actionGhostDanger: {
     background: 'rgba(239,68,68,.1)',
@@ -2047,54 +2144,76 @@ const styles = {
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 800,
   },
 
-  formRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    alignItems: 'center',
-  },
+  // Form
+  formRow: { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
   input: {
     padding: '10px 12px',
     borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.15)',
+    border: '1px solid rgba(255,255,255,.18)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
+    minWidth: 160,
     flex: '1 1 160px',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
   },
   primaryBtn: {
-    background: '#16a34a',
-    border: 0,
+    background:
+      'linear-gradient(145deg, rgba(22,163,74,1), rgba(34,197,94,1))',
+    border: '1px solid rgba(22,163,74,.7)',
     color: '#fff',
     padding: '10px 12px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+    boxShadow: '0 8px 18px rgba(22,163,74,.35)',
+    animation: 'btnBreath 3s ease-in-out infinite',
   },
 
+  // Tabella scorte (header appiccicoso + sezioni colorate tenui)
   table: {
     width: '100%',
-    borderCollapse: 'collapse',
-    background: 'rgba(255,255,255,.04)',
-    borderRadius: 12,
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02))',
+    borderRadius: 14,
     overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,.12)',
+    boxShadow: '0 10px 22px rgba(0,0,0,.28)',
   },
   th: {
     textAlign: 'left',
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.12)',
-    fontWeight: 700,
+    padding: '12px 10px',
+    borderBottom: '1px solid rgba(255,255,255,.14)',
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
+    background:
+      'linear-gradient(180deg, rgba(15,23,42,.92), rgba(15,23,42,.85))',
+    backdropFilter: 'blur(6px)',
+    letterSpacing: '.2px',
   },
   td: {
-    padding: '10px',
+    padding: '12px 10px',
     borderBottom: '1px solid rgba(255,255,255,.08)',
     verticalAlign: 'middle',
   },
+
+  // Riga “gruppo” (se vuoi separare sottosezioni)
+  trGroupHeader: {
+    background: 'rgba(255,255,255,.035)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
+  },
+  // Colori tenui per subsezioni (usa alternanza manuale se vuoi)
+  trSectionA: { background: 'rgba(94,234,212,.06)' }, // teal soft
+  trSectionB: { background: 'rgba(96,165,250,.06)' }, // blue soft
+  trSectionC: { background: 'rgba(240,171,252,.06)' }, // fuchsia soft
 
   scorteHeader: {
     display: 'flex',
@@ -2102,50 +2221,62 @@ const styles = {
     justifyContent: 'space-between',
     gap: 10,
     flexWrap: 'wrap',
+    padding: 8,
+    borderRadius: 12,
+    background: 'rgba(255,255,255,.04)',
+    border: '1px solid rgba(255,255,255,.10)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)',
   },
 
   voiceBtnSmall: {
-    background: '#6366f1',
-    border: 0,
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-  voiceBtnSmallStop: {
-    background: '#ef4444',
-    border: 0,
+    background:
+      'linear-gradient(145deg, rgba(99,102,241,1), rgba(56,189,248,1))',
+    border: '1px solid rgba(99,102,241,.6)',
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
+    boxShadow: '0 6px 16px rgba(99,102,241,.35)',
+  },
+  voiceBtnSmallStop: {
+    background:
+      'linear-gradient(145deg, rgba(239,68,68,1), rgba(248,113,113,1))',
+    border: '1px solid rgba(239,68,68,.6)',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+    boxShadow: '0 6px 16px rgba(239,68,68,.35)',
   },
   ocrBtnSmall: {
-    background: '#06b6d4',
-    border: 0,
+    background:
+      'linear-gradient(145deg, rgba(6,182,212,1), rgba(59,130,246,1))',
+    border: '1px solid rgba(6,182,212,.6)',
     color: '#0b1220',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+    boxShadow: '0 6px 16px rgba(6,182,212,.35)',
   },
-    ocrInlineBtn: {
+  ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
     padding: '6px 10px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 800,
     whiteSpace: 'nowrap',
-  }, // <-- VIRGOLA QUI
+    boxShadow: '0 4px 10px rgba(6,182,212,.25)',
+  },
 
-  /* ---------- Badge “Giorni rimasti” ---------- */
+  // Badge giorni
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2154,8 +2285,9 @@ const styles = {
     height: 26,
     padding: '0 8px',
     borderRadius: 999,
-    fontWeight: 800,
+    fontWeight: 900,
     fontSize: 12,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.12)',
   },
   daysBadgeGreen: {
     background: 'rgba(22,163,74,.18)',
@@ -2177,77 +2309,58 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-progressWrap: {
-  position: 'relative',
-  width: 120,
-  height: 10,
-  borderRadius: 999,
-  background: 'rgba(255,255,255,.15)',
-  overflow: 'hidden',
-  flex: '0 0 120px',
-},
-progressBar: {
-  position: 'absolute',
-  left: 0,          // <-- usa left/top/bottom (NON inset)
-  top: 0,
-  bottom: 0,
-  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
-  transition: 'width .25s ease, background-color .25s ease',
-},
 
+  // Input compatti per tabella
+  inputTable: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: '100%',
+    minWidth: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08)',
+  },
+  inputTableSm: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 90,
+    minWidth: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08)',
+  },
   inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 110,
+    minWidth: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08)',
+  },
+
+  // Barra residuo
+  progressWrap: {
+    position: 'relative',
+    width: 140,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.16)',
+    overflow: 'hidden',
+    flex: '0 0 140px',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08)',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '0%',
+    transition: 'width .28s ease, background-color .28s ease',
+  },
+};
 
 }; // <-- e chiudi l’oggetto con punto e virgola
