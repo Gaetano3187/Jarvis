@@ -214,22 +214,12 @@ function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
 // Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
-function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
-// clamp 0..1
-function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
-
-// Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
-// Aggiunge daysLeft stimato usando avgDailyUnits
 function residueInfo(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
   const current = Math.max(0, Number(s.packs || 0) * upp);
   const baseline = Math.max(upp, Number(s.baselinePacks || 0) * upp) || current || upp;
   const pct = baseline ? clamp01(current / baseline) : 1;
-
-  const avg = Math.max(0, Number(s.avgDailyUnits || 0));
-  const daysLeft = avg > 0 ? Math.ceil(current / avg) : null; // null = non stimabile ancora
-
-  return { current, baseline, pct, daysLeft };
+  return { current, baseline, pct };
 }
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
@@ -651,21 +641,38 @@ function saveRowEdit(index){
   const curItems = lists[currentList] || [];
 
   /* --------------- derivati: prodotti critici --------------- */
- useEffect(() => {
-  const crit = stock.filter(p => {
-    const upp = Math.max(1, Number(p.unitsPerPack || 1));
-    const currentUnits = Math.max(0, Number(p.packs || 0) * upp);
-    const baselineUnits = Math.max(upp, Number(p.baselinePacks || 0) * upp);
-    const pct = baselineUnits > 0 ? currentUnits / baselineUnits : 1;
+  useEffect(() => {
+    const today = new Date();
+    const tenDays = 10 * 24 * 60 * 60 * 1000;
+    const twoDays = 2 * 24 * 60 * 60 * 1000;
 
-    const lowResidue = pct <= 0.20;          // <= 20% residuo
-    const expSoon = isExpiringSoon(p, 10);   // entro 10 giorni
+    const crit = stock.filter(p => {
+      const packs = Number(p.packs || 0);
+      const upp = Math.max(1, Number(p.unitsPerPack || 1));
+      const totalUnits = packs * upp;
 
-    return lowResidue || expSoon;
-  });
+      const baselinePacks = Number(p.baselinePacks || 0);
+      const baselineUnits = baselinePacks * upp;
 
-  setCritical(crit);
-}, [stock]);
+      const last = p.lastRestockAt ? new Date(p.lastRestockAt) : null;
+
+      const nearExp = p.expiresAt ? ((new Date(p.expiresAt)) - today) <= tenDays : false;
+      const oldEnough = last ? (today - last) > twoDays : false;
+
+      const lowAbsoluteUnits = totalUnits < 2; // < 2 unità
+      const lowPercentUnits  = baselineUnits > 0 ? (totalUnits <= baselineUnits * 0.2) : false; // residuo <=20% (80% consumato)
+
+      return nearExp || (oldEnough && (lowAbsoluteUnits || lowPercentUnits));
+    });
+
+    setCritical(crit);
+  }, [stock]);
+
+  function showToast(msg, type='info') {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2500);
+  }
+
   /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
     e.preventDefault();
@@ -1134,7 +1141,58 @@ function decrementAcrossBothLists(prevLists, purchases) {
     if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
     setStock(prev => prev.filter((_, idx) => idx !== i));
   }
-  editStockRow
+  function editStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    const name = prompt('Nome prodotto:', it.name);
+    if (name == null || !name.trim()) return;
+    const brand = prompt('Marca (opzionale):', it.brand || '');
+    if (brand == null) return;
+
+    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+    if (packsStr == null) return;
+    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+
+    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+    if (uppStr == null) return;
+    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+
+    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+    if (unitLabel == null) return;
+
+    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+    const ex = expStr ? toISODate(expStr) : '';
+
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[i];
+      const todayISO = new Date().toISOString().slice(0,10);
+      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+
+      // aumento? allora è restock
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = Number(old.packs || 0) * uppOld;
+      const nowUnits = packs * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      arr[i] = {
+        ...old,
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        packs, unitsPerPack, unitLabel,
+        expiresAt: ex || '',
+        avgDailyUnits,
+        ...(restock ? restockTouch(packs, todayISO) : {})
+      };
+      return arr;
+    });
+  }
+
+  function deleteStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
+    setStock(prev => prev.filter((_, idx) => idx !== i));
   }
 
   /* ---------------- OCR scadenza per riga ---------------- */
@@ -1845,17 +1903,19 @@ function decrementAcrossBothLists(prevLists, purchases) {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24,
+    padding: 24, // più compatto per mobile
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#fff',
-    fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+    fontFamily:
+      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
 
   card: {
@@ -2002,7 +2062,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160,
+    minWidth: 160, // -40px vs prima per stare su schermi stretti
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -2074,7 +2134,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-  ocrInlineBtn: {
+    ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -2083,9 +2143,9 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  },
+  }, // <-- VIRGOLA QUI
 
-  // Badge Giorni Rimasti
+  /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2117,54 +2177,77 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-
-  // Input tabellari
   inputTable: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: '100%',
-    minWidth: 0,
-  },
-  inputTableSm: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 90,
-    minWidth: 0,
-  },
-  inputTableXs: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 110,
-    minWidth: 0,
-  },
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+  inputTable: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+progressWrap: {
+  position: 'relative',
+  width: 120,
+  height: 10,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,.15)',
+  overflow: 'hidden',
+  flex: '0 0 120px',
+},
+progressBar: {
+  position: 'absolute',
+  left: 0,          // <-- usa left/top/bottom (NON inset)
+  top: 0,
+  bottom: 0,
+  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
+  transition: 'width .25s ease, background-color .25s ease',
+},
 
-  // Barra progresso
-  progressWrap: {
-    position: 'relative',
-    width: 120,
-    height: 10,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,.15)',
-    overflow: 'hidden',
-    flex: '0 0 120px',
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0, // usa left/top/bottom (NON inset)
-    top: 0,
-    bottom: 0,
-    width: '0%',
-    transition: 'width .25s ease, background-color .25s ease',
-  },
-};
+  inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
 
 }; // <-- e chiudi l’oggetto con punto e virgola
