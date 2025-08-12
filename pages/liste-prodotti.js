@@ -1392,88 +1392,99 @@ function decrementAcrossBothLists(prevLists, purchases) {
         return;
       }
 
-      if (intent === 'stock_update' && updates.length) {
-        let applied = 0;
-        setStock(prev => {
-          const arr = [...prev];
-          const todayISO = new Date().toISOString().slice(0,10);
+  if (intent === 'stock_update' && updates.length) {
+  let applied = 0;
+  setStock(prev => {
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0,10);
 
-          for (const u of updates) {
-            let idx = arr.findIndex(s => isSimilar(s.name, u.name));
-            const isSet = (u.op === 'set');
-            const isUnits = (u.mode === 'units');
+    for (const u of updates) {
+      let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+      const explicit = (u.op === 'restockExplicit');  // “confezioni da X”
+      const hintedPacks = Math.max(1, Number(u._packs || 1));
+      const hintedUPP   = Math.max(1, Number(u._upp || 1));
 
-            if (idx < 0) {
-              // crea nuova riga scorte
-              if (isUnits) {
-                if (isSet) {
-                  arr.unshift({
-                    name: u.name, brand: '',
-                    packs: Math.max(1, Math.ceil(Number(u.value||1))),
-                    unitsPerPack: 1, unitLabel:'unità',
-                    expiresAt:'', baselinePacks: Math.max(1, Math.ceil(Number(u.value||1))),
-                    lastRestockAt: todayISO, avgDailyUnits:0
-                  });
-                } else {
-                  arr.unshift({
-                    name: u.name, brand: '',
-                    packs: 1, unitsPerPack: Math.max(1, Math.round(Number(u.value||1))), unitLabel:'unità',
-                    expiresAt:'', baselinePacks:1,
-                    lastRestockAt: todayISO, avgDailyUnits:0
-                  });
-                }
-              } else {
-                const p = Math.max(0, Number(u.value||0));
-                arr.unshift({
-                  name: u.name, brand: '',
-                  packs: p, unitsPerPack:1, unitLabel:'unità',
-                  expiresAt:'', baselinePacks: p,
-                  lastRestockAt: todayISO, avgDailyUnits:0
-                });
-              }
-              applied++;
-              continue;
-            }
+      // ---------- PRODOTTO ESISTENTE ----------
+      if (idx >= 0) {
+        const old = arr[idx];
+        const upp = Math.max(1, Number(old.unitsPerPack || 1));
+        const packs = Math.max(0, Number(old.packs || 0));
 
-            // Esiste già
-            const old = arr[idx];
-            const upp = Math.max(1, Number(old.unitsPerPack || 1));
-            const unitLabel = old.unitLabel || 'unità';
-            let packs = Number(old.packs || 0);
+        if (explicit) {
+          // VERO RESTOCK: cambia struttura (packs/upp), allinea baseline e residuo a pieno
+          const np = Math.max(0, packs + hintedPacks);
+          const nupp = Math.max(1, hintedUPP || upp);
+          const after = {
+            ...old,
+            packs: np,
+            unitsPerPack: nupp,
+            unitLabel: old.unitLabel || 'unità',
+            ...restockTouch(np, todayISO, nupp),
+          };
+          arr[idx] = after;
+          applied++;
+          continue;
+        }
 
-            if (isUnits) {
-              const currentUnits = packs * upp;
-              const valUnits = Math.max(0, Number(u.value || 0));
-              const newUnits = isSet ? valUnits : (currentUnits + valUnits);
-              packs = newUnits / upp; // confezioni decimali permesse
-            } else {
-              const valPacks = Math.max(0, Number(u.value || 0));
-              packs = isSet ? valPacks : (packs + valPacks);
-            }
+        // PRINCIPIO D’INERZIA: su riga esistente aggiorno SOLO il RESIDUO (unità)
+        // u.value è interpretato come “quante unità residue vedi ora”
+        const fullUnits = Math.max(upp, packs * upp);
+        const ru = Math.max(0, Math.min(fullUnits, Number(u.value || 0) || 0));
+        arr[idx] = { ...old, residueUnits: ru };
+        applied++;
+        continue;
+      }
 
-            // consumo medio (unità/giorno) se diminuisce rispetto alla baseline precedente
-            let avgDailyUnits = old?.avgDailyUnits || 0;
-            if (old?.lastRestockAt && Number(old.baselinePacks||0) * upp > packs * upp) {
-              const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
-              const usedUnits = (Number(old.baselinePacks||0)*upp) - (packs*upp);
-              const day = usedUnits / days;
-              avgDailyUnits = avgDailyUnits ? (0.6*avgDailyUnits + 0.4*day) : day;
-            }
-
-            // riallineo baseline se è un restock
-            const restock = (packs * upp) > (Number(old.packs || 0) * upp);
-            const after = {
-              ...old, packs, unitsPerPack: upp, unitLabel, avgDailyUnits
-            };
-            if (restock) {
-              after.baselinePacks = packs;
-              after.lastRestockAt = todayISO;
-            }
-            arr[idx] = after;
-            applied++;
-          }
-          return arr;
+      // ---------- PRODOTTO ASSENTE (creazione) ----------
+      if (explicit) {
+        // Crea con struttura esplicita
+        arr.unshift({
+          name: u.name, brand: '',
+          packs: hintedPacks,
+          unitsPerPack: hintedUPP,
+          unitLabel: 'unità',
+          expiresAt: '',
+          ...restockTouch(hintedPacks, todayISO, hintedUPP),
+          avgDailyUnits: 0,
         });
+        applied++;
+        continue;
+      }
+      // Se non è espresso, scegliamo struttura “più plausibile” dal tag:
+      // - units-like → packs=1, upp=value
+      // - packs-like → packs=value, upp=1
+      const asUnitsLike = u.mode === 'units';
+      if (asUnitsLike) {
+        const upp = Math.max(1, Number(u.value || 1));
+        arr.unshift({
+          name: u.name, brand: '',
+          packs: 1,
+          unitsPerPack: upp,
+          unitLabel: 'unità',
+          expiresAt: '',
+          ...restockTouch(1, todayISO, upp),
+          avgDailyUnits: 0,
+        });
+      } else {
+        const p = Math.max(1, Number(u.value || 1));
+        arr.unshift({
+          name: u.name, brand: '',
+          packs: p,
+          unitsPerPack: 1,
+          unitLabel: 'unità',
+          expiresAt: '',
+          ...restockTouch(p, todayISO, 1),
+          avgDailyUnits: 0,
+        });
+      }
+      applied++;
+    }
+    return arr;
+  });
+  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
+  return;
+}
+
         showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
         return;
       }
