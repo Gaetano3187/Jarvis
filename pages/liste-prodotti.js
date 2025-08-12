@@ -1,4 +1,4 @@
-// pages/liste-prodotti.js
+ // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -116,7 +116,7 @@ function toISODate(any) {
     const M = String(num[2]).padStart(2, '0');
     let y = String(num[3]);
     if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
-    return `${y}-${M}-${d}`;
+    return ${y}-${M}-${d};
   }
   const mIt = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
   const mm = s.toLowerCase().match(/(\d{1,2})\s+([a-zà-ú]+)\s+(\d{2,4})/i);
@@ -128,7 +128,7 @@ function toISODate(any) {
       let y = String(mm[3]);
       if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
       const M = String(idx+1).padStart(2, '0');
-      return `${y}-${M}-${d}`;
+      return ${y}-${M}-${d};
     }
   }
   return '';
@@ -190,13 +190,13 @@ async function readJsonSafe(res) {
   const ct = (res.headers.get?.('content-type') || '').toLowerCase();
   const raw = await res.text?.() || '';
   if (DEBUG) console.log('[readJsonSafe] status:', res.status, 'ct:', ct, 'raw len:', raw.length, 'raw preview:', raw.slice(0,200));
-  if (!raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
+  if (!raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : HTTP ${res.status} };
   if (ct.includes('application/json')) {
     try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
-    catch (e) { return { ok: res.ok, data: null, error: `JSON parse error: ${e?.message || e}` }; }
+    catch (e) { return { ok: res.ok, data: null, error: JSON parse error: ${e?.message || e} }; }
   }
   try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
-  catch { return { ok: res.ok, data: null, error: raw.slice(0,200) || `HTTP ${res.status}` }; }
+  catch { return { ok: res.ok, data: null, error: raw.slice(0,200) || HTTP ${res.status} }; }
 }
 function ensureArray(x) { return Array.isArray(x) ? x : []; }
 function timeoutFetch(url, opts={}, ms=25000) {
@@ -344,14 +344,14 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
 
 /* ------------- Prompt builder: scadenza singola ------------- */
 function buildExpiryPrompt(itemName, brand, ocrText) {
-  const tag = brand ? `${itemName} (marca ${brand})` : itemName;
+  const tag = brand ? ${itemName} (marca ${brand}) : itemName;
   return [
     'Sei Jarvis, estrattore scadenze da etichette/scontrini.',
     'Cerca SOLO la scadenza riferita al prodotto indicato.',
     'Rispondi SOLO in JSON con schema: { "expiries":[{ "name":"", "expiresAt":"YYYY-MM-DD" }] }',
     '- Se non trovi una data chiara, restituisci {"expiries":[]}.',
     '',
-    `PRODOTTO TARGET: "${tag}"`,
+    PRODOTTO TARGET: "${tag}",
     '',
     'ESEMPI:',
     'Input:',
@@ -954,7 +954,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
       files.forEach((f) => fdOcr.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
       const ocrJson = await readJsonSafe(ocrRes);
-      if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+      if (!ocrJson.ok) throw new Error(ocrJson.error || HTTP ${ocrRes.status});
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
@@ -1024,7 +1024,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
       showToast('OCR scontrino elaborato ✓', 'ok');
     } catch (e) {
       console.error('[OCR] error', e);
-      showToast(`Errore OCR: ${e?.message || e}`, 'err');
+      showToast(Errore OCR: ${e?.message || e}, 'err');
     } finally {
       setBusy(false);
       if (ocrInputRef.current) ocrInputRef.current.value = '';
@@ -1079,7 +1079,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
     const it = stock[i];
     if (!it) return;
     const currentUnits = totalUnitsOf(it);
-    const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(currentUnits));
+    const v = prompt(Imposta Residuo unità per "${it.name}", String(currentUnits));
     if (v == null) return;
     const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
     applyDeltaToStock(i, { setUnits: units });
@@ -1138,7 +1138,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
   function deleteStockRow(i) {
     const it = stock[i];
     if (!it) return;
-    if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
+    if (!confirm(Eliminare "${it.name}${it.brand?    (${it.brand}):''}" dalle scorte?)) return;
     setStock(prev => prev.filter((_, idx) => idx !== i));
   }
   function editStockRow(i) {
@@ -1191,7 +1191,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
   function deleteStockRow(i) {
     const it = stock[i];
     if (!it) return;
-    if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
+    if (!confirm(Eliminare "${it.name}${it.brand?    (${it.brand}):''}" dalle scorte?)) return;
     setStock(prev => prev.filter((_, idx) => idx !== i));
   }
 
@@ -1210,7 +1210,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
       files.forEach((f)=>fd.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
       const ocrJson = await readJsonSafe(ocrRes);
-      if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+      if (!ocrJson.ok) throw new Error(ocrJson.error || HTTP ${ocrRes.status});
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
@@ -1236,7 +1236,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
       }
     } catch (e) {
       console.error('[OCR row] error', e);
-      showToast(`Errore OCR scadenza: ${e?.message || e}`, 'err');
+      showToast(Errore OCR scadenza: ${e?.message || e}, 'err');
     } finally {
       setBusy(false);
       setTargetRowIdx(null);
@@ -1321,7 +1321,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
           }
           return arr;
         });
-        showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
+        showToast(hit ? Aggiornate ${hit} scadenze ✓ : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
         return;
       }
 
@@ -1407,14 +1407,14 @@ function decrementAcrossBothLists(prevLists, purchases) {
           }
           return arr;
         });
-        showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
+        showToast(applied ? Aggiornate ${applied} scorte ✓ : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
         return;
       }
 
       showToast('Nessuna scorta/scadenza riconosciuta', 'err');
     } catch (e) {
       console.error('[Voice Inventory] error', e);
-      showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+      showToast(Errore vocale inventario: ${e?.message || e}, 'err');
     } finally {
       setBusy(false);
       setInvRecBusy(false);
@@ -1582,8 +1582,8 @@ function decrementAcrossBothLists(prevLists, purchases) {
               <ul style={{margin:'6px 0 0', paddingLeft: '18px'}}>
                 {critical.map((p, i) => (
                   <li key={i}>
-                    {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
-                    {p.expiresAt ? ` — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')}` : ''}
+                    {p.name} {p.brand ? ((${p.brand})) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
+                    {p.expiresAt ?  — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')} : ''}
                   </li>
                 ))}
               </ul>
@@ -1727,12 +1727,12 @@ function decrementAcrossBothLists(prevLists, purchases) {
             style={{ ...styles.input, width: 150 }}
             placeholder="Residuo unità"
           />
-          <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
+          <div style={styles.progressWrap} title={${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità}>
             <div
               className={isLow ? 'jarvisLow' : undefined}
               style={{
                 ...styles.progressBar,
-                width: `${pctPreview * 100}%`,
+                width: ${pctPreview * 100}%,
                 background: barColor,
               }}
             />
@@ -1748,12 +1748,12 @@ function decrementAcrossBothLists(prevLists, purchases) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>{Math.round(current)}</span>
-        <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
+        <div style={styles.progressWrap} title={${Math.round(current)}/${Math.round(baseline)} unità}>
           <div
             className={isLow ? 'jarvisLow' : undefined}
             style={{
               ...styles.progressBar,
-              width: `${pct * 100}%`,
+              width: ${pct * 100}%,
               background: barColor,
             }}
           />
@@ -1884,7 +1884,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
               {toast.msg}
             </div>
           )}
-<style jsx>{`
+<style jsx>{
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
     70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
@@ -1893,7 +1893,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
   .jarvisLow {
     animation: jarvisPulse 1.5s infinite;
   }
-`}</style>
+}</style>
 
         </div>
       </div>
@@ -2236,7 +2236,7 @@ progressBar: {
   left: 0,          // <-- usa left/top/bottom (NON inset)
   top: 0,
   bottom: 0,
-  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
+  width: '0%',      // verrà sovrascritta inline con ${pct * 100}%
   transition: 'width .25s ease, background-color .25s ease',
 },
 
