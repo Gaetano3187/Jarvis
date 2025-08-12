@@ -1131,25 +1131,32 @@ function decrementAcrossBothLists(prevLists, purchases) {
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
   }
-
-  function setResidualUnits(i) {
+/* ------------ Imposta residuo unità (MANUALE) senza toccare packs/UPP ------------ */
+function setResidualUnits(i) {
   const it = stock[i];
   if (!it) return;
-  const upp = Math.max(1, Number(it.unitsPerPack || 1));
-  const currentRU = Number.isFinite(Number(it.residueUnits))
-    ? Math.max(0, Number(it.residueUnits))
-    : Math.max(0, Number(it.packs || 0) * upp);
 
+  // valore attuale (rispetta anche 0)
+  const currentRU = residueUnitsOf(it);
   const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
   if (v == null) return;
 
-  const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
-  // IMPORTANTISSIMO: aggiorna SOLO residueUnits (niente conversione in packs)
-  applyDeltaToStock(i, { setUnits: units });
+  // parse sicuro: niente default a 1, consentito 0
+  const units = Number(String(v).replace(',', '.'));
+  if (!Number.isFinite(units) || units < 0) return;
+
+  setStock(prev => {
+    const arr = [...prev];
+    const old = arr[i];
+    if (!old) return prev;
+
+    // NON toccare packs/unitsPerPack/baseline/lastRestockAt
+    // Imposta solo residueUnits esattamente al valore dato
+    arr[i] = { ...old, residueUnits: units };
+    return arr;
+  });
 }
 
-
-  /* ---------------- Modifica / Elimina scorte ---------------- */
  /* ---------------- Modifica / Elimina scorte ---------------- */
  
   function editStockRow(i) {
