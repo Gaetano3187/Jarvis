@@ -1,5 +1,5 @@
 // pages/finanze.js
-import React, { useCallback, useRef } from 'react';
++import React, { useCallback, useRef, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import VoiceRecorder from '../components/VoiceRecorder';
