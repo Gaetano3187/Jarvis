@@ -489,33 +489,7 @@ function hasExplicitPackStructure(text){
 
 
 
- Parser VOCALE scorte: multi-prodotto + frasi miste con scadenze
-
-/* ---------- calcoli consumo/aggiornamento ---------- */
-function computeNewAvgDailyUnits(old, newPacks) {
-  const upp = Math.max(1, Number(old.unitsPerPack || 1));
-  const oldUnits = Number(old.packs || 0) * upp;
-  const newUnits = Number(newPacks || 0) * upp;
-  let avg = old?.avgDailyUnits || 0;
-
-  if (old?.lastRestockAt && newUnits < oldUnits) {
-    const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
-    const usedUnits = oldUnits - newUnits;
-    const day = usedUnits / days;
-    avg = avg ? (0.6*avg + 0.4*day) : day;
-  }
-  return avg;
-}
-
-function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
-  const upp = Math.max(1, Number(unitsPerPack || 1));
-  const bp  = Math.max(0, Number(baselineFromPacks || 0));
-  const fullUnits = bp * upp;
-  return {
-    baselinePacks: bp,
-    lastRestockAt: lastDateISO,
-    residueUnits: fullUnits, // pieno al restock
-  };
+Parser VOCALE scorte: multi-prodotto + frasi miste con scadenze 
 }
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
