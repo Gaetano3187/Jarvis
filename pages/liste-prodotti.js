@@ -1344,7 +1344,7 @@ async function processVoiceInventory() {
   try {
     setBusy(true);
 
-    // 0) STT
+    // 1) Trascrizione vocale
     const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
     const { text } = await res.json();
     if (DEBUG) console.log('[STT inventory] text:', text);
@@ -1353,15 +1353,12 @@ async function processVoiceInventory() {
       return;
     }
 
-    // 1) Heuristica: presenza parole/data scadenza
-    const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
-
-    // 2) Parser locali (entrambi, per consentire modalità “mista”)
+    // 2) Parsing locale (sempre entrambi)
     let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
     let updates  = parseStockUpdateText(text);
 
-    // 3) Fallback Assistant per SCADENZE (se utile)
-    if (looksExpiry && expiries.length === 0) {
+    // 3) Fallback Assistant per SCADENZE
+    if (expiries.length === 0) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
@@ -1370,12 +1367,11 @@ async function processVoiceInventory() {
           body: JSON.stringify({ prompt })
         }, 25000);
         const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string'
-          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-          : answer;
-        if (parsed?.intent === 'expiry') {
-          const ex = ensureArray(parsed?.expiries)
+        const parsed = typeof safe?.answer === 'string'
+          ? (() => { try { return JSON.parse(safe.answer); } catch { return null; } })()
+          : safe?.answer || safe?.data || safe;
+        if (parsed?.expiries) {
+          const ex = ensureArray(parsed.expiries)
             .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
             .filter(e => e.name && e.expiresAt);
           if (ex.length) expiries = ex;
@@ -1385,8 +1381,8 @@ async function processVoiceInventory() {
       }
     }
 
-    // 4) Fallback Assistant per SCORTE (se utile)
-    if (updates.length === 0 && !looksExpiry) {
+    // 4) Fallback Assistant per SCORTE
+    if (updates.length === 0) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
@@ -1395,12 +1391,11 @@ async function processVoiceInventory() {
           body: JSON.stringify({ prompt })
         }, 25000);
         const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string'
-          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-          : answer;
-        if (parsed?.intent === 'stock_update') {
-          const up = ensureArray(parsed?.updates)
+        const parsed = typeof safe?.answer === 'string'
+          ? (() => { try { return JSON.parse(safe.answer); } catch { return null; } })()
+          : safe?.answer || safe?.data || safe;
+        if (parsed?.updates) {
+          const up = ensureArray(parsed.updates)
             .map(u => ({
               name: String(u.name || '').trim(),
               mode: (u.mode === 'units' ? 'units' : 'packs'),
@@ -1440,18 +1435,17 @@ async function processVoiceInventory() {
 
         for (const u of updates) {
           const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-          const explicit = (u.op === 'restockExplicit');  // pattern “X confezioni da Y”
+          const explicit = (u.op === 'restockExplicit');
           const hintedPacks = Math.max(1, Number(u._packs || 1));
           const hintedUPP   = Math.max(1, Number(u._upp || 1));
 
-          // ---- PRODOTTO ESISTENTE
+          // esiste già
           if (idx >= 0) {
             const old = arr[idx];
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const packs = Math.max(0, Number(old.packs || 0));
 
             if (explicit) {
-              // Restock esplicito: aggiorna struttura e riporta a pieno
               const np = Math.max(0, packs + hintedPacks);
               const nupp = Math.max(1, hintedUPP || upp);
               arr[idx] = {
@@ -1465,18 +1459,16 @@ async function processVoiceInventory() {
               continue;
             }
 
-            // Inerzia: aggiorna SOLO il residuo in unità (anche > pieno attuale)
-            const ru = Math.max(0, Number(u.value || 0) || 0);
-            arr[idx] = { ...old, residueUnits: ru };
+            // inerzia: solo residuo
+            arr[idx] = { ...old, residueUnits: Math.max(0, Number(u.value || 0) || 0) };
             applied++;
             continue;
           }
 
-          // ---- PRODOTTO NUOVO
+          // non esiste → crea
           if (explicit) {
             arr.unshift({
-              name: u.name,
-              brand: '',
+              name: u.name, brand: '',
               packs: hintedPacks,
               unitsPerPack: hintedUPP,
               unitLabel: 'unità',
@@ -1488,15 +1480,11 @@ async function processVoiceInventory() {
             continue;
           }
 
-          // Creazione plausibile:
-          // - units-like → packs = 1, upp = value
-          // - packs-like → packs = value, upp = 1
           const asUnitsLike = (u.mode === 'units');
           if (asUnitsLike) {
             const upp = Math.max(1, Number(u.value || 1));
             arr.unshift({
-              name: u.name,
-              brand: '',
+              name: u.name, brand: '',
               packs: 1,
               unitsPerPack: upp,
               unitLabel: 'unità',
@@ -1507,8 +1495,7 @@ async function processVoiceInventory() {
           } else {
             const p = Math.max(1, Number(u.value || 1));
             arr.unshift({
-              name: u.name,
-              brand: '',
+              name: u.name, brand: '',
               packs: p,
               unitsPerPack: 1,
               unitLabel: 'unità',
@@ -1534,6 +1521,7 @@ async function processVoiceInventory() {
     } else {
       showToast('Nessuna scorta/scadenza riconosciuta', 'err');
     }
+
   } catch (e) {
     console.error('[Voice Inventory] error', e);
     showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
@@ -1546,7 +1534,6 @@ async function processVoiceInventory() {
     invChunksRef.current = [];
   }
 }
-
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
     e.preventDefault();
