@@ -1462,7 +1462,8 @@ async function processVoiceInventory() {
             }
 
             // Inerzia: set del residuo in unità (niente packs/upp)
-            let ru = Math.max(0, Number(u.value || 0) || 0);
+           // Inerzia: set del residuo in unità (niente packs/upp) 
+let ru = Math.max(0, Number(u.value || 0) || 0);
 const fullUnits = Math.max(upp, packs * upp);
 
 if (ru > fullUnits) {
@@ -1481,7 +1482,7 @@ if (ru > fullUnits) {
 }
 applied++;
 continue;
-          }
+}
 
           // Non esiste: crea
           if (explicit) {
