@@ -131,68 +131,69 @@ const Finanze = () => {
         .wrap{
           min-height:100vh; display:grid;
           grid-template-rows: 1fr auto;
-          padding:24px; color:var(--text);
+          padding:28px; color:var(--text);
         }
         .grid{
-          width:100%; max-width:1100px; margin:0 auto;
-          display:grid; grid-template-rows:auto 1fr; gap:16px;
+          width:100%; max-width:1240px; margin:0 auto;
+          display:grid; grid-template-rows:auto 1fr; gap:20px;
         }
 
         .cards{
           display:grid;
           grid-template-columns:repeat(2,minmax(0,1fr));
-          gap:18px;
+          gap:24px;
         }
 
-        /* CARD a colore pieno, PIÙ GRANDE e senza alone nero rettangolare */
+        /* CARD a colore pieno, MOLTO PIÙ GRANDE e senza alone nero rettangolare */
         .cat-card{
           position:relative; display:grid; grid-template-rows:1fr;
-          min-height:clamp(190px, 32vw, 300px);  /* << più grande */
-          border-radius:22px;
+          min-height:clamp(240px, 36vw, 400px); /* <<< più grande */
+          border-radius:26px;
           color:#fff; text-decoration:none;
-          border:1px solid rgba(255,255,255,0.16);
+          border:1px solid rgba(255,255,255,0.14);
           background: var(--base);
           box-shadow:
-            0 10px 28px rgba(0,0,0,0.22),                 /* ombra morbida */
-            0 0 24px color-mix(in srgb, var(--base), #fff 22%); /* bagliore colorato */
+            0 12px 28px rgba(0,0,0,0.18),                  /* ombra morbida */
+            0 0 36px color-mix(in srgb, var(--base), #fff 26%); /* bagliore colorato */
           overflow:hidden; isolation:isolate;
           transition: transform .25s ease, box-shadow .25s ease, filter .25s ease, background .25s ease;
           animation: shimmer 6s linear infinite;
+          touch-action: manipulation;
         }
         .cat-card:hover{
-          transform: translateY(-3px) scale(1.015);
+          transform: translateY(-4px) scale(1.02);
           background: var(--hover);
           box-shadow:
-            0 16px 46px rgba(0,0,0,0.28),
-            0 0 34px color-mix(in srgb, var(--hover), #fff 26%);
+            0 18px 50px rgba(0,0,0,0.24),
+            0 0 46px color-mix(in srgb, var(--hover), #fff 30%);
         }
 
         .cat-bottom{
           display:flex; flex-direction:column; justify-content:flex-end;
-          padding:22px;
+          padding:28px;
           background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.14) 100%);
         }
 
         /* ---- TITOLO (pill) con icona affiancata ---- */
-        .title{ margin:0 0 10px; }
+        .title{ margin:0 0 12px; }
         .chip{
           --soft: color-mix(in oklab, var(--base), #ffffff 22%);
-          --deep: color-mix(in oklab, var(--base), #000000 8%);
-          display:inline-flex; align-items:center; gap:10px;
-          padding:10px 14px;
-          border-radius:16px;
-          font-size:clamp(1.15rem,3.2vw,1.6rem);
+          --deep: color-mix(in oklab, var(--base), #000000 10%);
+          display:inline-flex; align-items:center; gap:12px;
+          padding:14px 18px;                            /* <<< più grande */
+          border-radius:18px;
+          font-size:clamp(1.35rem,3.6vw,2rem);          /* <<< titolo più grande */
           font-weight:900; letter-spacing:.2px;
           color:#0b1020;
           background: linear-gradient(90deg, var(--soft), var(--deep));
           box-shadow:
             0 0 0 1px rgba(255,255,255,0.16) inset,
-            0 8px 20px color-mix(in srgb, var(--base), #000 22%),
-            0 0 26px color-mix(in srgb, var(--base), #fff 16%);
+            0 10px 24px color-mix(in srgb, var(--base), #000 22%),
+            0 0 32px color-mix(in srgb, var(--base), #fff 18%);
           position:relative; overflow:hidden;
           text-shadow: 0 1px 0 rgba(255,255,255,0.35);
         }
-        .chip-icon :global(svg){ font-size:clamp(22px, 3.6vw, 26px); filter:drop-shadow(0 4px 12px rgba(0,0,0,.28)); }
+        .chip-icon :global(svg){ font-size:clamp(26px, 4vw, 32px); filter:drop-shadow(0 4px 12px rgba(0,0,0,.28)); }
         .chip-label{ line-height:1; }
 
         /* scia luminosa che attraversa la chip */
@@ -200,26 +201,26 @@ const Finanze = () => {
           content:"";
           position:absolute; top:0; left:-35%;
           width:30%; height:100%;
-          background: linear-gradient(120deg, rgba(255,255,255,0.55), rgba(255,255,255,0.12));
+          background: linear-gradient(120deg, rgba(255,255,255,0.6), rgba(255,255,255,0.14));
           transform: skewX(-20deg);
           filter: blur(0.5px);
-          animation: sweep 3.2s linear infinite;
+          animation: sweep 3s linear infinite;
           mix-blend-mode: screen;
         }
-        /* alone pulsante (bagliore respirante) */
+        /* alone respirante */
         .chip::after{
           content:"";
           position:absolute; inset:-25%;
           background: radial-gradient(60% 40% at 50% 50%, rgba(255,255,255,0.18), transparent 70%);
-          filter: blur(16px);
-          animation: pulseBloom 2.2s ease-in-out infinite;
+          filter: blur(18px);
+          animation: pulseBloom 2.1s ease-in-out infinite;
           pointer-events:none;
         }
 
-        .sub{ margin:0; opacity:.95; font-size:clamp(.95rem,2.2vw,1.05rem); }
+        .sub{ margin:0; opacity:.95; font-size:clamp(1rem,2.4vw,1.2rem); }
 
         /* Barra strumenti compatta e in basso */
-        .tools-sticky{ margin-top: 10px; align-self: end; position: sticky; bottom: 12px; }
+        .tools-sticky{ margin-top: 12px; align-self: end; position: sticky; bottom: 12px; }
         .tools-card{
           background: var(--glass-bg);
           border: 1px solid var(--glass-brd);
@@ -264,8 +265,9 @@ const Finanze = () => {
         @keyframes sweep{ 0%{ left:-35%; } 100%{ left:135%; } }
 
         @media (max-width: 900px){
-          .wrap{ padding:18px; }
-          .cards{ grid-template-columns:1fr; }
+          .wrap{ padding:20px; }
+          .grid{ max-width: 100%; }
+          .cards{ grid-template-columns:1fr; gap:20px; }
           .icon-btn{ --btn-size:54px; font-size:1.2rem; }
           .tools-sticky{ bottom: 10px; }
         }
