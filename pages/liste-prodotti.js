@@ -1054,59 +1054,22 @@ function decrementAcrossBothLists(prevLists, purchases) {
     }
   }
 
-  /* ---------------- Utilità: applica delta packs/units a riga scorta ---------------- */
-  function applyDeltaToStock(idx, { addPacks = 0, addUnits = 0, setPacks = null, setUnits = null }) {
-    setStock(prev => {
-      const arr = [...prev];
-      const row = arr[idx];
-      if (!row) return prev;
-
-      const todayISO = new Date().toISOString().slice(0,10);
-      const upp = Math.max(1, Number(row.unitsPerPack || 1));
-
-      let newPacks = Number(row.packs || 0);
-
-      if (setUnits != null) {
-        newPacks = Math.max(0, Number(setUnits) / upp);
-      } else if (setPacks != null) {
-        newPacks = Math.max(0, Number(setPacks));
-      } else {
-        if (addUnits) newPacks = Math.max(0, (newPacks * upp + Number(addUnits)) / upp);
-        if (addPacks) newPacks = Math.max(0, newPacks + Number(addPacks));
-      }
-
-      const avgDailyUnits = computeNewAvgDailyUnits(row, newPacks);
-
-      // se aumento rispetto allo stato precedente → consideralo restock (aggiorno baseline/lastRestock)
-      const wasUnits = Number(row.packs || 0) * upp;
-      const nowUnits = newPacks * upp;
-      const restock = nowUnits > wasUnits;
-
-      arr[idx] = {
-        ...row,
-        packs: newPacks,
-        avgDailyUnits,
-        ...(restock ? restockTouch(newPacks, todayISO) : {})
-      };
-      return arr;
-    });
-  }
-
-  function addOnePack(i, delta) {
-    applyDeltaToStock(i, { addPacks: delta });
-  }
-  function addOneUnit(i, delta) {
-    applyDeltaToStock(i, { addUnits: delta });
-  }
   function setResidualUnits(i) {
-    const it = stock[i];
-    if (!it) return;
-    const currentUnits = totalUnitsOf(it);
-    const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(currentUnits));
-    if (v == null) return;
-    const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
-    applyDeltaToStock(i, { setUnits: units });
-  }
+  const it = stock[i];
+  if (!it) return;
+  const upp = Math.max(1, Number(it.unitsPerPack || 1));
+  const currentRU = Number.isFinite(Number(it.residueUnits))
+    ? Math.max(0, Number(it.residueUnits))
+    : Math.max(0, Number(it.packs || 0) * upp);
+
+  const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
+  if (v == null) return;
+
+  const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
+  // IMPORTANTISSIMO: aggiorna SOLO residueUnits (niente conversione in packs)
+  applyDeltaToStock(i, { setUnits: units });
+}
+
 
   /* ---------------- Modifica / Elimina scorte ---------------- */
  /* ---------------- Modifica / Elimina scorte ---------------- */
