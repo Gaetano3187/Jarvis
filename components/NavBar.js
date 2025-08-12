@@ -3,14 +3,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 
 const links = [
-  { href: '/home',             label: 'Home',           c1: '#22d3ee', c2: '#38bdf8' },
-  { href: '/dashboard',        label: 'Dashboard',      c1: '#e879f9', c2: '#8b5cf6' },
-  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#10b981', c2: '#84cc16' },
-  { href: '/finanze',          label: 'Finanze',        c1: '#3b82f6', c2: '#a78bfa' },
-  { href: '/spese-casa',       label: 'Casa',           c1: '#0ea5e9', c2: '#3b82f6' },
-  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#ec4899', c2: '#f43f5e' },
-  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#f97316' },
-  { href: '/varie',            label: 'Varie',          c1: '#64748b', c2: '#a1a1aa' },
+  { href: '/home',             label: 'Home',           c1: '#5eead4', c2: '#22d3ee' },
+  { href: '/dashboard',        label: 'Dashboard',      c1: '#f0abfc', c2: '#c084fc' },
+  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#34d399', c2: '#a3e635' },
+  { href: '/finanze',          label: 'Finanze',        c1: '#60a5fa', c2: '#a78bfa' },
+  { href: '/spese-casa',       label: 'Casa',           c1: '#38bdf8', c2: '#60a5fa' },
+  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#f472b6', c2: '#fb7185' },
+  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#fb923c' },
+  { href: '/varie',            label: 'Varie',          c1: '#94a3b8', c2: '#d4d4d8' },
 ];
 
 export default function NavBar() {
@@ -20,13 +20,13 @@ export default function NavBar() {
     <>
       <nav className="nav">
         <div className="inner">
-          {/* BRAND: JARVIS in rilievo + alternanza Equalizer / AI bulb */}
+          {/* BRAND: JARVIS super luminoso + alternanza Equalizer / Robot */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-glow" aria-hidden="true" />
             <span className="brand-text">JARVIS</span>
 
             <span className="brand-anim" aria-hidden="true">
-              {/* EQUALIZER */}
+              {/* EQUALIZER (verde→giallo→rosso) */}
               <span className="eq">
                 <span className="bar b1" />
                 <span className="bar b2" />
@@ -36,38 +36,36 @@ export default function NavBar() {
                 <span className="bar b6" />
               </span>
 
-              {/* IDEA: lampadina “AI style” con circuiti */}
-              <span className="ai">
-                <svg className="ai-svg" viewBox="0 0 80 80" aria-hidden="true">
-                  {/* bulbo */}
-                  <g className="ai-bulb">
-                    <path d="M40 8c14 0 24 10.7 24 23.8 0 8-4.2 14-10.3 18.3-1.9 1.3-3.1 3.4-3.1 5.6v1.3c0 2.2-1.8 4-4 4H33.4c-2.2 0-4-1.8-4-4v-1.3c0-2.2-1.2-4.3-3.1-5.6C20.2 45.8 16 39.8 16 31.8 16 18.7 26 8 40 8Z"
-                          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    {/* attacco */}
-                    <rect x="33" y="57.5" width="14" height="5.5" rx="1.5" fill="currentColor" />
-                    <rect x="33" y="64" width="14" height="4.5" rx="1.5" fill="currentColor" />
+              {/* ROBOT “I, Robot style” minimal neon */}
+              <span className="irobot">
+                <svg className="rb-svg" viewBox="0 0 120 48" aria-hidden="true">
+                  <defs>
+                    <clipPath id="rbHeadClip">
+                      <path d="M60 6c18 0 32 12 32 26 0 6-2.5 8-8 8H36c-5.5 0-8-2-8-8 0-14 14-26 32-26z" />
+                    </clipPath>
+                  </defs>
+
+                  {/* contorno testa */}
+                  <path className="rb-head" d="M60 6c18 0 32 12 32 26 0 6-2.5 8-8 8H36c-5.5 0-8-2-8-8 0-14 14-26 32-26z"
+                        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+
+                  {/* placca “viso” */}
+                  <path className="rb-plate" d="M36 27h48c4 0 6 2 6 5 0 3-2 5-6 5H36c-4 0-6-2-6-5 0-3 2-5 6-5z"
+                        fill="currentColor" opacity=".08"/>
+
+                  {/* occhi glow */}
+                  <g className="rb-eyes">
+                    <circle cx="48" cy="24" r="2.6" />
+                    <circle cx="72" cy="24" r="2.6" />
                   </g>
 
-                  {/* CORE AI: esagono con nodi e tracce */}
-                  <g className="ai-core">
-                    <polygon points="40,20 52,27 52,41 40,48 28,41 28,27"
-                             fill="none" stroke="currentColor" strokeWidth="1.6"/>
-                    {/* nodi */}
-                    <circle cx="40" cy="20" r="2.2" fill="currentColor"/>
-                    <circle cx="52" cy="27" r="2.2" fill="currentColor"/>
-                    <circle cx="52" cy="41" r="2.2" fill="currentColor"/>
-                    <circle cx="40" cy="48" r="2.2" fill="currentColor"/>
-                    <circle cx="28" cy="41" r="2.2" fill="currentColor"/>
-                    <circle cx="28" cy="27" r="2.2" fill="currentColor"/>
-                    {/* tracce */}
-                    <path d="M40 20 L52 27 L52 41 L40 48 L28 41 L28 27 Z" fill="none" stroke="currentColor" strokeWidth="1"/>
-                    <path d="M40 20 L40 48 M28 27 L52 41 M52 27 L28 41" fill="none" stroke="currentColor" strokeWidth=".9" strokeDasharray="3 2"/>
+                  {/* riflesso scorrevole dentro la testa */}
+                  <g clipPath="url(#rbHeadClip)">
+                    <circle className="rb-glint" cx="-10" cy="22" r="18" />
                   </g>
 
-                  {/* alone orbitale */}
-                  <g className="ai-orbit">
-                    <ellipse cx="40" cy="34" rx="22" ry="9" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 6"/>
-                  </g>
+                  {/* “jack” mento */}
+                  <rect x="58" y="39.5" width="4" height="4.5" rx="1" className="rb-jack" />
                 </svg>
               </span>
             </span>
@@ -98,153 +96,179 @@ export default function NavBar() {
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.66);
-          --nav-brd: rgba(255,255,255,.10);
-          --text: #f3f4f6;
+          --nav-bg: rgba(2,6,23,.7);
+          --nav-brd: rgba(255,255,255,.12);
+          --text: #f8fafc;
         }
         .nav{
-          position: sticky; top: 0; z-index: 50;
+          position: sticky; top: 0; z-index: 60;
           width: 100%; background: var(--nav-bg);
-          backdrop-filter: blur(12px) saturate(1.15);
+          backdrop-filter: blur(12px) saturate(1.2);
           border-bottom: 1px solid var(--nav-brd);
-          box-shadow: 0 10px 28px rgba(0,0,0,.28);
+          box-shadow: 0 12px 30px rgba(0,0,0,.30);
         }
         .inner{
           height: 64px;
           display: flex; align-items: center; justify-content: flex-start;
-          padding: 0 16px; gap: 28px;
-          overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+          padding: 0 16px; gap: 32px;
+          overflow: hidden; /* niente barra di scorrimento */
         }
-        .inner::-webkit-scrollbar{ display: none; }
 
         /* BRAND */
         .brand{
           position: relative;
-          display: inline-flex; align-items: center; gap: 18px;
-          padding: 10px 8px 10px 2px;
+          display: inline-flex; align-items: center; gap: 20px;
+          padding: 10px 10px 10px 2px;
           text-decoration: none;
-          margin-right: 26px; /* più distacco dal menu */
+          margin-right: 30px; /* distacco dal menu */
         }
         .brand-glow{
-          position: absolute; inset: -12px -18px; pointer-events:none;
+          position: absolute; inset: -14px -20px; pointer-events:none;
           background:
-            radial-gradient(60% 60% at 30% 50%, rgba(34,211,238,.38), transparent 60%),
-            radial-gradient(70% 70% at 80% 50%, rgba(167,139,250,.30), transparent 62%);
-          filter: blur(16px); animation: brandPulse 2.2s ease-in-out infinite;
+            radial-gradient(60% 60% at 30% 50%, rgba(94,234,212,.45), transparent 60%),
+            radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.40), transparent 62%);
+          filter: blur(18px); animation: brandPulse 2.2s ease-in-out infinite;
         }
-        /* Scritta grande, in rilievo, con bordo sottile nero */
+
+        /* Scritta JARVIS luminosa, kaleidoscopio, bordo interno nero */
         .brand-text{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900;
-          letter-spacing: .26rem;
-          font-size: clamp(1.32rem, 3.2vw, 1.72rem);
+          letter-spacing: .28rem;
+          font-size: clamp(1.5rem, 3.4vw, 1.9rem);
           line-height: 1;
-          background: conic-gradient(from 0deg, #22d3ee, #38bdf8, #a78bfa, #e879f9, #22d3ee);
+          background: conic-gradient(from 0deg,
+            #5eead4 0%, #22d3ee 16%, #60a5fa 32%, #a78bfa 48%, #f0abfc 64%, #60a5fa 80%, #5eead4 100%);
           background-size: 200% 200%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent;
-          -webkit-text-stroke: 0.8px rgba(0,0,0,.55);
+          -webkit-text-stroke: 1px rgba(0,0,0,.65);
           paint-order: stroke fill;
           text-shadow:
             0 1px 0 rgba(0,0,0,.6),
-            0 2px 4px rgba(0,0,0,.35),
-            0 0 20px rgba(56,189,248,.35),
-            0 0 34px rgba(167,139,250,.28);
-          animation: kaleido 7s linear infinite, glowBreath 3s ease-in-out infinite;
-          filter: brightness(1.28);
+            0 2px 4px rgba(0,0,0,.4),
+            0 0 24px rgba(96,165,250,.55),
+            0 0 46px rgba(167,139,250,.45);
+          animation: kaleido 6.5s linear infinite, glowBreath 2.6s ease-in-out infinite;
+          filter: brightness(1.45) contrast(1.05);
           white-space: nowrap;
         }
 
-        /* Alternanza EQUALIZER / AI BULB */
-        .brand-anim{ position: relative; width: 112px; height: 22px; display: inline-grid; place-items: center; margin-left: 2px; }
+        /* Alternanza Equalizer / Robot */
+        .brand-anim{ position: relative; width: 130px; height: 24px; display: inline-grid; place-items: center; margin-left: 2px; }
 
-        /* Equalizer */
+        /* Equalizer colorato */
         .eq{
           position: absolute; inset: 0;
           display: grid; grid-auto-flow: column; align-items: end; justify-content: center;
-          gap: 4px; opacity: 1; color: #22d3ee;
-          filter: drop-shadow(0 0 12px rgba(34,211,238,.7));
+          gap: 5px; opacity: 1;
           animation: eqPhase 5s ease-in-out infinite;
         }
-        .bar{ width: 6px; height: 10px; border-radius: 3px; background: currentColor; transform-origin: bottom center; animation: barHop 1s ease-in-out infinite; }
-        .b1{ animation-duration: 0.9s; } .b2{ animation-duration: 1.1s; animation-delay: .05s; }
-        .b3{ animation-duration: 0.95s; animation-delay: .1s; }
-        .b4{ animation-duration: 1.05s; animation-delay: .15s; }
-        .b5{ animation-duration: 1.2s;  animation-delay: .2s; }
-        .b6{ animation-duration: 0.85s; animation-delay: .25s; }
+        .bar{
+          width: 8px; height: 10px; border-radius: 3px; transform-origin: bottom center;
+          background: linear-gradient(to top, #ef4444 0%, #f59e0b 45%, #22c55e 100%);
+          box-shadow:
+            0 0 10px rgba(34,197,94,.55),
+            0 0 18px rgba(245,158,11,.35),
+            0 0 26px rgba(239,68,68,.25);
+          animation: barHop 1s ease-in-out infinite;
+        }
+        .b1{ animation-duration: 0.9s; } .b2{ animation-duration: 1.12s; animation-delay: .05s; }
+        .b3{ animation-duration: 0.96s; animation-delay: .1s; }
+        .b4{ animation-duration: 1.08s; animation-delay: .15s; }
+        .b5{ animation-duration: 1.22s; animation-delay: .2s; }
+        .b6{ animation-duration: 0.86s; animation-delay: .25s; }
 
-        /* AI bulb (cromia ciano/viola) */
-        .ai{
+        /* Robot neon “I, Robot” minimal */
+        .irobot{
           position: absolute; inset: 0; display: grid; place-items: center;
           opacity: 0; transform: translateY(2px) scale(.98);
+          animation: rbPhase 5s ease-in-out infinite;
           color: #7dd3fc;
-          animation: aiPhase 5s ease-in-out infinite;
-          filter: drop-shadow(0 0 10px rgba(125,211,252,.8)) drop-shadow(0 0 22px rgba(167,139,250,.4));
+          filter:
+            drop-shadow(0 0 10px rgba(125,211,252,.9))
+            drop-shadow(0 0 22px rgba(167,139,250,.45));
         }
-        .ai-svg{ width: 72px; height: 72px; }
-        .ai-bulb{ opacity:.95; }
-        .ai-core{ color: #a78bfa; animation: neonFlow 2.4s linear infinite; }
-        .ai-orbit{ color: #22d3ee; animation: orbitSpin 6s linear infinite; transform-origin: 40px 34px; }
+        .rb-svg{ width: 100px; height: 100%; }
+        .rb-head{ color: #93c5fd; }
+        .rb-plate{ color: #60a5fa; }
+        .rb-eyes circle{
+          fill: #22d3ee;
+          filter: drop-shadow(0 0 8px rgba(34,211,238,.95)) drop-shadow(0 0 16px rgba(167,139,250,.6));
+          animation: eyesBlink 4.8s ease-in-out infinite;
+        }
+        .rb-jack{ fill: #38bdf8; opacity:.9; }
+        .rb-glint{
+          fill: radial-gradient(circle, #e0f2fe 0%, rgba(224,242,254,.65) 35%, rgba(224,242,254,0) 70%);
+          /* fallback solid + CSS glow */
+          fill: #e0f2fe;
+          opacity: .22;
+          animation: glintMove 3.2s linear infinite;
+          filter: blur(2px);
+        }
 
         /* MENU */
-        .track{ display: flex; gap: 12px; list-style: none; margin: 0; padding: 0; }
+        .track{ display: flex; gap: 14px; list-style: none; margin: 0; padding: 0; }
         .item{ white-space: nowrap; }
         .link{
-          --c1: #22d3ee; --c2: #38bdf8;
+          --c1: #5eead4; --c2: #22d3ee;
           position: relative; display: inline-grid; place-items: center;
-          padding: 10px 16px; border-radius: 12px;
+          padding: 10px 18px; border-radius: 14px;
           text-decoration: none; color: var(--text);
           transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
           border: 1px solid transparent; isolation: isolate;
         }
         .glow{
-          position: absolute; inset: -16px -22px; z-index: 0;
+          position: absolute; inset: -16px -24px; z-index: 0;
           background:
-            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 16%), transparent 60%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 14%), transparent 62%);
-          filter: blur(20px); opacity: 0; transition: opacity .25s ease; pointer-events: none;
+            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 20%), transparent 60%),
+            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 18%), transparent 62%);
+          filter: blur(22px); opacity: 0; transition: opacity .25s ease; pointer-events: none;
         }
         .label{
-          position: relative; z-index: 1; font-weight: 800; letter-spacing: .03rem;
-          background: linear-gradient(90deg, var(--c1), var(--c2)); background-size: 200% auto;
+          position: relative; z-index: 1; font-weight: 900; letter-spacing: .04rem;
+          background: linear-gradient(90deg, var(--c1), var(--c2));
+          background-size: 200% auto;
           -webkit-background-clip: text; background-clip: text; color: transparent;
-          text-shadow: 0 0 16px rgba(255,255,255,.16), 0 0 28px color-mix(in srgb, var(--c2), #fff 14%);
-          animation: shimmerText 7s linear infinite; filter: brightness(1.24);
+          text-shadow: 0 0 16px rgba(255,255,255,.20), 0 0 32px color-mix(in srgb, var(--c2), #fff 18%);
+          animation: shimmerText 6.2s linear infinite; filter: brightness(1.35);
         }
         .link:hover{ transform: translateY(-1px); }
         .link:hover .glow{ opacity: 1; }
-        .link:hover .label{ animation-duration: 3s; filter: brightness(1.42); }
+        .link:hover .label{ animation-duration: 3s; filter: brightness(1.5); }
         .link.is-active{
-          background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2);
-          box-shadow: 0 12px 30px rgba(0,0,0,.36), 0 0 0 1px rgba(255,255,255,.06) inset;
-          filter: brightness(1.14);
+          background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.24);
+          box-shadow: 0 14px 34px rgba(0,0,0,.36), 0 0 0 1px rgba(255,255,255,.08) inset;
+          filter: brightness(1.16);
         }
-        .link.is-active .glow{ opacity: 1; filter: brightness(1.22); }
+        .link.is-active .glow{ opacity: 1; filter: brightness(1.28); }
         .link.is-active .label{
           text-shadow:
-            0 0 24px color-mix(in srgb, var(--c1), #fff 34%),
-            0 0 38px color-mix(in srgb, var(--c2), #fff 26%),
-            0 0 60px rgba(255,255,255,.28);
-          animation-duration: 2.2s; filter: brightness(1.55);
+            0 0 28px color-mix(in srgb, var(--c1), #fff 40%),
+            0 0 46px color-mix(in srgb, var(--c2), #fff 32%),
+            0 0 70px rgba(255,255,255,.32);
+          animation-duration: 2.2s; filter: brightness(1.65);
         }
 
         /* ANIMAZIONI */
         @keyframes shimmerText { to { background-position: -200% center; } }
         @keyframes kaleido { to { background-position: 200% 200%; } }
         @keyframes glowBreath {
-          0%,100% { text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 2px 4px rgba(0,0,0,.35), 0 0 18px rgba(56,189,248,.30), 0 0 30px rgba(167,139,250,.22); }
-          50%     { text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 2px 4px rgba(0,0,0,.35), 0 0 28px rgba(56,189,248,.55), 0 0 44px rgba(167,139,250,.38); }
+          0%,100% { text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 2px 4px rgba(0,0,0,.4), 0 0 22px rgba(96,165,250,.55), 0 0 42px rgba(167,139,250,.42); }
+          50%     { text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 2px 4px rgba(0,0,0,.4), 0 0 32px rgba(96,165,250,.85), 0 0 60px rgba(167,139,250,.60); }
         }
-        @keyframes brandPulse { 0%,100% { opacity:.55; transform: scale(1); } 50% { opacity:.9; transform: scale(1.05); } }
-        @keyframes barHop { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
-        @keyframes eqPhase { 0%,45% { opacity: 1; transform: translateY(0) scale(1); } 55%,100% { opacity: 0; transform: translateY(2px) scale(.98); } }
-        @keyframes aiPhase { 0%,45% { opacity: 0; transform: translateY(2px) scale(.98); } 55%,100% { opacity: 1; transform: translateY(0) scale(1); } }
-        @keyframes neonFlow { 0% { filter: drop-shadow(0 0 8px rgba(167,139,250,.55)); } 50% { filter: drop-shadow(0 0 16px rgba(167,139,250,.9)); } 100% { filter: drop-shadow(0 0 8px rgba(167,139,250,.55)); } }
-        @keyframes orbitSpin { to { transform: rotate(360deg); } }
 
-        @media (max-width: 520px){
-          .inner{ gap: 20px; padding: 0 12px; }
-          .brand-text{ font-size: 1.38rem; letter-spacing: .24rem; }
-          .brand-anim{ width: 98px; height: 20px; }
+        @keyframes brandPulse { 0%,100% { opacity:.55; transform: scale(1); } 50% { opacity:.95; transform: scale(1.05); } }
+        @keyframes barHop { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+        @keyframes eqPhase { 0%,48% { opacity: 1; transform: translateY(0) scale(1); } 52%,100% { opacity: 0; transform: translateY(2px) scale(.98); } }
+        @keyframes rbPhase { 0%,48% { opacity: 0; transform: translateY(2px) scale(.98); } 52%,100% { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes eyesBlink { 0%,92%,100% { opacity: 1; } 95% { opacity: .15; } }
+        @keyframes glintMove { 0% { transform: translateX(-10px); } 100% { transform: translateX(140px); } }
+
+        @media (max-width: 560px){
+          .inner{ gap: 22px; padding: 0 12px; }
+          .brand-text{ font-size: 1.55rem; letter-spacing: .26rem; }
+          .brand-anim{ width: 112px; height: 22px; }
           .track{ gap: 10px; }
           .link{ padding: 9px 14px; }
         }
