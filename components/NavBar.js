@@ -96,62 +96,108 @@ export default function NavBar() {
           opacity:.9; border-radius: 24px;
           animation: auraSpin 10s linear infinite;
         }
-        /* AURA più luminosa attorno al logo (sostituisce la tua .brand-glow) */
-.brand-glow{
-  position:absolute; inset:-18px -26px; z-index:0;
-  background: conic-gradient(from 0deg at 50% 50%,
-      rgba(94,234,212,.85),
-      rgba(34,211,238,.85),
-      rgba(96,165,250,.82),
-      rgba(167,139,250,.82),
-      rgba(94,234,212,.85));
-  filter: blur(28px) saturate(1.15) brightness(1.08);
-  opacity:.95; border-radius: 24px;
-  mix-blend-mode: screen;
-  animation: auraSpin 9s linear infinite;
+        .brand-text{
+          position:relative; z-index:1; display:inline-block;
+          font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          font-weight: 900; letter-spacing: .35rem;
+          font-size: clamp(1.9rem, 4vw, 2.3rem); line-height: 1; white-space: nowrap;
+
+          /* FILL GRADIENTE LUCIDO — forzato trasparente (no bianco) */
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 45%, rgba(255,255,255,.28) 90%),
+            conic-gradient(from 0deg at 50% 50%,
+              #a7f3d0 0%,
+              #5eead4 12%,
+              #22d3ee 24%,
+              #60a5fa 36%,
+              #a78bfa 48%,
+              #f0abfc 60%,
+              #60a5fa 72%,
+              #5eead4 84%,
+              #a7f3d0 100%);
+          background-size: 180% 180%, 200% 200%;
+          background-position: 50% 0%, 50% 50%;
+
+          -webkit-background-clip: text !important;
+          background-clip: text !important;
+          -webkit-text-fill-color: transparent !important;
+          color: transparent !important;
+
+          /* RILIEVO: bordo sottile + ombre/luci incrociate */
+          -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
+          paint-order: stroke fill;
+          text-shadow:
+            -1px -1px 0 rgba(255,255,255,.75),
+             1px  1px 0 rgba(0,0,0,.40),
+            -2px -2px 1px rgba(255,255,255,.40),
+             2px  2px 2px rgba(0,0,0,.34),
+             0    2px 4px rgba(0,0,0,.30);
+
+          filter: brightness(1.45) contrast(1.06) saturate(1.08);
+          animation: kaleidoMove 7.2s linear infinite, glossDrift 4.8s ease-in-out infinite;
+        }
+        .brand-halo{
+          position:absolute; inset:-6px; z-index:2; pointer-events:none;
+          background:
+            radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.18), transparent 60%),
+            radial-gradient(100% 100% at 60% 140%, rgba(167,139,250,.18), transparent 60%);
+          mix-blend-mode: screen; filter: blur(10px);
+          animation: haloBreath 2.6s ease-in-out infinite;
+        }
+
+        /* MENU */
+        .track{ display:flex; gap:16px; list-style:none; margin:0; padding:0; }
+        .item{ white-space:nowrap; }
+        .link{
+          --c1:#5eead4; --c2:#22d3ee;
+          position:relative; display:inline-grid; place-items:center;
+          padding: 12px 20px; border-radius: 16px;
+          text-decoration:none; color:var(--text);
+          transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
+          border:1px solid transparent; isolation:isolate;
+        }
+        .label{
+          position:relative; z-index:1; font-weight:900; letter-spacing:.05rem;
+          background: linear-gradient(90deg, var(--c1), var(--c2));
+          background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+          text-shadow: 0 0 14px rgba(255,255,255,.14);
+          animation: shimmerText 6s linear infinite; filter: brightness(1.25);
+        }
+        .link:hover{ transform: translateY(-1px); }
+        .link.is-active{
+          background: rgba(255,255,255,.12);
+          border-color: rgba(255,255,255,.22);
+          box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
+          filter: brightness(1.12);
+        }
+        .link.is-active .label{
+          text-shadow:
+            0 0 26px color-mix(in srgb, var(--c1), #fff 40%),
+            0 0 44px color-mix(in srgb, var(--c2), #fff 30%),
+            0 0 60px rgba(255,255,255,.26);
+          animation-duration: 2.2s; filter: brightness(1.5);
+        }
+
+        /* ANIMAZIONI */
+        @keyframes shimmerText { to { background-position: -200% center; } }
+        @keyframes kaleidoMove  { to { background-position: 120% 120%, 200% 200%; } }
+        @keyframes glossDrift   {
+          0%,100% { background-position: 50% 0%, 50% 50%; }
+          50%     { background-position: 50% 22%, 60% 60%; }
+        }
+        @keyframes auraSpin     { to { transform: rotate(360deg); } }
+        @keyframes haloBreath   {
+          0%,100% { opacity:.55; filter: blur(10px); }
+          50%     { opacity:.95; filter: blur(14px); }
+        }
+
+        @media (max-width: 560px){
+          .inner{ gap:22px; padding:0 12px; }
+          .brand-text{ font-size:1.9rem; letter-spacing:.30rem; }
+          .track{ gap:12px; }
+          .link{ padding:10px 16px; }
+        }
+      `}</style>
+    </>
+  );
 }
-
-/* TESTO JARVIS: scolpito + riempimento caleidoscopio (sostituisce la tua .brand-text) */
-.brand-text{
-  /* stop a override globali tipo color:#fff */
-  all: unset;
-
-  position:relative; z-index:1; display:inline-block;
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  font-weight: 900; letter-spacing: .35rem;
-  font-size: clamp(1.9rem, 4vw, 2.3rem);
-  line-height: 1; white-space: nowrap;
-
-  /* riempimento lucido + caleidoscopio */
-  --k1:#a7f3d0; --k2:#5eead4; --k3:#22d3ee; --k4:#60a5fa; --k5:#a78bfa; --k6:#f0abfc;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.38), rgba(255,255,255,0) 48%, rgba(255,255,255,.26) 96%),
-    conic-gradient(from 0deg at 50% 50%, var(--k1), var(--k2), var(--k3), var(--k4), var(--k5), var(--k6), var(--k4), var(--k2), var(--k1));
-  background-size: 180% 200%, 220% 220%;
-  background-position: 50% 0%, 0% 0%;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
-
-  /* rilievo “scolpito” (bordo leggero + luce/ombra) */
-  -webkit-text-stroke: 0.55px rgba(0,0,0,.18);
-  text-shadow:
-    -1px -1px 0 rgba(255,255,255,.75),
-     1px  1px 0 rgba(0,0,0,.35),
-    -2px -2px 1px rgba(255,255,255,.35),
-     2px  2px 2px rgba(0,0,0,.28),
-     0    2px 6px rgba(0,0,0,.26);
-
-  filter: brightness(1.55) saturate(1.12) contrast(1.06);
-  animation: kShift 7s linear infinite, glossDrift 4.6s ease-in-out infinite;
-}
-
-/* Animazioni necessarie */
-@keyframes auraSpin   { to { transform: rotate(360deg); } }
-@keyframes kShift     { to { background-position: 50% 0%, 200% 200%; } }
-@keyframes glossDrift {
-  0%,100% { background-position: 50% 0%, 40% 40%; }
-  50%     { background-position: 50% 16%, 60% 60%; }
-}
-
