@@ -51,161 +51,190 @@ export default function NavBar() {
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.76);   /* un po' meno trasparente */
-          --nav-brd: rgba(255,255,255,.10);
+          --nav-bg: rgba(2,6,23,.8);
+          --nav-brd: rgba(255,255,255,.12);
           --text: #f8fafc;
         }
 
         .nav{
-          position: sticky; top: 0; z-index: 50;
-          width: 100%;
+          position: sticky; top: 0; z-index: 50; width: 100%;
           background: var(--nav-bg);
-          backdrop-filter: blur(12px) saturate(1.12);
+          backdrop-filter: blur(14px) saturate(1.15);
           border-bottom: 1px solid var(--nav-brd);
-          box-shadow: 0 8px 24px rgba(0,0,0,.25);
+          box-shadow: 0 10px 28px rgba(0,0,0,.28);
         }
 
         .inner{
-          height: 72px;
-          display: flex; align-items: center; gap: 18px;
-          padding: 0 18px;
+          height: 76px;
+          display: flex; align-items: center; gap: 20px;
+          padding: 0 20px;
           overflow-x: auto;
-          scrollbar-width: none;         /* Firefox */
-          -ms-overflow-style: none;      /* IE/Edge */
-          mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
-          -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+          scrollbar-width: none; -ms-overflow-style: none;
+          mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+          -webkit-mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
         }
-        .inner::-webkit-scrollbar{ display: none; }  /* Chrome/Safari */
+        .inner::-webkit-scrollbar{ display: none; }
 
-        /* Brand */
+        /* Brand più luminoso */
         .brand{
           display: inline-flex; align-items: center; gap: 12px;
-          padding: 8px 10px; text-decoration: none; position: relative;
-          flex: 0 0 auto;
+          padding: 8px 10px; text-decoration: none; position: relative; flex: 0 0 auto;
         }
         .brand-dot{
           width: 12px; height: 12px; border-radius: 50%;
           background: radial-gradient(circle at 30% 30%, #22d3ee, #0ea5e9 60%, transparent 70%);
-          box-shadow: 0 0 16px #22d3ee, 0 0 32px rgba(34,211,238,.6);
-          animation: ping 2.2s ease-in-out infinite;
+          box-shadow: 0 0 18px #22d3ee, 0 0 36px rgba(34,211,238,.75);
+          animation: ping 2s ease-in-out infinite;
+          filter: saturate(1.3) brightness(1.2);
         }
         .brand-text{
-          font-weight: 900; letter-spacing: .24rem; font-size: 1.08rem;
+          font-weight: 900; letter-spacing: .26rem; font-size: 1.14rem;
           background: linear-gradient(
             90deg,
-            color-mix(in oklab, #22d3ee, #fff 22%),
-            color-mix(in oklab, #38bdf8, #fff 22%),
-            color-mix(in oklab, #a78bfa, #fff 22%)
+            color-mix(in oklab, #22d3ee, #fff 28%),
+            color-mix(in oklab, #38bdf8, #fff 28%),
+            color-mix(in oklab, #a78bfa, #fff 28%)
           );
-          background-size: 200% auto;
+          background-size: 220% auto;
           -webkit-background-clip: text; background-clip: text;
           color: transparent;
           text-shadow:
-            0 0 18px rgba(255,255,255,.45),
-            0 0 34px rgba(56,189,248,.4);
-          animation: shimmerText 5s linear infinite;
-          filter: brightness(1.2);
+            0 0 22px rgba(255,255,255,.55),
+            0 0 42px rgba(56,189,248,.5);
+          animation: shimmerText 4.5s linear infinite;
+          filter: brightness(1.28);
         }
 
-        /* Lista link */
         .track{
-          display: flex; gap: 18px; list-style: none; margin: 0; padding: 0;
-          align-items: center;
+          display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; align-items: center;
         }
         .item{ white-space: nowrap; }
 
         .link{
           --c1: #22d3ee; --c2: #38bdf8;
           position: relative; display: inline-grid; place-items: center;
-          padding: 12px 18px; border-radius: 14px;
+          padding: 12px 18px; border-radius: 16px;
           text-decoration: none; color: var(--text);
           transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
-          border: 1px solid transparent;
+          border: 1px solid rgba(255,255,255,.08);
           isolation: isolate;
         }
-        .glow{
-          position: absolute; inset: -16px -24px; z-index: 0;
+
+        /* Aura rotante + glow più forte */
+        .link::before{
+          content: ""; position: absolute; inset: -2px; border-radius: inherit; z-index: 0;
           background:
-            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 16%), transparent 60%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 16%), transparent 62%);
-          filter: blur(18px);
-          opacity: 0; transition: opacity .25s ease;
-          pointer-events: none;
+            conic-gradient(from 0deg,
+              color-mix(in oklab, var(--c1), #fff 35%),
+              color-mix(in oklab, var(--c2), #fff 35%),
+              color-mix(in oklab, var(--c1), #fff 35%)
+            );
+          filter: blur(18px) saturate(1.3) brightness(1.15);
+          opacity: .0;
+          transition: opacity .25s ease, filter .25s ease;
+          mix-blend-mode: screen;
+          animation: rotateAura 6s linear infinite;
         }
+
+        .glow{
+          position: absolute; inset: -18px -26px; z-index: 0;
+          background:
+            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 22%), transparent 58%),
+            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 22%), transparent 60%),
+            radial-gradient(40% 40% at 10% 20%, rgba(255,255,255,.28), transparent 60%);
+          filter: blur(22px) brightness(1.2);
+          opacity: .0; transition: opacity .25s ease, filter .25s ease;
+          mix-blend-mode: screen; pointer-events: none;
+        }
+
         .label{
           position: relative; z-index: 1; font-weight: 900;
-          letter-spacing: .045rem; font-size: 1.06rem;
+          letter-spacing: .055rem; font-size: 1.1rem;
           background: linear-gradient(
             90deg,
-            color-mix(in oklab, var(--c1), #fff 26%),
-            color-mix(in oklab, var(--c2), #fff 26%)
+            color-mix(in oklab, var(--c1), #fff 34%),
+            color-mix(in oklab, var(--c2), #fff 34%)
           );
-          background-size: 220% auto;
+          background-size: 240% auto;
           -webkit-background-clip: text; background-clip: text;
           color: transparent;
           text-shadow:
-            0 0 16px rgba(255,255,255,.5),
-            0 0 34px color-mix(in srgb, var(--c2), #fff 32%);
-          animation: shimmerText 7s linear infinite;
-          filter: brightness(1.12);
+            0 0 20px rgba(255,255,255,.6),
+            0 0 46px color-mix(in srgb, var(--c2), #fff 44%);
+          animation: shimmerText 6.5s linear infinite;
+          filter: brightness(1.22) saturate(1.12);
         }
 
-        .link:hover{ transform: translateY(-1px); }
-        .link:hover .glow{ opacity: .85; }
-        .link:hover .label{ animation-duration: 3s; filter: brightness(1.22); }
-
-        /* Pagina attiva: molto luminosa */
-        .link.is-active{
-          background: linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.10));
-          border-color: rgba(255,255,255,.26);
+        .link:hover{
+          transform: translateY(-2px) scale(1.01);
           box-shadow:
             0 12px 30px rgba(0,0,0,.40),
-            0 0 22px color-mix(in srgb, var(--c1), #fff 50%),
-            0 0 40px color-mix(in srgb, var(--c2), #fff 40%),
-            inset 0 1px 0 rgba(255,255,255,.20);
+            0 0 22px color-mix(in srgb, var(--c1), #fff 40%),
+            0 0 36px color-mix(in srgb, var(--c2), #fff 36%);
+        }
+        .link:hover::before{ opacity: .9; filter: blur(22px) brightness(1.35); }
+        .link:hover .glow{ opacity: .95; filter: blur(24px) brightness(1.35); }
+        .link:hover .label{ animation-duration: 2.6s; filter: brightness(1.34) saturate(1.18); }
+
+        /* Attivo: super luminoso + respiro */
+        .link.is-active{
+          background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.12));
+          border-color: rgba(255,255,255,.28);
+          box-shadow:
+            0 16px 38px rgba(0,0,0,.44),
+            0 0 28px color-mix(in srgb, var(--c1), #fff 55%),
+            0 0 52px color-mix(in srgb, var(--c2), #fff 50%),
+            inset 0 1px 0 rgba(255,255,255,.24);
           transform: translateY(-2px);
         }
+        .link.is-active::before{
+          opacity: 1; filter: blur(26px) brightness(1.5);
+          animation-duration: 4.5s;
+        }
         .link.is-active .glow{
-          opacity: 1; filter: blur(22px) brightness(1.25);
-          animation: breathe 2s ease-in-out infinite;
+          opacity: 1; filter: blur(26px) brightness(1.5);
+          animation: breathe 1.8s ease-in-out infinite;
         }
         .link.is-active .label{
           text-shadow:
-            0 0 22px color-mix(in srgb, var(--c1), #fff 45%),
-            0 0 48px color-mix(in srgb, var(--c2), #fff 38%);
-          animation-duration: 2.2s;
-          filter: brightness(1.32) saturate(1.18);
+            0 0 26px color-mix(in srgb, var(--c1), #fff 55%),
+            0 0 56px color-mix(in srgb, var(--c2), #fff 48%);
+          animation-duration: 2s;
+          filter: brightness(1.42) saturate(1.24);
         }
 
-        @keyframes shimmerText { to { background-position: -220% center; } }
-        @keyframes ping {
-          0%,100% { transform: scale(1);     filter: brightness(1.05); opacity: .95; }
-          50%     { transform: scale(1.2);   filter: brightness(1.3);  opacity: 1; }
-        }
-        @keyframes breathe {
-          0%,100% { opacity: .9; transform: scale(1); }
-          50%     { opacity: 1;  transform: scale(1.02); }
-        }
+        /* Animazioni */
+        @keyframes shimmerText { to { background-position: -240% center; } }
+        @keyframes ping { 0%,100% { transform: scale(1);   filter: brightness(1.1); }
+                          50%     { transform: scale(1.22); filter: brightness(1.35);} }
+        @keyframes breathe { 0%,100% { opacity: .9; transform: scale(1); }
+                             50%     { opacity: 1;  transform: scale(1.03); } }
+        @keyframes rotateAura { to { transform: rotate(360deg); } }
 
-        /* Mobile: logo sempre visibile e barra centrata su due righe */
+        /* Mobile: brand centrato e link su due righe */
         @media (max-width: 520px){
           .inner{
-            height: auto; min-height: 92px;
+            height: auto; min-height: 100px;
             justify-content: center; flex-wrap: wrap;
-            padding: 8px 12px;
-            mask-image: none; -webkit-mask-image: none;  /* evita taglio alle estremità */
+            padding: 10px 12px;
+            mask-image: none; -webkit-mask-image: none;
           }
           .scroll-fade::before,
           .scroll-fade::after{ display: none; }
           .brand{
-            width: 100%; justify-content: center; order: -1;   /* brand in alto centrato */
+            width: 100%; justify-content: center; order: -1;
           }
-          .brand-text{ display: inline; font-size: 1.12rem; }
+          .brand-text{ display: inline; font-size: 1.2rem; }
           .track{
             width: 100%; justify-content: center; gap: 12px; flex-wrap: wrap;
           }
-          .link{ padding: 10px 14px; border-radius: 12px; }
-          .label{ font-size: 1rem; }
+          .link{ padding: 10px 16px; border-radius: 14px; }
+          .label{ font-size: 1.02rem; }
+        }
+
+        /* Rispetto utenti con ridotta animazione */
+        @media (prefers-reduced-motion: reduce){
+          .brand-dot, .brand-text, .glow, .link::before, .label { animation: none !important; }
         }
       `}</style>
     </>
