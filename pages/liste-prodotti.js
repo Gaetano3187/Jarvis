@@ -234,7 +234,6 @@ function residueInfo(s){
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
 }
-}
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
 const RESIDUE_THRESHOLDS = { green: 0.60, amber: 0.30 };
