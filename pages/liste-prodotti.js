@@ -1427,7 +1427,7 @@ async function processVoiceInventory() {
       });
     }
 
-    // 2) Applica scorte (inerzia su righe esistenti)
+ 
    // 2) Applica scorte (inerzia su righe esistenti)
 let applied = 0;
 if (updates.length) {
@@ -1528,7 +1528,7 @@ if (expiryHits && applied) {
 } else {
   showToast('Nessuna scorta/scadenza riconosciuta', 'err');
 }
-
+ });
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
