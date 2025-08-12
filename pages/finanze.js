@@ -22,13 +22,20 @@ const categories = [
 const Finanze = () => {
   const fileInputRef = useRef(null);
 
+  /* azioni */
   const handleAddManual = useCallback(() => {
     const voce = prompt('Descrizione e importo (es: Enel 45,60)');
     if (voce) console.log('[ADD]', voce);
   }, []);
+
   const handleOCR = useCallback(() => fileInputRef.current?.click(), []);
   const handleVoice = useCallback((text) => { if (text) console.log('[VOICE]', text); }, []);
-  const onFileChange = (e) => { const f = e.target.files?.[0]; if (f) console.log('[OCR] file:', f.name); e.target.value=''; };
+
+  const onFileChange = (e) => {
+    const f = e.target.files?.[0];
+    if (f) console.log('[OCR] file:', f.name);
+    e.target.value = '';
+  };
 
   return (
     <>
@@ -37,7 +44,7 @@ const Finanze = () => {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* video full-bleed */}
+      {/* Video full-bleed (non apre player su mobile) */}
       <video
         className="bg-video"
         src="/pagina%20finanze.mp4"
@@ -45,6 +52,7 @@ const Finanze = () => {
         muted
         loop
         playsInline
+        // @ts-ignore (per iOS safari)
         webkit-playsinline="true"
         controls={false}
         controlsList="nodownload noplaybackrate noremoteplayback"
@@ -54,8 +62,9 @@ const Finanze = () => {
       />
 
       <main className="wrap">
+        {/* griglia principale */}
         <section className="grid">
-          {/* cards categorie */}
+          {/* cards categorie (con bagliore) */}
           <div className="cards">
             {categories.map((c) => (
               <Link
@@ -74,19 +83,20 @@ const Finanze = () => {
               </Link>
             ))}
           </div>
+        </section>
 
-          {/* strumenti avanzati */}
-          <div className="tools-card">
-            <h2 className="tools-title">Strumenti avanzati</h2>
+        {/* barra strumenti avanzati (piccola, in basso) */}
+        <section className="tools-wrap">
+          <div className="tools-card glow-strong">
             <div className="icon-bar">
-              <button className="icon-btn glow-strong" onClick={handleAddManual} aria-label="Aggiungi">
+              <button className="icon-btn" onClick={handleAddManual} aria-label="Aggiungi">
                 <FaPlus />
               </button>
-              <button className="icon-btn glow-strong" onClick={handleOCR} aria-label="OCR">
+              <button className="icon-btn" onClick={handleOCR} aria-label="OCR">
                 <FaCamera />
               </button>
               <VoiceRecorder
-                buttonClass="icon-btn glow-strong"
+                buttonClass="icon-btn"
                 idleLabel={<FaMicrophone aria-hidden="true" />}
                 recordingLabel={<FaMicrophone aria-hidden="true" />}
                 ariaLabelIdle="Comando vocale"
@@ -103,26 +113,42 @@ const Finanze = () => {
 
       <style jsx>{`
         :root{
-          --glass-bg: rgba(0,0,0,0.35);
-          --glass-brd: rgba(255,255,255,0.12);
+          --glass-bg: rgba(0,0,0,0.32);
+          --glass-brd: rgba(255,255,255,0.14);
           --text: #fff;
         }
 
+        /* Video bg */
         .bg-video{
           position: fixed; inset: 0;
           width: 100vw; height: 100vh; object-fit: cover;
           z-index: -1; pointer-events: none;
           filter: saturate(1.05) contrast(1.05);
         }
-        .wrap{ min-height:100vh; display:grid; place-items:center; padding:24px; color:var(--text); }
-        .grid{ width:100%; max-width:1100px; display:grid; grid-template-columns:1fr 0.9fr; gap:16px; }
-        .cards{ display:grid; gap:16px; }
 
+        /* Layout */
+        .wrap{
+          min-height:100vh; display:flex; flex-direction:column;
+          justify-content:space-between; /* porta la barra strumenti in basso */
+          gap: 22px; padding:24px;
+          color:var(--text);
+        }
+
+        .grid{
+          width:100%; max-width:1140px; margin: 0 auto;
+        }
+
+        .cards{
+          display:grid; gap:16px;
+          grid-template-columns: repeat(2, minmax(0,1fr));
+        }
+
+        /* Card categoria con bagliore "forte" e colore personalizzato */
         .cat-card{
           --base:#2563eb; --hover:#8b5cf6;
           position:relative; display:grid; grid-template-rows:1fr auto;
           min-height:clamp(140px, 26vw, 240px);
-          border-radius:20px; color:#fff; text-decoration:none;
+          border-radius:22px; color:#fff; text-decoration:none;
           border:1px solid rgba(255,255,255,0.18);
           box-shadow:0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1);
           overflow:hidden; isolation:isolate;
@@ -147,19 +173,23 @@ const Finanze = () => {
         .title{ margin:0 0 4px; font-size:clamp(1.1rem,3vw,1.6rem); font-weight:800; letter-spacing:.2px; text-shadow:0 2px 18px rgba(0,0,0,.35); }
         .sub{ margin:0; opacity:.9; font-size:clamp(.9rem,2.2vw,1rem); }
 
+        /* Barra strumenti in basso (più piccola) */
+        .tools-wrap{
+          width:100%; display:grid; place-items:center; margin-top: 8px;
+        }
         .tools-card{
           background: var(--glass-bg);
           border: 1px solid var(--glass-brd);
           border-radius: 16px;
-          padding: 16px;
+          padding: 10px 12px;
           backdrop-filter: blur(10px);
           box-shadow: 0 8px 22px rgba(0,0,0,0.35);
-          display: grid; gap: 12px; align-content: start;
+          display: grid; align-content: center;
         }
-        .tools-title{ margin:0; font-size:clamp(1.05rem,2.4vw,1.2rem); font-weight:700; opacity:.95; }
-        .icon-bar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        .icon-bar{ display:flex; gap:10px; align-items:center; }
+
         .icon-btn{
-          --btn-size:56px;
+          --btn-size:52px;
           width:var(--btn-size); height:var(--btn-size);
           display:grid; place-items:center;
           border-radius:14px;
@@ -168,11 +198,11 @@ const Finanze = () => {
           color:#fff; cursor:pointer;
           box-shadow:0 6px 18px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
           transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
-          font-size:1.25rem; position:relative; overflow:hidden; isolation:isolate;
+          font-size:1.2rem; position:relative; overflow:hidden; isolation:isolate;
         }
         .icon-btn:hover{ transform: translateY(-2px); }
 
-        /* Glow/shimmer forte */
+        /* Glow/shimmer forte condiviso */
         .glow-strong::before{
           content:""; position:absolute; inset:-20%;
           background: conic-gradient(from 0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.28), rgba(255,255,255,0.08));
@@ -185,19 +215,21 @@ const Finanze = () => {
             radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.15), transparent 40%);
           z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.2s ease-in-out infinite; pointer-events:none;
         }
+
         @keyframes spinGlow{ to{ transform: rotate(360deg); } }
         @keyframes pulseBloom{ 0%,100%{ opacity:.35; filter:brightness(1);} 50%{ opacity:.75; filter:brightness(1.35);} }
         @keyframes shimmer{ 0%{ filter:brightness(1);} 50%{ filter:brightness(1.12);} 100%{ filter:brightness(1);} }
 
+        /* Responsive */
         @media (max-width: 900px){
-          .grid{ grid-template-columns:1fr; gap:14px; }
+          .wrap{ padding:18px; gap:18px; }
+          .cards{ grid-template-columns: 1fr; }
           .cat-card{ min-height:clamp(120px, 34vw, 200px); }
-          .icon-btn{ --btn-size:54px; }
+          .icon-btn{ --btn-size:50px; font-size:1.15rem; }
         }
         @media (max-width: 480px){
-          .wrap{ padding:18px; }
-          .tools-card{ padding:14px; }
-          .icon-btn{ --btn-size:52px; font-size:1.2rem; }
+          .icon-btn{ --btn-size:48px; font-size:1.1rem; }
+          .tools-card{ padding:8px 10px; }
         }
       `}</style>
     </>
