@@ -1428,133 +1428,107 @@ async function processVoiceInventory() {
     }
 
     // 2) Applica scorte (inerzia su righe esistenti)
-    let applied = 0;
-    if (updates.length) {
-      setStock(prev => {
-        const arr = [...prev];
-        const todayISO = new Date().toISOString().slice(0, 10);
+   // 2) Applica scorte (inerzia su righe esistenti)
+let applied = 0;
+if (updates.length) {
+  setStock(prev => {
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0, 10);
 
-        for (const u of updates) {
-          const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-          const explicit = (u.op === 'restockExplicit');  // pattern “confezioni da X”
-          const hintedPacks = Math.max(1, Number(u._packs || 1));
-          const hintedUPP   = Math.max(1, Number(u._upp || 1));
+    for (const u of updates) {
+      const idx = arr.findIndex(s => isSimilar(s.name, u.name));
+      const explicit = (u.op === 'restockExplicit');  // pattern “confezioni da X”
+      const hintedPacks = Math.max(1, Number(u._packs || 1));
+      const hintedUPP   = Math.max(1, Number(u._upp || 1));
 
-          // Esiste già
-          if (idx >= 0) {
-            const old = arr[idx];
-            const upp = Math.max(1, Number(old.unitsPerPack || 1));
-            const packs = Math.max(0, Number(old.packs || 0));
+      // ---------------- PRODOTTO ESISTENTE ----------------
+      if (idx >= 0) {
+        const old = arr[idx];
+        const upp = Math.max(1, Number(old.unitsPerPack || 1));
+        const packs = Math.max(0, Number(old.packs || 0));
 
-            if (explicit) {
-              // Restock esplicito: aggiorna struttura e riporta a pieno
-              const np = Math.max(0, packs + hintedPacks);
-              const nupp = Math.max(1, hintedUPP || upp);
-              arr[idx] = {
-                ...old,
-                packs: np,
-                unitsPerPack: nupp,
-                unitLabel: old.unitLabel || 'unità',
-                ...restockTouch(np, todayISO, nupp)
-              };
-              applied++;
-              continue;
-            }
-
-            // Inerzia: set del residuo in unità (niente packs/upp)
-           // Inerzia: set del residuo in unità (niente packs/upp) 
-let ru = Math.max(0, Number(u.value || 0) || 0);
-const fullUnits = Math.max(upp, packs * upp);
-
-if (ru > fullUnits) {
-  // Il residuo supera il pieno attuale → aggiorna packs e baseline
-  const newPacks = Math.ceil(ru / upp);
-  arr[idx] = {
-    ...old,
-    packs: newPacks,
-    baselinePacks: newPacks,
-    residueUnits: ru,
-    lastRestockAt: todayISO
-  };
-} else {
-  // Valore dentro il pieno attuale → aggiorna solo residuo
-  arr[idx] = { ...old, residueUnits: ru };
-}
-applied++;
-continue;
-}
-
-          // Non esiste: crea
-          if (explicit) {
-            arr.unshift({
-              name: u.name,
-              brand: '',
-              packs: hintedPacks,
-              unitsPerPack: hintedUPP,
-              unitLabel: 'unità',
-              expiresAt: '',
-              ...restockTouch(hintedPacks, todayISO, hintedUPP),
-              avgDailyUnits: 0
-            });
-            applied++;
-            continue;
-          }
-
-          const asUnitsLike = (u.mode === 'units');
-          if (asUnitsLike) {
-            const upp = Math.max(1, Number(u.value || 1));
-            arr.unshift({
-              name: u.name,
-              brand: '',
-              packs: 1,
-              unitsPerPack: upp,
-              unitLabel: 'unità',
-              expiresAt: '',
-              ...restockTouch(1, todayISO, upp),
-              avgDailyUnits: 0
-            });
-          } else {
-            const p = Math.max(1, Number(u.value || 1));
-            arr.unshift({
-              name: u.name,
-              brand: '',
-              packs: p,
-              unitsPerPack: 1,
-              unitLabel: 'unità',
-              expiresAt: '',
-              ...restockTouch(p, todayISO, 1),
-              avgDailyUnits: 0
-            });
-          }
+        if (explicit) {
+          // Restock esplicito: aggiorna struttura e riporta a pieno
+          const np = Math.max(0, packs + hintedPacks);
+          const nupp = Math.max(1, hintedUPP || upp);
+          arr[idx] = {
+            ...old,
+            packs: np,
+            unitsPerPack: nupp,
+            unitLabel: old.unitLabel || 'unità',
+            ...restockTouch(np, todayISO, nupp)
+          };
           applied++;
+          continue;
         }
 
-        return arr;
-      });
+        // Inerzia: aggiorna SOLO il residuo in unità (anche se supera il pieno attuale)
+        const ru = Math.max(0, Number(u.value || 0) || 0);
+        arr[idx] = { ...old, residueUnits: ru };
+        applied++;
+        continue;
+      }
+
+      // ---------------- PRODOTTO NUOVO ----------------
+      if (explicit) {
+        arr.unshift({
+          name: u.name,
+          brand: '',
+          packs: hintedPacks,
+          unitsPerPack: hintedUPP,
+          unitLabel: 'unità',
+          expiresAt: '',
+          ...restockTouch(hintedPacks, todayISO, hintedUPP),
+          avgDailyUnits: 0
+        });
+        applied++;
+        continue;
+      }
+
+      const asUnitsLike = (u.mode === 'units');
+      if (asUnitsLike) {
+        const upp = Math.max(1, Number(u.value || 1));
+        arr.unshift({
+          name: u.name,
+          brand: '',
+          packs: 1,
+          unitsPerPack: upp,
+          unitLabel: 'unità',
+          expiresAt: '',
+          ...restockTouch(1, todayISO, upp),
+          avgDailyUnits: 0
+        });
+      } else {
+        const p = Math.max(1, Number(u.value || 1));
+        arr.unshift({
+          name: u.name,
+          brand: '',
+          packs: p,
+          unitsPerPack: 1,
+          unitLabel: 'unità',
+          expiresAt: '',
+          ...restockTouch(p, todayISO, 1),
+          avgDailyUnits: 0
+        });
+      }
+      applied++;
     }
 
-    // Toast finale
-    if (expiryHits && applied) {
-      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-    } else if (expiryHits) {
-      showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-    } else if (applied) {
-      showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-    } else {
-      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
-    }
-  } catch (e) {
-    console.error('[Voice Inventory] error', e);
-    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    setInvRecBusy(false);
-    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-    invMediaRef.current = null;
-    invStreamRef.current = null;
-    invChunksRef.current = [];
-  }
+    return arr;
+  });
 }
+
+// Toast finale
+if (expiryHits && applied) {
+  showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+} else if (expiryHits) {
+  showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+} else if (applied) {
+  showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+} else {
+  showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+}
+
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
