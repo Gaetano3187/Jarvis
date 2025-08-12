@@ -1340,7 +1340,7 @@ async function processVoiceInventory() {
   try {
     setBusy(true);
 
-    // STT
+    // 0) STT
     const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
     const { text } = await res.json();
     if (DEBUG) console.log('[STT inventory] text:', text);
@@ -1349,14 +1349,14 @@ async function processVoiceInventory() {
       return;
     }
 
-    // Heuristica di scadenza
+    // 1) Heuristica: presenza parole/data scadenza
     const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
 
-    // Parser locali (misti)
+    // 2) Parser locali (entrambi, per consentire modalità “mista”)
     let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
     let updates  = parseStockUpdateText(text);
 
-    // Fallback Assistente per scadenze
+    // 3) Fallback Assistant per SCADENZE (se utile)
     if (looksExpiry && expiries.length === 0) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
@@ -1381,7 +1381,7 @@ async function processVoiceInventory() {
       }
     }
 
-    // Fallback Assistente per scorte
+    // 4) Fallback Assistant per SCORTE (se utile)
     if (updates.length === 0 && !looksExpiry) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
@@ -1411,7 +1411,7 @@ async function processVoiceInventory() {
       }
     }
 
-    // 1) Applica scadenze
+    // 5) Applica SCADENZE
     let expiryHits = 0;
     if (expiries.length) {
       setStock(prev => {
@@ -1427,108 +1427,121 @@ async function processVoiceInventory() {
       });
     }
 
- 
-   // 2) Applica scorte (inerzia su righe esistenti)
-let applied = 0;
-if (updates.length) {
-  setStock(prev => {
-    const arr = [...prev];
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // 6) Applica SCORTE (inerzia su righe esistenti)
+    let applied = 0;
+    if (updates.length) {
+      setStock(prev => {
+        const arr = [...prev];
+        const todayISO = new Date().toISOString().slice(0, 10);
 
-    for (const u of updates) {
-      const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-      const explicit = (u.op === 'restockExplicit');  // pattern “confezioni da X”
-      const hintedPacks = Math.max(1, Number(u._packs || 1));
-      const hintedUPP   = Math.max(1, Number(u._upp || 1));
+        for (const u of updates) {
+          const idx = arr.findIndex(s => isSimilar(s.name, u.name));
+          const explicit = (u.op === 'restockExplicit');  // pattern “X confezioni da Y”
+          const hintedPacks = Math.max(1, Number(u._packs || 1));
+          const hintedUPP   = Math.max(1, Number(u._upp || 1));
 
-      // ---------------- PRODOTTO ESISTENTE ----------------
-      if (idx >= 0) {
-        const old = arr[idx];
-        const upp = Math.max(1, Number(old.unitsPerPack || 1));
-        const packs = Math.max(0, Number(old.packs || 0));
+          // ---- PRODOTTO ESISTENTE
+          if (idx >= 0) {
+            const old = arr[idx];
+            const upp = Math.max(1, Number(old.unitsPerPack || 1));
+            const packs = Math.max(0, Number(old.packs || 0));
 
-        if (explicit) {
-          // Restock esplicito: aggiorna struttura e riporta a pieno
-          const np = Math.max(0, packs + hintedPacks);
-          const nupp = Math.max(1, hintedUPP || upp);
-          arr[idx] = {
-            ...old,
-            packs: np,
-            unitsPerPack: nupp,
-            unitLabel: old.unitLabel || 'unità',
-            ...restockTouch(np, todayISO, nupp)
-          };
+            if (explicit) {
+              // Restock esplicito: aggiorna struttura e riporta a pieno
+              const np = Math.max(0, packs + hintedPacks);
+              const nupp = Math.max(1, hintedUPP || upp);
+              arr[idx] = {
+                ...old,
+                packs: np,
+                unitsPerPack: nupp,
+                unitLabel: old.unitLabel || 'unità',
+                ...restockTouch(np, todayISO, nupp)
+              };
+              applied++;
+              continue;
+            }
+
+            // Inerzia: aggiorna SOLO il residuo in unità (anche > pieno attuale)
+            const ru = Math.max(0, Number(u.value || 0) || 0);
+            arr[idx] = { ...old, residueUnits: ru };
+            applied++;
+            continue;
+          }
+
+          // ---- PRODOTTO NUOVO
+          if (explicit) {
+            arr.unshift({
+              name: u.name,
+              brand: '',
+              packs: hintedPacks,
+              unitsPerPack: hintedUPP,
+              unitLabel: 'unità',
+              expiresAt: '',
+              ...restockTouch(hintedPacks, todayISO, hintedUPP),
+              avgDailyUnits: 0
+            });
+            applied++;
+            continue;
+          }
+
+          // Creazione plausibile:
+          // - units-like → packs = 1, upp = value
+          // - packs-like → packs = value, upp = 1
+          const asUnitsLike = (u.mode === 'units');
+          if (asUnitsLike) {
+            const upp = Math.max(1, Number(u.value || 1));
+            arr.unshift({
+              name: u.name,
+              brand: '',
+              packs: 1,
+              unitsPerPack: upp,
+              unitLabel: 'unità',
+              expiresAt: '',
+              ...restockTouch(1, todayISO, upp),
+              avgDailyUnits: 0
+            });
+          } else {
+            const p = Math.max(1, Number(u.value || 1));
+            arr.unshift({
+              name: u.name,
+              brand: '',
+              packs: p,
+              unitsPerPack: 1,
+              unitLabel: 'unità',
+              expiresAt: '',
+              ...restockTouch(p, todayISO, 1),
+              avgDailyUnits: 0
+            });
+          }
           applied++;
-          continue;
         }
 
-        // Inerzia: aggiorna SOLO il residuo in unità (anche se supera il pieno attuale)
-        const ru = Math.max(0, Number(u.value || 0) || 0);
-        arr[idx] = { ...old, residueUnits: ru };
-        applied++;
-        continue;
-      }
-
-      // ---------------- PRODOTTO NUOVO ----------------
-      if (explicit) {
-        arr.unshift({
-          name: u.name,
-          brand: '',
-          packs: hintedPacks,
-          unitsPerPack: hintedUPP,
-          unitLabel: 'unità',
-          expiresAt: '',
-          ...restockTouch(hintedPacks, todayISO, hintedUPP),
-          avgDailyUnits: 0
-        });
-        applied++;
-        continue;
-      }
-
-      const asUnitsLike = (u.mode === 'units');
-      if (asUnitsLike) {
-        const upp = Math.max(1, Number(u.value || 1));
-        arr.unshift({
-          name: u.name,
-          brand: '',
-          packs: 1,
-          unitsPerPack: upp,
-          unitLabel: 'unità',
-          expiresAt: '',
-          ...restockTouch(1, todayISO, upp),
-          avgDailyUnits: 0
-        });
-      } else {
-        const p = Math.max(1, Number(u.value || 1));
-        arr.unshift({
-          name: u.name,
-          brand: '',
-          packs: p,
-          unitsPerPack: 1,
-          unitLabel: 'unità',
-          expiresAt: '',
-          ...restockTouch(p, todayISO, 1),
-          avgDailyUnits: 0
-        });
-      }
-      applied++;
+        return arr;
+      });
     }
 
-    return arr;
-  });
+    // 7) Toast finale
+    if (expiryHits && applied) {
+      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+    } else if (expiryHits) {
+      showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+    } else if (applied) {
+      showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+    } else {
+      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+    }
+  } catch (e) {
+    console.error('[Voice Inventory] error', e);
+    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    setInvRecBusy(false);
+    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    invMediaRef.current = null;
+    invStreamRef.current = null;
+    invChunksRef.current = [];
+  }
 }
-
-// Toast finale
-if (expiryHits && applied) {
-  showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-} else if (expiryHits) {
-  showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-} else if (applied) {
-  showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-} else {
-  showToast('Nessuna scorta/scadenza riconosciuta', 'err');
-}
- });
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
