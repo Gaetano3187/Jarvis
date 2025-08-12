@@ -27,63 +27,16 @@ export default function NavBar() {
               <span className="brand-text">JARVIS</span>
             </span>
 
-            {/* animazione alternata: equalizzatore ⇄ AI idea */}
+            {/* Equalizzatore con alternanza immagine di sfondo */}
             <span className="brand-anim" aria-hidden="true">
-              {/* equalizzatore */}
               <span className="eqbox">
+                {/* pseudo ::before farà da immagine alternata */}
                 <span className="bar b1" />
                 <span className="bar b2" />
                 <span className="bar b3" />
                 <span className="bar b4" />
                 <span className="bar b5" />
                 <span className="bar b6" />
-              </span>
-
-              {/* “AI idea” stilizzata (rete neurale che pulsa) */}
-              <span className="aiidea">
-                <svg className="ai-svg" viewBox="0 0 160 36" aria-hidden="true">
-                  <defs>
-                    <radialGradient id="gCyan" cx="50%" cy="50%" r="70%">
-                      <stop offset="0%" stopColor="#67e8f9" />
-                      <stop offset="55%" stopColor="#60a5fa" />
-                      <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-                    </radialGradient>
-                    <linearGradient id="gStroke" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#67e8f9"/><stop offset="50%" stopColor="#a78bfa"/><stop offset="100%" stopColor="#22d3ee"/>
-                    </linearGradient>
-                  </defs>
-
-                  {/* alone soft dietro */}
-                  <circle cx="28" cy="18" r="13" fill="url(#gCyan)" opacity="0.55">
-                    <animate attributeName="r" values="12;14;12" dur="2.2s" repeatCount="indefinite"/>
-                    <animate attributeName="opacity" values=".45;.8;.45" dur="2.2s" repeatCount="indefinite"/>
-                  </circle>
-
-                  {/* “cervello” stilizzato */}
-                  <path d="M16,18 a12,12 0 1,1 24,0 q0,7 -7,10 v3 h-10 v-3 q-7,-3 -7,-10 z"
-                        fill="none" stroke="url(#gStroke)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-
-                  {/* connessioni */}
-                  <g stroke="url(#gStroke)" strokeWidth="1.4" opacity=".9">
-                    <path d="M28,10 q6,3 6,8" fill="none"/>
-                    <path d="M22,14 q6,2 6,6" fill="none"/>
-                    <path d="M34,16 q-4,4 -8,4" fill="none"/>
-                  </g>
-
-                  {/* nodi che pulsano */}
-                  <g fill="#a7f3d0">
-                    <circle className="n n1" cx="34" cy="16" r="1.6"/>
-                    <circle className="n n2" cx="22" cy="14" r="1.6"/>
-                    <circle className="n n3" cx="28" cy="10" r="1.6"/>
-                  </g>
-
-                  {/* scie di “intuizione” */}
-                  <g stroke="url(#gStroke)" strokeWidth="1.4" strokeLinecap="round" opacity=".95">
-                    <path className="spark s1" d="M52,10 h16" />
-                    <path className="spark s2" d="M52,18 h22" />
-                    <path className="spark s3" d="M52,26 h14" />
-                  </g>
-                </svg>
               </span>
             </span>
           </Link>
@@ -113,79 +66,88 @@ export default function NavBar() {
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.76);
-          --nav-brd: rgba(255,255,255,.14);
+          --nav-bg: rgba(2,6,23,.72);
+          --nav-brd: rgba(255,255,255,.12);
           --text: #f8fafc;
+          --eq-bg: url('/ai-eq-bg.jpg'); /* <— metti qui la tua immagine */
         }
 
         .nav{
-          position: sticky; top: 0; z-index: 70;
+          position: sticky; top: 0; z-index: 60;
           width: 100%; background: var(--nav-bg);
-          backdrop-filter: blur(12px) saturate(1.25);
+          backdrop-filter: blur(12px) saturate(1.2);
           border-bottom: 1px solid var(--nav-brd);
-          box-shadow: 0 16px 40px rgba(0,0,0,.32);
+          box-shadow: 0 12px 30px rgba(0,0,0,.30);
         }
         .inner{
-          height: 68px;
+          height: 64px;
           display: flex; align-items: center; justify-content: flex-start;
-          padding: 0 16px; gap: 34px; overflow: hidden;
+          padding: 0 16px; gap: 32px; overflow: hidden;
         }
 
-        /* BRAND */
+        /* BRAND (solo testo+glow subiscono hue-rotate per coerenza cromatica) */
         .brand{
-          display:inline-flex; align-items:center; gap:24px;
-          padding:8px 8px 8px 0; text-decoration:none; margin-right:30px;
+          display:inline-flex; align-items:center; gap:22px;
+          padding:8px 8px 8px 0; text-decoration:none; margin-right:28px;
         }
         .brand-skin{
           position: relative; display: inline-grid; place-items: center;
-          animation: toneSync 14s linear infinite;
+          animation: toneSync 14s linear infinite;  /* hue-rotate sincronizzato col bagliore */
         }
         .brand-glow{
-          position:absolute; inset:-18px -24px; pointer-events:none;
+          position:absolute; inset:-14px -20px; pointer-events:none;
           background:
-            radial-gradient(60% 60% at 30% 50%, rgba(94,234,212,.75), transparent 60%),
-            radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.72), transparent 62%);
-          filter: blur(26px);
-          animation: brandPulse 2.1s ease-in-out infinite;
+            radial-gradient(60% 60% at 30% 50%, rgba(94,234,212,.55), transparent 60%),
+            radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.48), transparent 62%);
+          filter: blur(20px); animation: brandPulse 2.3s ease-in-out infinite;
         }
         .brand-text{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          font-weight: 900; letter-spacing: .32rem;
-          font-size: clamp(1.8rem, 3.8vw, 2.2rem); line-height: 1;
+          font-weight: 900; letter-spacing: .30rem;
+          font-size: clamp(1.65rem, 3.6vw, 2rem);
+          line-height: 1;
+          /* riempimento kaleidoscopico */
           background: conic-gradient(from 0deg,
-            #67e8f9 0%, #22d3ee 15%, #60a5fa 32%, #a78bfa 49%, #f0abfc 66%, #60a5fa 83%, #67e8f9 100%);
-          background-size: 220% 220%;
+            #5eead4 0%, #22d3ee 16%, #60a5fa 32%, #a78bfa 48%, #f0abfc 64%, #60a5fa 80%, #5eead4 100%);
+          background-size: 200% 200%;
           -webkit-background-clip: text; background-clip: text; color: transparent;
-          -webkit-text-stroke: 0.5px rgba(0,0,0,.55);   /* bordo leggero */
+          /* rilievo: bordo interno nero + glow esterno */
+          -webkit-text-stroke: 1px rgba(0,0,0,.68);
           paint-order: stroke fill;
           text-shadow:
-            0 0 2px rgba(255,255,255,.35),
-            0 0 24px rgba(103,232,249,.85),
-            0 0 52px rgba(167,139,250,.7);
-          animation: kaleido 5.8s linear infinite, glowBreath 2.2s ease-in-out infinite;
-          filter: brightness(1.75) contrast(1.06);
+            0 1px 0 rgba(0,0,0,.65),
+            0 2px 4px rgba(0,0,0,.45),
+            0 0 28px rgba(96,165,250,.70),
+            0 0 54px rgba(167,139,250,.55);
+          animation: kaleido 6.2s linear infinite, glowBreath 2.4s ease-in-out infinite;
+          filter: brightness(1.55) contrast(1.06);
           white-space: nowrap;
         }
 
-        /* blocco animazioni a destra del brand */
-        .brand-anim{ width: 150px; height: 26px; display:grid; place-items:center; position: relative; }
-
-        /* equalizzatore (visibile 0%-48%) */
+        /* Equalizzatore + alternanza immagine di sfondo */
+        .brand-anim{ width: 140px; height: 24px; display:inline-grid; place-items:center; }
         .eqbox{
-          position:absolute; inset:0; display:grid; grid-auto-flow:column;
-          align-items:end; justify-content:center; gap:7px;
-          animation: swapVoice 6s ease-in-out infinite;
+          position: relative; width: 100%; height: 100%;
+          display:grid; grid-auto-flow:column; align-items:end; justify-content:center; gap:6px;
+        }
+        /* immagine che va e viene dietro le barre */
+        .eqbox::before{
+          content:""; position:absolute; inset:-2px -6px; z-index:-1;
+          background: var(--eq-bg) center/cover no-repeat, radial-gradient(120% 120% at 80% 20%, rgba(255,255,255,.14), transparent 60%);
+          border-radius: 8px;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 10px 24px rgba(0,0,0,.35);
+          opacity: 0; filter: saturate(1.05) contrast(1.05) brightness(0.95);
+          animation: bgAlt 5.2s ease-in-out infinite;
         }
         .bar{
-          width: 10px; height: 10px; border-radius: 3px; transform-origin: bottom center;
+          width: 9px; height: 10px; border-radius: 3px; transform-origin: bottom center;
           background: linear-gradient(to top, #ef4444 0%, #f59e0b 45%, #22c55e 100%);
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.45),
-            0 0 12px rgba(34,197,94,.85),
-            0 0 22px rgba(245,158,11,.65),
-            0 0 34px rgba(239,68,68,.55);
+            inset 0 1px 0 rgba(255,255,255,.35),
+            0 0 10px rgba(34,197,94,.65),
+            0 0 18px rgba(245,158,11,.45),
+            0 0 26px rgba(239,68,68,.35);
           animation: barHop 1s ease-in-out infinite;
-          filter: brightness(1.2);
         }
         .b1{ animation-duration: .92s; }
         .b2{ animation-duration: 1.08s; animation-delay: .05s; }
@@ -194,81 +156,69 @@ export default function NavBar() {
         .b5{ animation-duration: 1.26s; animation-delay: .20s; }
         .b6{ animation-duration: .88s;  animation-delay: .25s; }
 
-        /* AI idea (visibile 52%-100%) */
-        .aiidea{
-          position:absolute; inset:-2px 0 0 0; display:grid; place-items:center;
-          opacity:0; animation: swapAI 6s ease-in-out infinite;
-          filter: drop-shadow(0 0 18px rgba(103,232,249,.75)) drop-shadow(0 0 36px rgba(167,139,250,.55));
-        }
-        .ai-svg{ width:100%; height:100%; }
-        .n{ transform-origin: center; }
-        .n.n1{ animation: pulseNode 1.2s ease-in-out infinite .1s; }
-        .n.n2{ animation: pulseNode 1.2s ease-in-out infinite .25s; }
-        .n.n3{ animation: pulseNode 1.2s ease-in-out infinite .4s; }
-        .spark{ stroke-dasharray: 90; stroke-dashoffset: 90; }
-        .s1{ animation: draw 2.6s ease-in-out infinite .0s; }
-        .s2{ animation: draw 2.6s ease-in-out infinite .2s; }
-        .s3{ animation: draw 2.6s ease-in-out infinite .4s; }
-
-        /* menu */
-        .track{ display:flex; gap:18px; list-style:none; margin:0; padding:0; }
+        /* MENU */
+        .track{ display:flex; gap:16px; list-style:none; margin:0; padding:0; }
         .item{ white-space:nowrap; }
         .link{
           --c1:#5eead4; --c2:#22d3ee;
           position:relative; display:inline-grid; place-items:center;
-          padding: 12px 22px; border-radius: 16px;
+          padding: 12px 20px; border-radius: 16px;
           text-decoration:none; color:var(--text);
           transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
           border:1px solid transparent; isolation:isolate;
         }
         .glow{
-          position:absolute; inset:-22px -30px; z-index:0;
+          position:absolute; inset:-18px -28px; z-index:0;
           background:
-            radial-gradient(60% 60% at 50% 50%, rgba(255,255,255,.32), transparent 60%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--c1), #ffffff 35%), transparent 62%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--c2), #ffffff 28%), transparent 64%);
-          filter: blur(28px); opacity:.85; pointer-events:none;
+            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 24%), transparent 60%),
+            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 20%), transparent 62%);
+          filter: blur(24px); opacity:0; transition:opacity .25s ease; pointer-events:none;
         }
         .label{
           position:relative; z-index:1; font-weight:900; letter-spacing:.05rem;
           background: linear-gradient(90deg, var(--c1), var(--c2));
           background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
-          text-shadow:
-            0 0 22px rgba(255,255,255,.28),
-            0 0 42px color-mix(in srgb, var(--c2), #fff 30%),
-            0 0 68px color-mix(in srgb, var(--c1), #fff 24%);
-          animation: shimmerText 6s linear infinite; filter: brightness(1.6);
+          text-shadow: 0 0 18px rgba(255,255,255,.22), 0 0 38px color-mix(in srgb, var(--c2), #fff 22%);
+          animation: shimmerText 6s linear infinite; filter: brightness(1.45);
         }
-        .link:hover{ transform: translateY(-1px); filter: brightness(1.12); }
+        .link:hover{ transform: translateY(-1px); }
+        .link:hover .glow{ opacity:1; }
         .link.is-active{
-          background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.30);
-          box-shadow: 0 18px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.10) inset;
-          filter: brightness(1.22);
+          background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.26);
+          box-shadow: 0 16px 36px rgba(0,0,0,.36), 0 0 0 1px rgba(255,255,255,.08) inset;
+          filter: brightness(1.18);
+        }
+        .link.is-active .glow{ opacity:1; filter: brightness(1.35); }
+        .link.is-active .label{
+          text-shadow:
+            0 0 30px color-mix(in srgb, var(--c1), #fff 45%),
+            0 0 58px color-mix(in srgb, var(--c2), #fff 36%),
+            0 0 78px rgba(255,255,255,.36);
+          animation-duration: 2.2s; filter: brightness(1.7);
         }
 
         /* ANIMAZIONI */
         @keyframes shimmerText { to { background-position: -200% center; } }
         @keyframes kaleido { to { background-position: 200% 200%; } }
-        @keyframes toneSync { to { filter: hue-rotate(360deg); } }
+        @keyframes toneSync { to { filter: hue-rotate(360deg); } } /* sincronizza riempimento e bagliore */
         @keyframes glowBreath {
-          0%,100% { text-shadow: 0 0 2px rgba(255,255,255,.35), 0 0 24px rgba(103,232,249,.85), 0 0 52px rgba(167,139,250,.70); }
-          50%     { text-shadow: 0 0 6px rgba(255,255,255,.55), 0 0 36px rgba(103,232,249,1), 0 0 70px rgba(167,139,250,.9); }
+          0%,100% { text-shadow: 0 1px 0 rgba(0,0,0,.65), 0 2px 4px rgba(0,0,0,.45), 0 0 26px rgba(96,165,250,.7), 0 0 52px rgba(167,139,250,.55); }
+          50%     { text-shadow: 0 1px 0 rgba(0,0,0,.65), 0 2px 4px rgba(0,0,0,.45), 0 0 36px rgba(96,165,250,.95), 0 0 70px rgba(167,139,250,.75); }
         }
-        @keyframes brandPulse { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:1; transform: scale(1.06); } }
+        @keyframes brandPulse { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:.98; transform: scale(1.05); } }
         @keyframes barHop { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
-        @keyframes pulseNode { 0%,100% { r: 1.4; opacity:.8; } 50% { r: 2.2; opacity:1; } }
-        @keyframes draw { 0% { stroke-dashoffset: 90; opacity:.0; } 30% { opacity:1; } 60% { stroke-dashoffset: 0; } 100% { opacity:.0; } }
-
-        /* alternanza: 0-48% voce, 52-100% AI idea */
-        @keyframes swapVoice { 0%,48% { opacity:1 } 52%,100%{ opacity:0 } }
-        @keyframes swapAI    { 0%,48% { opacity:0 } 52%,100%{ opacity:1 } }
+        @keyframes bgAlt {
+          0%,42%   { opacity: 0; }
+          50%,92%  { opacity: .95; }
+          100%     { opacity: 0; }
+        }
 
         @media (max-width: 560px){
-          .inner{ gap:24px; padding:0 12px; }
-          .brand-text{ font-size:1.9rem; letter-spacing:.30rem; }
-          .brand-anim{ width:132px; height:24px; }
+          .inner{ gap:22px; padding:0 12px; }
+          .brand-text{ font-size:1.7rem; letter-spacing:.28rem; }
+          .brand-anim{ width:120px; height:22px; }
           .track{ gap:12px; }
-          .link{ padding:10px 18px; }
+          .link{ padding:10px 16px; }
         }
       `}</style>
     </>
