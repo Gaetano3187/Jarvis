@@ -30,7 +30,6 @@ export default function NavBar() {
             {/* Equalizzatore con alternanza immagine di sfondo */}
             <span className="brand-anim" aria-hidden="true">
               <span className="eqbox">
-                {/* pseudo ::before farà da immagine alternata */}
                 <span className="bar b1" />
                 <span className="bar b2" />
                 <span className="bar b3" />
@@ -69,7 +68,7 @@ export default function NavBar() {
           --nav-bg: rgba(2,6,23,.72);
           --nav-brd: rgba(255,255,255,.12);
           --text: #f8fafc;
-          --eq-bg: url('/ai-eq-bg.jpg'); /* <— metti qui la tua immagine */
+          --eq-bg: url('/ai-eq-bg.jpg'); /* <— opzionale, la puoi cambiare */
         }
 
         .nav{
@@ -85,14 +84,14 @@ export default function NavBar() {
           padding: 0 16px; gap: 32px; overflow: hidden;
         }
 
-        /* BRAND (solo testo+glow subiscono hue-rotate per coerenza cromatica) */
+        /* BRAND */
         .brand{
           display:inline-flex; align-items:center; gap:22px;
           padding:8px 8px 8px 0; text-decoration:none; margin-right:28px;
         }
         .brand-skin{
           position: relative; display: inline-grid; place-items: center;
-          animation: toneSync 14s linear infinite;  /* hue-rotate sincronizzato col bagliore */
+          animation: toneSync 14s linear infinite;
         }
         .brand-glow{
           position:absolute; inset:-14px -20px; pointer-events:none;
@@ -101,28 +100,36 @@ export default function NavBar() {
             radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.48), transparent 62%);
           filter: blur(20px); animation: brandPulse 2.3s ease-in-out infinite;
         }
+
+        /* 🔆 SOLO QUESTA PARTE CAMBIATA PER RENDERLA PIÙ CHIARA */
         .brand-text{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .30rem;
           font-size: clamp(1.65rem, 3.6vw, 2rem);
           line-height: 1;
-          /* riempimento kaleidoscopico */
+
+          /* riempimento caleidoscopico — palette PIÙ CHIARA */
           background: conic-gradient(from 0deg,
-            #5eead4 0%, #22d3ee 16%, #60a5fa 32%, #a78bfa 48%, #f0abfc 64%, #60a5fa 80%, #5eead4 100%);
+            #a7f3d0 0%, #67e8f9 16%, #93c5fd 32%, #c4b5fd 48%, #f5d0fe 64%, #93c5fd 80%, #a7f3d0 100%);
           background-size: 200% 200%;
           -webkit-background-clip: text; background-clip: text; color: transparent;
-          /* rilievo: bordo interno nero + glow esterno */
-          -webkit-text-stroke: 1px rgba(0,0,0,.68);
+
+          /* rilievo con bordo LEGGERO e highlight */
+          -webkit-text-stroke: 0.6px rgba(0,0,0,.35);
           paint-order: stroke fill;
           text-shadow:
-            0 1px 0 rgba(0,0,0,.65),
-            0 2px 4px rgba(0,0,0,.45),
-            0 0 28px rgba(96,165,250,.70),
-            0 0 54px rgba(167,139,250,.55);
+            0 -1px 0 rgba(255,255,255,.55),   /* highlight superiore */
+            0 1px 1px rgba(0,0,0,.25),        /* leggera ombra inferiore */
+            0 0 26px rgba(96,165,250,.70),    /* glow blu */
+            0 0 46px rgba(167,139,250,.55);   /* glow violetto */
+
+          /* più luminosa */
+          filter: brightness(1.85) contrast(1.05) saturate(1.08);
+
           animation: kaleido 6.2s linear infinite, glowBreath 2.4s ease-in-out infinite;
-          filter: brightness(1.55) contrast(1.06);
           white-space: nowrap;
         }
+        /* 🔆 FINE MODIFICA */
 
         /* Equalizzatore + alternanza immagine di sfondo */
         .brand-anim{ width: 140px; height: 24px; display:inline-grid; place-items:center; }
@@ -130,7 +137,6 @@ export default function NavBar() {
           position: relative; width: 100%; height: 100%;
           display:grid; grid-auto-flow:column; align-items:end; justify-content:center; gap:6px;
         }
-        /* immagine che va e viene dietro le barre */
         .eqbox::before{
           content:""; position:absolute; inset:-2px -6px; z-index:-1;
           background: var(--eq-bg) center/cover no-repeat, radial-gradient(120% 120% at 80% 20%, rgba(255,255,255,.14), transparent 60%);
@@ -141,12 +147,11 @@ export default function NavBar() {
         }
         .bar{
           width: 9px; height: 10px; border-radius: 3px; transform-origin: bottom center;
-          background: linear-gradient(to top, #ef4444 0%, #f59e0b 45%, #22c55e 100%);
+          background: linear-gradient(to top, #22c55e 0%, #38bdf8 60%, #60a5fa 100%); /* blu/verde */
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.35),
-            0 0 10px rgba(34,197,94,.65),
-            0 0 18px rgba(245,158,11,.45),
-            0 0 26px rgba(239,68,68,.35);
+            0 0 12px rgba(56,189,248,.55),
+            0 0 22px rgba(96,165,250,.45);
           animation: barHop 1s ease-in-out infinite;
         }
         .b1{ animation-duration: .92s; }
@@ -200,10 +205,10 @@ export default function NavBar() {
         /* ANIMAZIONI */
         @keyframes shimmerText { to { background-position: -200% center; } }
         @keyframes kaleido { to { background-position: 200% 200%; } }
-        @keyframes toneSync { to { filter: hue-rotate(360deg); } } /* sincronizza riempimento e bagliore */
+        @keyframes toneSync { to { filter: hue-rotate(360deg); } }
         @keyframes glowBreath {
-          0%,100% { text-shadow: 0 1px 0 rgba(0,0,0,.65), 0 2px 4px rgba(0,0,0,.45), 0 0 26px rgba(96,165,250,.7), 0 0 52px rgba(167,139,250,.55); }
-          50%     { text-shadow: 0 1px 0 rgba(0,0,0,.65), 0 2px 4px rgba(0,0,0,.45), 0 0 36px rgba(96,165,250,.95), 0 0 70px rgba(167,139,250,.75); }
+          0%,100% { text-shadow: 0 -1px 0 rgba(255,255,255,.55), 0 1px 1px rgba(0,0,0,.25), 0 0 26px rgba(96,165,250,.7), 0 0 46px rgba(167,139,250,.55); }
+          50%     { text-shadow: 0 -1px 0 rgba(255,255,255,.7),  0 1px 1px rgba(0,0,0,.25), 0 0 36px rgba(96,165,250,.95), 0 0 64px rgba(167,139,250,.75); }
         }
         @keyframes brandPulse { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:.98; transform: scale(1.05); } }
         @keyframes barHop { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
