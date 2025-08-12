@@ -490,24 +490,31 @@ function hasExplicitPackStructure(text){
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
 /* --------- Parser VOCALE per aggiornare scorte (esteso) --------- */
 /* --------- Parser VOCALE scorte con "inerzia" su righe esistenti --------- */
+
 function parseStockUpdateText(text) {
-  const t = normKey(text);
-  const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
+    const valNum = Number(String(m[1]).replace(',', '.'));
+      if (!Number.isFinite(valNum) || valNum <= 0) continue;
 
-  const res = [];
-  const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”
+      const tag = (m[2] || '').toLowerCase();
+      const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
 
-  for (let rawChunk of parts) {
-    if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
-    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
-    if (/\b20\d{2}\b/.test(rawChunk)) continue;
+      // hint per creazione riga nuova (se non esiste)
+      const packsLike = /pacc|conf|scatol/.test(tag);
+      const hintPacks = packsLike ? valNum : 1;
+      const hintUpp   = packsLike ? 1 : valNum;
 
-    const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
-
-    for (const chunk of chunks) {
-      const name = guessProductName(chunk);
-      if (!name) continue;
-
+      res.push({
+        name,
+        mode: asUnits ? 'units' : 'packs',
+        value: valNum,
+        op: absolute ? 'set' : 'maybeResidue',
+        _packs: Math.max(1, hintPacks),
+        _upp: Math.max(1, hintUpp),
+      });
+    }
+  }
+  return res;
+}
       // Rileva struttura esplicita "confezioni da X"
       const explicit = hasExplicitPackStructure(chunk);
       const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
