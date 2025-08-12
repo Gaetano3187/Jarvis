@@ -1894,28 +1894,22 @@ function decrementAcrossBothLists(prevLists, purchases) {
     animation: jarvisPulse 1.5s infinite;
   }
 `}</style>
-  <style jsx>{`
-  /* Glow morbido del pannello principale (coerente con cardGlow di /home) */
-  @keyframes panelGlow {
-    0%   { box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04); }
-    50%  { box-shadow: 0 0 40px rgba(59,130,246,.45), inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(255,255,255,.05); }
-    100% { box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04); }
-  }
-`}</style>
-
 
         </div>
       </div>
     </>
   );
 }
-/* ---------------- styles (coerenti con /home: pannelli, glow, bordi, sheen) ---------------- */
+/** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
+function theMediaWorkaround(){}
+
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24,
+    padding: 24, // più compatto per mobile
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1924,27 +1918,21 @@ const styles = {
       'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
 
-  // Card principale con effetto “scolpito”
   card: {
     width: '100%',
-    maxWidth: 1100,
-    background: 'linear-gradient(180deg, rgba(0,0,0,.62), rgba(0,0,0,.46))',
-    borderRadius: 18,
+    maxWidth: 1000,
+    background: 'rgba(0,0,0,.6)',
+    borderRadius: 16,
     padding: 22,
-    border: '1px solid rgba(255,255,255,.10)',
-    boxShadow:
-      '0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04)',
-    position: 'relative',
-    overflow: 'hidden',
-    animation: 'panelGlow 6s ease-in-out infinite alternate',
+    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
   },
 
   headerRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
+    gap: 10,
+    marginBottom: 12,
     flexWrap: 'wrap',
   },
   homeBtn: {
@@ -1954,118 +1942,69 @@ const styles = {
     borderRadius: 10,
     textDecoration: 'none',
     fontWeight: 700,
-    boxShadow: '0 4px 12px rgba(99,102,241,.35)',
-    border: '1px solid rgba(99,102,241,.55)',
   },
 
-  // Switch liste
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
-    background: 'rgba(255,255,255,.06)',
-    border: '1px solid rgba(255,255,255,.14)',
+    background: 'rgba(255,255,255,.08)',
+    border: '1px solid rgba(255,255,255,.15)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
-    backdropFilter: 'blur(3px)',
+    fontWeight: 600,
   },
   switchBtnActive: {
-    background: 'linear-gradient(145deg, rgba(6,182,212,.92), rgba(59,130,246,.92))',
-    border: '1px solid rgba(59,130,246,.75)',
+    background: '#06b6d4',
+    border: 0,
     color: '#0b1220',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
-    boxShadow: '0 6px 18px rgba(59,130,246,.35)',
   },
 
-  // Barra strumenti
-  toolsRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    margin: '14px 0 8px',
-    padding: 8,
-    borderRadius: 14,
-    background: 'rgba(255,255,255,.04)',
-    border: '1px solid rgba(255,255,255,.10)',
-  },
+  toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
+
   voiceBtn: {
     background: '#6366f1',
-    border: '1px solid rgba(99,102,241,.6)',
+    border: 0,
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
     fontWeight: 800,
-    boxShadow: '0 6px 16px rgba(99,102,241,.35)',
   },
 
-  // Pannelli/Sezioni
-  sectionLarge: {
-    marginTop: 26,
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 16,
-    background: 'rgba(0,0,0,.48)',
-    border: '1px solid rgba(255,255,255,.10)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)',
-  },
-  sectionXL: {
-    marginTop: 34,
-    marginBottom: 14,
-    padding: 14,
-    borderRadius: 16,
-    background: 'rgba(0,0,0,.52)',
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
-  },
-  h3: {
-    margin: '6px 0 12px',
-    fontWeight: 800,
-    letterSpacing: '.2px',
-    textShadow: '0 1px 0 rgba(0,0,0,.35)',
-  },
+  sectionLarge: { marginTop: 30, marginBottom: 10 },
+  sectionXL: { marginTop: 38, marginBottom: 12 },
+  h3: { margin: '6px 0 12px' },
 
-  // Lista corrente
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
   itemRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
-    padding: '12px 14px',
-    borderRadius: 14,
     background: 'rgba(255,255,255,.05)',
     border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: '0 4px 14px rgba(0,0,0,.25)',
-    position: 'relative',
-    overflow: 'hidden',
+    borderRadius: 12,
+    padding: '10px 12px',
+    gap: 8,
+    flexWrap: 'wrap',
   },
-  // Riflesso sheen: usa className="sheen" sul container che vuoi “lucidare”
-  sheen: {
-    position: 'relative',
-    overflow: 'hidden',
-  },
-
-  itemMain: { display: 'flex', alignItems: 'center', gap: 12, minWidth: 280, flex: 1 },
+  itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
   qtyBadge: {
-    minWidth: 36,
-    height: 36,
+    minWidth: 34,
+    height: 34,
     borderRadius: 10,
     background: 'rgba(99,102,241,.25)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: 900,
-    border: '1px solid rgba(99,102,241,.55)',
-    boxShadow: '0 4px 12px rgba(99,102,241,.28)',
+    fontWeight: 800,
   },
-  itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.85 },
+  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
+  itemBrand: { fontSize: 12, opacity: 0.8 },
 
   itemActions: {
     display: 'flex',
@@ -2076,27 +2015,25 @@ const styles = {
   },
   actionSuccess: {
     background: '#16a34a',
-    border: '1px solid rgba(22,163,74,.7)',
+    border: 0,
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
-    boxShadow: '0 6px 16px rgba(22,163,74,.35)',
   },
   actionDanger: {
     background: '#ef4444',
-    border: '1px solid rgba(239,68,68,.7)',
+    border: 0,
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
-    boxShadow: '0 6px 16px rgba(239,68,68,.35)',
   },
   actionGhost: {
-    background: 'rgba(255,255,255,.10)',
-    border: '1px solid rgba(255,255,255,.22)',
+    background: 'rgba(255,255,255,.12)',
+    border: '1px solid rgba(255,255,255,.2)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
@@ -2113,53 +2050,48 @@ const styles = {
     fontWeight: 700,
   },
 
-  // Form
-  formRow: { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
+  formRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
+  },
   input: {
     padding: '10px 12px',
     borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.18)',
+    border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160,
+    minWidth: 160, // -40px vs prima per stare su schermi stretti
     flex: '1 1 160px',
   },
   primaryBtn: {
     background: '#16a34a',
-    border: '1px solid rgba(22,163,74,.7)',
+    border: 0,
     color: '#fff',
     padding: '10px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(22,163,74,.35)',
   },
 
-  // Tabella scorte
   table: {
     width: '100%',
-    borderCollapse: 'separate',
-    borderSpacing: 0,
+    borderCollapse: 'collapse',
     background: 'rgba(255,255,255,.04)',
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,.12)',
   },
   th: {
     textAlign: 'left',
-    padding: '12px 10px',
-    borderBottom: '1px solid rgba(255,255,255,.14)',
-    fontWeight: 800,
+    padding: '10px',
+    borderBottom: '1px solid rgba(255,255,255,.12)',
+    fontWeight: 700,
     whiteSpace: 'nowrap',
-    position: 'sticky',
-    top: 0,
-    zIndex: 1,
-    background: 'rgba(15,23,42,.9)',
-    backdropFilter: 'blur(6px)',
   },
   td: {
-    padding: '12px 10px',
+    padding: '10px',
     borderBottom: '1px solid rgba(255,255,255,.08)',
     verticalAlign: 'middle',
   },
@@ -2170,46 +2102,39 @@ const styles = {
     justifyContent: 'space-between',
     gap: 10,
     flexWrap: 'wrap',
-    padding: 8,
-    borderRadius: 12,
-    background: 'rgba(255,255,255,.04)',
-    border: '1px solid rgba(255,255,255,.10)',
   },
 
   voiceBtnSmall: {
     background: '#6366f1',
-    border: '1px solid rgba(99,102,241,.6)',
+    border: 0,
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(99,102,241,.35)',
   },
   voiceBtnSmallStop: {
     background: '#ef4444',
-    border: '1px solid rgba(239,68,68,.6)',
+    border: 0,
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(239,68,68,.35)',
   },
   ocrBtnSmall: {
     background: '#06b6d4',
-    border: '1px solid rgba(6,182,212,.6)',
+    border: 0,
     color: '#0b1220',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(6,182,212,.35)',
   },
-  ocrInlineBtn: {
+    ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -2218,9 +2143,9 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  },
+  }, // <-- VIRGOLA QUI
 
-  // Badge giorni
+  /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2252,53 +2177,77 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-
-  // Input tabellari
   inputTable: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: '100%',
-    minWidth: 0,
-  },
-  inputTableSm: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 90,
-    minWidth: 0,
-  },
-  inputTableXs: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 110,
-    minWidth: 0,
-  },
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+  inputTable: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+progressWrap: {
+  position: 'relative',
+  width: 120,
+  height: 10,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,.15)',
+  overflow: 'hidden',
+  flex: '0 0 120px',
+},
+progressBar: {
+  position: 'absolute',
+  left: 0,          // <-- usa left/top/bottom (NON inset)
+  top: 0,
+  bottom: 0,
+  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
+  transition: 'width .25s ease, background-color .25s ease',
+},
 
-  // Barra residuo
-  progressWrap: {
-    position: 'relative',
-    width: 140,
-    height: 10,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,.16)',
-    overflow: 'hidden',
-    flex: '0 0 140px',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08)',
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '0%',
-    transition: 'width .28s ease, background-color .28s ease',
-  },
+  inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+
 }; // <-- e chiudi l’oggetto con punto e virgola
