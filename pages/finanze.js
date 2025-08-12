@@ -9,19 +9,20 @@ import {
 } from 'react-icons/fa';
 
 const categories = [
-  { href: '/entrate',          base: '#16a34a', hover: '#22d3ee', icon: <FaMoneyBillWave/>, title: 'Entrate & Saldi',  subtitle: 'Stipendi, carryover, tasca' },
-  { href: '/spese-casa',       base: '#2563eb', hover: '#8b5cf6', icon: <FaHome/>,          title: 'Spese Casa',       subtitle: 'Bollette, manutenzioni ecc.' },
-  { href: '/vestiti-ed-altro', base: '#9333ea', hover: '#f472b6', icon: <FaTshirt/>,        title: 'Vestiti ed Altro', subtitle: 'Vestiti e accessori' },
-  { href: '/cene-aperitivi',   base: '#f97316', hover: '#f43f5e', icon: <FaUtensils/>,      title: 'Cene / Aperitivi', subtitle: 'Serate, pranzi, regali' },
-  { href: '/varie',            base: '#6b7280', hover: '#94a3b8', icon: <FaFolderOpen/>,    title: 'Varie',            subtitle: 'Spese non catalogate' },
-  { href: '/spese',            base: '#0ea5e9', hover: '#22c55e', icon: <FaChartPie/>,      title: 'Report Spese',     subtitle: 'Tutte le spese per categoria' },
+  // Ogni card ha il suo colore (base) e un colore di hover
+  { href: '/entrate',          base: '#16a34a', hover: '#14b8a6', icon: <FaMoneyBillWave/>, title: 'Entrate & Saldi',  subtitle: 'Stipendi, carryover, tasca' }, // verde → teal
+  { href: '/spese-casa',       base: '#2563eb', hover: '#8b5cf6', icon: <FaHome/>,          title: 'Spese Casa',       subtitle: 'Bollette, manutenzioni ecc.' }, // blu → violet
+  { href: '/vestiti-ed-altro', base: '#9333ea', hover: '#f472b6', icon: <FaTshirt/>,        title: 'Vestiti ed Altro', subtitle: 'Vestiti e accessori' },         // viola → rosa
+  { href: '/cene-aperitivi',   base: '#f97316', hover: '#f43f5e', icon: <FaUtensils/>,      title: 'Cene / Aperitivi', subtitle: 'Serate, pranzi, regali' },      // arancio → rosé
+  { href: '/varie',            base: '#64748b', hover: '#22d3ee', icon: <FaFolderOpen/>,    title: 'Varie',            subtitle: 'Spese non catalogate' },       // slate → cyan
+  { href: '/spese',            base: '#0ea5e9', hover: '#22c55e', icon: <FaChartPie/>,      title: 'Report Spese',     subtitle: 'Tutte le spese per categoria' } // sky → green
 ];
 
 const Finanze = () => {
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
 
-  // Evita apertura media player su mobile e forza riproduzione inline
+  // Evita media-player su mobile e forza inline
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -46,7 +47,7 @@ const Finanze = () => {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* video full-bleed */}
+      {/* video sfondo full-bleed */}
       <video
         ref={videoRef}
         className="bg-video"
@@ -64,14 +65,14 @@ const Finanze = () => {
 
       <main className="wrap">
         <section className="grid">
-          {/* Cards categorie */}
+          {/* Cards sezioni (ognuna con il suo colore e glow) */}
           <div className="cards">
             {categories.map((c) => (
               <Link
                 key={c.href}
                 href={c.href}
                 className="cat-card glow-strong"
-                style={{ ['--base']: c.base, ['--hover']: c.hover }}
+                style={{ '--base': c.base, '--hover': c.hover }}
               >
                 <div className="cat-top">
                   <div className="icon">{c.icon}</div>
@@ -84,7 +85,7 @@ const Finanze = () => {
             ))}
           </div>
 
-          {/* Barra strumenti avanzati (compatta, in basso) */}
+          {/* Barra strumenti avanzati (piccola, in basso, solo icone) */}
           <div className="tools-sticky">
             <div className="tools-card">
               <div className="icon-bar">
@@ -124,30 +125,38 @@ const Finanze = () => {
           z-index: -1; pointer-events: none;
           filter: saturate(1.05) contrast(1.05);
         }
+
         .wrap{ min-height:100vh; display:grid; grid-template-rows: 1fr auto; padding:24px; color:var(--text); }
         .grid{ width:100%; max-width:1100px; margin:0 auto; display:grid; grid-template-rows:auto 1fr; gap:16px; }
         .cards{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 
         .cat-card{
-          --base:#2563eb; --hover:#8b5cf6;
           position:relative; display:grid; grid-template-rows:1fr auto;
           min-height:clamp(150px, 26vw, 240px);
           border-radius:20px; color:#fff; text-decoration:none;
           border:1px solid rgba(255,255,255,0.18);
-          box-shadow:0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1);
+          /* Ombre + alone colorato */
+          box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--base), #ffffff 15%),
+            0 18px 40px color-mix(in srgb, var(--base), #000000 55%),
+            inset 0 1px 0 rgba(255,255,255,0.10);
           overflow:hidden; isolation:isolate;
           transition: transform .25s ease, box-shadow .25s ease, filter .25s ease, background .25s ease;
           animation: shimmer 6s linear infinite;
           background:
-            radial-gradient(120% 140% at 20% 10%, color-mix(in oklab, var(--base), #ffffff 10%), transparent 55%),
-            radial-gradient(130% 150% at 90% 80%, color-mix(in oklab, var(--base), #00d4ff 20%), transparent 65%),
+            radial-gradient(120% 140% at 20% 10%, color-mix(in srgb, var(--base), #ffffff 12%), transparent 55%),
+            radial-gradient(130% 150% at 90% 80%, color-mix(in srgb, var(--base), #00d4ff 22%), transparent 65%),
             linear-gradient(135deg, #0b1224 0%, #0b1224 100%);
         }
         .cat-card:hover{
           transform: translateY(-2px) scale(1.01);
+          box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--hover), #ffffff 20%),
+            0 26px 70px color-mix(in srgb, var(--hover), #000000 52%),
+            inset 0 1px 0 rgba(255,255,255,0.12);
           background:
-            radial-gradient(120% 140% at 20% 10%, color-mix(in oklab, var(--hover), #ffffff 12%), transparent 55%),
-            radial-gradient(130% 150% at 90% 80%, color-mix(in oklab, var(--hover), #22d3ee 26%), transparent 65%),
+            radial-gradient(120% 140% at 20% 10%, color-mix(in srgb, var(--hover), #ffffff 14%), transparent 55%),
+            radial-gradient(130% 150% at 90% 80%, color-mix(in srgb, var(--hover), #22d3ee 28%), transparent 65%),
             linear-gradient(135deg, #0b1224 0%, #0b1224 100%);
         }
 
@@ -187,7 +196,7 @@ const Finanze = () => {
         }
         .icon-btn:hover{ transform: translateY(-2px); }
 
-        /* Glow/shimmer forte (come home) */
+        /* Glow/shimmer forte come Home */
         .glow-strong::before{
           content:""; position:absolute; inset:-20%;
           background: conic-gradient(from 0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.28), rgba(255,255,255,0.08));
