@@ -1360,7 +1360,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
         return;
       }
 
-     if (intent === 'stock_update' && updates.length) {
+    if (intent === 'stock_update' && updates.length) {
   let applied = 0;
   setStock(prev => {
     const arr = [...prev];
@@ -1468,7 +1468,6 @@ function decrementAcrossBothLists(prevLists, purchases) {
         baselinePacks: packs,                         // baseline = confezioni correnti
         lastRestockAt: restock ? todayISO : old.lastRestockAt, // timestamp solo se aumentano le confezioni
       };
-
       applied++;
     }
     return arr;
@@ -1477,7 +1476,6 @@ function decrementAcrossBothLists(prevLists, purchases) {
   showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
   return;
 }
-
             // Esiste già
             const old = arr[idx];
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
