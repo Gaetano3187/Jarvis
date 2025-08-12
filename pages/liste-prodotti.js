@@ -210,6 +210,7 @@ function timeoutFetch(url, opts={}, ms=25000) {
 }
 
 /* ------------ Helpers residuo (usati anche per la barra) ------------ */
+/* ------------ Helpers residuo (usati anche per la barra) ------------ */
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
 function residueUnitsOf(s){
@@ -232,6 +233,7 @@ function residueInfo(s){
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
 }
+
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
 const RESIDUE_THRESHOLDS = { green: 0.60, amber: 0.30 };
