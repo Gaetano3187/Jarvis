@@ -543,6 +543,7 @@ export default function ListeProdotti() {
     expiresAt: ''
   });
 function startRowEdit(index, row){
+  const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
   setEditingRow(index);
   setEditDraft({
     name: row.name || '',
@@ -551,9 +552,11 @@ function startRowEdit(index, row){
     unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
     unitLabel: row.unitLabel || 'unità',
     expiresAt: row.expiresAt || '',
-    // consenti di modificare anche il residuo come unità totali
-    residueUnits: String(Number(row.packs || 0) * Number(row.unitsPerPack || 1)),
+    residueUnits: initRU,
+    _ruTouched: false,     // <-- nuovo flag
   });
+}
+
 }
 
 function handleEditDraftChange(field, value){
