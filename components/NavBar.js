@@ -20,10 +20,15 @@ export default function NavBar() {
     <>
       <nav className="nav">
         <div className="inner scroll-fade">
-          {/* Brand */}
+          {/* Brand super-luminoso */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
-            <span className="brand-dot" />
+            <span className="brand-aura" aria-hidden />
+            <span className="brand-icon" aria-hidden>
+              <span className="brand-ring" />
+              <span className="brand-dot" />
+            </span>
             <span className="brand-text">JARVIS</span>
+            <span className="brand-underline" aria-hidden />
           </Link>
 
           {/* Links */}
@@ -51,8 +56,8 @@ export default function NavBar() {
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.8);
-          --nav-brd: rgba(255,255,255,.12);
+          --nav-bg: rgba(2,6,23,.82);
+          --nav-brd: rgba(255,255,255,.14);
           --text: #f8fafc;
         }
 
@@ -68,43 +73,94 @@ export default function NavBar() {
           height: 76px;
           display: flex; align-items: center; gap: 20px;
           padding: 0 20px;
-          overflow-x: auto;
-          scrollbar-width: none; -ms-overflow-style: none;
+          overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
           mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
           -webkit-mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
         }
         .inner::-webkit-scrollbar{ display: none; }
 
-        /* Brand più luminoso */
+        /* BRAND — ultra glow */
         .brand{
-          display: inline-flex; align-items: center; gap: 12px;
-          padding: 8px 10px; text-decoration: none; position: relative; flex: 0 0 auto;
-        }
-        .brand-dot{
-          width: 12px; height: 12px; border-radius: 50%;
-          background: radial-gradient(circle at 30% 30%, #22d3ee, #0ea5e9 60%, transparent 70%);
-          box-shadow: 0 0 18px #22d3ee, 0 0 36px rgba(34,211,238,.75);
-          animation: ping 2s ease-in-out infinite;
-          filter: saturate(1.3) brightness(1.2);
-        }
-        .brand-text{
-          font-weight: 900; letter-spacing: .26rem; font-size: 1.14rem;
-          background: linear-gradient(
-            90deg,
-            color-mix(in oklab, #22d3ee, #fff 28%),
-            color-mix(in oklab, #38bdf8, #fff 28%),
-            color-mix(in oklab, #a78bfa, #fff 28%)
-          );
-          background-size: 220% auto;
-          -webkit-background-clip: text; background-clip: text;
-          color: transparent;
-          text-shadow:
-            0 0 22px rgba(255,255,255,.55),
-            0 0 42px rgba(56,189,248,.5);
-          animation: shimmerText 4.5s linear infinite;
-          filter: brightness(1.28);
+          position: relative;
+          display: inline-flex; align-items: center; gap: 14px;
+          padding: 10px 12px; text-decoration: none; flex: 0 0 auto;
         }
 
+        /* mega aura dietro tutto il brand */
+        .brand-aura{
+          position:absolute; inset:-34px -44px; z-index: 0; pointer-events:none;
+          background:
+            radial-gradient(55% 55% at 15% 30%, rgba(56,189,248,.55), transparent 60%),
+            radial-gradient(60% 60% at 75% 70%, rgba(167,139,250,.45), transparent 62%),
+            radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,.35), transparent 62%);
+          filter: blur(32px) brightness(1.35) saturate(1.25);
+          mix-blend-mode: screen;
+          animation: breathe 2.2s ease-in-out infinite;
+        }
+
+        /* contenitore icona per allineare anello e puntino */
+        .brand-icon{
+          position: relative; width: 26px; height: 26px; display:grid; place-items:center;
+          z-index: 1;
+        }
+
+        /* anello neon rotante */
+        .brand-ring{
+          position:absolute; width: 50px; height: 50px; border-radius: 999px; z-index: 0;
+          background: conic-gradient(from 0deg, #22d3ee, #38bdf8, #a78bfa, #22d3ee);
+          filter: blur(12px) brightness(1.6) saturate(1.35);
+          opacity: .95; mix-blend-mode: screen; pointer-events:none;
+          animation: rotateAura 4.8s linear infinite;
+          /* foro centrale per sembrare un anello */
+          -webkit-mask: radial-gradient(circle 13px at center, transparent 12px, #000 13px);
+                  mask: radial-gradient(circle 13px at center, transparent 12px, #000 13px);
+        }
+
+        /* puntino centrale super brillante */
+        .brand-dot{
+          width: 16px; height: 16px; border-radius: 50%;
+          background: radial-gradient(circle at 35% 35%, #e0f2fe 8%, #22d3ee 40%, #0ea5e9 70%);
+          box-shadow:
+            0 0 26px #38bdf8,
+            0 0 54px rgba(56,189,248,.95),
+            0 0 84px rgba(167,139,250,.75);
+          animation: ping 1.6s ease-in-out infinite;
+          filter: brightness(1.4) saturate(1.25);
+        }
+
+        /* testo molto luminoso + scia */
+        .brand-text{
+          position: relative; z-index: 1;
+          font-weight: 1000; letter-spacing: .30rem; font-size: 1.2rem;
+          background: linear-gradient(
+            90deg,
+            color-mix(in oklab, #22d3ee, #fff 34%),
+            color-mix(in oklab, #38bdf8, #fff 34%),
+            color-mix(in oklab, #a78bfa, #fff 34%)
+          );
+          background-size: 240% auto;
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+          text-shadow:
+            0 0 24px rgba(255,255,255,.85),
+            0 0 50px color-mix(in srgb, #38bdf8, #fff 60%),
+            0 0 80px color-mix(in srgb, #a78bfa, #fff 55%);
+          animation: shimmerText 4.2s linear infinite;
+          filter: brightness(1.45) saturate(1.25);
+        }
+
+        /* underline neon */
+        .brand-underline{
+          position:absolute; left:50%; bottom: 6px; transform: translateX(-50%);
+          width: 92px; height: 2px; border-radius: 2px;
+          background:
+            radial-gradient(60% 100% at 50% 50%, rgba(255,255,255,.9), transparent 70%),
+            linear-gradient(90deg, #22d3ee, #38bdf8, #a78bfa);
+          filter: blur(6px) brightness(1.6);
+          mix-blend-mode: screen; pointer-events:none;
+          animation: sweep 2.2s ease-in-out infinite;
+        }
+
+        /* LINK */
         .track{
           display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; align-items: center;
         }
@@ -120,7 +176,6 @@ export default function NavBar() {
           isolation: isolate;
         }
 
-        /* Aura rotante + glow più forte */
         .link::before{
           content: ""; position: absolute; inset: -2px; border-radius: inherit; z-index: 0;
           background:
@@ -130,9 +185,8 @@ export default function NavBar() {
               color-mix(in oklab, var(--c1), #fff 35%)
             );
           filter: blur(18px) saturate(1.3) brightness(1.15);
-          opacity: .0;
+          opacity: .0; mix-blend-mode: screen;
           transition: opacity .25s ease, filter .25s ease;
-          mix-blend-mode: screen;
           animation: rotateAura 6s linear infinite;
         }
 
@@ -150,17 +204,15 @@ export default function NavBar() {
         .label{
           position: relative; z-index: 1; font-weight: 900;
           letter-spacing: .055rem; font-size: 1.1rem;
-          background: linear-gradient(
-            90deg,
+          background: linear-gradient(90deg,
             color-mix(in oklab, var(--c1), #fff 34%),
             color-mix(in oklab, var(--c2), #fff 34%)
           );
           background-size: 240% auto;
           -webkit-background-clip: text; background-clip: text;
           color: transparent;
-          text-shadow:
-            0 0 20px rgba(255,255,255,.6),
-            0 0 46px color-mix(in srgb, var(--c2), #fff 44%);
+          text-shadow: 0 0 20px rgba(255,255,255,.6),
+                       0 0 46px color-mix(in srgb, var(--c2), #fff 44%);
           animation: shimmerText 6.5s linear infinite;
           filter: brightness(1.22) saturate(1.12);
         }
@@ -176,7 +228,6 @@ export default function NavBar() {
         .link:hover .glow{ opacity: .95; filter: blur(24px) brightness(1.35); }
         .link:hover .label{ animation-duration: 2.6s; filter: brightness(1.34) saturate(1.18); }
 
-        /* Attivo: super luminoso + respiro */
         .link.is-active{
           background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.12));
           border-color: rgba(255,255,255,.28);
@@ -205,36 +256,34 @@ export default function NavBar() {
 
         /* Animazioni */
         @keyframes shimmerText { to { background-position: -240% center; } }
-        @keyframes ping { 0%,100% { transform: scale(1);   filter: brightness(1.1); }
-                          50%     { transform: scale(1.22); filter: brightness(1.35);} }
+        @keyframes ping { 0%,100% { transform: scale(1);   filter: brightness(1.15); }
+                          50%     { transform: scale(1.25); filter: brightness(1.45);} }
         @keyframes breathe { 0%,100% { opacity: .9; transform: scale(1); }
                              50%     { opacity: 1;  transform: scale(1.03); } }
         @keyframes rotateAura { to { transform: rotate(360deg); } }
+        @keyframes sweep {
+          0%,100% { transform: translateX(-50%) scaleX(.95); opacity: .9; }
+          50%     { transform: translateX(-50%) scaleX(1.15); opacity: 1;  }
+        }
 
         /* Mobile: brand centrato e link su due righe */
         @media (max-width: 520px){
           .inner{
-            height: auto; min-height: 100px;
+            height: auto; min-height: 110px;
             justify-content: center; flex-wrap: wrap;
-            padding: 10px 12px;
+            padding: 12px 12px;
             mask-image: none; -webkit-mask-image: none;
           }
-          .scroll-fade::before,
-          .scroll-fade::after{ display: none; }
-          .brand{
-            width: 100%; justify-content: center; order: -1;
-          }
-          .brand-text{ display: inline; font-size: 1.2rem; }
-          .track{
-            width: 100%; justify-content: center; gap: 12px; flex-wrap: wrap;
-          }
+          .scroll-fade::before, .scroll-fade::after{ display: none; }
+          .brand{ width: 100%; justify-content: center; order: -1; }
+          .track{ width: 100%; justify-content: center; gap: 12px; flex-wrap: wrap; }
           .link{ padding: 10px 16px; border-radius: 14px; }
           .label{ font-size: 1.02rem; }
         }
 
-        /* Rispetto utenti con ridotta animazione */
         @media (prefers-reduced-motion: reduce){
-          .brand-dot, .brand-text, .glow, .link::before, .label { animation: none !important; }
+          .brand-ring, .brand-aura, .brand-text, .brand-underline,
+          .glow, .link::before, .label { animation: none !important; }
         }
       `}</style>
     </>
