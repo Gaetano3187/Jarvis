@@ -1527,27 +1527,15 @@ async function processVoiceInventory() {
       });
     }
 
-    // 7) Toast finale
-    if (expiryHits && applied) {
-      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-    } else if (expiryHits) {
-      showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-    } else if (applied) {
-      showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-    } else {
-      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
-    }
-  } catch (e) {
-    console.error('[Voice Inventory] error', e);
-    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    setInvRecBusy(false);
-    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-    invMediaRef.current = null;
-    invStreamRef.current = null;
-    invChunksRef.current = [];
-  }
+  // ---- Toast finale (unico) ----
+if (expiryHits && applied) {
+  showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+} else if (expiryHits) {
+  showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+} else if (applied) {
+  showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+} else {
+  showToast('Nessuna scorta/scadenza riconosciuta', 'err');
 }
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
