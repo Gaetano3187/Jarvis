@@ -1894,6 +1894,15 @@ function decrementAcrossBothLists(prevLists, purchases) {
     animation: jarvisPulse 1.5s infinite;
   }
 `}</style>
+  <style jsx>{`
+  /* Glow morbido del pannello principale (coerente con cardGlow di /home) */
+  @keyframes panelGlow {
+    0%   { box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04); }
+    50%  { box-shadow: 0 0 40px rgba(59,130,246,.45), inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(255,255,255,.05); }
+    100% { box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04); }
+  }
+`}</style>
+
 
         </div>
       </div>
