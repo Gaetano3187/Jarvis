@@ -591,7 +591,7 @@ function saveRowEdit(index){
   setStock(prev => {
     const arr = [...prev];
     const old = arr[index];
-    if(!old) return prev;
+    if (!old) return prev;
 
     const name = (editDraft.name || '').trim();
     const brand = (editDraft.brand || '').trim();
@@ -599,33 +599,53 @@ function saveRowEdit(index){
     const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
     const expiresAt = toISODate(editDraft.expiresAt || '');
 
-    // Se l'utente ha messo il Residuo unità, lo usiamo per ricalcolare le confezioni
-    const ru = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-    let packs;
-    if (Number.isFinite(ru)) {
-      packs = Math.max(0, ru / unitsPerPack);
-    } else {
-      packs = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
-    }
+    // Le CONFEZIONI vengono SOLO dal campo "Confezioni"
+    const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
 
-    // Aggiorna baseline/lastRestockAt se è un restock
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const wasUnits = Number(old.packs || 0) * uppOld;
-    const nowUnits = packs * unitsPerPack;
-    const restock = nowUnits > wasUnits;
     const todayISO = new Date().toISOString().slice(0,10);
+    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+    const wasUnits = Math.max(0, Number(old.packs || 0) * uppOld);
+    const nowUnits = Math.max(0, newPacks * unitsPerPack);
+    const restock = nowUnits > wasUnits;
 
-    arr[index] = {
+    // RESIDUO: indipendente dalle confezioni
+    let ru = residueUnitsOf(old); // se assente → packs*upp
+    const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
+    if (ruTouched) {
+      const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+      if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
+    }
+    const fullNow = Math.max(unitsPerPack, nowUnits); // pieno attuale
+    ru = Math.min(ru, fullNow); // mai oltre il pieno
+
+    // Consumo medio stimato (se diminuisce rispetto all’ultimo restock)
+    const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+
+    // Componi l'oggetto finale
+    let next = {
       ...old,
       name, brand,
-      packs, unitsPerPack, unitLabel,
+      packs: newPacks,
+      unitsPerPack, unitLabel,
       expiresAt,
-      ...(restock ? restockTouch(packs, todayISO) : {})
+      avgDailyUnits,
     };
+
+    if (restock) {
+      // aumento = restock → baseline e residueUnits al pieno
+      next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
+    } else {
+      // nessun restock: aggiorna solo il residuo (clamp ≤ pieno)
+      next.residueUnits = ru;
+    }
+
+    arr[index] = next;
     return arr;
   });
+
   setEditingRow(null);
 }
+
   // Stato UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
