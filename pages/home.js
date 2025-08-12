@@ -9,7 +9,6 @@ import VoiceRecorder from '../components/VoiceRecorder';
 const Home = () => {
   const fileInputRef = useRef(null);
 
-  /* —— OCR —— */
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -34,7 +33,6 @@ ${base64}`.trim();
   };
   const handleSelectReceipt = () => fileInputRef.current?.click();
 
-  /* —— VOCE —— */
   const handleVoiceText = async (spoken) => {
     if (!spoken) return;
     try {
@@ -59,7 +57,6 @@ TESTO:
         <meta property="og:title" content="home - Jarvis-Assistant" />
       </Head>
 
-      {/* Video full-screen background */}
       <video
         className="home-video"
         src="/composizione%201.mp4"
@@ -76,42 +73,35 @@ TESTO:
 
       <div className="home-wrap">
         <div className="home-inner">
-          {/* colonna sinistra */}
-          <div className="col">
-            <Link href="/liste-prodotti" className="box-home box-prodotti">
+          {/* Pulsanti grandi */}
+          <div className="top-buttons">
+            <Link href="/liste-prodotti" className="big-btn big-prodotti">
               🛒 LISTE PRODOTTI
             </Link>
-
-            <Link href="/finanze" className="box-home">
+            <Link href="/finanze" className="big-btn big-finanze">
               📊 FINANZE
             </Link>
           </div>
 
-          {/* colonna destra */}
-          <div className="col">
-            <div className="funzionalita-box">
-              <h2 className="title">Funzionalità Avanzate</h2>
-
-              <button className="btn-ocr" onClick={handleSelectReceipt}>
-                📷 OCR Scontrino
-              </button>
-
-              <VoiceRecorder
-                buttonClass="btn-vocale"
-                idleLabel="🎤 Comando vocale"
-                recordingLabel="⏹ Stop"
-                onText={handleVoiceText}
-              />
-
-              <Link href="/dashboard" className="btn-manuale" style={{ textAlign: 'center' }}>
-                🔎 Interroga dati
-              </Link>
-            </div>
+          {/* Funzionalità Avanzate */}
+          <div className="funzionalita-box">
+            <h2 className="title">Funzionalità Avanzate</h2>
+            <button className="btn-ocr" onClick={handleSelectReceipt}>
+              📷 OCR Scontrino
+            </button>
+            <VoiceRecorder
+              buttonClass="btn-vocale"
+              idleLabel="🎤 Comando vocale"
+              recordingLabel="⏹ Stop"
+              onText={handleVoiceText}
+            />
+            <Link href="/dashboard" className="btn-manuale" style={{ textAlign: 'center' }}>
+              🔎 Interroga dati
+            </Link>
           </div>
         </div>
       </div>
 
-      {/* input nascosto OCR */}
       <input
         type="file"
         accept="image/*"
@@ -122,97 +112,102 @@ TESTO:
       />
 
       <style jsx global>{`
-        /* ——— video full-screen background ——— */
         .home-video {
           position: fixed;
           inset: 0;
           width: 100vw;
           height: 100vh;
           object-fit: cover;
-          z-index: -1;            /* dietro i contenuti */
-          pointer-events: none;   /* evita tap che aprono il player su mobile */
-          background: #0f172a;    /* fallback */
+          z-index: -1;
+          pointer-events: none;
+          background: #0f172a;
         }
-
-        /* ——— wrapper principale, stile coerente con altre pagine ——— */
         .home-wrap {
           min-height: 100vh;
-          width: 100%;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: rgba(15, 23, 42, 0.6); /* leggero overlay per leggibilità */
+          background: rgba(15, 23, 42, 0.6);
           padding: 2rem;
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         }
         .home-inner {
           background: rgba(0, 0, 0, 0.6);
           padding: 2rem;
           border-radius: 1rem;
           color: #fff;
-          box-shadow: 0 6px 16px rgba(0,0,0,.3);
-          max-width: 1000px;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 800px;
           width: 100%;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
+          display: flex;
+          flex-direction: column;
+          gap: 2rem;
+        }
+        .top-buttons {
+          display: flex;
+          flex-direction: column;
           gap: 1rem;
         }
-
-        .title { margin: 0 0 .75rem; font-size: 1.4rem; }
-
-        /* ——— box link principali ——— */
-        .box-home {
+        .big-btn {
           display: block;
-          width: 100%;
-          background: rgba(255,255,255,.06);
-          border: 1px solid rgba(255,255,255,.12);
-          border-radius: .75rem;
-          padding: 1rem 1.2rem;
-          color: #fff;
+          text-align: center;
+          padding: 1.5rem;
+          font-size: 1.4rem;
+          font-weight: 800;
+          border-radius: 0.75rem;
           text-decoration: none;
-          font-weight: 700;
-          transition: transform .06s ease, opacity .12s ease, background .2s ease;
-          margin-bottom: .75rem;
+          transition: transform 0.06s ease, opacity 0.12s ease;
+          color: #fff;
         }
-        .box-home:hover { transform: translateY(-1px); opacity: .96; background: rgba(255,255,255,.08); }
-        .box-prodotti { background: rgba(99,102,241,.18); border-color: rgba(99,102,241,.35); }
-
-        /* ——— pannello funzionalità (usa stile pulsanti già in uso) ——— */
+        .big-btn:hover {
+          transform: translateY(-1px);
+          opacity: 0.95;
+        }
+        .big-prodotti {
+          background: rgba(99, 102, 241, 0.25);
+          border: 1px solid rgba(99, 102, 241, 0.5);
+        }
+        .big-finanze {
+          background: rgba(6, 182, 212, 0.25);
+          border: 1px solid rgba(6, 182, 212, 0.5);
+        }
         .funzionalita-box {
-          background: rgba(255,255,255,.06);
+          background: rgba(255, 255, 255, 0.06);
           padding: 1rem;
-          border-radius: .75rem;
+          border-radius: 0.75rem;
         }
-
-        /* ——— pulsanti coerenti con altre pagine ——— */
-        .btn-vocale, .btn-ocr, .btn-manuale, .btn-danger, .btn-danger-outline {
+        .title {
+          margin: 0 0 0.75rem;
+          font-size: 1.2rem;
+        }
+        .btn-vocale,
+        .btn-ocr,
+        .btn-manuale {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: .4rem;
           background: #6366f1;
           border: 0;
-          padding: .55rem .8rem;
-          border-radius: .55rem;
+          padding: 0.55rem 0.8rem;
+          border-radius: 0.55rem;
           cursor: pointer;
           color: #fff;
-          transition: transform .06s ease, opacity .12s ease;
-          text-decoration: none;
+          transition: transform 0.06s ease, opacity 0.12s ease;
           font-weight: 600;
-          margin-right: .5rem;
-          margin-bottom: .5rem;
+          margin-right: 0.5rem;
+          margin-bottom: 0.5rem;
         }
-        .btn-ocr { background: #06b6d4; }
-        .btn-manuale { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.18); }
-        .btn-danger { background: #ef4444; }
-        .btn-danger-outline { background: transparent; color: #ef4444; border: 1px solid #ef4444; }
-        .btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover, .btn-danger:hover, .btn-danger-outline:hover {
-          transform: translateY(-1px); opacity: .95;
+        .btn-ocr {
+          background: #06b6d4;
         }
-
-        /* ——— responsive ——— */
-        @media (max-width: 820px) {
-          .home-inner { grid-template-columns: 1fr; }
+        .btn-manuale {
+          background: rgba(255, 255, 255, 0.14);
+          border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        @media (max-width: 600px) {
+          .big-btn {
+            font-size: 1.2rem;
+            padding: 1rem;
+          }
         }
       `}</style>
     </>
