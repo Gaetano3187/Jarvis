@@ -36,7 +36,7 @@ const Finanze = () => {
     if (voce) console.log('[ADD]', voce);
   }, []);
 
-  const handleOCR = useCallback(() => fileInputRef.current?.click(), []);
+  const handleOCR  = useCallback(() => fileInputRef.current?.click(), []);
   const handleVoice = useCallback((text) => { if (text) console.log('[VOICE]', text); }, []);
   const onFileChange = (e) => { const f = e.target.files?.[0]; if (f) console.log('[OCR] file:', f.name); e.target.value=''; };
 
@@ -65,7 +65,7 @@ const Finanze = () => {
 
       <main className="wrap">
         <section className="grid">
-          {/* Cards sezioni: colore pieno + glow */}
+          {/* Cards sezioni: colore pieno + glow + titolo con sfondo colorato e shine */}
           <div className="cards">
             {categories.map((c) => (
               <Link
@@ -78,7 +78,9 @@ const Finanze = () => {
                   <div className="icon">{c.icon}</div>
                 </div>
                 <div className="cat-bottom">
-                  <h3 className="title">{c.title}</h3>
+                  <h3 className="title">
+                    <span className="chip">{c.title}</span>
+                  </h3>
                   <p className="sub">{c.subtitle}</p>
                 </div>
               </Link>
@@ -114,7 +116,7 @@ const Finanze = () => {
 
       <style jsx>{`
         :root{
-          --glass-bg: rgba(0,0,0,0.30);    /* finestra strumenti leggermente trasparente */
+          --glass-bg: rgba(0,0,0,0.30);
           --glass-brd: rgba(255,255,255,0.14);
           --text: #fff;
         }
@@ -175,8 +177,49 @@ const Finanze = () => {
           padding:16px;
           background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.18) 100%);
         }
-        .title{ margin:0 0 4px; font-size:clamp(1.1rem,3vw,1.6rem); font-weight:800; letter-spacing:.2px; text-shadow:0 2px 18px rgba(0,0,0,.35); }
-        .sub{ margin:0; opacity:.95; font-size:clamp(.9rem,2.2vw,1rem); }
+
+        /* ---- TITOLO con sfondo colorato + shine progressivo ---- */
+        .title{ margin:0 0 6px; }
+        .chip{
+          --soft: color-mix(in oklab, var(--base), #ffffff 22%);
+          --deep: color-mix(in oklab, var(--base), #000000 10%);
+          display:inline-block;
+          padding:8px 12px;
+          border-radius:14px;
+          font-size:clamp(1.05rem,3vw,1.4rem);
+          font-weight:900;
+          letter-spacing:.2px;
+          color:#0b1020;
+          background: linear-gradient(90deg, var(--soft), var(--deep));
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,0.16) inset,
+            0 10px 24px color-mix(in srgb, var(--base), #000 35%),
+            0 0 28px color-mix(in srgb, var(--base), #fff 15%);
+          position:relative; overflow:hidden;
+          text-shadow: 0 1px 0 rgba(255,255,255,0.4);
+        }
+        /* scia luminosa che attraversa la chip */
+        .chip::before{
+          content:"";
+          position:absolute; top:0; left:-35%;
+          width:30%; height:100%;
+          background: linear-gradient(120deg, rgba(255,255,255,0.55), rgba(255,255,255,0.12));
+          transform: skewX(-20deg);
+          filter: blur(0.5px);
+          animation: sweep 3.6s linear infinite;
+          mix-blend-mode: screen;
+        }
+        /* alone pulsante (bagliore respirante) */
+        .chip::after{
+          content:"";
+          position:absolute; inset:-25%;
+          background: radial-gradient(60% 40% at 50% 50%, rgba(255,255,255,0.18), transparent 70%);
+          filter: blur(16px);
+          animation: pulseBloom 2.4s ease-in-out infinite;
+          pointer-events:none;
+        }
+
+        .sub{ margin:6px 0 0; opacity:.95; font-size:clamp(.9rem,2.2vw,1rem); }
 
         /* Barra strumenti compatta e in basso */
         .tools-sticky{ margin-top: 8px; align-self: end; position: sticky; bottom: 12px; }
@@ -216,9 +259,12 @@ const Finanze = () => {
             radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.15), transparent 40%);
           z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.2s ease-in-out infinite; pointer-events:none;
         }
+
+        /* Animazioni */
         @keyframes spinGlow{ to{ transform: rotate(360deg); } }
         @keyframes pulseBloom{ 0%,100%{ opacity:.35; filter:brightness(1);} 50%{ opacity:.75; filter:brightness(1.35);} }
         @keyframes shimmer{ 0%{ filter:brightness(1);} 50%{ filter:brightness(1.10);} 100%{ filter:brightness(1);} }
+        @keyframes sweep{ 0%{ left:-35%; } 100%{ left:135%; } }
 
         @media (max-width: 900px){
           .wrap{ padding:18px; }
