@@ -1912,389 +1912,102 @@ function decrementAcrossBothLists(prevLists, purchases) {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* ---------------- styles (coerenti con /home: pannelli, glow, bordi) ---------------- */
-const styles = {
-  page: {
-    width: '100%',
-    minHeight: '100vh',
-    background: '#0f172a',
-    padding: 24,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#fff',
-    fontFamily:
-      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
-  },
+{/* Sfondo caleidoscopio */}
+<div className="kaleido-bg" aria-hidden="true" />
 
-  // Card principale con effetto “scolpito”
-  card: {
-    width: '100%',
-    maxWidth: 1100,
-    background:
-      'linear-gradient(180deg, rgba(0,0,0,.62), rgba(0,0,0,.46))',
-    borderRadius: 18,
-    padding: 22,
-    border: '1px solid rgba(255,255,255,.10)',
-    boxShadow:
-      '0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04)',
-    position: 'relative',
-    overflow: 'hidden',
-    animation: 'panelGlow 6s ease-in-out infinite alternate',
-  },
+<style jsx global>{`
+  /* ---- Kaleido background animato ---- */
+  .kaleido-bg{
+    position: fixed; inset: 0; z-index: -3; pointer-events: none;
+    background: conic-gradient(from 0deg, #0ea5e9, #8b5cf6, #ec4899, #06b6d4, #0ea5e9);
+    animation: kaleidoSpin 22s linear infinite;
+    filter: blur(48px) saturate(120%) opacity(.45);
+  }
+  @keyframes kaleidoSpin { to { transform: rotate(360deg); } }
 
-  headerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
-    flexWrap: 'wrap',
-  },
-  homeBtn: {
-    background: '#6366f1',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    textDecoration: 'none',
-    fontWeight: 700,
-    boxShadow: '0 4px 12px rgba(99,102,241,.35)',
-    border: '1px solid rgba(99,102,241,.55)',
-  },
+  /* Glow sheen per bottoni (passa className="btn-glow") */
+  .btn-glow{
+    position: relative; overflow: hidden;
+    transition: transform .12s ease, box-shadow .25s ease, border-color .25s ease;
+    box-shadow: 0 6px 16px rgba(255,255,255,.08);
+  }
+  .btn-glow:hover{ transform: translateY(-1px) scale(1.01); }
+  .btn-glow::before{
+    content:""; position:absolute; inset:-140% -40%;
+    background: linear-gradient(75deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.22) 45%, rgba(255,255,255,0) 100%);
+    transform: translateX(-60%) skewX(-18deg);
+    animation: btnSheen 2.4s ease-in-out infinite;
+    pointer-events:none; mix-blend-mode: screen;
+  }
+  @keyframes btnSheen{
+    0%{ transform: translateX(-60%) skewX(-18deg); opacity:.6; }
+    60%{ transform: translateX(40%)  skewX(-18deg); opacity:1; }
+    100%{ transform: translateX(120%) skewX(-18deg); opacity:0; }
+  }
 
-  // Switch liste
-  switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
-  switchBtn: {
-    background: 'rgba(255,255,255,.06)',
-    border: '1px solid rgba(255,255,255,.14)',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 700,
-    backdropFilter: 'blur(3px)',
-  },
-  switchBtnActive: {
-    background: 'linear-gradient(145deg, rgba(6,182,212,.92), rgba(59,130,246,.92))',
-    border: '1px solid rgba(59,130,246,.75)',
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 6px 18px rgba(59,130,246,.35)',
-  },
+  /* Titoli in rilievo (usa className="title-emboss" sugli <h3>) */
+  .title-emboss{
+    display:inline-block;
+    padding: .45rem .8rem;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    border: 1px solid rgba(255,255,255,.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.18),
+      inset 0 -1px 0 rgba(255,255,255,.06),
+      0 8px 22px rgba(0,0,0,.35);
+    font-weight: 900; letter-spacing:.2px;
+  }
+  .title-emboss::after{
+    content:""; display:block; height:3px; margin-top:.5rem; border-radius:999px;
+    background: linear-gradient(90deg, rgba(6,182,212,.9), rgba(59,130,246,.9), rgba(236,72,153,.9));
+    opacity:.65;
+  }
 
-  // Barra strumenti
-  toolsRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    margin: '14px 0 8px',
-    padding: 8,
-    borderRadius: 14,
-    background: 'rgba(255,255,255,.04)',
-    border: '1px solid rgba(255,255,255,.10)',
-  },
-  voiceBtn: {
-    background: '#6366f1',
-    border: '1px solid rgba(99,102,241,.6)',
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 6px 16px rgba(99,102,241,.35)',
-  },
+  /* Tabella: header sticky, zebra + sub-sezioni tenui + hover */
+  table.jarvis-table thead th{
+    background: rgba(15,23,42,.9);
+    backdrop-filter: blur(6px);
+  }
+  table.jarvis-table tbody tr:nth-child(odd){ background: rgba(255,255,255,.035); }
+  table.jarvis-table tbody tr:nth-child(even){ background: rgba(255,255,255,.055); }
+  table.jarvis-table tbody tr:hover{ outline: 1px solid rgba(255,255,255,.12); }
+  /* “sotto-sezioni” visive ogni 6 righe con bordo morbido */
+  table.jarvis-table tbody tr:nth-child(6n){
+    box-shadow: 0 1px 0 rgba(6,182,212,.35) inset, 0 -1px 0 rgba(6,182,212,.12) inset;
+  }
 
-  // Pannelli/Sezioni con bordo evidenziato (coerente con /home “advanced-box”)
-  sectionLarge: {
-    marginTop: 26,
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 16,
-    background: 'rgba(0,0,0,.48)',
-    border: '1px solid rgba(255,255,255,.10)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)',
-  },
-  sectionXL: {
-    marginTop: 34,
-    marginBottom: 14,
-    padding: 14,
-    borderRadius: 16,
-    background: 'rgba(0,0,0,.52)',
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
-  },
-  h3: {
-    margin: '6px 0 12px',
-    fontWeight: 800,
-    letterSpacing: '.2px',
-    textShadow: '0 1px 0 rgba(0,0,0,.35)',
-  },
+  /* Riflesso SHEEN (passa className="sheen") */
+  .sheen::before {
+    content: "";
+    position: absolute;
+    inset: -22%;
+    border-radius: inherit;
+    background: linear-gradient(
+      75deg,
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0.08) 28%,
+      rgba(255,255,255,0.45) 50%,
+      rgba(255,255,255,0.08) 72%,
+      rgba(255,255,255,0) 100%
+    );
+    transform: translateX(-130%) skewX(-12deg);
+    filter: blur(0.6px);
+    mix-blend-mode: screen;
+    pointer-events: none;
+    animation: sweepShine 2.8s ease-in-out infinite;
+  }
+  @keyframes sweepShine {
+    0%   { transform: translateX(-130%) skewX(-12deg); opacity: .65; }
+    60%  { transform: translateX(0%)    skewX(-12deg); opacity: 1; }
+    100% { transform: translateX(130%)  skewX(-12deg); opacity: 0; }
+  }
 
-  // Lista corrente (righe più ariose e leggibili)
-  listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
-  itemRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
-    padding: '12px 14px',
-    borderRadius: 14,
-    background: 'rgba(255,255,255,.05)',
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: '0 4px 14px rgba(0,0,0,.25)',
-  },
-  itemMain: { display: 'flex', alignItems: 'center', gap: 12, minWidth: 280, flex: 1 },
-  qtyBadge: {
-    minWidth: 36,
-    height: 36,
-    borderRadius: 10,
-    background: 'rgba(99,102,241,.25)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 900,
-    border: '1px solid rgba(99,102,241,.55)',
-    boxShadow: '0 4px 12px rgba(99,102,241,.28)',
-  },
-  itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.85 },
-
-  itemActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  actionSuccess: {
-    background: '#16a34a',
-    border: '1px solid rgba(22,163,74,.7)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 6px 16px rgba(22,163,74,.35)',
-  },
-  actionDanger: {
-    background: '#ef4444',
-    border: '1px solid rgba(239,68,68,.7)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 6px 16px rgba(239,68,68,.35)',
-  },
-  actionGhost: {
-    background: 'rgba(255,255,255,.10)',
-    border: '1px solid rgba(255,255,255,.22)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-  actionGhostDanger: {
-    background: 'rgba(239,68,68,.1)',
-    border: '1px solid rgba(239,68,68,.6)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-
-  // Form
-  formRow: { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
-  input: {
-    padding: '10px 12px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.18)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    minWidth: 160,
-    flex: '1 1 160px',
-  },
-  primaryBtn: {
-    background: '#16a34a',
-    border: '1px solid rgba(22,163,74,.7)',
-    color: '#fff',
-    padding: '10px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(22,163,74,.35)',
-  },
-
-  // Tabella scorte: header “appiccicoso”, righe più larghe, barra residuo visibile
-  table: {
-    width: '100%',
-    borderCollapse: 'separate',
-    borderSpacing: 0,
-    background: 'rgba(255,255,255,.04)',
-    borderRadius: 14,
-    overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,.12)',
-  },
-  th: {
-    textAlign: 'left',
-    padding: '12px 10px',
-    borderBottom: '1px solid rgba(255,255,255,.14)',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-    position: 'sticky',
-    top: 0,
-    zIndex: 1,
-    background: 'rgba(15,23,42,.9)',
-    backdropFilter: 'blur(6px)',
-  },
-  td: {
-    padding: '12px 10px',
-    borderBottom: '1px solid rgba(255,255,255,.08)',
-    verticalAlign: 'middle',
-  },
-
-  scorteHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
-    padding: 8,
-    borderRadius: 12,
-    background: 'rgba(255,255,255,.04)',
-    border: '1px solid rgba(255,255,255,.10)',
-  },
-
-  voiceBtnSmall: {
-    background: '#6366f1',
-    border: '1px solid rgba(99,102,241,.6)',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(99,102,241,.35)',
-  },
-  voiceBtnSmallStop: {
-    background: '#ef4444',
-    border: '1px solid rgba(239,68,68,.6)',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(239,68,68,.35)',
-  },
-  ocrBtnSmall: {
-    background: '#06b6d4',
-    border: '1px solid rgba(6,182,212,.6)',
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 6px 16px rgba(6,182,212,.35)',
-  },
-  ocrInlineBtn: {
-    background: 'rgba(6,182,212,.15)',
-    border: '1px solid rgba(6,182,212,.6)',
-    color: '#e0fbff',
-    padding: '6px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-
-  // Badge giorni (coerente)
-  daysBadgeBase: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 34,
-    height: 26,
-    padding: '0 8px',
-    borderRadius: 999,
-    fontWeight: 800,
-    fontSize: 12,
-  },
-  daysBadgeGreen: {
-    background: 'rgba(22,163,74,.18)',
-    border: '1px solid rgba(22,163,74,.7)',
-    color: '#dcfce7',
-  },
-  daysBadgeAmber: {
-    background: 'rgba(245,158,11,.18)',
-    border: '1px solid rgba(245,158,11,.7)',
-    color: '#fffbeb',
-  },
-  daysBadgeRed: {
-    background: 'rgba(239,68,68,.18)',
-    border: '1px solid rgba(239,68,68,.7)',
-    color: '#fee2e2',
-  },
-  daysBadgeGray: {
-    background: 'rgba(148,163,184,.18)',
-    border: '1px solid rgba(148,163,184,.6)',
-    color: '#e2e8f0',
-  },
-
-  // Input tabellari compatti
-  inputTable: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: '100%',
-    minWidth: 0,
-  },
-  inputTableSm: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 90,
-    minWidth: 0,
-  },
-  inputTableXs: {
-    padding: '6px 8px',
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 110,
-    minWidth: 0,
-  },
-
-  // Barra residuo
-  progressWrap: {
-    position: 'relative',
-    width: 140,
-    height: 10,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,.16)',
-    overflow: 'hidden',
-    flex: '0 0 140px',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08)',
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '0%',
-    transition: 'width .28s ease, background-color .28s ease',
-  },
+  /* Glow pannello principale */
+  @keyframes panelGlow {
+    0%   { box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04); }
+    50%  { box-shadow: 0 0 40px rgba(59,130,246,.45), inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(255,255,255,.05); }
+    100% { box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(255,255,255,.04); }
+  }
+`}</style>
 }; // <-- e chiudi l’oggetto con punto e virgola
