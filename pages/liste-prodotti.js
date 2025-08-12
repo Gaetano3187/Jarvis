@@ -660,38 +660,35 @@ function saveRowEdit(index){
 
   const curItems = lists[currentList] || [];
 
-  /* --------------- derivati: prodotti critici --------------- */
-  useEffect(() => {
-    const today = new Date();
-    const tenDays = 10 * 24 * 60 * 60 * 1000;
-    const twoDays = 2 * 24 * 60 * 60 * 1000;
+ /* --------------- derivati: prodotti critici --------------- */
+useEffect(() => {
+  const crit = stock.filter(p => {
+    const upp = Math.max(1, Number(p.unitsPerPack || 1));
 
-    const crit = stock.filter(p => {
-      const packs = Number(p.packs || 0);
-      const upp = Math.max(1, Number(p.unitsPerPack || 1));
-      const totalUnits = packs * upp;
+    // Unità residue correnti: preferisci residueUnits se esiste, altrimenti packs*upp
+    const ru = Number(p.residueUnits);
+    const currentUnits = Number.isFinite(ru)
+      ? Math.max(0, ru)
+      : Math.max(0, Number(p.packs || 0) * upp);
 
-      const baselinePacks = Number(p.baselinePacks || 0);
-      const baselineUnits = baselinePacks * upp;
+    // Baseline: preferisci baselinePacks*upp; fallback packs*upp; minimo = upp
+    const bp = Number(p.baselinePacks);
+    const baselineUnits = Math.max(
+      upp,
+      (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(p.packs || 0) * upp)
+    );
 
-      const last = p.lastRestockAt ? new Date(p.lastRestockAt) : null;
+    const pct = baselineUnits ? (currentUnits / baselineUnits) : 1;
 
-      const nearExp = p.expiresAt ? ((new Date(p.expiresAt)) - today) <= tenDays : false;
-      const oldEnough = last ? (today - last) > twoDays : false;
+    const lowResidue = pct < 0.20;          // <20% residuo
+    const expSoon   = isExpiringSoon(p, 10); // scadenza entro 10 giorni
 
-      const lowAbsoluteUnits = totalUnits < 2; // < 2 unità
-      const lowPercentUnits  = baselineUnits > 0 ? (totalUnits <= baselineUnits * 0.2) : false; // residuo <=20% (80% consumato)
+    return lowResidue || expSoon;
+  });
 
-      return nearExp || (oldEnough && (lowAbsoluteUnits || lowPercentUnits));
-    });
+  setCritical(crit);
+}, [stock]);
 
-    setCritical(crit);
-  }, [stock]);
-
-  function showToast(msg, type='info') {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 2500);
-  }
 
   /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
