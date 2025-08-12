@@ -3,14 +3,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 
 const links = [
-  { href: '/home',             label: 'Home',           c1: '#5eead4', c2: '#22d3ee' },
-  { href: '/dashboard',        label: 'Dashboard',      c1: '#f0abfc', c2: '#c084fc' },
-  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#34d399', c2: '#a3e635' },
-  { href: '/finanze',          label: 'Finanze',        c1: '#60a5fa', c2: '#a78bfa' },
-  { href: '/spese-casa',       label: 'Casa',           c1: '#38bdf8', c2: '#60a5fa' },
-  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#f472b6', c2: '#fb7185' },
-  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#fb923c' },
-  { href: '/varie',            label: 'Varie',          c1: '#94a3b8', c2: '#d4d4d8' },
+  { href: '/home',             label: 'Home' },
+  { href: '/dashboard',        label: 'Dashboard' },
+  { href: '/liste-prodotti',   label: 'Liste Prodotti' },
+  { href: '/finanze',          label: 'Finanze' },
+  { href: '/spese-casa',       label: 'Casa' },
+  { href: '/vestiti-ed-altro', label: 'Vestiti' },
+  { href: '/cene-aperitivi',   label: 'Cene' },
+  { href: '/varie',            label: 'Varie' },
 ];
 
 export default function NavBar() {
@@ -20,77 +20,43 @@ export default function NavBar() {
     <>
       <nav className="nav">
         <div className="inner">
-          {/* BRAND */}
+
+          {/* BRAND (equalizer + logo + testo) */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
-            <span className="brand-skin">
-              <span className="brand-glow" aria-hidden="true" />
-              <span className="brand-text">JARVIS</span>
-            </span>
-
-            {/* animazione alternata: equalizzatore ⇄ AI idea */}
-            <span className="brand-anim" aria-hidden="true">
-              {/* equalizzatore */}
-              <span className="eqbox">
-                <span className="bar b1" />
-                <span className="bar b2" />
-                <span className="bar b3" />
-                <span className="bar b4" />
-                <span className="bar b5" />
-                <span className="bar b6" />
-              </span>
-
-              {/* “AI idea” stilizzata (rete neurale che pulsa) */}
-              <span className="aiidea">
-                <svg className="ai-svg" viewBox="0 0 160 36" aria-hidden="true">
+            <span className="eq" aria-hidden="true">
+              <span className="bar b1" />
+              <span className="bar b2" />
+              <span className="bar b3" />
+              <span className="bar b4" />
+              <span className="bar b5" />
+              {/* immagine/idea al centro dell'equalizzatore */}
+              <span className="ai-badge">
+                {/* SVG “idea/AI” stilizzato */}
+                <svg viewBox="0 0 64 64" className="ai-svg">
                   <defs>
-                    <radialGradient id="gCyan" cx="50%" cy="50%" r="70%">
-                      <stop offset="0%" stopColor="#67e8f9" />
-                      <stop offset="55%" stopColor="#60a5fa" />
-                      <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-                    </radialGradient>
-                    <linearGradient id="gStroke" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#67e8f9"/><stop offset="50%" stopColor="#a78bfa"/><stop offset="100%" stopColor="#22d3ee"/>
+                    <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%"  stopColor="#e0f2fe"/>
+                      <stop offset="50%" stopColor="#c7d2fe"/>
+                      <stop offset="100%" stopColor="#a7f3d0"/>
                     </linearGradient>
                   </defs>
-
-                  {/* alone soft dietro */}
-                  <circle cx="28" cy="18" r="13" fill="url(#gCyan)" opacity="0.55">
-                    <animate attributeName="r" values="12;14;12" dur="2.2s" repeatCount="indefinite"/>
-                    <animate attributeName="opacity" values=".45;.8;.45" dur="2.2s" repeatCount="indefinite"/>
-                  </circle>
-
-                  {/* “cervello” stilizzato */}
-                  <path d="M16,18 a12,12 0 1,1 24,0 q0,7 -7,10 v3 h-10 v-3 q-7,-3 -7,-10 z"
-                        fill="none" stroke="url(#gStroke)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-
-                  {/* connessioni */}
-                  <g stroke="url(#gStroke)" strokeWidth="1.4" opacity=".9">
-                    <path d="M28,10 q6,3 6,8" fill="none"/>
-                    <path d="M22,14 q6,2 6,6" fill="none"/>
-                    <path d="M34,16 q-4,4 -8,4" fill="none"/>
-                  </g>
-
-                  {/* nodi che pulsano */}
-                  <g fill="#a7f3d0">
-                    <circle className="n n1" cx="34" cy="16" r="1.6"/>
-                    <circle className="n n2" cx="22" cy="14" r="1.6"/>
-                    <circle className="n n3" cx="28" cy="10" r="1.6"/>
-                  </g>
-
-                  {/* scie di “intuizione” */}
-                  <g stroke="url(#gStroke)" strokeWidth="1.4" strokeLinecap="round" opacity=".95">
-                    <path className="spark s1" d="M52,10 h16" />
-                    <path className="spark s2" d="M52,18 h22" />
-                    <path className="spark s3" d="M52,26 h14" />
-                  </g>
+                  {/* lampadina/circuito */}
+                  <path d="M32 8c9 0 16 7 16 16 0 5-2 9-5 12-2 2-3 4-3 7H24c0-3-1-5-3-7-3-3-5-7-5-12 0-9 7-16 16-16Z" fill="url(#aiGrad)" />
+                  <path d="M26 47h12v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4v-3Z" fill="#e5e7eb" />
+                  {/* piccole “tracce” AI */}
+                  <circle cx="23" cy="25" r="2" fill="#22d3ee"/>
+                  <circle cx="41" cy="25" r="2" fill="#60a5fa"/>
+                  <path d="M23 25h18" stroke="#7dd3fc" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
               </span>
             </span>
+
+            <span className="brand-text">JARVIS</span>
           </Link>
 
           {/* LINKS */}
           <ul className="track">
-            {links.map(({ href, label, c1, c2 }) => {
+            {links.map(({ href, label }) => {
               const active = pathname === href;
               return (
                 <li key={href} className="item">
@@ -98,11 +64,8 @@ export default function NavBar() {
                     href={href}
                     aria-current={active ? 'page' : undefined}
                     className={`link ${active ? 'is-active' : ''}`}
-                    style={{ ['--c1']: c1, ['--c2']: c2 }}
-                    title={label}
                   >
-                    <span className="glow" />
-                    <span className="label">{label}</span>
+                    {label}
                   </Link>
                 </li>
               );
@@ -113,162 +76,175 @@ export default function NavBar() {
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.76);
-          --nav-brd: rgba(255,255,255,.14);
-          --text: #f8fafc;
+          /* TEMA EQUALIZZATORE: "blue" o "green" */
+          --eq-tone: blue; /* <-- cambia in "green" per passare al verde */
+
+          --eq-blue-1: #22d3ee;
+          --eq-blue-2: #38bdf8;
+          --eq-blue-3: #60a5fa;
+
+          --eq-green-1: #34d399;
+          --eq-green-2: #10b981;
+          --eq-green-3: #22c55e;
+
+          --nav-bg: rgba(2,6,23,.62);
+          --nav-brd: rgba(255,255,255,.08);
+          --text: #e5e7eb;
         }
 
         .nav{
-          position: sticky; top: 0; z-index: 70;
-          width: 100%; background: var(--nav-bg);
-          backdrop-filter: blur(12px) saturate(1.25);
+          position: sticky; top: 0; z-index: 60;
+          width: 100%;
+          background: var(--nav-bg);
+          backdrop-filter: blur(12px) saturate(1.08);
           border-bottom: 1px solid var(--nav-brd);
-          box-shadow: 0 16px 40px rgba(0,0,0,.32);
+          box-shadow: 0 8px 24px rgba(0,0,0,.25);
         }
         .inner{
-          height: 68px;
-          display: flex; align-items: center; justify-content: flex-start;
-          padding: 0 16px; gap: 34px; overflow: hidden;
+          height: 72px; /* altezza costante, evita sovrapposizioni */
+          display: flex; align-items: center; gap: 18px;
+          padding: 0 16px;
         }
 
         /* BRAND */
         .brand{
-          display:inline-flex; align-items:center; gap:24px;
-          padding:8px 8px 8px 0; text-decoration:none; margin-right:30px;
-        }
-        .brand-skin{
-          position: relative; display: inline-grid; place-items: center;
-          animation: toneSync 14s linear infinite;
-        }
-        .brand-glow{
-          position:absolute; inset:-18px -24px; pointer-events:none;
-          background:
-            radial-gradient(60% 60% at 30% 50%, rgba(94,234,212,.75), transparent 60%),
-            radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.72), transparent 62%);
-          filter: blur(26px);
-          animation: brandPulse 2.1s ease-in-out infinite;
-        }
-        .brand-text{
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          font-weight: 900; letter-spacing: .32rem;
-          font-size: clamp(1.8rem, 3.8vw, 2.2rem); line-height: 1;
-          background: conic-gradient(from 0deg,
-            #67e8f9 0%, #22d3ee 15%, #60a5fa 32%, #a78bfa 49%, #f0abfc 66%, #60a5fa 83%, #67e8f9 100%);
-          background-size: 220% 220%;
-          -webkit-background-clip: text; background-clip: text; color: transparent;
-          -webkit-text-stroke: 0.5px rgba(0,0,0,.55);   /* bordo leggero */
-          paint-order: stroke fill;
-          text-shadow:
-            0 0 2px rgba(255,255,255,.35),
-            0 0 24px rgba(103,232,249,.85),
-            0 0 52px rgba(167,139,250,.7);
-          animation: kaleido 5.8s linear infinite, glowBreath 2.2s ease-in-out infinite;
-          filter: brightness(1.75) contrast(1.06);
-          white-space: nowrap;
+          display: inline-flex; align-items: center; gap: 14px;
+          text-decoration: none; position: relative; padding: 6px 8px;
         }
 
-        /* blocco animazioni a destra del brand */
-        .brand-anim{ width: 150px; height: 26px; display:grid; place-items:center; position: relative; }
-
-        /* equalizzatore (visibile 0%-48%) */
-        .eqbox{
-          position:absolute; inset:0; display:grid; grid-auto-flow:column;
-          align-items:end; justify-content:center; gap:7px;
-          animation: swapVoice 6s ease-in-out infinite;
+        /* Equalizer */
+        .eq{
+          position: relative;
+          width: 72px; height: 40px;
+          display: grid; grid-template-columns: repeat(5,1fr);
+          align-items: end; gap: 4px; padding: 6px 10px;
+          border-radius: 10px;
+          background: rgba(255,255,255,.05);
+          border: 1px solid rgba(255,255,255,.10);
+          overflow: hidden;
         }
         .bar{
-          width: 10px; height: 10px; border-radius: 3px; transform-origin: bottom center;
-          background: linear-gradient(to top, #ef4444 0%, #f59e0b 45%, #22c55e 100%);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.45),
-            0 0 12px rgba(34,197,94,.85),
-            0 0 22px rgba(245,158,11,.65),
-            0 0 34px rgba(239,68,68,.55);
-          animation: barHop 1s ease-in-out infinite;
-          filter: brightness(1.2);
+          width: 100%;
+          border-radius: 6px 6px 2px 2px;
+          background: linear-gradient(
+            180deg,
+            var(--eq-c1) 0%,
+            var(--eq-c2) 60%,
+            var(--eq-c3) 100%
+          );
+          animation: bounce 1.2s ease-in-out infinite;
+          box-shadow: 0 8px 16px color-mix(in srgb, var(--eq-c2), #000 50%);
         }
-        .b1{ animation-duration: .92s; }
-        .b2{ animation-duration: 1.08s; animation-delay: .05s; }
-        .b3{ animation-duration: .96s;  animation-delay: .10s; }
-        .b4{ animation-duration: 1.14s; animation-delay: .15s; }
-        .b5{ animation-duration: 1.26s; animation-delay: .20s; }
-        .b6{ animation-duration: .88s;  animation-delay: .25s; }
+        .b1{ height: 35%; animation-delay: 0s; }
+        .b2{ height: 55%; animation-delay: .08s; }
+        .b3{ height: 80%; animation-delay: .16s; }
+        .b4{ height: 50%; animation-delay: .24s; }
+        .b5{ height: 30%; animation-delay: .32s; }
 
-        /* AI idea (visibile 52%-100%) */
-        .aiidea{
-          position:absolute; inset:-2px 0 0 0; display:grid; place-items:center;
-          opacity:0; animation: swapAI 6s ease-in-out infinite;
-          filter: drop-shadow(0 0 18px rgba(103,232,249,.75)) drop-shadow(0 0 36px rgba(167,139,250,.55));
+        /* switch palette eq (blu/verde) */
+        .eq{
+          --eq-c1: var(--eq-blue-1);
+          --eq-c2: var(--eq-blue-2);
+          --eq-c3: var(--eq-blue-3);
         }
-        .ai-svg{ width:100%; height:100%; }
-        .n{ transform-origin: center; }
-        .n.n1{ animation: pulseNode 1.2s ease-in-out infinite .1s; }
-        .n.n2{ animation: pulseNode 1.2s ease-in-out infinite .25s; }
-        .n.n3{ animation: pulseNode 1.2s ease-in-out infinite .4s; }
-        .spark{ stroke-dasharray: 90; stroke-dashoffset: 90; }
-        .s1{ animation: draw 2.6s ease-in-out infinite .0s; }
-        .s2{ animation: draw 2.6s ease-in-out infinite .2s; }
-        .s3{ animation: draw 2.6s ease-in-out infinite .4s; }
+        :root[style*="--eq-tone: green"] .eq,
+        .eq[data-tone="green"]{
+          --eq-c1: var(--eq-green-1);
+          --eq-c2: var(--eq-green-2);
+          --eq-c3: var(--eq-green-3);
+        }
 
-        /* menu */
-        .track{ display:flex; gap:18px; list-style:none; margin:0; padding:0; }
-        .item{ white-space:nowrap; }
-        .link{
-          --c1:#5eead4; --c2:#22d3ee;
-          position:relative; display:inline-grid; place-items:center;
-          padding: 12px 22px; border-radius: 16px;
-          text-decoration:none; color:var(--text);
-          transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
-          border:1px solid transparent; isolation:isolate;
+        @keyframes bounce{
+          0%,100% { transform: scaleY(.45); filter: brightness(1); }
+          50%     { transform: scaleY(1);    filter: brightness(1.25); }
         }
-        .glow{
-          position:absolute; inset:-22px -30px; z-index:0;
+
+        /* Immagine/idea al centro dell'equalizzatore (più grande + glow forte) */
+        .ai-badge{
+          position: absolute; inset: 50% auto auto 50%;
+          transform: translate(-50%,-50%);
+          width: 30px; height: 30px;
+          display: grid; place-items: center;
+          filter: drop-shadow(0 0 10px rgba(99,102,241,.75))
+                  drop-shadow(0 0 24px rgba(56,189,248,.55));
+          animation: aiGlow 2.2s ease-in-out infinite;
+          pointer-events: none;
+          z-index: 1;
+        }
+        .ai-svg{ width: 100%; height: 100%; opacity: .95; }
+        @keyframes aiGlow{
+          0%,100%{ filter: drop-shadow(0 0 10px rgba(99,102,241,.75)) drop-shadow(0 0 26px rgba(56,189,248,.55)); }
+          50%    { filter: drop-shadow(0 0 16px rgba(99,102,241,.95)) drop-shadow(0 0 40px rgba(56,189,248,.75)); }
+        }
+
+        /* Testo JARVIS con rilievo + caleidoscopio chiaro + bordo sottile */
+        .brand-text{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+          font-weight: 900;
+          letter-spacing: .18rem;
+          font-size: clamp(1.1rem, 3.2vw, 1.45rem);
+          line-height: 1;
+          position: relative;
+
+          /* riempimento caleidoscopio (chiaro su fondo scuro) */
           background:
-            radial-gradient(60% 60% at 50% 50%, rgba(255,255,255,.32), transparent 60%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--c1), #ffffff 35%), transparent 62%),
-            radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--c2), #ffffff 28%), transparent 64%);
-          filter: blur(28px); opacity:.85; pointer-events:none;
-        }
-        .label{
-          position:relative; z-index:1; font-weight:900; letter-spacing:.05rem;
-          background: linear-gradient(90deg, var(--c1), var(--c2));
-          background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+            conic-gradient(
+              from var(--ang, 0deg),
+              #e0f2fe, #c7d2fe, #a7f3d0, #93c5fd, #f5d0fe, #e0f2fe
+            );
+          background-size: 200% 200%;
+          -webkit-background-clip: text; background-clip: text;
+          color: transparent;
+
+          /* bordo leggero (non oscurante) + rilievo */
+          -webkit-text-stroke: 0.6px rgba(0,0,0,.35);
           text-shadow:
-            0 0 22px rgba(255,255,255,.28),
-            0 0 42px color-mix(in srgb, var(--c2), #fff 30%),
-            0 0 68px color-mix(in srgb, var(--c1), #fff 24%);
-          animation: shimmerText 6s linear infinite; filter: brightness(1.6);
+            0 1px 0 rgba(255,255,255,.35),    /* highlight alto */
+            0 2px 4px rgba(0,0,0,.35);        /* ombra basso */
+
+          /* bagliore SOLO sul brand */
+          filter: drop-shadow(0 0 14px rgba(99,102,241,.35))
+                  drop-shadow(0 0 26px rgba(56,189,248,.25));
+          animation: kscope 9s linear infinite, glowPulse 2.6s ease-in-out infinite;
         }
-        .link:hover{ transform: translateY(-1px); filter: brightness(1.12); }
+
+        @keyframes kscope{
+          0%   { --ang: 0deg;   background-position: 0% 50%; }
+          50%  { --ang: 180deg; background-position: 100% 50%; }
+          100% { --ang: 360deg; background-position: 0% 50%; }
+        }
+        @keyframes glowPulse{
+          0%,100% { filter: drop-shadow(0 0 12px rgba(99,102,241,.35)) drop-shadow(0 0 22px rgba(56,189,248,.25)); }
+          50%     { filter: drop-shadow(0 0 20px rgba(99,102,241,.55)) drop-shadow(0 0 34px rgba(56,189,248,.38)); }
+        }
+
+        /* LINKS (puliti, senza glow) */
+        .track{
+          display: flex; gap: 14px; list-style: none; margin: 0 0 0 auto; padding: 0;
+          overflow: hidden; scrollbar-width: none;
+        }
+        .track::-webkit-scrollbar{ display:none; }
+        .item{ white-space: nowrap; }
+
+        .link{
+          position: relative; display: inline-grid; place-items: center;
+          padding: 10px 14px; border-radius: 10px;
+          text-decoration: none; color: var(--text);
+          transition: transform .16s ease, background .16s ease, color .16s ease;
+        }
+        .link:hover{ transform: translateY(-1px); color: #f8fafc; }
         .link.is-active{
-          background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.30);
-          box-shadow: 0 18px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.10) inset;
-          filter: brightness(1.22);
+          background: rgba(255,255,255,.08);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+          color: #fff;
+          font-weight: 700;
         }
-
-        /* ANIMAZIONI */
-        @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes kaleido { to { background-position: 200% 200%; } }
-        @keyframes toneSync { to { filter: hue-rotate(360deg); } }
-        @keyframes glowBreath {
-          0%,100% { text-shadow: 0 0 2px rgba(255,255,255,.35), 0 0 24px rgba(103,232,249,.85), 0 0 52px rgba(167,139,250,.70); }
-          50%     { text-shadow: 0 0 6px rgba(255,255,255,.55), 0 0 36px rgba(103,232,249,1), 0 0 70px rgba(167,139,250,.9); }
-        }
-        @keyframes brandPulse { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:1; transform: scale(1.06); } }
-        @keyframes barHop { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
-        @keyframes pulseNode { 0%,100% { r: 1.4; opacity:.8; } 50% { r: 2.2; opacity:1; } }
-        @keyframes draw { 0% { stroke-dashoffset: 90; opacity:.0; } 30% { opacity:1; } 60% { stroke-dashoffset: 0; } 100% { opacity:.0; } }
-
-        /* alternanza: 0-48% voce, 52-100% AI idea */
-        @keyframes swapVoice { 0%,48% { opacity:1 } 52%,100%{ opacity:0 } }
-        @keyframes swapAI    { 0%,48% { opacity:0 } 52%,100%{ opacity:1 } }
 
         @media (max-width: 560px){
-          .inner{ gap:24px; padding:0 12px; }
-          .brand-text{ font-size:1.9rem; letter-spacing:.30rem; }
-          .brand-anim{ width:132px; height:24px; }
-          .track{ gap:12px; }
-          .link{ padding:10px 18px; }
+          .inner{ gap: 12px; height: 68px; }
+          .eq{ width: 66px; height: 36px; }
+          .ai-badge{ width: 28px; height: 28px; }
+          .brand-text{ letter-spacing: .16rem; }
         }
       `}</style>
     </>
