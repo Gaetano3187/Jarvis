@@ -556,11 +556,12 @@ function startRowEdit(index, row){
     _ruTouched: false,     // <-- nuovo flag
   });
 }
-
-}
-
 function handleEditDraftChange(field, value){
-  setEditDraft(prev => ({ ...prev, [field]: value }));
+  setEditDraft(prev => ({
+    ...prev,
+    [field]: value,
+    ...(field === 'residueUnits' ? { _ruTouched: true } : null),
+  }));
 }
 
 function cancelRowEdit(){
