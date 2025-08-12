@@ -486,7 +486,7 @@ function looksLikeSetResidue(text) {
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
 /* --------- Parser VOCALE per aggiornare scorte (esteso) --------- */
 function parseStockUpdateText(text) {
-  const t = normKey(text);
+const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
 
   // Spezzatura morbida
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
