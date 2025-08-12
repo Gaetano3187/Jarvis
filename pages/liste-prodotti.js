@@ -996,7 +996,7 @@ function markBought(id, amount = 1) {
     }
   }
 
-  /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
+
  /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
 function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
