@@ -744,59 +744,59 @@ function saveRowEdit(index){
     });
   }
 
-// Segna acquistato (confezioni) + aggiorna scorte
-function markBought(id, amount = 1) {
-  const item = (lists[currentList] || []).find(i => i.id === id);
-  if (!item) return;
+  // Segna acquistato (confezioni) + aggiorna scorte
+  function markBought(id, amount = 1) {
+    const item = (lists[currentList] || []).find(i => i.id === id);
+    if (!item) return;
 
-  const movePacks = Math.max(1, Math.min(Number(item.qty || 0), Number(amount || 1)));
-  const moveUPP   = Math.max(1, Number(item.unitsPerPack || 1));
-  const moveLabel = item.unitLabel || 'unità';
-  
-  // 1) aggiorna la lista
-  setLists(prev => {
-    const next = { ...prev };
-    next[currentList] = (prev[currentList] || [])
-      .map(i => {
-        if (i.id !== id) return i;
-        const newQty = Math.max(0, Number(i.qty || 0) - movePacks);
-        return { ...i, qty: newQty, purchased: true };
-      })
-      .filter(i => Number(i.qty || 0) > 0);
-    return next;
-  });
+    const movePacks = Math.max(1, Math.min(Number(item.qty || 0), Number(amount || 1)));
+    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
+    const moveLabel = item.unitLabel || 'unità';
 
-  // 2) aggiorna scorte (restock → baseline & residuo al pieno)
-  setStock(prev => {
-    const arr = [...prev];
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // 1) aggiorna la lista
+    setLists(prev => {
+      const next = { ...prev };
+      next[currentList] = (prev[currentList] || [])
+        .map(i => {
+          if (i.id !== id) return i;
+          const newQty = Math.max(0, Number(i.qty || 0) - movePacks);
+          return { ...i, qty: newQty, purchased: true };
+        })
+        .filter(i => Number(i.qty || 0) > 0);
+      return next;
+    });
 
-    const idx = arr.findIndex(
-      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-    );
-
-    if (idx >= 0) {
-      const old = arr[idx];
-      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-
-      arr[idx] = {
-        ...old,
-        packs: newPacks,
-        unitsPerPack: upp,
-        unitLabel: old.unitLabel || moveLabel,
-        ...restockTouch(newPacks, todayISO, upp), // <- passa anche UPP
-      };
-    } else {
-      arr.unshift({
-        name: item.name,
-        brand: item.brand || '',
-        packs: movePacks,
-        unitsPerPack: moveUPP,
-        unitLabel: moveLabel,
-        expiresAt: '',
-        ...restoc
-
+    // 2) aggiorna scorte
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0,10);
+      const idx = arr.findIndex(s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand||'', item.brand)));
+      if (idx >= 0) {
+        const old = arr[idx];
+        const newPacks = Number(old.packs || 0) + movePacks;
+        arr[idx] = {
+          ...old,
+          packs: newPacks,
+          unitsPerPack: old.unitsPerPack || moveUPP,
+          unitLabel: old.unitLabel || moveLabel,
+          ...restockTouch(newPacks, todayISO)
+        };
+      } else {
+        arr.unshift({
+          name: item.name,
+          brand: item.brand || '',
+          packs: movePacks,
+          unitsPerPack: moveUPP,
+          unitLabel: moveLabel,
+          expiresAt: '',
+          baselinePacks: movePacks,
+          lastRestockAt: todayISO,
+          avgDailyUnits: 0
+        });
+      }
+      return arr;
+    });
+  }
 
   /* ---------------- Vocale: LISTA (aggiunta veloce) ---------------- */
   async function toggleRecList() {
