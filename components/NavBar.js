@@ -24,10 +24,10 @@ export default function NavBar() {
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-skin">
               <span className="brand-glow" aria-hidden="true" />
-              <span className="brand-text brand-text--stone">JARVIS</span>
+              <span className="brand-text">JARVIS</span>
             </span>
 
-            {/* Equalizzatore + alternanza immagine */}
+            {/* Equalizzatore blu/verde con immagine alternata */}
             <span className="brand-anim" aria-hidden="true">
               <span className="eqbox">
                 <span className="bar b1" />
@@ -53,7 +53,6 @@ export default function NavBar() {
                     style={{ ['--c1']: c1, ['--c2']: c2 }}
                     title={label}
                   >
-                    {/* niente glow dietro i link */}
                     <span className="label">{label}</span>
                   </Link>
                 </li>
@@ -84,64 +83,63 @@ export default function NavBar() {
           padding: 0 16px; gap: 32px; overflow: hidden;
         }
 
-        /* BRAND (animazioni) */
+        /* === BRAND con colori dinamici e rilievo === */
         .brand{
           display:inline-flex; align-items:center; gap:22px;
           padding:8px 8px 8px 0; text-decoration:none; margin-right:28px;
         }
+        /* hue-rotate sincronizzato: fa cambiare colore a testo+glow */
         .brand-skin{
           position: relative; display: inline-grid; place-items: center;
-          animation: toneSync 14s linear infinite; /* sincronizza tono glow */
+          animation: toneSync 16s linear infinite;
         }
+        /* bagliore più forte, multicolore e in rotazione */
         .brand-glow{
-          position:absolute; inset:-14px -20px; pointer-events:none;
+          position:absolute; inset:-16px -24px; pointer-events:none;
           background:
-            radial-gradient(60% 60% at 30% 50%, rgba(94,234,212,.55), transparent 60%),
-            radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.48), transparent 62%);
-          filter: blur(20px);
-          animation: brandPulse 2.3s ease-in-out infinite;
+            conic-gradient(from 0deg, rgba(94,234,212,.55), rgba(34,211,238,.55), rgba(96,165,250,.55), rgba(167,139,250,.50), rgba(94,234,212,.55)),
+            radial-gradient(60% 60% at 30% 50%, rgba(255,255,255,.25), transparent 60%);
+          filter: blur(26px) saturate(1.2) brightness(1.05);
+          animation: spinGlow 8s linear infinite;
+          opacity:.9;
         }
 
-        /* === SCRITTA "SCOLPITA NELLA PIETRA" === */
         .brand-text{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .30rem;
           font-size: clamp(1.65rem, 3.6vw, 2rem);
-          line-height: 1;
-          white-space: nowrap;
-        }
-        .brand-text--stone{
-          /* riempimento pietra con venature leggere */
+          line-height: 1; white-space: nowrap;
+
+          /* riempimento a caleidoscopio (colori chiari per fondo scuro) */
           background:
-            linear-gradient(180deg, #f2f2f2 0%, #d9d9d9 40%, #cfcfcf 60%, #bdbdbd 100%),
-            radial-gradient(120% 180% at 20% 0%, rgba(255,255,255,.25), transparent 55%),
-            radial-gradient(120% 180% at 80% 100%, rgba(0,0,0,.10), transparent 60%),
-            repeating-linear-gradient(45deg, rgba(0,0,0,.03) 0 2px, rgba(255,255,255,.03) 2px 4px);
+            conic-gradient(from 0deg at 50% 50%,
+              #a7f3d0 0%,
+              #5eead4 12%,
+              #22d3ee 24%,
+              #60a5fa 36%,
+              #a78bfa 48%,
+              #f0abfc 60%,
+              #60a5fa 72%,
+              #5eead4 84%,
+              #a7f3d0 100%);
           background-size: 200% 200%;
           -webkit-background-clip: text; background-clip: text; color: transparent;
+          animation: kaleidoSweep 7s linear infinite, glowBreath 2.4s ease-in-out infinite;
 
-          /* incisione/rilievo: bordo leggero + ombre/luci opposte */
-          -webkit-text-stroke: 0.7px rgba(0,0,0,.22);
+          /* bordo più leggero + rilievo scolpito */
+          -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
           paint-order: stroke fill;
-
-          /* scolpito (concavo): luce sopra/sinistra, ombra sotto/destra */
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.70),   /* cresta chiara in alto-sx */
-             1px  1px 0 rgba(0,0,0,.40),        /* taglio scuro in basso-dx */
-            -2px -2px 1px rgba(255,255,255,.35), /* highlight più ampio */
-             2px  2px 2px rgba(0,0,0,.35),       /* profondità */
-             0    1px 2px rgba(0,0,0,.28),       /* ombra morbida */
-             0    0   30px rgba(56,189,248,.55), /* alone freddo delicato */
-             0    0   54px rgba(167,139,250,.40);
+            -1px -1px 0 rgba(255,255,255,.72),
+             1px  1px 0 rgba(0,0,0,.38),
+            -2px -2px 1px rgba(255,255,255,.35),
+             2px  2px 2px rgba(0,0,0,.32),
+             0    1px 2px rgba(0,0,0,.26);
 
-          /* più brillante per non risultare scura */
-          filter: brightness(1.25) contrast(1.05) saturate(1.05);
-
-          /* movimento delicato delle venature (effetto “vivo” ma pietra) */
-          animation: kaleidoStone 12s linear infinite, glowBreath 2.4s ease-in-out infinite;
+          filter: brightness(1.4) contrast(1.06) saturate(1.08);
         }
 
-        /* Equalizzatore blu/verde */
+        /* Equalizzatore BLU/VERDE */
         .brand-anim{ width: 140px; height: 24px; display:inline-grid; place-items:center; }
         .eqbox{
           position: relative; width: 100%; height: 100%;
@@ -150,11 +148,10 @@ export default function NavBar() {
         .eqbox::before{
           content:""; position:absolute; inset:-2px -6px; z-index:-1;
           background: var(--eq-bg) center/cover no-repeat,
-                      radial-gradient(120% 120% at 80% 20%, rgba(255,255,255,.14), transparent 60%);
+                      radial-gradient(120% 120% at 80% 20%, rgba(255,255,255,.18), transparent 60%);
           border-radius: 8px;
           box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 10px 24px rgba(0,0,0,.35);
-          opacity: 0; filter: saturate(1.05) contrast(1.05) brightness(0.95);
-          animation: bgAlt 5.2s ease-in-out infinite;
+          opacity: .95; filter: saturate(1.05) contrast(1.05) brightness(1.02);
         }
         .bar{
           width: 9px; height: 10px; border-radius: 3px; transform-origin: bottom center;
@@ -172,7 +169,7 @@ export default function NavBar() {
         .b5{ animation-duration: 1.26s; animation-delay: .20s; }
         .b6{ animation-duration: .88s;  animation-delay: .25s; }
 
-        /* MENU (niente glow di sfondo) */
+        /* MENU (senza glow di sfondo) */
         .track{ display:flex; gap:16px; list-style:none; margin:0; padding:0; }
         .item{ white-space:nowrap; }
         .link{
@@ -206,23 +203,18 @@ export default function NavBar() {
 
         /* ANIMAZIONI */
         @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes toneSync    { to { filter: hue-rotate(360deg); } }
-        @keyframes glowBreath  {
+        @keyframes kaleidoSweep { to { background-position: 200% 200%; } }
+        @keyframes toneSync     { to { filter: hue-rotate(360deg); } }
+        @keyframes glowBreath {
           0%,100% { text-shadow:
-            -1px -1px 0 rgba(255,255,255,.70), 1px 1px 0 rgba(0,0,0,.40),
-            -2px -2px 1px rgba(255,255,255,.35), 2px 2px 2px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.28),
-            0 0 26px rgba(56,189,248,.55), 0 0 48px rgba(167,139,250,.40); }
+            -1px -1px 0 rgba(255,255,255,.72), 1px 1px 0 rgba(0,0,0,.38),
+            -2px -2px 1px rgba(255,255,255,.35), 2px 2px 2px rgba(0,0,0,.32), 0 1px 2px rgba(0,0,0,.26); }
           50%     { text-shadow:
-            -1px -1px 0 rgba(255,255,255,.85), 1px 1px 0 rgba(0,0,0,.46),
-            -2px -2px 2px rgba(255,255,255,.45), 2px 2px 3px rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.30),
-            0 0 38px rgba(56,189,248,.80), 0 0 70px rgba(167,139,250,.60); }
+            -1px -1px 0 rgba(255,255,255,.9), 1px 1px 0 rgba(0,0,0,.45),
+            -2px -2px 2px rgba(255,255,255,.45), 2px 2px 3px rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.30); }
         }
-        @keyframes brandPulse  { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:.98; transform: scale(1.05); } }
-        @keyframes barHop      { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
-        @keyframes bgAlt       { 0%,42% { opacity: 0; } 50%,92% { opacity: .95; } 100% { opacity: 0; } }
-
-        /* movimento “venature” della pietra: lento e sobrio */
-        @keyframes kaleidoStone { to { background-position: 180% 160%, 0 0, 0 0, 0 0; } }
+        @keyframes spinGlow { to { transform: rotate(360deg); } }
+        @keyframes barHop   { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
 
         @media (max-width: 560px){
           .inner{ gap:22px; padding:0 12px; }
