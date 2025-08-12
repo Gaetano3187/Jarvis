@@ -1,7 +1,7 @@
 // components/NavBar.js
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { useState, useCallback } from 'react';
 
 const links = [
   { href: '/home',             label: 'Home',           c1: '#22d3ee', c2: '#38bdf8' },
@@ -16,30 +16,23 @@ const links = [
 
 export default function NavBar() {
   const { pathname } = useRouter();
-  const [burst, setBurst] = useState(false);
-
-  const handleBrandClick = useCallback(() => {
-    setBurst(true);
-    // il burst resta visibile anche se resti sulla stessa pagina
-    setTimeout(() => setBurst(false), 700);
-  }, []);
 
   return (
     <>
       <nav className="nav">
         <div className="inner scroll-fade">
-          {/* Brand super-luminoso, cliccabile */}
-          <Link href="/home" className={`brand ${burst ? 'burst' : ''}`} aria-label="Jarvis Home" onClick={handleBrandClick}>
-            <span className="brand-aura" aria-hidden />
-            <span className="brand-icon" aria-hidden>
-              <span className="brand-ring" />
-              <span className="brand-dot" />
+          {/* Brand con logo da /public/favicon.ico */}
+          <Link href="/home" className="brand" aria-label="Jarvis Home">
+            <span className="brand-mark">
+              <Image
+                src="/favicon.ico"  // ← viene da public/
+                alt="Jarvis logo"
+                width={28}
+                height={28}
+                priority
+              />
             </span>
-            <span className="brand-text">
-              JARVIS
-              <span className="brand-sparkle" aria-hidden />
-            </span>
-            <span className="brand-underline" aria-hidden />
+            <span className="brand-text">JARVIS</span>
           </Link>
 
           {/* Links */}
@@ -65,244 +58,156 @@ export default function NavBar() {
         </div>
       </nav>
 
+      {/* spazio per non far coprire i contenuti dalla nav fissa */}
+      <style jsx global>{`
+        :root { --nav-h: 78px; }
+        @media (max-width: 540px){ :root { --nav-h: 86px; } }
+        body { padding-top: calc(var(--nav-h) + env(safe-area-inset-top, 0px)); }
+      `}</style>
+
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.85);
-          --nav-brd: rgba(255,255,255,.16);
-          --text: #f8fafc;
+          --nav-bg: rgba(2,6,23,.62);
+          --nav-brd: rgba(255,255,255,.10);
+          --text: #f7fafc;
         }
 
-        /* SEMPRE IN CIMA: sticky con fondo sfocato, ottimo su mobile */
         .nav{
-          position: sticky; top: 0; z-index: 1000; width: 100%;
+          position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+          height: var(--nav-h);
           background: var(--nav-bg);
           backdrop-filter: blur(14px) saturate(1.15);
-          -webkit-backdrop-filter: blur(14px) saturate(1.15);
           border-bottom: 1px solid var(--nav-brd);
           box-shadow: 0 10px 28px rgba(0,0,0,.28);
         }
 
         .inner{
-          height: 78px;
-          display: flex; align-items: center; gap: 22px;
-          padding: 0 20px;
-          overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
-          mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
-          -webkit-mask-image: linear-gradient(to right, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+          height: 100%;
+          display: flex; align-items: center; gap: 18px;
+          padding: 0 16px;
+          overflow-x: auto; scrollbar-width: none;
+          justify-content: center;  /* centrata su mobile/desktop */
         }
-        .inner::-webkit-scrollbar{ display: none; }
+        .inner::-webkit-scrollbar{ display:none; }
 
-        /* BRAND — ultra glow + hue shift + scintilla */
+        /* Brand super luminoso + scintilla */
         .brand{
-          position: relative;
-          display: inline-flex; align-items: center; gap: 14px;
-          padding: 10px 12px; text-decoration: none; flex: 0 0 auto;
-          isolation: isolate;
-          /* rotazione tonalità continua */
-          animation: brandHue 16s linear infinite;
+          display: inline-flex; align-items: center; gap: 12px;
+          padding: 8px 10px; text-decoration: none; position: relative;
         }
-        .brand.burst{ filter: brightness(1.25) saturate(1.25); }
-
-        .brand-aura{
-          position:absolute; inset:-34px -44px; z-index: 0; pointer-events:none;
+        .brand-mark{
+          position: relative; display: inline-grid; place-items: center;
+          width: 32px; height: 32px;
+          border-radius: 10px;
+          overflow: hidden;
+          /* glow forte intorno al logo */
+          filter:
+            drop-shadow(0 0 10px rgba(56,189,248,.85))
+            drop-shadow(0 0 28px rgba(167,139,250,.65))
+            drop-shadow(0 0 44px rgba(255,255,255,.45));
+          animation: brandPulse 2.4s ease-in-out infinite;
+        }
+        .brand-mark :global(img){
+          width: 28px; height: 28px; border-radius: 6px;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
+        }
+        /* scintilla animata (niente cerchio pulsante dietro) */
+        .brand-mark::after{
+          content:"";
+          position:absolute; right:-2px; top:-2px;
+          width:18px; height:18px;
           background:
-            radial-gradient(55% 55% at 15% 30%, rgba(56,189,248,.55), transparent 60%),
-            radial-gradient(60% 60% at 75% 70%, rgba(167,139,250,.45), transparent 62%),
-            radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,.35), transparent 62%);
-          filter: blur(32px) brightness(1.35) saturate(1.25);
+            radial-gradient(circle at 50% 50%, #fff 0 30%, transparent 45%),
+            conic-gradient(from 0deg, #fff 0 22%, transparent 22% 100%);
+          filter:
+            drop-shadow(0 0 6px #fff)
+            drop-shadow(0 0 18px rgba(56,189,248,.9))
+            drop-shadow(0 0 26px rgba(167,139,250,.8));
           mix-blend-mode: screen;
-          animation: breathe 2.2s ease-in-out infinite;
+          border-radius: 50%;
+          animation: sparkleSpin 1.6s linear infinite;
+          pointer-events: none;
         }
-
-        .brand-icon{ position: relative; width: 26px; height: 26px; display:grid; place-items:center; z-index: 1; }
-        .brand-ring{
-          position:absolute; width: 52px; height: 52px; border-radius: 999px; z-index: 0;
-          background: conic-gradient(from 0deg, #22d3ee, #38bdf8, #a78bfa, #22d3ee);
-          filter: blur(12px) brightness(1.65) saturate(1.35);
-          opacity: .95; mix-blend-mode: screen; pointer-events:none;
-          animation: rotateAura 4.8s linear infinite;
-          -webkit-mask: radial-gradient(circle 14px at center, transparent 12px, #000 13px);
-                  mask: radial-gradient(circle 14px at center, transparent 12px, #000 13px);
-        }
-        .brand-dot{
-          width: 16px; height: 16px; border-radius: 50%;
-          background: radial-gradient(circle at 35% 35%, #e0f2fe 8%, #22d3ee 40%, #0ea5e9 70%);
-          box-shadow:
-            0 0 26px #38bdf8, 0 0 54px rgba(56,189,248,.95), 0 0 84px rgba(167,139,250,.75);
-          animation: ping 1.6s ease-in-out infinite;
-          filter: brightness(1.5) saturate(1.25);
-        }
-        .brand.burst .brand-dot{ box-shadow: 0 0 30px #fff, 0 0 90px #8b5cf6; }
-
         .brand-text{
-          position: relative; z-index: 1;
-          font-weight: 1000; letter-spacing: .30rem; font-size: 1.2rem;
-          background: linear-gradient(
-            90deg,
-            color-mix(in oklab, #22d3ee, #fff 34%),
-            color-mix(in oklab, #38bdf8, #fff 34%),
-            color-mix(in oklab, #a78bfa, #fff 34%)
-          );
-          background-size: 240% auto;
-          -webkit-background-clip: text; background-clip: text; color: transparent;
+          font-weight: 900; letter-spacing: .2rem; font-size: 1.02rem;
+          background: linear-gradient(90deg, #fff, #e0f2fe, #a78bfa, #fff);
+          background-size: 260% auto;
+          -webkit-background-clip: text; background-clip: text;
+          color: transparent;
           text-shadow:
-            0 0 24px rgba(255,255,255,.9),
-            0 0 60px color-mix(in srgb, #38bdf8, #fff 70%),
-            0 0 90px color-mix(in srgb, #a78bfa, #fff 65%);
-          animation: shimmerText 4.2s linear infinite;
-          filter: brightness(1.55) saturate(1.25);
+            0 0 10px rgba(255,255,255,.45),
+            0 0 28px rgba(56,189,248,.35);
+          animation: shimmerText 3.6s linear infinite;
         }
 
-        /* scintilla che attraversa il testo */
-        .brand-sparkle{
-          position:absolute; inset: 0; pointer-events:none;
-          background:
-            linear-gradient(115deg, transparent 0 44%, rgba(255,255,255,.95) 50%, transparent 56%),
-            linear-gradient(115deg, transparent 0 46%, rgba(56,189,248,.6) 50%, transparent 54%);
-          mix-blend-mode: screen;
-          filter: blur(2px) brightness(1.8);
-          transform: translateX(-120%) skewX(-18deg);
-          animation: sparkleSweep 3.2s ease-in-out infinite 0.6s;
-        }
-        .brand.burst .brand-sparkle{ animation-duration: 1.6s; }
-
-        .brand-underline{
-          position:absolute; left:50%; bottom: 6px; transform: translateX(-50%);
-          width: 96px; height: 2px; border-radius: 2px;
-          background:
-            radial-gradient(60% 100% at 50% 50%, rgba(255,255,255,.95), transparent 70%),
-            linear-gradient(90deg, #22d3ee, #38bdf8, #a78bfa);
-          filter: blur(6px) brightness(1.6);
-          mix-blend-mode: screen; pointer-events:none;
-          animation: sweep 2.2s ease-in-out infinite;
-        }
-        .brand.burst .brand-underline{ filter: blur(7px) brightness(1.9); }
-
-        /* LINKS */
-        .track{ display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; align-items: center; }
+        /* Links */
+        .track{ display:flex; gap: 12px; list-style:none; margin:0; padding:0; }
         .item{ white-space: nowrap; }
 
         .link{
           --c1: #22d3ee; --c2: #38bdf8;
           position: relative; display: inline-grid; place-items: center;
-          padding: 12px 18px; border-radius: 16px;
+          padding: 10px 16px; border-radius: 14px;
           text-decoration: none; color: var(--text);
           transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
-          border: 1px solid rgba(255,255,255,.08);
+          border: 1px solid transparent;
           isolation: isolate;
         }
-        .link::before{
-          content: ""; position: absolute; inset: -2px; border-radius: inherit; z-index: 0;
-          background:
-            conic-gradient(from 0deg,
-              color-mix(in oklab, var(--c1), #fff 35%),
-              color-mix(in oklab, var(--c2), #fff 35%),
-              color-mix(in oklab, var(--c1), #fff 35%)
-            );
-          filter: blur(18px) saturate(1.3) brightness(1.15);
-          opacity: .0; mix-blend-mode: screen;
-          transition: opacity .25s ease, filter .25s ease;
-          animation: rotateAura 6s linear infinite;
-        }
         .glow{
-          position: absolute; inset: -18px -26px; z-index: 0;
+          position: absolute; inset: -14px -22px; z-index: 0;
           background:
-            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 22%), transparent 58%),
-            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 22%), transparent 60%),
-            radial-gradient(40% 40% at 10% 20%, rgba(255,255,255,.28), transparent 60%);
-          filter: blur(22px) brightness(1.2);
-          opacity: .0; transition: opacity .25s ease, filter .25s ease;
-          mix-blend-mode: screen; pointer-events: none;
+            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 18%), transparent 60%),
+            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 16%), transparent 62%);
+          filter: blur(16px);
+          opacity: 0; transition: opacity .25s ease;
+          pointer-events: none;
         }
         .label{
-          position: relative; z-index: 1; font-weight: 900;
-          letter-spacing: .07rem; font-size: 1.14rem;
-          background: linear-gradient(90deg,
-            color-mix(in oklab, var(--c1), #fff 34%),
-            color-mix(in oklab, var(--c2), #fff 34%)
-          );
-          background-size: 240% auto;
-          -webkit-background-clip: text; background-clip: text; color: transparent;
-          text-shadow: 0 0 22px rgba(255,255,255,.7),
-                       0 0 48px color-mix(in srgb, var(--c2), #fff 48%);
+          position: relative; z-index: 1; font-weight: 800; letter-spacing: .02rem;
+          background: linear-gradient(90deg, var(--c1), var(--c2));
+          background-size: 220% auto;
+          -webkit-background-clip: text; background-clip: text;
+          color: transparent;
+          text-shadow:
+            0 0 12px rgba(255,255,255,.25),
+            0 0 18px color-mix(in srgb, var(--c1), #fff 20%);
           animation: shimmerText 6s linear infinite;
-          filter: brightness(1.28) saturate(1.14);
         }
+        .link:hover{ transform: translateY(-1px); }
+        .link:hover .glow{ opacity: .9; }
+        .link:hover .label{ animation-duration: 3.2s; filter: brightness(1.15); }
 
-        .link:hover{
-          transform: translateY(-2px) scale(1.01);
-          box-shadow:
-            0 12px 30px rgba(0,0,0,.40),
-            0 0 22px color-mix(in srgb, var(--c1), #fff 40%),
-            0 0 36px color-mix(in srgb, var(--c2), #fff 36%);
-        }
-        .link:hover::before{ opacity: .9; filter: blur(22px) brightness(1.35); }
-        .link:hover .glow{ opacity: .95; filter: blur(24px) brightness(1.35); }
-        .link:hover .label{ animation-duration: 2.6s; filter: brightness(1.34) saturate(1.18); }
-
+        /* Attivo super luminoso */
         .link.is-active{
-          background: linear-gradient(180deg, rgba(255,255,255,.30), rgba(255,255,255,.14));
-          border-color: rgba(255,255,255,.32);
+          background: rgba(255,255,255,.10);
+          border-color: rgba(255,255,255,.16);
           box-shadow:
-            0 16px 38px rgba(0,0,0,.44),
-            0 0 32px color-mix(in srgb, var(--c1), #fff 60%),
-            0 0 58px color-mix(in srgb, var(--c2), #fff 55%),
-            inset 0 1px 0 rgba(255,255,255,.26);
-          transform: translateY(-2px);
+            0 10px 26px rgba(0,0,0,.35),
+            0 0 0 1px rgba(255,255,255,.08) inset,
+            0 0 24px color-mix(in srgb, var(--c1), #fff 30%),
+            0 0 48px color-mix(in srgb, var(--c2), #fff 30%);
         }
-        .link.is-active::before{
-          opacity: 1; filter: blur(26px) brightness(1.6);
-          animation-duration: 4.5s;
-        }
-        .link.is-active .glow{
-          opacity: 1; filter: blur(26px) brightness(1.6);
-          animation: breathe 1.6s ease-in-out infinite;
-        }
+        .link.is-active .glow{ opacity: 1; }
         .link.is-active .label{
           text-shadow:
-            0 0 28px color-mix(in srgb, var(--c1), #fff 60%),
-            0 0 60px color-mix(in srgb, var(--c2), #fff 55%);
-          animation-duration: 2s;
-          filter: brightness(1.46) saturate(1.26);
+            0 0 18px #fff,
+            0 0 28px color-mix(in srgb, var(--c1), #fff 40%),
+            0 0 36px color-mix(in srgb, var(--c2), #fff 35%);
+          animation-duration: 2.2s;
+          filter: brightness(1.25);
         }
 
-        /* Animazioni */
-        @keyframes shimmerText { to { background-position: -240% center; } }
-        @keyframes ping { 0%,100% { transform: scale(1);   filter: brightness(1.15); }
-                          50%     { transform: scale(1.25); filter: brightness(1.45);} }
-        @keyframes breathe { 0%,100% { opacity: .9; transform: scale(1); }
-                             50%     { opacity: 1;  transform: scale(1.03); } }
-        @keyframes rotateAura { to { transform: rotate(360deg); } }
-        @keyframes sweep {
-          0%,100% { transform: translateX(-50%) scaleX(.95); opacity: .9; }
-          50%     { transform: translateX(-50%) scaleX(1.15); opacity: 1;  }
-        }
-        @keyframes sparkleSweep {
-          0%   { transform: translateX(-130%) skewX(-18deg); opacity: .0; }
-          25%  { opacity: 1; }
-          60%  { transform: translateX(130%)  skewX(-18deg); opacity: .0; }
-          100% { transform: translateX(130%)  skewX(-18deg); opacity: .0; }
-        }
-        @keyframes brandHue { to { filter: hue-rotate(360deg); } }
-
-        /* Mobile: brand centrato, nav leggibile, niente scrollbar orizzontale */
-        @media (max-width: 540px){
-          .inner{
-            height: auto; min-height: 116px;
-            justify-content: center; flex-wrap: wrap;
-            padding: 12px 12px;
-            mask-image: none; -webkit-mask-image: none;
-          }
-          .scroll-fade::before, .scroll-fade::after{ display: none; }
-          .brand{ width: 100%; justify-content: center; order: -1; }
-          .track{ width: 100%; justify-content: center; gap: 12px; flex-wrap: wrap; }
-          .link{ padding: 10px 16px; border-radius: 14px; }
-          .label{ font-size: 1.06rem; }
+        /* Effetti */
+        @keyframes shimmerText { to { background-position: -260% center; } }
+        @keyframes sparkleSpin { to { transform: rotate(360deg); } }
+        @keyframes brandPulse {
+          0%,100% { filter: drop-shadow(0 0 10px rgba(56,189,248,.85)) drop-shadow(0 0 28px rgba(167,139,250,.65)) drop-shadow(0 0 44px rgba(255,255,255,.45)); }
+          50%     { filter: drop-shadow(0 0 16px rgba(56,189,248,1))   drop-shadow(0 0 38px rgba(167,139,250,.9))  drop-shadow(0 0 60px rgba(255,255,255,.7)); }
         }
 
-        @media (prefers-reduced-motion: reduce){
-          .brand-ring, .brand-aura, .brand-text, .brand-underline,
-          .brand-sparkle, .glow, .link::before, .label, .brand { animation: none !important; }
+        @media (max-width: 520px){
+          .inner{ gap: 12px; justify-content: center; }
+          .brand-text{ font-size: .98rem; letter-spacing: .18rem; }
         }
       `}</style>
     </>
