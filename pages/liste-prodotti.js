@@ -1360,48 +1360,123 @@ function decrementAcrossBothLists(prevLists, purchases) {
         return;
       }
 
-      if (intent === 'stock_update' && updates.length) {
-        let applied = 0;
-        setStock(prev => {
-          const arr = [...prev];
-          const todayISO = new Date().toISOString().slice(0,10);
+     if (intent === 'stock_update' && updates.length) {
+  let applied = 0;
+  setStock(prev => {
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0,10);
 
-          for (const u of updates) {
-            let idx = arr.findIndex(s => isSimilar(s.name, u.name));
-            const isSet = (u.op === 'set');
-            const isUnits = (u.mode === 'units');
+    for (const u of updates) {
+      let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+      const opInput  = (u.op === 'set' ? 'set' : 'add');
+      let mode = u.mode || 'packs';
 
-            if (idx < 0) {
-              // crea nuova riga scorte
-              if (isUnits) {
-                if (isSet) {
-                  arr.unshift({
-                    name: u.name, brand: '',
-                    packs: Math.max(1, Math.ceil(Number(u.value||1))),
-                    unitsPerPack: 1, unitLabel:'unità',
-                    expiresAt:'', baselinePacks: Math.max(1, Math.ceil(Number(u.value||1))),
-                    lastRestockAt: todayISO, avgDailyUnits:0
-                  });
-                } else {
-                  arr.unshift({
-                    name: u.name, brand: '',
-                    packs: 1, unitsPerPack: Math.max(1, Math.round(Number(u.value||1))), unitLabel:'unità',
-                    expiresAt:'', baselinePacks:1,
-                    lastRestockAt: todayISO, avgDailyUnits:0
-                  });
-                }
-              } else {
-                const p = Math.max(0, Number(u.value||0));
-                arr.unshift({
-                  name: u.name, brand: '',
-                  packs: p, unitsPerPack:1, unitLabel:'unità',
-                  expiresAt:'', baselinePacks: p,
-                  lastRestockAt: todayISO, avgDailyUnits:0
-                });
-              }
-              applied++;
-              continue;
-            }
+      // mode "auto": se esiste il prodotto e ha UPP>1 → units, altrimenti packs
+      if (mode === 'auto' && idx >= 0) {
+        const upp0 = Math.max(1, Number(arr[idx].unitsPerPack || 1));
+        mode = upp0 > 1 ? 'units' : 'packs';
+      } else if (mode === 'auto') {
+        mode = 'packs';
+      }
+
+      // CREAZIONE SE NON ESISTE
+      if (idx < 0) {
+        if (mode === 'units') {
+          const upp = Math.max(1, Number(u.upp || 1));
+          const packs = opInput === 'set' ? Math.max(1, Math.ceil(Number(u.value || 1) / upp)) : 1;
+          const residueUnits = opInput === 'set' ? Math.max(0, Number(u.value || 0)) : upp;
+          arr.unshift({
+            name: u.name, brand: '',
+            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
+            expiresAt: '',
+            baselinePacks: packs, lastRestockAt: todayISO,
+            residueUnits,
+            avgDailyUnits: 0
+          });
+        } else { // packs
+          const upp = Math.max(1, Number(u.upp || 1));
+          const packs = Math.max(1, Number(u.value || 1));
+          const residueUnits = packs * upp; // pieno delle confezioni create
+          arr.unshift({
+            name: u.name, brand: '',
+            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
+            expiresAt: '',
+            baselinePacks: packs, lastRestockAt: todayISO,
+            residueUnits,
+            avgDailyUnits: 0
+          });
+        }
+        applied++;
+        continue;
+      }
+
+      // AGGIORNAMENTO SE ESISTE
+      const old = arr[idx];
+      let upp   = Math.max(1, Number(old.unitsPerPack || 1));
+      let packs = Math.max(0, Number(old.packs || 0));
+      let ru    = Number.isFinite(Number(old.residueUnits))
+                    ? Math.max(0, Number(old.residueUnits))
+                    : packs * upp;
+
+      // se nel parlato arriva un nuovo UPP (es. "da 6 bottiglie")
+      if (Number(u.upp) > 0) {
+        const newUPP = Math.max(1, Number(u.upp));
+        // aggiorna UPP se prima era 1 o diverso
+        if (!old.unitsPerPack || old.unitsPerPack === 1 || newUPP !== old.unitsPerPack) {
+          upp = newUPP;
+        }
+      }
+      const unitLabel = u.unitLabel || old.unitLabel || 'unità';
+
+      if (mode === 'units') {
+        const valUnits = Math.max(0, Number(u.value || 0));
+        if (opInput === 'set') ru = valUnits;
+        else ru = ru + valUnits;
+
+        // clamp al pieno corrente
+        const baselineUnitsAfter = Math.max(upp, packs * upp);
+        ru = Math.min(ru, baselineUnitsAfter);
+
+      } else if (mode === 'packs') {
+        const valPacks = Math.max(0, Number(u.value || 0));
+        if (opInput === 'set') {
+          // set diretto del numero confezioni
+          packs = Math.max(0, valPacks);
+        } else {
+          // add confezioni ⇒ restock parziale: aumenta residuo di (confezioni aggiunte × UPP)
+          const before = packs;
+          packs = Math.max(0, packs + valPacks);
+          const added = Math.max(0, packs - before);
+          if (added > 0) {
+            ru = ru + (added * upp);
+          }
+        }
+
+        // baseline aggiornata alle confezioni correnti
+        const baselineUnitsAfter = Math.max(upp, packs * upp);
+        ru = Math.min(ru, baselineUnitsAfter);
+      }
+
+      // Scrivi riga aggiornata
+      const restock = packs > Number(old.packs || 0);
+      arr[idx] = {
+        ...old,
+        packs,
+        unitsPerPack: upp,
+        unitLabel,
+        residueUnits: ru,
+        baselinePacks: packs,                         // baseline = confezioni correnti
+        lastRestockAt: restock ? todayISO : old.lastRestockAt, // timestamp solo se aumentano le confezioni
+      };
+
+      applied++;
+    }
+    return arr;
+  });
+
+  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
+  return;
+}
 
             // Esiste già
             const old = arr[idx];
