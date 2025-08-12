@@ -27,7 +27,7 @@ export default function NavBar() {
               <span className="brand-text">JARVIS</span>
             </span>
 
-            {/* Equalizzatore con alternanza immagine di sfondo */}
+            {/* Equalizzatore + alternanza immagine */}
             <span className="brand-anim" aria-hidden="true">
               <span className="eqbox">
                 <span className="bar b1" />
@@ -68,7 +68,7 @@ export default function NavBar() {
           --nav-bg: rgba(2,6,23,.72);
           --nav-brd: rgba(255,255,255,.12);
           --text: #f8fafc;
-          --eq-bg: url('/ai-eq-bg.jpg'); /* <— opzionale, la puoi cambiare */
+          --eq-bg: url('/ai-eq-bg.jpg'); /* opzionale */
         }
 
         .nav{
@@ -84,7 +84,7 @@ export default function NavBar() {
           padding: 0 16px; gap: 32px; overflow: hidden;
         }
 
-        /* BRAND */
+        /* BRAND (tutte le animazioni ripristinate) */
         .brand{
           display:inline-flex; align-items:center; gap:22px;
           padding:8px 8px 8px 0; text-decoration:none; margin-right:28px;
@@ -98,40 +98,37 @@ export default function NavBar() {
           background:
             radial-gradient(60% 60% at 30% 50%, rgba(94,234,212,.55), transparent 60%),
             radial-gradient(70% 70% at 80% 50%, rgba(96,165,250,.48), transparent 62%);
-          filter: blur(20px); animation: brandPulse 2.3s ease-in-out infinite;
+          filter: blur(20px);
+          animation: brandPulse 2.3s ease-in-out infinite;
         }
-
-        /* 🔆 SOLO QUESTA PARTE CAMBIATA PER RENDERLA PIÙ CHIARA */
         .brand-text{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .30rem;
           font-size: clamp(1.65rem, 3.6vw, 2rem);
           line-height: 1;
 
-          /* riempimento caleidoscopico — palette PIÙ CHIARA */
+          /* riempimento kaleidoscopico CHIARO */
           background: conic-gradient(from 0deg,
-            #a7f3d0 0%, #67e8f9 16%, #93c5fd 32%, #c4b5fd 48%, #f5d0fe 64%, #93c5fd 80%, #a7f3d0 100%);
+            #bfffe7 0%, #7ee9ff 16%, #a7c8ff 32%, #d1b8ff 48%, #ffd6ff 64%, #a7c8ff 80%, #bfffe7 100%);
           background-size: 200% 200%;
           -webkit-background-clip: text; background-clip: text; color: transparent;
 
-          /* rilievo con bordo LEGGERO e highlight */
-          -webkit-text-stroke: 0.6px rgba(0,0,0,.35);
+          /* RILIEVO: bordo meno scuro + highlight + ombra */
+          -webkit-text-stroke: 0.8px rgba(0,0,0,.22);   /* bordo più chiaro */
           paint-order: stroke fill;
           text-shadow:
-            0 -1px 0 rgba(255,255,255,.55),   /* highlight superiore */
-            0 1px 1px rgba(0,0,0,.25),        /* leggera ombra inferiore */
-            0 0 26px rgba(96,165,250,.70),    /* glow blu */
-            0 0 46px rgba(167,139,250,.55);   /* glow violetto */
+            0 -1px 0 rgba(255,255,255,.75),             /* highlight superiore */
+            0 1px 1px rgba(0,0,0,.25),                  /* leggera ombra inferiore */
+            0 2px 3px rgba(0,0,0,.25),                  /* profondità */
+            0 0 26px rgba(56,189,248,.80),              /* glow blu */
+            0 0 46px rgba(167,139,250,.65);             /* glow violetto */
 
-          /* più luminosa */
-          filter: brightness(1.85) contrast(1.05) saturate(1.08);
-
+          filter: brightness(1.9) contrast(1.06) saturate(1.1);
           animation: kaleido 6.2s linear infinite, glowBreath 2.4s ease-in-out infinite;
           white-space: nowrap;
         }
-        /* 🔆 FINE MODIFICA */
 
-        /* Equalizzatore + alternanza immagine di sfondo */
+        /* Equalizzatore + immagine alternata (bgAlt, barHop) */
         .brand-anim{ width: 140px; height: 24px; display:inline-grid; place-items:center; }
         .eqbox{
           position: relative; width: 100%; height: 100%;
@@ -139,7 +136,8 @@ export default function NavBar() {
         }
         .eqbox::before{
           content:""; position:absolute; inset:-2px -6px; z-index:-1;
-          background: var(--eq-bg) center/cover no-repeat, radial-gradient(120% 120% at 80% 20%, rgba(255,255,255,.14), transparent 60%);
+          background: var(--eq-bg) center/cover no-repeat,
+                      radial-gradient(120% 120% at 80% 20%, rgba(255,255,255,.14), transparent 60%);
           border-radius: 8px;
           box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 10px 24px rgba(0,0,0,.35);
           opacity: 0; filter: saturate(1.05) contrast(1.05) brightness(0.95);
@@ -202,17 +200,17 @@ export default function NavBar() {
           animation-duration: 2.2s; filter: brightness(1.7);
         }
 
-        /* ANIMAZIONI */
+        /* ANIMAZIONI (ripristinate) */
         @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes kaleido { to { background-position: 200% 200%; } }
-        @keyframes toneSync { to { filter: hue-rotate(360deg); } }
-        @keyframes glowBreath {
-          0%,100% { text-shadow: 0 -1px 0 rgba(255,255,255,.55), 0 1px 1px rgba(0,0,0,.25), 0 0 26px rgba(96,165,250,.7), 0 0 46px rgba(167,139,250,.55); }
-          50%     { text-shadow: 0 -1px 0 rgba(255,255,255,.7),  0 1px 1px rgba(0,0,0,.25), 0 0 36px rgba(96,165,250,.95), 0 0 64px rgba(167,139,250,.75); }
+        @keyframes kaleido     { to { background-position: 200% 200%; } }
+        @keyframes toneSync    { to { filter: hue-rotate(360deg); } }
+        @keyframes glowBreath  {
+          0%,100% { text-shadow: 0 -1px 0 rgba(255,255,255,.75), 0 1px 1px rgba(0,0,0,.25), 0 2px 3px rgba(0,0,0,.25), 0 0 26px rgba(56,189,248,.8), 0 0 46px rgba(167,139,250,.65); }
+          50%     { text-shadow: 0 -1px 0 rgba(255,255,255,.9),  0 1px 1px rgba(0,0,0,.25), 0 2px 3px rgba(0,0,0,.25), 0 0 38px rgba(56,189,248,1), 0 0 70px rgba(167,139,250,.85); }
         }
-        @keyframes brandPulse { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:.98; transform: scale(1.05); } }
-        @keyframes barHop { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
-        @keyframes bgAlt {
+        @keyframes brandPulse  { 0%,100% { opacity:.60; transform: scale(1); } 50% { opacity:.98; transform: scale(1.05); } }
+        @keyframes barHop      { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+        @keyframes bgAlt       {
           0%,42%   { opacity: 0; }
           50%,92%  { opacity: .95; }
           100%     { opacity: 0; }
