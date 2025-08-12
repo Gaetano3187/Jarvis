@@ -1,3 +1,4 @@
+
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -487,107 +488,109 @@ function hasExplicitPackStructure(text){
   return /(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*\d+/.test(s);
 }
 
-
-
-/* --------- Parser VOCALE scorte: multi-prodotto + frasi miste con scadenze --------- */
+/* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
+/* --------- Parser VOCALE per aggiornare scorte (esteso) --------- */
+/* --------- Parser VOCALE scorte con "inerzia" su righe esistenti --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”, ecc.
-
-  // Regex per rimuovere solo contenuti scadenza dal sotto-blocco per analisi scorte
-  const DATE_RE = /\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/g;
-  const EXPIRY_WORDS_RE = /\b(scad(?:enza|e)?|entro|preferibilmente|da\s+consumare|da\s+consumarsi)\b/g;
-
-  // Numeri in lettere (base)
-  const WORD2NUM = {
-    un: 1, uno: 1, una: 1,
-    due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6,
-    sette: 7, otto: 8, nove: 9, dieci: 10
-  };
-
-  // Helper: estrazione numero da cifre o parole
-  function extractNumber(str) {
-    const mDigits = str.match(/(\d+(?:[.,]\d+)?)/);
-    if (mDigits) return Number(String(mDigits[1]).replace(',','.'));
-    const mWord = str.match(/\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
-    if (mWord) return WORD2NUM[mWord[1].toLowerCase()] ?? null;
-    return null;
-  }
+  const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”
 
   for (let rawChunk of parts) {
-    // Spezza anche su “ e ” per gestire frasi come “latte sono 6 bottiglie e scade il 15/07/2025”
+    if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
+    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
+    if (/\b20\d{2}\b/.test(rawChunk)) continue;
+
     const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
 
-    for (let raw of chunks) {
-      // Per le scorte, rimuovi parole/data di scadenza ma non scartare il blocco
-      const chunk = raw.replace(DATE_RE, ' ').replace(EXPIRY_WORDS_RE, ' ').replace(/\s{2,}/g, ' ').trim();
-      if (!chunk) continue;
-
+    for (const chunk of chunks) {
       const name = guessProductName(chunk);
       if (!name) continue;
 
-      // Riconosce restock esplicito tipo “2 confezioni da 6 …”
+      // Rileva struttura esplicita "confezioni da X"
       const explicit = hasExplicitPackStructure(chunk);
       const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
 
-      // Cattura numero + eventuale etichetta (bottiglie/pacchi/…)
-      let m = chunk.match(/(?:\bsono\b|\bsiano\b|\bne\s+ho\b|\bne\b)?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
-
-      // Fallback numeri in lettere
-      if (!m) {
-        const num = extractNumber(chunk);
-        if (num != null) m = [null, String(num), ''];
+      // Numero finale (anche "sono 3 ...")
+      let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
+      // Parole 2..10 come numero
+      if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
+        const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
+        const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
+        m = w ? [null, String(map[w[1].toLowerCase()]), ''] : null;
       }
 
-      // SOLO nome (nessun numero): default 1 unità
-      if (!m) {
+      const valNum = m ? Number(String(m[1]).replace(',','.')) : NaN;
+      const tag = (m && m[2] ? m[2].toLowerCase() : '');
+
+      // 1) Caso SOLO NOME → incrementa (nuovo: 1 conf × 1); su riga esistente poi tratteremo come “set residuo = 1”
+      if (!/\d/.test(chunk)) {
         res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
         continue;
       }
 
-      // Restock esplicito → packs/UPP dal testo
+      // 2) Caso ESPRESSO “confezione/i da X” → è un vero restock strutturale
       if (explicit) {
-        const packsVal = Math.max(1, Number(pack.packs || 1));
-        const uppVal   = Math.max(1, Number(pack.unitsPerPack || 1));
-        res.push({
-          name,
-          mode: 'packs',
-          value: packsVal,
-          op: 'restockExplicit',
-          _packs: packsVal,
-          _upp: uppVal
-        });
+        const packs = Math.max(1, Number(pack.packs || 1));
+        const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
+        res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp });
         continue;
       }
 
-      // Caso numerico semplice (inerzia se esiste già)
-      const valNum = Number(String(m[1]).replace(',', '.'));
-      if (!Number.isFinite(valNum) || valNum <= 0) continue;
-
-      const tag = (m[2] || '').toLowerCase();
+      // 3) Caso numerico semplice (“latte 3 bottiglie”, “pasta 4 pacchi”, “fiesta 3 unità”)
       const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
+      const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
+      if (!value) continue;
 
-      // Hint per creazione riga nuova
+      // Di default: sarà interpretato come “set residuo” se la riga esiste;
+      // se NON esiste, creeremo la struttura migliore:
+      // - se tag è "units-like" → packs=1, upp=value
+      // - se tag è "packs-like" → packs=value, upp=1
       const packsLike = /pacc|conf|scatol/.test(tag);
-      const hintPacks = packsLike ? valNum : 1;
-      const hintUpp   = packsLike ? 1 : valNum;
+      const hintPacks = packsLike ? value : 1;
+      const hintUpp   = packsLike ? 1 : value;
 
       res.push({
         name,
         mode: asUnits ? 'units' : 'packs',
-        value: valNum,
+        value,
         op: absolute ? 'set' : 'maybeResidue',
         _packs: Math.max(1, hintPacks),
-        _upp: Math.max(1, hintUpp)
+        _upp: Math.max(1, hintUpp),
       });
     }
   }
   return res;
 }
 
+/* ---------- calcoli consumo/aggiornamento ---------- */
+function computeNewAvgDailyUnits(old, newPacks) {
+  const upp = Math.max(1, Number(old.unitsPerPack || 1));
+  const oldUnits = Number(old.packs || 0) * upp;
+  const newUnits = Number(newPacks || 0) * upp;
+  let avg = old?.avgDailyUnits || 0;
+
+  if (old?.lastRestockAt && newUnits < oldUnits) {
+    const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
+    const usedUnits = oldUnits - newUnits;
+    const day = usedUnits / days;
+    avg = avg ? (0.6*avg + 0.4*day) : day;
+  }
+  return avg;
+}
+
+function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
+  const upp = Math.max(1, Number(unitsPerPack || 1));
+  const bp  = Math.max(0, Number(baselineFromPacks || 0));
+  const fullUnits = bp * upp;
+  return {
+    baselinePacks: bp,
+    lastRestockAt: lastDateISO,
+    residueUnits: fullUnits, // pieno al restock
+  };
+}
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
@@ -1309,7 +1312,6 @@ function decrementAcrossBothLists(prevLists, purchases) {
   }
 
 /* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
-/* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
 async function toggleVoiceInventory() {
   if (invRecBusy) {
     try { invMediaRef.current?.stop(); } catch {}
@@ -1348,14 +1350,14 @@ async function processVoiceInventory() {
       return;
     }
 
-    // 1) Heuristica: se contiene data/parole di scadenza
+    // 1) Heuristica: presenza parole/data scadenza
     const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
 
-    // 2) Parser locali (entrambi, per supportare comandi MISTI nello stesso dettato)
+    // 2) Parser locali (entrambi, per consentire modalità “mista”)
     let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
     let updates  = parseStockUpdateText(text);
 
-    // 3) Fallback Assistant per SCADENZE
+    // 3) Fallback Assistant per SCADENZE (se utile)
     if (looksExpiry && expiries.length === 0) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
@@ -1380,7 +1382,7 @@ async function processVoiceInventory() {
       }
     }
 
-    // 4) Fallback Assistant per SCORTE
+    // 4) Fallback Assistant per SCORTE (se utile)
     if (updates.length === 0 && !looksExpiry) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
@@ -1460,7 +1462,7 @@ async function processVoiceInventory() {
               continue;
             }
 
-            // Inerzia: aggiorna SOLO il residuo in unità (non toccare packs/UPP)
+            // Inerzia: aggiorna SOLO il residuo in unità (anche > pieno attuale)
             const ru = Math.max(0, Number(u.value || 0) || 0);
             arr[idx] = { ...old, residueUnits: ru };
             applied++;
@@ -1542,6 +1544,48 @@ async function processVoiceInventory() {
   }
 }
 
+  /* ---------------- Aggiunta SCORTE manuale ---------------- */
+  function addManualStock(e) {
+    e.preventDefault();
+    const name = stockForm.name.trim();
+    if (!name) return;
+    const brand = (stockForm.brand || '').trim();
+    const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
+    const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
+    const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
+    const ex = toISODate(stockForm.expiresAt || '');
+    const todayISO = new Date().toISOString().slice(0,10);
+
+    setStock(prev => {
+      const arr = [...prev];
+      const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
+      if (idx >= 0) {
+        const old = arr[idx];
+        const newPacks = Number(old.packs || 0) + packs;
+        arr[idx] = {
+          ...old,
+          packs: newPacks,
+          unitsPerPack: old.unitsPerPack || unitsPerPack,
+          unitLabel: old.unitLabel || unitLabel,
+          expiresAt: ex || old.expiresAt || '',
+          ...restockTouch(newPacks, todayISO)
+        };
+      } else {
+        arr.unshift({
+          name, brand,
+          packs, unitsPerPack, unitLabel,
+          expiresAt: ex || '',
+          baselinePacks: packs,
+          lastRestockAt: todayISO,
+          avgDailyUnits: 0
+        });
+      }
+      return arr;
+    });
+
+    setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
+    showToast('Scorta aggiunta ✓', 'ok');
+  }
 
   /* ---------------- render ---------------- */
   return (
