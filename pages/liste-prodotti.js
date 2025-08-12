@@ -479,47 +479,86 @@ function looksLikeSetResidue(text) {
 }
 
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
+/* --------- Parser VOCALE per aggiornare scorte (esteso) --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
 
-  // spezzatura "soft"
-  const parts = t
-    .split(/[,;]+/g)
-    .map(s => s.trim())
-    .filter(Boolean);
+  // Spezzatura morbida
+  const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text); // se frasi tipo "porta a...", usiamo set come default del batch
+  const absolute = wantsAbsoluteSet(text); // “porta a … / imposta a …”
 
-  for (let chunk of parts) {
-    // Scarta blocchi che parlano di scadenze/date
-    if (/scad|scadenza|scade|entro/.test(chunk)) continue;
-    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(chunk)) continue;
-    if (/\b20\d{2}\b/.test(chunk)) continue; // evita anni tipo 2025
+  for (let rawChunk of parts) {
+    // Skip se parla di scadenze/date
+    if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
+    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
+    if (/\b20\d{2}\b/.test(rawChunk)) continue;
 
-    // scomponi " e " solo dopo la prima scrematura
-    const candidates = chunk.split(/\s+e\s+/g).filter(Boolean);
+    // Spezza su “ e ”, poi processa ogni pezzetto
+    const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
 
-    for (const c of (candidates.length ? candidates : [chunk])) {
-      const m = c.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
-      if (!m) continue;
-      let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
-      if (!name) continue;
+    for (const chunk of chunks) {
+      // 2.a) Caso “solo nome” → +1 confezione, 1 unità/conf., residuo aggiornato dal flusso applicativo
+      if (!/\d/.test(chunk)) {
+        const nameOnly = guessProductName(chunk);
+        if (nameOnly) {
+          res.push({ name: nameOnly, mode: 'packs', value: 1, op: 'add', _upp: 1 });
+        }
+        continue;
+      }
 
-      let value = Number(String(m[2]).replace(',','.')) || 0;
-      if (!Number.isFinite(value) || value <= 0) continue;
-      if (value >= 1000) continue; // difesa su numeri assurdi
-      const tag = (m[3]||'').toLowerCase();
+      // 2.b) Caso “una confezione di latte da 6 bottiglie” (ordine libero)
+      // Trova il nome presente nel chunk
+      let name = '';
+      for (const lex of GROCERY_LEXICON) { if (isSimilar(chunk, lex)) { name = lex; break; } }
+      if (!name) name = guessProductName(chunk);
 
-      // normalizza nome
-      for (const lex of GROCERY_LEXICON) { if (isSimilar(name, lex)) { name = lex; break; } }
+      // Estrai pattern confezioni/unità da testo completo
+      const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
 
-      const mode = /unit|pz|pezzi|barrett|vasett|uova/.test(tag) ? 'units' : 'packs';
+      // 2.c) Caso “latte sono 2 bottiglie / sono due …” → set residuo (units), NO modifica packs/upp
+      if (looksLikeSetResidue(chunk)) {
+        // Trova numero + unità/“due”
+        let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|unit[aà]|pz|pezzi|vasetti|uova|barrette)?$/i);
+        if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
+          const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
+          const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
+          if (w) m = [null, String(map[w[1].toLowerCase()]), '']; // finto match
+        }
+        const val = m ? Number(String(m[1]).replace(',','.')) : NaN;
+        if (name && Number.isFinite(val) && val > 0) {
+          res.push({ name, mode: 'units', value: val, op: 'setResidue' });
+          continue;
+        }
+      }
 
-      // op: se la frase complessiva conteneva pattern "porta a ..." → set, altrimenti add
-      const op = absolute ? 'set' : 'add';
+      // 2.d) Caso classico “latte 3 bottiglie / pasta 2 pacchi …”
+      const mClassic = chunk.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
+      if (mClassic) {
+        let nm = (mClassic[1]||'').trim();
+        if (!nm) nm = name;
+        for (const lex of GROCERY_LEXICON) { if (isSimilar(nm, lex)) { nm = lex; break; } }
 
-      res.push({ name, mode, value, op });
+        const value = Math.max(0, Number(String(mClassic[2]).replace(',','.')) || 0);
+        if (!nm || !value) continue;
+
+        const tag = (mClassic[3]||'').toLowerCase();
+        const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott/.test(tag);
+        const mode = asUnits ? 'units' : 'packs';
+        const op = absolute ? 'set' : 'add';
+
+        // Se abbiamo già capito le unità/conf. dal testo, portiamole nel payload (_upp)
+        const _upp = Number(pack.unitsPerPack || (asUnits ? value : 1)) || 1;
+
+        res.push({ name: nm, mode, value, op, _upp });
+        continue;
+      }
+
+      // 2.e) Fallback “ho capito le confezioni dal testo”
+      if (name && (pack.packs || pack.unitsPerPack)) {
+        res.push({ name, mode: 'packs', value: Math.max(1, Number(pack.packs||1)), op: 'add', _upp: Math.max(1, Number(pack.unitsPerPack||1)) });
+      }
     }
   }
   return res;
