@@ -1,6 +1,5 @@
 // components/NavBar.js
 import Link from 'next/link';
-import Head from 'next/head';
 import { useRouter } from 'next/router';
 
 const links = [
@@ -19,18 +18,24 @@ export default function NavBar() {
 
   return (
     <>
-      {/* Font display per il brand */}
-      <Head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" rel="stylesheet" />
-      </Head>
-
       <nav className="nav">
-        <div className="inner scroll-fade">
-          {/* Brand solo testo con effetto caleidoscopio */}
+        <div className="inner">
+          {/* Brand testuale con glow + ECG */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
+            <span className="brand-glow" aria-hidden="true" />
             <span className="brand-text">JARVIS</span>
+            <span className="ecg" aria-hidden="true">
+              <svg className="ecg-svg" viewBox="0 0 120 24" preserveAspectRatio="none">
+                <polyline
+                  className="ecg-line"
+                  points="0,12 12,12 18,4 24,20 30,12 48,12 58,6 68,18 78,12 120,12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  pathLength="100"
+                />
+              </svg>
+            </span>
           </Link>
 
           {/* Links */}
@@ -56,141 +61,174 @@ export default function NavBar() {
         </div>
       </nav>
 
-      {/* Non coprire i contenuti */}
-      <style jsx global>{`
-        :root { --nav-h: 84px; }
-        @media (max-width: 540px){ :root { --nav-h: 92px; } }
-        body { padding-top: calc(var(--nav-h) + env(safe-area-inset-top, 0px)); }
-
-        /* Variabile animabile per l'angolo del gradiente (kaleidoscopio) */
-        @property --ang {
-          syntax: '<angle>';
-          inherits: false;
-          initial-value: 0deg;
-        }
-      `}</style>
-
       <style jsx>{`
         :root{
-          --nav-bg: rgba(2,6,23,.66);
-          --nav-brd: rgba(255,255,255,.12);
-          --text: #f8fafc;
+          --nav-bg: rgba(2,6,23,.64);     /* leggermente meno trasparente */
+          --nav-brd: rgba(255,255,255,.10);
+          --text: #f3f4f6;
         }
 
         .nav{
-          position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
-          height: var(--nav-h);
+          position: sticky; top: 0; z-index: 50;
+          width: 100%;
           background: var(--nav-bg);
-          backdrop-filter: blur(14px) saturate(1.15);
+          backdrop-filter: blur(12px) saturate(1.15);
           border-bottom: 1px solid var(--nav-brd);
           box-shadow: 0 10px 28px rgba(0,0,0,.28);
         }
 
         .inner{
-          height: 100%;
-          display: flex; align-items: center; gap: 18px;
+          height: 64px;
+          display: flex; align-items: center; justify-content: flex-start;
           padding: 0 16px;
-          overflow-x: auto; scrollbar-width: none;
-          justify-content: center;          /* centrata anche su mobile */
+          gap: 18px;                      /* più spazio globale */
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;          /* nasconde scrollbar */
         }
         .inner::-webkit-scrollbar{ display: none; }
 
-        /* Brand: font distintivo + caleidoscopio */
+        /* BRAND */
         .brand{
-          display: inline-flex; align-items: center;
-          padding: 8px 12px; text-decoration: none;
-        }
-        .brand-text{
-          font-family: 'Audiowide', system-ui, sans-serif;
-          font-size: clamp(1.12rem, 2.8vw, 1.34rem);
-          letter-spacing: .32rem; font-weight: 900;
-          color: transparent;
-          background:
-            conic-gradient(from var(--ang),
-              #ffffff,
-              #e879f9,
-              #60a5fa,
-              #22d3ee,
-              #a78bfa,
-              #ffffff);
-          -webkit-background-clip: text; background-clip: text;
-          text-shadow:
-            0 0 14px rgba(255,255,255,.55),
-            0 0 28px rgba(56,189,248,.45),
-            0 0 44px rgba(167,139,250,.45);
-          animation:
-            kscope 6s linear infinite,
-            glowPulse 2.2s ease-in-out infinite;
-          will-change: filter;
-        }
-        @keyframes kscope { to { --ang: 360deg; } }
-        @keyframes glowPulse {
-          0%,100% { filter: brightness(1.08) saturate(1.05); }
-          50%     { filter: brightness(1.35) saturate(1.15); }
+          position: relative;
+          display: inline-flex; align-items: center; gap: 14px;
+          padding: 10px 12px 10px 2px;
+          text-decoration: none;
+          margin-right: 14px;             /* distanzia dal menu */
         }
 
-        /* Lista link */
-        .track{ display:flex; gap: 12px; list-style:none; margin:0; padding:0; }
+        /* bagliore morbido che pulsa attorno al brand */
+        .brand-glow{
+          position: absolute; inset: -12px -18px;
+          background:
+            radial-gradient(60% 60% at 30% 50%, rgba(34,211,238,.32), transparent 60%),
+            radial-gradient(70% 70% at 80% 50%, rgba(167,139,250,.24), transparent 62%);
+          filter: blur(14px);
+          animation: brandPulse 2.4s ease-in-out infinite;
+          pointer-events: none;
+        }
+
+        /* testo logo più grande + “c effect” caleidoscopio */
+        .brand-text{
+          font-weight: 900;
+          letter-spacing: .22rem;
+          font-size: 1.18rem;            /* leggermente più grande */
+          line-height: 1;
+          background:
+            conic-gradient(from 0deg,
+              #22d3ee, #38bdf8, #a78bfa, #e879f9, #22d3ee);
+          background-size: 200% 200%;
+          -webkit-background-clip: text; background-clip: text;
+          color: transparent;
+          text-shadow:
+            0 0 22px rgba(56,189,248,.35),
+            0 0 36px rgba(167,139,250,.25);
+          animation: kaleido 8s linear infinite, glowBreath 3s ease-in-out infinite;
+          filter: brightness(1.18);
+          white-space: nowrap;
+        }
+
+        /* ECG animato a destra del brand */
+        .ecg{
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 72px; height: 18px; overflow: visible;
+          opacity: .95;
+          filter: drop-shadow(0 0 10px rgba(34,211,238,.6));
+        }
+        .ecg-svg{ width: 72px; height: 18px; color: #22d3ee; }
+        .ecg-line{
+          stroke-dasharray: 100;
+          stroke-dashoffset: 100;
+          animation: ecgDraw 2.2s ease-in-out infinite;
+        }
+
+        /* LISTA LINK */
+        .track{
+          display: flex; gap: 12px; list-style: none; margin: 0; padding: 0;
+        }
         .item{ white-space: nowrap; }
 
         .link{
           --c1: #22d3ee; --c2: #38bdf8;
           position: relative; display: inline-grid; place-items: center;
-          padding: 10px 16px; border-radius: 14px;
+          padding: 10px 16px; border-radius: 12px;
           text-decoration: none; color: var(--text);
           transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
           border: 1px solid transparent;
           isolation: isolate;
         }
+
         .glow{
-          position: absolute; inset: -14px -22px; z-index: 0;
+          position: absolute; inset: -16px -22px; z-index: 0;
           background:
-            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 22%), transparent 60%),
-            radial-gradient(70% 70% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 20%), transparent 62%);
+            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c1), #ffffff 14%), transparent 60%),
+            radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--c2), #ffffff 12%), transparent 62%);
           filter: blur(18px);
           opacity: 0; transition: opacity .25s ease;
           pointer-events: none;
         }
+
         .label{
           position: relative; z-index: 1; font-weight: 800; letter-spacing: .02rem;
           background: linear-gradient(90deg, var(--c1), var(--c2));
-          background-size: 220% auto;
+          background-size: 200% auto;
           -webkit-background-clip: text; background-clip: text;
           color: transparent;
           text-shadow:
-            0 0 12px rgba(255,255,255,.28),
-            0 0 18px color-mix(in srgb, var(--c1), #fff 22%);
-          animation: shimmerText 6s linear infinite;
+            0 0 14px rgba(255,255,255,.12),
+            0 0 28px color-mix(in srgb, var(--c2), #fff 10%);
+          animation: shimmerText 7s linear infinite;
+          filter: brightness(1.2);
         }
-        .link:hover{ transform: translateY(-1px); }
-        .link:hover .glow{ opacity: .95; }
-        .link:hover .label{ animation-duration: 3.2s; filter: brightness(1.18); }
-        @keyframes shimmerText { to { background-position: -220% center; } }
 
-        /* Attivo: molto luminoso */
+        .link:hover{ transform: translateY(-1px); }
+        .link:hover .glow{ opacity: .85; }
+        .link:hover .label{ animation-duration: 3s; filter: brightness(1.35); }
+
         .link.is-active{
-          background: rgba(255,255,255,.12);
-          border-color: rgba(255,255,255,.18);
+          background: rgba(255,255,255,.08);
+          border-color: rgba(255,255,255,.16);
           box-shadow:
             0 10px 26px rgba(0,0,0,.35),
-            0 0 0 1px rgba(255,255,255,.10) inset,
-            0 0 24px color-mix(in srgb, var(--c1), #fff 38%),
-            0 0 58px color-mix(in srgb, var(--c2), #fff 38%),
-            0 0 96px rgba(255,255,255,.3);
+            0 0 0 1px rgba(255,255,255,.06) inset;
+          filter: brightness(1.1);
         }
-        .link.is-active .glow{ opacity: 1; }
+        .link.is-active .glow{ opacity: 1; filter: brightness(1.15); }
         .link.is-active .label{
           text-shadow:
-            0 0 22px #fff,
-            0 0 34px color-mix(in srgb, var(--c1), #fff 45%),
-            0 0 48px color-mix(in srgb, var(--c2), #fff 40%);
+            0 0 20px color-mix(in srgb, var(--c1), #fff 28%),
+            0 0 36px color-mix(in srgb, var(--c2), #fff 22%),
+            0 0 56px rgba(255,255,255,.25);
           animation-duration: 2.2s;
-          filter: brightness(1.3);
+          filter: brightness(1.45);
+        }
+
+        /* ANIMAZIONI */
+        @keyframes shimmerText { to { background-position: -200% center; } }
+        @keyframes kaleido { to { background-position: 200% 200%; } }
+        @keyframes glowBreath {
+          0%,100% { text-shadow: 0 0 18px rgba(56,189,248,.30), 0 0 30px rgba(167,139,250,.22); }
+          50%     { text-shadow: 0 0 28px rgba(56,189,248,.55), 0 0 44px rgba(167,139,250,.38); }
+        }
+        @keyframes brandPulse {
+          0%,100% { opacity:.55; transform: scale(1); }
+          50%     { opacity:.9;  transform: scale(1.05); }
+        }
+        @keyframes ecgDraw {
+          0%   { stroke-dashoffset: 100; opacity: .2; }
+          20%  { opacity: 1; }
+          40%  { stroke-dashoffset: 0; }
+          60%  { stroke-dashoffset: 0; opacity: 1; }
+          100% { stroke-dashoffset: -100; opacity: .2; }
         }
 
         @media (max-width: 520px){
-          .inner{ gap: 12px; justify-content: center; }
-          .brand-text{ font-size: 1.08rem; letter-spacing: .28rem; }
+          .inner{ gap: 14px; padding: 0 12px; }
+          .brand-text{ font-size: 1.12rem; letter-spacing: .18rem; }
+          .ecg{ width: 64px; }
+          .ecg-svg{ width: 64px; }
+          .track{ gap: 10px; }
+          .link{ padding: 9px 14px; }
         }
       `}</style>
     </>
