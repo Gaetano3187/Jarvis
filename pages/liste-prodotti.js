@@ -1309,6 +1309,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
   }
 
 /* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
+/* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
 async function toggleVoiceInventory() {
   if (invRecBusy) {
     try { invMediaRef.current?.stop(); } catch {}
@@ -1338,7 +1339,7 @@ async function processVoiceInventory() {
   try {
     setBusy(true);
 
-    // 1) Trascrizione vocale
+    // 0) STT
     const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
     const { text } = await res.json();
     if (DEBUG) console.log('[STT inventory] text:', text);
@@ -1347,12 +1348,15 @@ async function processVoiceInventory() {
       return;
     }
 
-    // 2) Parsing locale (sempre entrambi)
+    // 1) Heuristica: se contiene data/parole di scadenza
+    const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
+
+    // 2) Parser locali (entrambi, per supportare comandi MISTI nello stesso dettato)
     let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
     let updates  = parseStockUpdateText(text);
 
     // 3) Fallback Assistant per SCADENZE
-    if (expiries.length === 0) {
+    if (looksExpiry && expiries.length === 0) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
@@ -1361,11 +1365,12 @@ async function processVoiceInventory() {
           body: JSON.stringify({ prompt })
         }, 25000);
         const safe = await readJsonSafe(r);
-        const parsed = typeof safe?.answer === 'string'
-          ? (() => { try { return JSON.parse(safe.answer); } catch { return null; } })()
-          : safe?.answer || safe?.data || safe;
-        if (parsed?.expiries) {
-          const ex = ensureArray(parsed.expiries)
+        const answer = safe?.answer || safe?.data || safe;
+        const parsed = typeof answer === 'string'
+          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+          : answer;
+        if (parsed?.intent === 'expiry') {
+          const ex = ensureArray(parsed?.expiries)
             .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
             .filter(e => e.name && e.expiresAt);
           if (ex.length) expiries = ex;
@@ -1376,7 +1381,7 @@ async function processVoiceInventory() {
     }
 
     // 4) Fallback Assistant per SCORTE
-    if (updates.length === 0) {
+    if (updates.length === 0 && !looksExpiry) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
@@ -1385,11 +1390,12 @@ async function processVoiceInventory() {
           body: JSON.stringify({ prompt })
         }, 25000);
         const safe = await readJsonSafe(r);
-        const parsed = typeof safe?.answer === 'string'
-          ? (() => { try { return JSON.parse(safe.answer); } catch { return null; } })()
-          : safe?.answer || safe?.data || safe;
-        if (parsed?.updates) {
-          const up = ensureArray(parsed.updates)
+        const answer = safe?.answer || safe?.data || safe;
+        const parsed = typeof answer === 'string'
+          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+          : answer;
+        if (parsed?.intent === 'stock_update') {
+          const up = ensureArray(parsed?.updates)
             .map(u => ({
               name: String(u.name || '').trim(),
               mode: (u.mode === 'units' ? 'units' : 'packs'),
@@ -1429,17 +1435,18 @@ async function processVoiceInventory() {
 
         for (const u of updates) {
           const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-          const explicit = (u.op === 'restockExplicit');
+          const explicit = (u.op === 'restockExplicit');  // pattern “X confezioni da Y”
           const hintedPacks = Math.max(1, Number(u._packs || 1));
           const hintedUPP   = Math.max(1, Number(u._upp || 1));
 
-          // esiste già
+          // ---- PRODOTTO ESISTENTE
           if (idx >= 0) {
             const old = arr[idx];
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const packs = Math.max(0, Number(old.packs || 0));
 
             if (explicit) {
+              // Restock esplicito: aggiorna struttura e riporta a pieno
               const np = Math.max(0, packs + hintedPacks);
               const nupp = Math.max(1, hintedUPP || upp);
               arr[idx] = {
@@ -1453,16 +1460,18 @@ async function processVoiceInventory() {
               continue;
             }
 
-            // inerzia: solo residuo
-            arr[idx] = { ...old, residueUnits: Math.max(0, Number(u.value || 0) || 0) };
+            // Inerzia: aggiorna SOLO il residuo in unità (non toccare packs/UPP)
+            const ru = Math.max(0, Number(u.value || 0) || 0);
+            arr[idx] = { ...old, residueUnits: ru };
             applied++;
             continue;
           }
 
-          // non esiste → crea
+          // ---- PRODOTTO NUOVO
           if (explicit) {
             arr.unshift({
-              name: u.name, brand: '',
+              name: u.name,
+              brand: '',
               packs: hintedPacks,
               unitsPerPack: hintedUPP,
               unitLabel: 'unità',
@@ -1474,11 +1483,15 @@ async function processVoiceInventory() {
             continue;
           }
 
+          // Creazione plausibile:
+          // - units-like → packs = 1, upp = value
+          // - packs-like → packs = value, upp = 1
           const asUnitsLike = (u.mode === 'units');
           if (asUnitsLike) {
             const upp = Math.max(1, Number(u.value || 1));
             arr.unshift({
-              name: u.name, brand: '',
+              name: u.name,
+              brand: '',
               packs: 1,
               unitsPerPack: upp,
               unitLabel: 'unità',
@@ -1489,7 +1502,8 @@ async function processVoiceInventory() {
           } else {
             const p = Math.max(1, Number(u.value || 1));
             arr.unshift({
-              name: u.name, brand: '',
+              name: u.name,
+              brand: '',
               packs: p,
               unitsPerPack: 1,
               unitLabel: 'unità',
@@ -1515,7 +1529,6 @@ async function processVoiceInventory() {
     } else {
       showToast('Nessuna scorta/scadenza riconosciuta', 'err');
     }
-
   } catch (e) {
     console.error('[Voice Inventory] error', e);
     showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
@@ -1528,48 +1541,7 @@ async function processVoiceInventory() {
     invChunksRef.current = [];
   }
 }
-  /* ---------------- Aggiunta SCORTE manuale ---------------- */
-  function addManualStock(e) {
-    e.preventDefault();
-    const name = stockForm.name.trim();
-    if (!name) return;
-    const brand = (stockForm.brand || '').trim();
-    const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
-    const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
-    const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
-    const ex = toISODate(stockForm.expiresAt || '');
-    const todayISO = new Date().toISOString().slice(0,10);
 
-    setStock(prev => {
-      const arr = [...prev];
-      const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
-      if (idx >= 0) {
-        const old = arr[idx];
-        const newPacks = Number(old.packs || 0) + packs;
-        arr[idx] = {
-          ...old,
-          packs: newPacks,
-          unitsPerPack: old.unitsPerPack || unitsPerPack,
-          unitLabel: old.unitLabel || unitLabel,
-          expiresAt: ex || old.expiresAt || '',
-          ...restockTouch(newPacks, todayISO)
-        };
-      } else {
-        arr.unshift({
-          name, brand,
-          packs, unitsPerPack, unitLabel,
-          expiresAt: ex || '',
-          baselinePacks: packs,
-          lastRestockAt: todayISO,
-          avgDailyUnits: 0
-        });
-      }
-      return arr;
-    });
-
-    setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
-    showToast('Scorta aggiunta ✓', 'ok');
-  }
 
   /* ---------------- render ---------------- */
   return (
