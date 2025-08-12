@@ -1310,15 +1310,20 @@ function decrementAcrossBothLists(prevLists, purchases) {
     }
   }
 
-  /* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
+/* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
 async function toggleVoiceInventory() {
-  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
+  if (invRecBusy) {
+    try { invMediaRef.current?.stop(); } catch {}
+    return;
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     invStreamRef.current = stream;
     invMediaRef.current = new MediaRecorder(stream);
     invChunksRef.current = [];
-    invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
+    invMediaRef.current.ondataavailable = (e) => {
+      if (e.data && e.data.size) invChunksRef.current.push(e.data);
+    };
     invMediaRef.current.onstop = processVoiceInventory;
     invMediaRef.current.start();
     setInvRecBusy(true);
@@ -1329,107 +1334,134 @@ async function toggleVoiceInventory() {
 
 async function processVoiceInventory() {
   const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
-  const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
+  const fd = new FormData();
+  fd.append('audio', blob, 'inventory.webm');
+
   try {
     setBusy(true);
+
+    // STT
     const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
     const { text } = await res.json();
     if (DEBUG) console.log('[STT inventory] text:', text);
-    if (!text) { showToast('Nessun testo riconosciuto', 'err'); return; }
+    if (!text) {
+      showToast('Nessun testo riconosciuto', 'err');
+      return;
+    }
 
-    // Heuristica: presenza di parole/data di scadenza
+    // Heuristica di scadenza
     const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
 
-    // Parser locali (entrambi, per consentire modalità "mista")
-    let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+    // Parser locali (misti)
+    let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
     let updates  = parseStockUpdateText(text);
 
-    // Fallback Assistente se servono integrazioni
+    // Fallback Assistente per scadenze
     if (looksExpiry && expiries.length === 0) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
         }, 25000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+        const parsed = typeof answer === 'string'
+          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+          : answer;
         if (parsed?.intent === 'expiry') {
-          const ex = ensureArray(parsed?.expiries).map(e => ({ name:String(e.name||'').trim(), expiresAt: toISODate(e.expiresAt) })).filter(e=>e.name && e.expiresAt);
+          const ex = ensureArray(parsed?.expiries)
+            .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
+            .filter(e => e.name && e.expiresAt);
           if (ex.length) expiries = ex;
         }
-      } catch (e) { if (DEBUG) console.warn('[Assistant expiry fallback error]', e); }
+      } catch (e) {
+        if (DEBUG) console.warn('[Assistant expiry fallback error]', e);
+      }
     }
+
+    // Fallback Assistente per scorte
     if (updates.length === 0 && !looksExpiry) {
       try {
         const prompt = buildInventoryIntentPrompt(text);
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
         }, 25000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+        const parsed = typeof answer === 'string'
+          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+          : answer;
         if (parsed?.intent === 'stock_update') {
-          const up = ensureArray(parsed?.updates).map(u => ({
-            name:String(u.name||'').trim(),
-            mode:(u.mode==='units'?'units':'packs'),
-            value: Math.max(0, Number(u.value||0)),
-            op: 'add'
-          })).filter(u => u.name && u.value>0);
+          const up = ensureArray(parsed?.updates)
+            .map(u => ({
+              name: String(u.name || '').trim(),
+              mode: (u.mode === 'units' ? 'units' : 'packs'),
+              value: Math.max(0, Number(u.value || 0)),
+              op: 'add'
+            }))
+            .filter(u => u.name && u.value > 0);
           if (up.length) updates = up;
         }
-      } catch (e) { if (DEBUG) console.warn('[Assistant updates fallback error]', e); }
+      } catch (e) {
+        if (DEBUG) console.warn('[Assistant updates fallback error]', e);
+      }
     }
 
-    // 1) Applica SCADENZE (se presenti)
+    // 1) Applica scadenze
     let expiryHits = 0;
     if (expiries.length) {
       setStock(prev => {
         const arr = [...prev];
         for (const p of expiries) {
           const idx = arr.findIndex(s => isSimilar(s.name, p.name));
-          if (idx >= 0) { arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt }; expiryHits++; }
+          if (idx >= 0) {
+            arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
+            expiryHits++;
+          }
         }
         return arr;
       });
     }
 
-    // 2) Applica SCORTE (se presenti) — logica di “inerzia” su righe esistenti
+    // 2) Applica scorte (inerzia su righe esistenti)
     let applied = 0;
     if (updates.length) {
       setStock(prev => {
         const arr = [...prev];
-        const todayISO = new Date().toISOString().slice(0,10);
+        const todayISO = new Date().toISOString().slice(0, 10);
 
         for (const u of updates) {
-          let idx = arr.findIndex(s => isSimilar(s.name, u.name));
-          const explicit = (u.op === 'restockExplicit');  // “confezioni da X” esplicito
+          const idx = arr.findIndex(s => isSimilar(s.name, u.name));
+          const explicit = (u.op === 'restockExplicit');  // pattern “confezioni da X”
           const hintedPacks = Math.max(1, Number(u._packs || 1));
           const hintedUPP   = Math.max(1, Number(u._upp || 1));
 
-          // ---------- PRODOTTO ESISTENTE ----------
+          // Esiste già
           if (idx >= 0) {
             const old = arr[idx];
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const packs = Math.max(0, Number(old.packs || 0));
 
             if (explicit) {
-              // VERO RESTOCK: cambia struttura (packs/upp), allinea baseline e residuo a pieno
+              // Restock esplicito: aggiorna struttura e riporta a pieno
               const np = Math.max(0, packs + hintedPacks);
               const nupp = Math.max(1, hintedUPP || upp);
-              const after = {
+              arr[idx] = {
                 ...old,
                 packs: np,
                 unitsPerPack: nupp,
                 unitLabel: old.unitLabel || 'unità',
-                ...restockTouch(np, todayISO, nupp),
+                ...restockTouch(np, todayISO, nupp)
               };
-              arr[idx] = after;
               applied++;
               continue;
             }
 
-            // PRINCIPIO D’INERZIA: aggiorno SOLO il RESIDUO in unità
+            // Inerzia: set del residuo in unità (niente packs/upp)
             const fullUnits = Math.max(upp, packs * upp);
             const ru = Math.max(0, Math.min(fullUnits, Number(u.value || 0) || 0));
             arr[idx] = { ...old, residueUnits: ru };
@@ -1437,56 +1469,56 @@ async function processVoiceInventory() {
             continue;
           }
 
-          // ---------- PRODOTTO ASSENTE (creazione) ----------
+          // Non esiste: crea
           if (explicit) {
-            // Crea con struttura esplicita
             arr.unshift({
-              name: u.name, brand: '',
+              name: u.name,
+              brand: '',
               packs: hintedPacks,
               unitsPerPack: hintedUPP,
               unitLabel: 'unità',
               expiresAt: '',
               ...restockTouch(hintedPacks, todayISO, hintedUPP),
-              avgDailyUnits: 0,
+              avgDailyUnits: 0
             });
             applied++;
             continue;
           }
 
-          // Scelta plausibile se non esplicito:
-          // - units-like → packs=1, upp=value
-          // - packs-like → packs=value, upp=1
-          const asUnitsLike = u.mode === 'units';
+          const asUnitsLike = (u.mode === 'units');
           if (asUnitsLike) {
             const upp = Math.max(1, Number(u.value || 1));
             arr.unshift({
-              name: u.name, brand: '',
+              name: u.name,
+              brand: '',
               packs: 1,
               unitsPerPack: upp,
               unitLabel: 'unità',
               expiresAt: '',
               ...restockTouch(1, todayISO, upp),
-              avgDailyUnits: 0,
+              avgDailyUnits: 0
             });
           } else {
             const p = Math.max(1, Number(u.value || 1));
             arr.unshift({
-              name: u.name, brand: '',
+              name: u.name,
+              brand: '',
               packs: p,
               unitsPerPack: 1,
               unitLabel: 'unità',
               expiresAt: '',
               ...restockTouch(p, todayISO, 1),
-              avgDailyUnits: 0,
+              avgDailyUnits: 0
             });
           }
           applied++;
         }
+
         return arr;
       });
     }
 
-    // Toast riassuntivo
+    // Toast finale
     if (expiryHits && applied) {
       showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
     } else if (expiryHits) {
@@ -1502,79 +1534,12 @@ async function processVoiceInventory() {
   } finally {
     setBusy(false);
     setInvRecBusy(false);
-    try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
     invMediaRef.current = null;
     invStreamRef.current = null;
     invChunksRef.current = [];
   }
 }
-      // ---------- PRODOTTO ASSENTE (creazione) ----------
-      if (explicit) {
-        // Crea con struttura esplicita
-        arr.unshift({
-          name: u.name, brand: '',
-          packs: hintedPacks,
-          unitsPerPack: hintedUPP,
-          unitLabel: 'unità',
-          expiresAt: '',
-          ...restockTouch(hintedPacks, todayISO, hintedUPP),
-          avgDailyUnits: 0,
-        });
-        applied++;
-        continue;
-      }
-      // Se non è espresso, scegliamo struttura “più plausibile” dal tag:
-      // - units-like → packs=1, upp=value
-      // - packs-like → packs=value, upp=1
-      const asUnitsLike = u.mode === 'units';
-      if (asUnitsLike) {
-        const upp = Math.max(1, Number(u.value || 1));
-        arr.unshift({
-          name: u.name, brand: '',
-          packs: 1,
-          unitsPerPack: upp,
-          unitLabel: 'unità',
-          expiresAt: '',
-          ...restockTouch(1, todayISO, upp),
-          avgDailyUnits: 0,
-        });
-      } else {
-        const p = Math.max(1, Number(u.value || 1));
-        arr.unshift({
-          name: u.name, brand: '',
-          packs: p,
-          unitsPerPack: 1,
-          unitLabel: 'unità',
-          expiresAt: '',
-          ...restockTouch(p, todayISO, 1),
-          avgDailyUnits: 0,
-        });
-      }
-      applied++;
-    }
-    return arr;
-  });
-  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
-  return;
-}
-
-        showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
-        return;
-      }
-
-      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
-    } catch (e) {
-      console.error('[Voice Inventory] error', e);
-      showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
-    } finally {
-      setBusy(false);
-      setInvRecBusy(false);
-      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-      invMediaRef.current = null;
-      invStreamRef.current = null;
-      invChunksRef.current = [];
-    }
-  }
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
