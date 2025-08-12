@@ -287,6 +287,7 @@ function Entrate() {
         description: it.description || it.source || 'Entrata',
         amount,
         received_at: `${dataIncasso}T12:00:00Z`,
+        received_date: dataIncasso,         
         
       };received_date: dataIncasso, // <- serve ai filtri .gte/.lte su received_date
     };
@@ -303,6 +304,7 @@ function Entrate() {
       files.forEach((f) => fd.append('images', f));
       const res = await fetch('/api/ocr', { method: 'POST', body: fd });
       const { text } = await res.json();
+      console.log('[VOCE ENTRATE] Testo STT:', text);
 
       if (isCashIntent(text)) {
         const parsed = quickParseCash(text);
