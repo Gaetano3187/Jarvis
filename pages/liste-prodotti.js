@@ -521,10 +521,16 @@ function computeNewAvgDailyUnits(old, newPacks) {
   return avg;
 }
 
-function restockTouch(baselineFromPacks, lastDateISO) {
+function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
+  const upp = Math.max(1, Number(unitsPerPack || 1));
+  const bp  = Math.max(0, Number(baselineFromPacks || 0));
+  const fullUnits = bp * upp;
   return {
-    baselinePacks: baselineFromPacks,
-    lastRestockAt: lastDateISO
+    baselinePacks: bp,
+    lastRestockAt: lastDateISO,
+    residueUnits: fullUnits, // pieno al restock
+  };
+}
   };
 }
 
