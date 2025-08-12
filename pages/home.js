@@ -63,7 +63,7 @@ TESTO:
         <meta property="og:title" content="Home - Jarvis-Assistant" />
       </Head>
 
-      {/* Video di sfondo full-bleed (non apre media player su mobile) */}
+      {/* Video di sfondo */}
       <video
         className="bg-video"
         src="/composizione%201.mp4"
@@ -78,7 +78,7 @@ TESTO:
         aria-hidden="true"
       />
 
-      {/* Velo per contrasto */}
+      {/* Overlay */}
       <div className="bg-overlay" aria-hidden="true" />
 
       {/* Contenuto */}
@@ -104,10 +104,9 @@ TESTO:
           </Link>
         </section>
 
-        {/* Funzionalità avanzate (più piccole, sotto) */}
+        {/* Funzionalità Avanzate */}
         <section className="advanced-box">
           <h2>Funzionalità Avanzate</h2>
-
           <div className="advanced-actions">
             <button className="btn-ocr" onClick={handleSelectReceipt}>
               📷 OCR Scontrino
@@ -127,7 +126,7 @@ TESTO:
         </section>
       </main>
 
-      {/* input nascosto per OCR */}
+      {/* Input OCR nascosto */}
       <input
         type="file"
         accept="image/*"
@@ -137,7 +136,7 @@ TESTO:
       />
 
       <style jsx global>{`
-        /* —— Video full-bleed —— */
+        /* —— Video —— */
         .bg-video {
           position: fixed;
           inset: 0;
@@ -145,20 +144,18 @@ TESTO:
           height: 100%;
           object-fit: cover;
           z-index: -2;
-          pointer-events: none; /* non cattura il tocco */
+          pointer-events: none;
           background: #000;
         }
         .bg-overlay {
           position: fixed;
           inset: 0;
           z-index: -1;
-          background: radial-gradient(1200px 600px at 30% 20%, rgba(99, 102, 241, 0.28), transparent 50%),
-                      radial-gradient(1000px 500px at 70% 80%, rgba(6, 182, 212, 0.22), transparent 50%),
-                      rgba(0, 0, 0, 0.35); /* velo per migliorare il contrasto */
+          background: rgba(0, 0, 0, 0.35);
           pointer-events: none;
         }
 
-        /* —— Shell centrale —— */
+        /* —— Shell —— */
         .home-shell {
           min-height: 100vh;
           display: grid;
@@ -171,22 +168,20 @@ TESTO:
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         }
 
-        /* —— Griglia primaria: due card grandi —— */
+        /* —— Griglia primaria —— */
         .primary-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(240px, 1fr));
           gap: 1rem;
           width: min(1100px, 96vw);
-          margin-top: clamp(1rem, 4vw, 2.5rem);
         }
         @media (max-width: 760px) {
           .primary-grid {
             grid-template-columns: 1fr;
-            gap: 0.9rem;
           }
         }
 
-        /* —— Card CTA principali —— */
+        /* —— Card CTA —— */
         .card-cta {
           display: grid;
           align-content: center;
@@ -194,74 +189,56 @@ TESTO:
           gap: 0.25rem;
           text-decoration: none;
           color: #fff;
-          background: rgba(0, 0, 0, 0.55);  /* meno trasparente */
-          border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 18px;
           padding: clamp(1.1rem, 3vw, 1.7rem);
           min-height: clamp(130px, 22vw, 220px);
-          box-shadow:
-            0 12px 28px rgba(0, 0, 0, 0.35),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-          position: relative;
           transition: transform 120ms ease, box-shadow 200ms ease, border-color 200ms ease;
-          will-change: transform;
+          position: relative;
           overflow: hidden;
           isolation: isolate;
         }
-        .card-cta .emoji { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1; opacity: .95; }
-        .card-cta .title { font-weight: 800; letter-spacing: .2px; font-size: clamp(1.1rem, 2.8vw, 1.6rem); }
+        .card-cta .emoji { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1; }
+        .card-cta .title { font-weight: 800; font-size: clamp(1.1rem, 2.8vw, 1.6rem); }
         .card-cta .hint  { opacity: .85; font-size: clamp(.85rem, 2vw, .95rem); }
+        .card-cta:hover { transform: translateY(-2px) scale(1.02); }
 
-        .card-cta:hover,
-        .card-cta:focus-visible {
-          transform: translateY(-2px);
-          border-color: rgba(255, 255, 255, 0.18);
-          box-shadow:
-            0 16px 40px rgba(0,0,0,.45),
-            0 0 0 2px rgba(255,255,255,0.06) inset;
-        }
-
-        /* —— Colori & bagliore personalizzati —— */
+        /* —— Colori a gradiente + tinta sheen —— */
         .card-prodotti {
-          box-shadow:
-            0 0 0 0 rgba(99, 102, 241, 0), /* base */
-            0 12px 28px rgba(0, 0, 0, 0.35),
-            inset 0 0 0 1px rgba(99, 102, 241, 0.16);
+          --tint: 236,72,153; /* rosa */
+          background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85));
+          border: 1px solid rgba(236,72,153,0.35);
         }
         .card-finanze {
-          box-shadow:
-            0 0 0 0 rgba(6, 182, 212, 0),
-            0 12px 28px rgba(0, 0, 0, 0.35),
-            inset 0 0 0 1px rgba(6, 182, 212, 0.16);
+          --tint: 59,130,246; /* blu */
+          background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85));
+          border: 1px solid rgba(59,130,246,0.35);
         }
 
-        /* —— Pulsazione “più forte” graduale —— */
+        /* —— Pulsazione bagliore —— */
         .animate-card { animation: cardGlow 3.2s ease-in-out infinite; }
-        .pulse-prodotti { --glowA: 99,102,241;  --glowB: 139,92,246; }
-        .pulse-finanze {  --glowA: 6,182,212;   --glowB: 59,130,246; }
-
+        .pulse-prodotti { --glowA: 236,72,153;  --glowB: 99,102,241; }
+        .pulse-finanze  { --glowA: 59,130,246;  --glowB: 6,182,212; }
         @keyframes cardGlow {
-          0%   { box-shadow: 0 12px 28px rgba(0,0,0,.35), inset 0 0 0 1px rgba(var(--glowA), .16), 0 0 0 0 rgba(var(--glowA), 0); }
-          35%  { box-shadow: 0 14px 32px rgba(0,0,0,.38), inset 0 0 0 1px rgba(var(--glowB), .22), 0 0 32px 4px rgba(var(--glowA), .18); }
-          52%  { box-shadow: 0 16px 40px rgba(0,0,0,.45), inset 0 0 0 1px rgba(var(--glowB), .28), 0 0 46px 10px rgba(var(--glowB), .26); }
-          70%  { box-shadow: 0 14px 34px rgba(0,0,0,.40), inset 0 0 0 1px rgba(var(--glowA), .22), 0 0 34px 6px rgba(var(--glowA), .2); }
-          100% { box-shadow: 0 12px 28px rgba(0,0,0,.35), inset 0 0 0 1px rgba(var(--glowA), .16), 0 0 0 0 rgba(var(--glowA), 0); }
+          0%   { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
+          50%  { box-shadow: 0 0 35px rgba(var(--glowB), 0.85); }
+          100% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
         }
 
-        /* —— Riflesso di luce “sheen” —— */
+        /* —— Riflesso sheen colorato —— */
         .sheen::before {
           content: "";
           position: absolute;
           inset: -22%;
           border-radius: inherit;
-          background: linear-gradient(
-            75deg,
-            transparent 0%,
-            rgba(255,255,255,0.05) 35%,
-            rgba(255,255,255,0.35) 50%,
-            rgba(255,255,255,0.06) 65%,
-            transparent 100%
-          );
+          background:
+            linear-gradient(
+              75deg,
+              rgba(var(--tint), 0.00) 0%,
+              rgba(var(--tint), 0.10) 28%,
+              rgba(255,255,255, 0.45) 50%,
+              rgba(var(--tint), 0.16) 72%,
+              rgba(var(--tint), 0.00) 100%
+            );
           transform: translateX(-130%) skewX(-12deg);
           filter: blur(0.6px);
           mix-blend-mode: screen;
@@ -269,65 +246,41 @@ TESTO:
           animation: sweepShine 2.8s ease-in-out infinite;
         }
         .card-finanze.sheen::before { animation-delay: .6s; }
-
         @keyframes sweepShine {
-          0%   { transform: translateX(-130%) skewX(-12deg); opacity: .6; }
-          45%  { opacity: 0; }
-          60%  { transform: translateX(0%) skewX(-12deg);   opacity: .98; }
-          75%  { transform: translateX(130%) skewX(-12deg); opacity: 0; }
-          100% { transform: translateX(130%) skewX(-12deg); opacity: 0; }
+          0%   { transform: translateX(-130%) skewX(-12deg); opacity: .65; }
+          60%  { transform: translateX(0%)    skewX(-12deg); opacity: 1; }
+          100% { transform: translateX(130%)  skewX(-12deg); opacity: 0; }
         }
 
-        /* —— Box “Funzionalità Avanzate” (più piccolo) —— */
+        /* —— Funzionalità Avanzate —— */
         .advanced-box {
           width: min(1100px, 96vw);
-          margin: 0 auto;
-          margin-top: .25rem;
-          background: rgba(0, 0, 0, 0.55); /* meno trasparente come richiesto */
-          border: 1px solid rgba(255,255,255,.12);
+          margin-top: .5rem;
+          background: rgba(0, 0, 0, 0.55);
           border-radius: 16px;
           padding: 1rem;
-          box-shadow: 0 10px 26px rgba(0,0,0,.32), inset 0 0 0 1px rgba(255,255,255,.04);
-          backdrop-filter: blur(6px);
-        }
-        .advanced-box h2 {
-          font-size: clamp(1rem, 2.2vw, 1.15rem);
-          margin: 0 0 .6rem 0;
-          font-weight: 700;
-          opacity: .92;
         }
         .advanced-actions {
           display: flex;
           flex-wrap: wrap;
           gap: .5rem;
-          align-items: center;
         }
 
-        /* —— Bottoni già usati nelle altre pagine —— */
+        /* —— Bottoni —— */
         .btn-vocale, .btn-ocr, .btn-manuale {
-          background: #6366f1;
-          border: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           padding: .45rem .7rem;
           border-radius: .55rem;
           cursor: pointer;
           color: #fff;
-          transition: transform .06s ease, opacity .12s ease;
           text-decoration: none;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
         }
+        .btn-vocale { background: #6366f1; }
         .btn-ocr { background: #06b6d4; }
-        .btn-manuale { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); }
-        .btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover {
-          transform: translateY(-1px);
-          opacity: .95;
-        }
-
-        /* — Accessibilità: meno movimento — */
-        @media (prefers-reduced-motion: reduce) {
-          .animate-card, .sheen::before { animation: none !important; }
-        }
+        .btn-manuale { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); }
+        .btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover { opacity: .9; }
       `}</style>
     </>
   );
