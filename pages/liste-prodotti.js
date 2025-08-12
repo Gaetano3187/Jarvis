@@ -457,6 +457,26 @@ function parseReceiptPurchases(ocrText) {
   }
   return out;
 }
+/** Trova il nome prodotto migliore in una frase usando il lessico */
+function guessProductName(chunk) {
+  let best = '';
+  let bestLen = 0;
+  for (const lex of GROCERY_LEXICON) {
+    if (isSimilar(chunk, lex) && lex.length > bestLen) { best = lex; bestLen = lex.length; }
+  }
+  // fallback: prima parola significativa
+  if (!best) {
+    const t = normKey(chunk).split(' ').filter(Boolean);
+    if (t.length) best = t.slice(0, 2).join(' ');
+  }
+  return best.trim();
+}
+
+/** True se la frase suona come “sono/ce ne sono/ne ho …” ⇒ set residuo (units) */
+function looksLikeSetResidue(text) {
+  const t = normKey(text);
+  return /\b(sono|ce\s+ne\s+sono|ce\s+n'?e\s+sono|ne\s+ho|adesso\s+sono|ora\s+sono|in\s+totale\s+sono)\b/.test(t);
+}
 
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
 function parseStockUpdateText(text) {
