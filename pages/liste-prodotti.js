@@ -490,6 +490,105 @@ function hasExplicitPackStructure(text){
 
 
 Parser VOCALE scorte: multi-prodotto + frasi miste con scadenze 
+/* --------- Parser VOCALE scorte: multi-prodotto + frasi miste con scadenze --------- */
+function parseStockUpdateText(text) {
+  const t = normKey(text);
+  const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
+
+  const res = [];
+  const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”, “metti a …”
+
+  // Rimuove SOLO contenuti di scadenza dal sotto-blocco per l’analisi scorte
+  const DATE_RE = /\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/g;
+  const EXPIRY_WORDS_RE = /\b(scad(?:enza|e)?|entro|preferibilmente|da\s+consumare|da\s+consumarsi)\b/g;
+
+  // Numeri in lettere (base)
+  const WORD_NUM_RE = /\b(una?|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i;
+  const WORD2NUM = { 'un':1, 'una':1, 'uno':1, 'due':2, 'tre':3, 'quattro':4, 'cinque':5, 'sei':6, 'sette':7, 'otto':8, 'nove':9, 'dieci':10 };
+
+  // helper: estrae numero da cifre o parole
+  function extractNumber(str) {
+    const mDigits = str.match(/(\d+(?:[.,]\d+)?)/);
+    if (mDigits) return Number(String(mDigits[1]).replace(',','.'));
+    const mWord = str.match(WORD_NUM_RE);
+    if (mWord) {
+      const key = mWord[1].toLowerCase();
+      return WORD2NUM[key] ?? null;
+    }
+    return null;
+  }
+
+  for (let rawChunk of parts) {
+    // spezza su “ e ” per catturare più voci nella stessa frase
+    const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
+
+    for (let raw of chunks) {
+      // per le SCORTE, togli parole/data di scadenza ma NON scartare il blocco
+      const chunk = raw.replace(DATE_RE, ' ').replace(EXPIRY_WORDS_RE, ' ').replace(/\s{2,}/g, ' ').trim();
+      if (!chunk) continue;
+
+      const name = guessProductName(chunk);
+      if (!name) continue;
+
+      // Restock esplicito tipo “2 confezioni da 6 … / 1 pacco x 10 …”
+      const explicit = hasExplicitPackStructure(chunk);
+      const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
+
+      // Cattura schema: “... sono 3 bottiglie / 4 pacchi / 6 unità …”
+      let m = chunk.match(/(?:\bsono\b|\bsiano\b|\bne\s+ho\b|\bne\b)?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
+
+      // Fallback numero in lettere
+      if (!m) {
+        const num = extractNumber(chunk);
+        if (num != null) m = [null, String(num), ''];
+      }
+
+      // SOLO nome (nessun numero): default = 1 unità
+      if (!m) {
+        res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
+        continue;
+      }
+
+      // Restock esplicito → packs/UPP dal testo
+      if (explicit) {
+        const packsVal = Math.max(1, Number(pack.packs || 1));
+        const uppVal   = Math.max(1, Number(pack.unitsPerPack || 1));
+        res.push({
+          name,
+          mode: 'packs',
+          value: packsVal,
+          op: 'restockExplicit',
+          _packs: packsVal,
+          _upp: uppVal
+        });
+        continue;
+      }
+
+      // Caso numerico semplice (inerzia su righe esistenti)
+      const valNum = Number(String(m[1]).replace(',', '.'));
+      if (!Number.isFinite(valNum) || valNum <= 0) continue;
+
+      const tag = (m[2] || '').toLowerCase();
+      const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
+
+      // Hint per creazione nuova riga (se il prodotto non esiste ancora)
+      const packsLike = /pacc|conf|scatol/.test(tag);
+      const hintPacks = packsLike ? valNum : 1;
+      const hintUpp   = packsLike ? 1 : valNum;
+
+      res.push({
+        name,
+        mode: asUnits ? 'units' : 'packs',
+        value: valNum,
+        op: absolute ? 'set' : 'maybeResidue',
+        _packs: Math.max(1, hintPacks),
+        _upp: Math.max(1, hintUpp)
+      });
+    }
+  }
+  return res;
+}
+
 }
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
