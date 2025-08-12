@@ -268,12 +268,17 @@ function extractPackInfo(str){
   let unitsPerPack = 1;
   let unitLabel = 'unità';
 
-  // "2 confezioni da 6", "1 pacco x 10 pz"
-  let m = s.match(/(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?)?/i);
+  // unit terms extra: bottiglie, merendine, bustine, monouso
+  const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
+
+  // "2 confezioni da 6 [unit]" / "1 pacco x 10 pz" / "una confezione da 6 di latte"
+  let m = s.match(new RegExp(String.raw`(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:${UNIT_TERMS})?`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
+    const u = (m[3] || 'unità')
+      .replace(/pz|pezzi/i,'unità');
+    unitLabel = u;
     return { packs, unitsPerPack, unitLabel };
   }
 
@@ -285,21 +290,21 @@ function extractPackInfo(str){
     return { packs, unitsPerPack, unitLabel };
   }
 
-  // "10 pz"/"10 unità"/"10 vasetti"/"10 uova"
-  m = s.match(/(\d+)\s*(pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova)\b/i);
+  // "10 pz"/"10 unità"/"10 vasetti"/"10 uova"/"10 bottiglie"/"10 merendine"/"10 bustine"/"10 monouso"
+  m = s.match(new RegExp(String.raw`(\d+)\s*${UNIT_TERMS}\b`, 'i'));
   if (m){
     packs = 1;
     unitsPerPack = Number(m[1]);
-    unitLabel = m[2].replace(/pz|pezzi/i,'unità');
+    unitLabel = m[2] ? m[2].replace(/pz|pezzi/i,'unità') : 'unità';
     return { packs, unitsPerPack, unitLabel };
   }
 
-  // "3 bottiglie"/"2 pacchi"/"2 confezioni"
-  m = s.match(/(\d+)\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)/i);
+  // "3 bottiglie"/"2 pacchi"/"2 confezioni"/"2 scatole"
+  m = s.match(new RegExp(String.raw`(\d+)\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = 1;
-    unitLabel = (m[2].toLowerCase().startsWith('bott') ? 'bottiglie' : 'unità');
+    unitLabel = (/^bott/i.test(m[2]) ? 'bottiglie' : 'unità');
     return { packs, unitsPerPack, unitLabel };
   }
 
