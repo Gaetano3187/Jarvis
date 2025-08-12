@@ -2016,28 +2016,120 @@ if (expiryHits && applied) {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* ---------------- styles (ottimizzati) ---------------- */
+/* =============== GLOBAL (keyframes, font, effetti) =============== */
+const globalStyles = `
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local('Inter'), local('Inter Var');
+}
+
+:root{
+  --bg:#0f172a;           /* slate-900 */
+  --panel:rgba(0,0,0,.6);
+  --ink:#e5e7eb;          /* gray-200 */
+  --muted:#94a3b8;        /* slate-400 */
+  --primary:#6366f1;      /* indigo-500 */
+  --accent:#06b6d4;       /* cyan-500 */
+  --success:#16a34a;      /* green-600 */
+  --danger:#ef4444;       /* red-500 */
+}
+
+*{outline:0}
+::selection{background:rgba(99,102,241,.35)}
+::-webkit-scrollbar{height:10px;width:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:999px}
+html,body{background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+
+/* sfondo “kaleidoscopio” coerente con Home */
+body::before, body::after{
+  content:"";
+  position:fixed; inset:-20%;
+  background:
+    radial-gradient(60% 60% at 20% 20%, rgba(99,102,241,.28), transparent 60%),
+    radial-gradient(50% 50% at 80% 30%, rgba(6,182,212,.22), transparent 60%),
+    radial-gradient(45% 45% at 40% 80%, rgba(244,63,94,.18), transparent 60%);
+  filter:blur(60px) saturate(120%);
+  transform:translateZ(0);
+  pointer-events:none; z-index:-1;
+  animation:hueFloat 24s ease-in-out infinite;
+}
+body::after{
+  animation: hueFloat 32s ease-in-out infinite reverse;
+  opacity:.7;
+}
+
+/* testo animato */
+.glow-text{
+  text-shadow:0 0 8px rgba(99,102,241,.35), 0 0 22px rgba(6,182,212,.25);
+  animation:floatTitle 6s ease-in-out infinite;
+}
+
+/* bottone con bagliore */
+.btn-glow{
+  position:relative; isolation:isolate; will-change:transform, box-shadow;
+  transition:transform .18s ease, box-shadow .18s ease, background-color .18s ease, border-color .18s ease;
+}
+.btn-glow::after{
+  content:""; position:absolute; inset:-2px; z-index:-1; border-radius:14px;
+  background:conic-gradient(from 0deg at 50% 50%, rgba(99,102,241,.45), rgba(6,182,212,.45), rgba(244,63,94,.35), rgba(99,102,241,.45));
+  filter:blur(14px); opacity:.55;
+  animation:spinGlow 8s linear infinite;
+}
+.btn-glow:hover{transform:translateY(-1px); box-shadow:0 10px 24px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.06) inset}
+.btn-glow:active{transform:translateY(0); box-shadow:0 6px 16px rgba(0,0,0,.35)}
+
+/* barre di progresso “vive” */
+.progress-animated{background:linear-gradient(90deg, rgba(255,255,255,.18), rgba(255,255,255,.08)); overflow:hidden}
+.progress-animated > i{
+  position:absolute; inset:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent);
+  transform:translateX(-100%); animation:shimmer 2.6s ease-in-out infinite;
+}
+
+/* KEYFRAMES */
+@keyframes hueFloat{
+  0%{transform:translateY(0) rotate(0deg); filter:hue-rotate(0deg) blur(60px)}
+  50%{transform:translateY(-2%) rotate(2deg); filter:hue-rotate(20deg) blur(72px)}
+  100%{transform:translateY(0) rotate(0deg); filter:hue-rotate(0deg) blur(60px)}
+}
+@keyframes floatTitle{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(-2px)}
+}
+@keyframes spinGlow{to{transform:rotate(1turn)}}
+@keyframes shimmer{to{transform:translateX(100%)}}
+@keyframes glowPulse{
+  0%,100%{box-shadow:0 0 0 rgba(99,102,241,0)}
+  50%{box-shadow:0 0 24px rgba(6,182,212,.25)}
+}
+`;
+
+/* =============== STYLES (inline object) =============== */
 const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
-    background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    background: 'transparent',
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#fff',
-    fontFamily:
-      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+    fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
 
   card: {
     width: '100%',
     maxWidth: 1000,
-    background: 'rgba(0,0,0,.6)',
+    background: 'var(--panel)',
     borderRadius: 16,
     padding: 22,
-    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
+    boxShadow: '0 10px 28px rgba(0,0,0,.35)',
+    border: '1px solid rgba(255,255,255,.06)',
+    backdropFilter: 'blur(8px) saturate(110%)',
+    animation: 'glowPulse 3.6s ease-in-out infinite',
   },
 
   headerRow: {
@@ -2049,12 +2141,14 @@ const styles = {
     flexWrap: 'wrap',
   },
   homeBtn: {
-    background: '#6366f1',
+    background: 'var(--primary)',
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     textDecoration: 'none',
     fontWeight: 700,
+    border: '1px solid rgba(255,255,255,.08)',
+    boxShadow: '0 6px 16px rgba(99,102,241,.35)',
   },
 
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
@@ -2068,118 +2162,31 @@ const styles = {
     fontWeight: 600,
   },
   switchBtnActive: {
-    background: '#06b6d4',
+    background: 'var(--accent)',
     border: 0,
     color: '#0b1220',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
+    boxShadow: '0 10px 22px rgba(6,182,212,.35)',
   },
 
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
   voiceBtn: {
-    background: '#6366f1',
-    border: 0,
+    background: 'var(--primary)',
+    border: '1px solid rgba(255,255,255,.08)',
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
     fontWeight: 800,
+    boxShadow: '0 10px 24px rgba(99,102,241,.35)',
   },
 
-  sectionLarge: { marginTop: 30, marginBottom: 10 },
-  sectionXL: { marginTop: 38, marginBottom: 12 },
-  h3: { margin: '6px 0 12px' },
-
-  listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
-  itemRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    background: 'rgba(255,255,255,.05)',
-    border: '1px solid rgba(255,255,255,.12)',
-    borderRadius: 12,
-    padding: '10px 12px',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
-  qtyBadge: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 10,
-    background: 'rgba(99,102,241,.25)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 800,
-  },
-  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.8 },
-
-  itemActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  actionSuccess: {
-    background: '#16a34a',
-    border: 0,
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
-  actionDanger: {
-    background: '#ef4444',
-    border: 0,
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
-  actionGhost: {
-    background: 'rgba(255,255,255,.12)',
-    border: '1px solid rgba(255,255,255,.2)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-  actionGhostDanger: {
-    background: 'rgba(239,68,68,.1)',
-    border: '1px solid rgba(239,68,68,.6)',
-    color: '#fff',
-    padding: '8px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-
-  formRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    alignItems: 'center',
-  },
-  input: {
-    padding: '10px 12px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.15)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
-    flex: '1 1 160px',
-  },
   primaryBtn: {
-    background: '#16a34a',
+    background: 'var(--success)',
     border: 0,
     color: '#fff',
     padding: '10px 12px',
@@ -2187,38 +2194,11 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
-  },
-
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    background: 'rgba(255,255,255,.04)',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  th: {
-    textAlign: 'left',
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.12)',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.08)',
-    verticalAlign: 'middle',
-  },
-
-  scorteHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
+    boxShadow: '0 10px 22px rgba(22,163,74,.35)',
   },
 
   voiceBtnSmall: {
-    background: '#6366f1',
+    background: 'var(--primary)',
     border: 0,
     color: '#fff',
     padding: '8px 12px',
@@ -2226,9 +2206,10 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
+    boxShadow: '0 8px 18px rgba(99,102,241,.30)',
   },
   voiceBtnSmallStop: {
-    background: '#ef4444',
+    background: 'var(--danger)',
     border: 0,
     color: '#fff',
     padding: '8px 12px',
@@ -2236,131 +2217,8 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
+    boxShadow: '0 8px 18px rgba(239,68,68,.30)',
   },
   ocrBtnSmall: {
-    background: '#06b6d4',
-    border: 0,
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-    ocrInlineBtn: {
-    background: 'rgba(6,182,212,.15)',
-    border: '1px solid rgba(6,182,212,.6)',
-    color: '#e0fbff',
-    padding: '6px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  }, // <-- VIRGOLA QUI
-
-  /* ---------- Badge “Giorni rimasti” ---------- */
-  daysBadgeBase: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 34,
-    height: 26,
-    padding: '0 8px',
-    borderRadius: 999,
-    fontWeight: 800,
-    fontSize: 12,
-  },
-  daysBadgeGreen: {
-    background: 'rgba(22,163,74,.18)',
-    border: '1px solid rgba(22,163,74,.7)',
-    color: '#dcfce7',
-  },
-  daysBadgeAmber: {
-    background: 'rgba(245,158,11,.18)',
-    border: '1px solid rgba(245,158,11,.7)',
-    color: '#fffbeb',
-  },
-  daysBadgeRed: {
-    background: 'rgba(239,68,68,.18)',
-    border: '1px solid rgba(239,68,68,.7)',
-    color: '#fee2e2',
-  },
-  daysBadgeGray: {
-    background: 'rgba(148,163,184,.18)',
-    border: '1px solid rgba(148,163,184,.6)',
-    color: '#e2e8f0',
-  },
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-progressWrap: {
-  position: 'relative',
-  width: 120,
-  height: 10,
-  borderRadius: 999,
-  background: 'rgba(255,255,255,.15)',
-  overflow: 'hidden',
-  flex: '0 0 120px',
-},
-progressBar: {
-  position: 'absolute',
-  left: 0,          // <-- usa left/top/bottom (NON inset)
-  top: 0,
-  bottom: 0,
-  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
-  transition: 'width .25s ease, background-color .25s ease',
-},
-
-  inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
-
-}; // <-- e chiudi l’oggetto con punto e virgola
+    background: 'var(--accent)',
+    border:
