@@ -19,10 +19,14 @@ export default function NavBar() {
 
   return (
     <>
+      {/* font tech (facoltativo ma consigliato) */}
       <Head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap"
+          rel="stylesheet"
+        />
       </Head>
 
       <nav className="nav">
@@ -30,8 +34,11 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
+              {/* aurea/foschia colorata attorno (kaleidoscopio) */}
               <span className="brand-aura" aria-hidden="true" />
+              {/* scritta scolpita lucida */}
               <span className="brand-text">JARVIS</span>
+              {/* bagliore sottile che respira */}
               <span className="brand-halo" aria-hidden="true" />
             </span>
           </Link>
@@ -78,15 +85,19 @@ export default function NavBar() {
           gap: 28px; overflow: hidden;
         }
 
-        /* === LOGO JARVIS (rilievo + kaleidoscopio) === */
+        /* === LOGO JARVIS (scolpito + lucido + kaleidoscopio) === */
         .brand{ text-decoration:none; display:inline-flex; align-items:center; }
         .brand-wrap{
           position: relative; display:inline-grid; place-items:center;
-          padding: 6px 2px; isolation:isolate;
+          padding: 6px 2px; /* respiro per l'aura */
+          isolation:isolate;
         }
+
+        /* Foschia/aurea a colori intorno (kaleidoscopio) */
         .brand-aura{
           position:absolute; inset:-18px -26px; z-index:0;
-          background: conic-gradient(from 0deg at 50% 50%,
+          background:
+            conic-gradient(from 0deg at 50% 50%,
               rgba(94,234,212,.75),
               rgba(34,211,238,.75),
               rgba(96,165,250,.70),
@@ -96,15 +107,17 @@ export default function NavBar() {
           opacity:.9; border-radius: 24px;
           animation: auraSpin 10s linear infinite;
         }
+
+        /* Testo scolpito “pietra/circuito” con riempimento lucido e animato */
         .brand-text{
-          position:relative; z-index:1; display:inline-block;
+          position:relative; z-index:1;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .35rem;
           font-size: clamp(1.9rem, 4vw, 2.3rem); line-height: 1; white-space: nowrap;
 
-          /* FILL GRADIENTE LUCIDO — forzato trasparente (no bianco) */
+          /* Riempimento: kaleidoscopio + riflesso lucido + film trasparente */
           background:
-            linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 45%, rgba(255,255,255,.28) 90%),
+            linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 45%, rgba(255,255,255,.28) 90%) /* gloss */,
             conic-gradient(from 0deg at 50% 50%,
               #a7f3d0 0%,
               #5eead4 12%,
@@ -117,25 +130,28 @@ export default function NavBar() {
               #a7f3d0 100%);
           background-size: 180% 180%, 200% 200%;
           background-position: 50% 0%, 50% 50%;
+          -webkit-background-clip: text; background-clip: text;
+          color: transparent; -webkit-text-fill-color: transparent;  /* << evita bianco fisso */
 
-          -webkit-background-clip: text !important;
-          background-clip: text !important;
-          -webkit-text-fill-color: transparent !important;
-          color: transparent !important;
-
-          /* RILIEVO: bordo sottile + ombre/luci incrociate */
+          /* Bordo sottile (non scurisce il colore) + rilievo scolpito */
           -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
           paint-order: stroke fill;
+
+          /* Effetto scolpito: luci/ombre incrociate */
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.75),
-             1px  1px 0 rgba(0,0,0,.40),
+            -1px -1px 0 rgba(255,255,255,.75),   /* highlight alto-sx */
+             1px  1px 0 rgba(0,0,0,.40),         /* ombra basso-dx */
             -2px -2px 1px rgba(255,255,255,.40),
              2px  2px 2px rgba(0,0,0,.34),
              0    2px 4px rgba(0,0,0,.30);
-
           filter: brightness(1.45) contrast(1.06) saturate(1.08);
-          animation: kaleidoMove 7.2s linear infinite, glossDrift 4.8s ease-in-out infinite;
+
+          animation:
+            kaleidoMove 7.2s linear infinite,   /* movimento cromatico */
+            glossDrift  4.8s ease-in-out infinite; /* riflesso lucido che scorre */
         }
+
+        /* alone pulsante più leggero sopra il testo */
         .brand-halo{
           position:absolute; inset:-6px; z-index:2; pointer-events:none;
           background:
@@ -145,7 +161,7 @@ export default function NavBar() {
           animation: haloBreath 2.6s ease-in-out infinite;
         }
 
-        /* MENU */
+        /* === MENU link (senza bagliore di contorno) === */
         .track{ display:flex; gap:16px; list-style:none; margin:0; padding:0; }
         .item{ white-space:nowrap; }
         .link{
@@ -178,7 +194,7 @@ export default function NavBar() {
           animation-duration: 2.2s; filter: brightness(1.5);
         }
 
-        /* ANIMAZIONI */
+        /* === ANIMAZIONI === */
         @keyframes shimmerText { to { background-position: -200% center; } }
         @keyframes kaleidoMove  { to { background-position: 120% 120%, 200% 200%; } }
         @keyframes glossDrift   {
