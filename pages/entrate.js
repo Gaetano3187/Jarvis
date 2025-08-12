@@ -287,7 +287,9 @@ function Entrate() {
         description: it.description || it.source || 'Entrata',
         amount,
         received_at: `${dataIncasso}T12:00:00Z`,
-      };
+        
+      };received_date: dataIncasso, // <- serve ai filtri .gte/.lte su received_date
+    };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
     }
