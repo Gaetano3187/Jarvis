@@ -1306,7 +1306,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
       if (DEBUG) console.log('[STT inventory] text:', text);
       if (!text) { showToast('Nessun testo riconosciuto', 'err'); return; }
 
-     // Heuristica veloce
+    // Heuristica veloce
 const looksExpiry = /scad|scadenza|scade|entro|\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/i.test(text);
 
 // Parser locali
@@ -1318,7 +1318,7 @@ let intent   = localIntent;
 let updates  = localUpdates;
 let expiries = localExpiries;
 
-// Se locale non trova nulla, prova Assistant
+// Se locale non trova nulla, prova Assistant (con try/catch chiuso correttamente)
 if ((intent === 'expiry' && expiries.length === 0) || (intent === 'stock_update' && updates.length === 0)) {
   try {
     const prompt = buildInventoryIntentPrompt(text);
@@ -1327,6 +1327,7 @@ if ((intent === 'expiry' && expiries.length === 0) || (intent === 'stock_update'
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt })
     }, 25000);
+
     const safe   = await readJsonSafe(r);
     const answer = safe?.answer || safe?.data || safe;
     const parsed = typeof answer === 'string'
@@ -1355,6 +1356,145 @@ if ((intent === 'expiry' && expiries.length === 0) || (intent === 'stock_update'
   } catch (e) {
     if (DEBUG) console.warn('[Assistant intent fallback error]', e);
   }
+}
+
+// ======= SCADENZE =======
+if (intent === 'expiry' && expiries.length) {
+  let hit = 0;
+  setStock(prev => {
+    const arr = [...prev];
+    for (const p of expiries) {
+      const idx = arr.findIndex(s => isSimilar(s.name, p.name));
+      if (idx >= 0) {
+        arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
+        hit++;
+      }
+    }
+    return arr;
+  });
+  showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
+  return;
+}
+
+// ======= SCORTE =======
+if (intent === 'stock_update' && updates.length) {
+  let applied = 0;
+
+  setStock(prev => {
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0, 10);
+
+    for (const u of updates) {
+      let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+      const opInput = (u.op === 'set' ? 'set' : 'add');
+      let mode = u.mode || 'packs';
+
+      // auto: se il prodotto esiste e ha UPP>1 → units, altrimenti packs
+      if (mode === 'auto') {
+        if (idx >= 0) {
+          const upp0 = Math.max(1, Number(arr[idx].unitsPerPack || 1));
+          mode = upp0 > 1 ? 'units' : 'packs';
+        } else {
+          mode = 'packs';
+        }
+      }
+
+      // --- CREAZIONE SE NON ESISTE ---
+      if (idx < 0) {
+        if (mode === 'units') {
+          const upp = Math.max(1, Number(u.upp || 1));
+          const packs = opInput === 'set' ? Math.max(1, Math.ceil(Number(u.value || 1) / upp)) : 1;
+          const residueUnits = opInput === 'set' ? Math.max(0, Number(u.value || 0)) : upp;
+
+          let next = {
+            name: u.name, brand: '',
+            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
+            expiresAt: '',
+            baselinePacks: packs, lastRestockAt: todayISO,
+            residueUnits,
+            avgDailyUnits: 0
+          };
+          if (typeof applyLearningOnRow === 'function') {
+            next = applyLearningOnRow(next, { upp, unitLabel: next.unitLabel, source: 'voice' });
+          }
+          arr.unshift(next);
+        } else { // packs
+          const upp = Math.max(1, Number(u.upp || 1));
+          const packs = Math.max(1, Number(u.value || 1));
+          const residueUnits = packs * upp;
+
+          let next = {
+            name: u.name, brand: '',
+            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
+            expiresAt: '',
+            baselinePacks: packs, lastRestockAt: todayISO,
+            residueUnits,
+            avgDailyUnits: 0
+          };
+          if (typeof applyLearningOnRow === 'function') {
+            next = applyLearningOnRow(next, { upp, unitLabel: next.unitLabel, source: 'voice' });
+          }
+          arr.unshift(next);
+        }
+        applied++;
+        continue;
+      }
+
+      // --- AGGIORNAMENTO SE ESISTE ---
+      const old = arr[idx];
+      let upp   = Math.max(1, Number(old.unitsPerPack || 1));
+      let packs = Math.max(0, Number(old.packs || 0));
+      let ru    = Number.isFinite(Number(old.residueUnits)) ? Math.max(0, Number(old.residueUnits)) : packs * upp;
+
+      // Se arriva un nuovo UPP/etichetta (es. "da 6 bottiglie")
+      if (Number(u.upp) > 0) {
+        const newUPP = Math.max(1, Number(u.upp));
+        if (!old.unitsPerPack || old.unitsPerPack === 1 || newUPP !== old.unitsPerPack) {
+          upp = newUPP;
+          ru = Math.min(ru, Math.max(upp, packs * upp)); // clamp al pieno corrente
+        }
+      }
+      const unitLabel = u.unitLabel || old.unitLabel || 'unità';
+
+      if (mode === 'units') {
+        const valUnits = Math.max(0, Number(u.value || 0));
+        ru = (opInput === 'set') ? valUnits : (ru + valUnits);
+        ru = Math.min(ru, Math.max(upp, packs * upp));
+      } else { // packs
+        const valPacks = Math.max(0, Number(u.value || 0));
+        if (opInput === 'set') {
+          packs = Math.max(0, valPacks);
+        } else {
+          const before = packs;
+          packs = Math.max(0, packs + valPacks);
+          const added = Math.max(0, packs - before);
+          if (added > 0) ru = Math.min(ru + (added * upp), Math.max(upp, packs * upp));
+        }
+        ru = Math.min(ru, Math.max(upp, packs * upp));
+      }
+
+      const restock = packs > Number(old.packs || 0);
+      let next = {
+        ...old,
+        packs,
+        unitsPerPack: upp,
+        unitLabel,
+        residueUnits: ru,
+        baselinePacks: packs,
+        lastRestockAt: restock ? todayISO : old.lastRestockAt,
+      };
+      if (typeof applyLearningOnRow === 'function') {
+        next = applyLearningOnRow(next, { upp: Number(u.upp) || undefined, unitLabel, source: 'voice' });
+      }
+      arr[idx] = next;
+      applied++;
+    }
+
+    return arr;
+  });
+
+  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
+  return;
 }
 
 // ===================== GESTIONE RISPOSTE =====================
