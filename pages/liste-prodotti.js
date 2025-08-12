@@ -214,12 +214,26 @@ function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
 // Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
-function residueInfo(s){
+function residueUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
-  const current = Math.max(0, Number(s.packs || 0) * upp);
-  const baseline = Math.max(upp, Number(s.baselinePacks || 0) * upp) || current || upp;
+  const ru = Number(s.residueUnits);
+  if (Number.isFinite(ru)) return Math.max(0, ru);
+  // default: se mai impostato, usa packs*upp
+  return Math.max(0, Number(s.packs || 0) * upp);
+}
+function baselineUnitsOf(s){
+  const upp = Math.max(1, Number(s.unitsPerPack || 1));
+  const bp  = Number(s.baselinePacks);
+  const base = Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp;
+  return Math.max(upp, base);
+}
+// sostituisce la tua residueInfo precedente
+function residueInfo(s){
+  const current  = residueUnitsOf(s);
+  const baseline = baselineUnitsOf(s);
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
+}
 }
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
