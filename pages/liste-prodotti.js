@@ -530,9 +530,6 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
     residueUnits: fullUnits, // pieno al restock
   };
 }
-  };
-}
-
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
