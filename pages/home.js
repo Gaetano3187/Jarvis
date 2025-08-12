@@ -2,9 +2,12 @@
 import React, { useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import withAuth from '../hoc/withAuth';
 import { askAssistant } from '@/lib/assistant';
+import withAuth from '../hoc/withAuth';
 import VoiceRecorder from '../components/VoiceRecorder';
+
+// Icone (react-icons)
+import { FaCamera, FaMicrophone, FaSearch } from 'react-icons/fa';
 
 const Home = () => {
   const fileInputRef = useRef(null);
@@ -13,10 +16,9 @@ const Home = () => {
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = String(reader.result || '').split(',')[1];
+      const base64 = String(reader.result).split(',')[1];
       const prompt = `
 Analizza l’immagine OCR seguente.
 Restituisci solo JSON {descrizione, importo, esercizio, data, categoria}.
@@ -39,7 +41,6 @@ ${base64}`.trim();
   /* —— VOCE —— */
   const handleVoiceText = async (spoken) => {
     if (!spoken) return;
-
     const prompt = `
 Estrai descrizione, importo, data e categoria dal testo seguente.
 Restituisci solo JSON.
@@ -59,74 +60,85 @@ TESTO:
   return (
     <>
       <Head>
-        <title>Home - Jarvis-Assistant</title>
-        <meta property="og:title" content="Home - Jarvis-Assistant" />
+        <title>Home - Jarvis Assistant</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* Video di sfondo */}
+      {/* Video full-bleed */}
       <video
-        className="bg-video"
+        className="home-video"
         src="/composizione%201.mp4"
         autoPlay
-        loop
         muted
+        loop
         playsInline
+        // iOS
+        webkit-playsinline="true"
+        // evitare player/controlli
         controls={false}
-        preload="auto"
-        disablePictureInPicture
         controlsList="nodownload noplaybackrate noremoteplayback"
-        aria-hidden="true"
+        disablePictureInPicture
+        preload="auto"
+        poster="https://play.teleporthq.io/static/svg/videoposter.svg"
       />
 
-      {/* Overlay */}
-      <div className="bg-overlay" aria-hidden="true" />
-
-      {/* Contenuto */}
-      <main className="home-shell">
-        <section className="primary-grid">
-          <Link
-            href="/liste-prodotti"
-            className="card-cta card-prodotti animate-card pulse-prodotti sheen"
-          >
-            <span className="emoji">🛒</span>
-            <span className="title">LISTE PRODOTTI</span>
-            <span className="hint">Crea e gestisci le tue liste</span>
-          </Link>
-
-          <Link
-            href="/finanze"
-            className="card-cta card-finanze animate-card pulse-finanze sheen"
-            style={{ animationDelay: '0.15s' }}
-          >
-            <span className="emoji">📊</span>
-            <span className="title">FINANZE</span>
-            <span className="hint">Entrate, spese e report</span>
-          </Link>
-        </section>
-
-        {/* Funzionalità Avanzate */}
-        <section className="advanced-box">
-          <h2>Funzionalità Avanzate</h2>
-          <div className="advanced-actions">
-            <button className="btn-ocr" onClick={handleSelectReceipt}>
-              📷 OCR Scontrino
-            </button>
-
-            <VoiceRecorder
-              buttonClass="btn-vocale"
-              idleLabel="🎤 Comando vocale"
-              recordingLabel="⏹ Stop"
-              onText={handleVoiceText}
-            />
-
-            <Link href="/dashboard" className="btn-manuale">
-              🔎 Interroga dati
+      {/* Contenuto sovrapposto */}
+      <main className="home-wrap">
+        {/* Griglia principale */}
+        <section className="sezione-home">
+          {/* Colonna sinistra: 2 pulsanti grandi */}
+          <div className="col-sinistra">
+            <Link href="/liste-prodotti" className="box-home box-grad-green glow-strong">
+              <span className="box-title">LISTE PRODOTTI</span>
             </Link>
+
+            <Link href="/finanze" className="box-home box-grad-blue glow-strong">
+              <span className="box-title">FINANZE</span>
+            </Link>
+          </div>
+
+          {/* Colonna destra: Strumenti avanzati (icone) */}
+          <div className="col-destra">
+            <div className="funzionalita-card">
+              <h2 className="funz-title">Strumenti Avanzati</h2>
+
+              <div className="icon-bar">
+                {/* OCR */}
+                <button
+                  className="icon-btn glow-strong"
+                  onClick={handleSelectReceipt}
+                  aria-label="OCR scontrino"
+                  title="OCR scontrino"
+                >
+                  <FaCamera />
+                </button>
+
+                {/* Microfono/voce */}
+                <VoiceRecorder
+                  buttonClass="icon-btn glow-strong"
+                  idleLabel={<FaMicrophone aria-hidden="true" />}
+                  recordingLabel={<FaMicrophone aria-hidden="true" />}
+                  ariaLabelIdle="Comando vocale"
+                  ariaLabelRecording="Stop registrazione"
+                  onText={handleVoiceText}
+                />
+
+                {/* Interroga dati */}
+                <Link
+                  href="/dashboard"
+                  className="icon-btn glow-strong"
+                  aria-label="Interroga dati"
+                  title="Interroga dati"
+                >
+                  <FaSearch />
+                </Link>
+              </div>
+            </div>
           </div>
         </section>
       </main>
 
-      {/* Input OCR nascosto */}
+      {/* input nascosto OCR */}
       <input
         type="file"
         accept="image/*"
@@ -135,152 +147,193 @@ TESTO:
         style={{ display: 'none' }}
       />
 
-      <style jsx global>{`
-        /* —— Video —— */
-        .bg-video {
+      {/* STILI */}
+      <style jsx>{`
+        :root {
+          --glass-bg: rgba(0, 0, 0, 0.35);   /* trasparenza ridotta */
+          --border-glass: rgba(255, 255, 255, 0.12);
+          --text: #fff;
+        }
+
+        .home-video {
           position: fixed;
           inset: 0;
-          width: 100%;
-          height: 100%;
+          width: 100vw;
+          height: 100vh;
           object-fit: cover;
-          z-index: -2;
-          pointer-events: none;
-          background: #000;
-        }
-        .bg-overlay {
-          position: fixed;
-          inset: 0;
+          pointer-events: none; /* evita tocchi su mobile */
           z-index: -1;
-          background: rgba(0, 0, 0, 0.35);
-          pointer-events: none;
+          filter: saturate(1.05) contrast(1.05);
         }
 
-        /* —— Shell —— */
-        .home-shell {
+        .home-wrap {
           min-height: 100vh;
+          width: 100%;
           display: grid;
-          grid-template-rows: auto auto;
-          align-items: start;
-          justify-items: center;
-          gap: 1.25rem;
-          padding: 2rem 1rem 3rem;
-          color: #fff;
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+          place-items: center;
+          padding: 24px;
         }
 
-        /* —— Griglia primaria —— */
-        .primary-grid {
+        .sezione-home {
+          width: 100%;
+          max-width: 1100px;
           display: grid;
-          grid-template-columns: repeat(2, minmax(240px, 1fr));
-          gap: 1rem;
-          width: min(1100px, 96vw);
-        }
-        @media (max-width: 760px) {
-          .primary-grid {
-            grid-template-columns: 1fr;
-          }
+          grid-template-columns: 1fr 0.9fr;
+          gap: 16px;
+          color: var(--text);
         }
 
-        /* —— Card CTA —— */
-        .card-cta {
+        /* Colonna sinistra: box grandi */
+        .col-sinistra {
           display: grid;
-          align-content: center;
-          justify-items: center;
-          gap: 0.25rem;
+          gap: 16px;
+        }
+
+        .box-home {
+          position: relative;
+          display: grid;
+          place-items: center;
+          height: clamp(140px, 26vw, 240px);
+          border-radius: 20px;
+          color: #0b1020;
+          font-weight: 900;
+          letter-spacing: 0.6px;
           text-decoration: none;
+          border: 1px solid rgba(255,255,255,0.18);
+          box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1);
+          overflow: hidden;
+          isolation: isolate;
+          transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+          animation: shimmer 6s linear infinite;
+        }
+        .box-home:hover { transform: translateY(-2px) scale(1.01); }
+
+        .box-title {
+          font-size: clamp(1.2rem, 3vw, 2rem);
           color: #fff;
-          border-radius: 18px;
-          padding: clamp(1.1rem, 3vw, 1.7rem);
-          min-height: clamp(130px, 22vw, 220px);
-          transition: transform 120ms ease, box-shadow 200ms ease, border-color 200ms ease;
+          text-shadow: 0 2px 18px rgba(0,0,0,0.35);
+          z-index: 2;
+        }
+
+        /* Due colori diversi */
+        .box-grad-green {
+          background: radial-gradient(120% 140% at 20% 10%, #22c55e, transparent 50%),
+                      radial-gradient(130% 150% at 90% 80%, #0ea5e9, transparent 60%),
+                      linear-gradient(135deg, #0b1224 0%, #0b1224 100%);
+        }
+        .box-grad-blue {
+          background: radial-gradient(120% 140% at 20% 10%, #a855f7, transparent 50%),
+                      radial-gradient(130% 150% at 90% 80%, #3b82f6, transparent 60%),
+                      linear-gradient(135deg, #0b1224 0%, #0b1224 100%);
+        }
+
+        /* Colonna destra: card strumenti */
+        .col-destra {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .funzionalita-card {
+          background: var(--glass-bg);
+          border: 1px solid var(--border-glass);
+          border-radius: 16px;
+          padding: 16px;
+          backdrop-filter: blur(10px);
+          box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+        }
+
+        .funz-title {
+          margin: 0 0 10px;
+          font-size: clamp(1.05rem, 2.4vw, 1.2rem);
+          font-weight: 700;
+          opacity: .95;
+        }
+
+        .icon-bar {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .icon-btn {
+          --btn-size: 56px;
+          width: var(--btn-size);
+          height: var(--btn-size);
+          display: grid;
+          place-items: center;
+          border-radius: 14px;
+          border: 1px solid rgba(255,255,255,0.18);
+          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+          color: #fff;
+          cursor: pointer;
+          text-decoration: none;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+          transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
+          font-size: 1.25rem;
           position: relative;
           overflow: hidden;
           isolation: isolate;
         }
-        .card-cta .emoji { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1; }
-        .card-cta .title { font-weight: 800; font-size: clamp(1.1rem, 2.8vw, 1.6rem); }
-        .card-cta .hint  { opacity: .85; font-size: clamp(.85rem, 2vw, .95rem); }
-        .card-cta:hover { transform: translateY(-2px) scale(1.02); }
+        .icon-btn:hover { transform: translateY(-2px); }
 
-        /* —— Colori a gradiente + tinta sheen —— */
-        .card-prodotti {
-          --tint: 236,72,153; /* rosa */
-          background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85));
-          border: 1px solid rgba(236,72,153,0.35);
-        }
-        .card-finanze {
-          --tint: 59,130,246; /* blu */
-          background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85));
-          border: 1px solid rgba(59,130,246,0.35);
-        }
-
-        /* —— Pulsazione bagliore —— */
-        .animate-card { animation: cardGlow 3.2s ease-in-out infinite; }
-        .pulse-prodotti { --glowA: 236,72,153;  --glowB: 99,102,241; }
-        .pulse-finanze  { --glowA: 59,130,246;  --glowB: 6,182,212; }
-        @keyframes cardGlow {
-          0%   { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
-          50%  { box-shadow: 0 0 35px rgba(var(--glowB), 0.85); }
-          100% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
-        }
-
-        /* —— Riflesso sheen colorato —— */
-        .sheen::before {
+        /* Glow/shimmer forte (anche sui grandi) */
+        .glow-strong::before {
           content: "";
           position: absolute;
-          inset: -22%;
-          border-radius: inherit;
-          background:
-            linear-gradient(
-              75deg,
-              rgba(var(--tint), 0.00) 0%,
-              rgba(var(--tint), 0.10) 28%,
-              rgba(255,255,255, 0.45) 50%,
-              rgba(var(--tint), 0.16) 72%,
-              rgba(var(--tint), 0.00) 100%
-            );
-          transform: translateX(-130%) skewX(-12deg);
-          filter: blur(0.6px);
-          mix-blend-mode: screen;
+          inset: -20%;
+          background: conic-gradient(
+            from 0deg,
+            rgba(255,255,255,0.08),
+            rgba(255,255,255,0.28),
+            rgba(255,255,255,0.08)
+          );
+          filter: blur(18px);
+          opacity: 0.65;
+          z-index: 1;
+          animation: spinGlow 8s linear infinite;
           pointer-events: none;
-          animation: sweepShine 2.8s ease-in-out infinite;
         }
-        .card-finanze.sheen::before { animation-delay: .6s; }
-        @keyframes sweepShine {
-          0%   { transform: translateX(-130%) skewX(-12deg); opacity: .65; }
-          60%  { transform: translateX(0%)    skewX(-12deg); opacity: 1; }
-          100% { transform: translateX(130%)  skewX(-12deg); opacity: 0; }
-        }
-
-        /* —— Funzionalità Avanzate —— */
-        .advanced-box {
-          width: min(1100px, 96vw);
-          margin-top: .5rem;
-          background: rgba(0, 0, 0, 0.55);
-          border-radius: 16px;
-          padding: 1rem;
-        }
-        .advanced-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: .5rem;
+        .glow-strong::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.18), transparent 40%),
+                      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.15), transparent 40%);
+          z-index: 1;
+          pointer-events: none;
+          mix-blend-mode: screen;
+          animation: pulseBloom 2.2s ease-in-out infinite;
         }
 
-        /* —— Bottoni —— */
-        .btn-vocale, .btn-ocr, .btn-manuale {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: .45rem .7rem;
-          border-radius: .55rem;
-          cursor: pointer;
-          color: #fff;
-          text-decoration: none;
+        @keyframes spinGlow {
+          to { transform: rotate(360deg); }
         }
-        .btn-vocale { background: #6366f1; }
-        .btn-ocr { background: #06b6d4; }
-        .btn-manuale { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); }
-        .btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover { opacity: .9; }
+        @keyframes pulseBloom {
+          0%, 100% { opacity: .35; filter: brightness(1); }
+          50%      { opacity: .75; filter: brightness(1.35); }
+        }
+        @keyframes shimmer {
+          0%   { filter: brightness(1); }
+          50%  { filter: brightness(1.12); }
+          100% { filter: brightness(1); }
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+          .sezione-home {
+            grid-template-columns: 1fr;
+            gap: 14px;
+          }
+          .box-home { height: clamp(120px, 34vw, 200px); }
+          .icon-btn { --btn-size: 54px; }
+        }
+        @media (max-width: 480px) {
+          .home-wrap { padding: 18px; }
+          .funzionalita-card { padding: 14px; }
+          .icon-btn { --btn-size: 52px; font-size: 1.2rem; }
+        }
       `}</style>
     </>
   );
