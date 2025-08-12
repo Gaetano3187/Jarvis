@@ -489,6 +489,7 @@ function hasExplicitPackStructure(text){
 
 
 /* --------- Parser VOCALE scorte con "inerzia" su righe esistenti (fix numeri in lettere) --------- */
+/* --------- Parser VOCALE scorte: supporto frasi miste scorte+scadenze --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
@@ -496,48 +497,52 @@ function parseStockUpdateText(text) {
   const res = [];
   const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”
 
-  for (let rawChunk of parts) {
-    // salta riferimenti a scadenze/date
-    if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
-    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
-    if (/\b20\d{2}\b/.test(rawChunk)) continue;
+  // regex per rimuovere SOLO roba di scadenze (non scartare il blocco!)
+  const DATE_RE = /\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/g;
+  const EXPIRY_WORDS_RE = /\b(scad(?:enza|e)?|entro|preferibilmente|da\s+consumare)\b/g;
 
+  for (let rawChunk of parts) {
+    // spezza ulteriormente su “ e ” (per gestire: “latte sono 6 bottiglie e scade il 15/07/2025”)
     const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
 
-    for (const chunk of chunks) {
-      const name = guessProductName(chunk);
+    for (let chunk of chunks) {
+      // Per l’analisi SCORTE, rimuovi le parti di scadenza dal sotto-blocco
+      const chunkForStock = chunk.replace(DATE_RE, ' ').replace(EXPIRY_WORDS_RE, ' ').replace(/\s{2,}/g,' ').trim();
+      if (!chunkForStock) continue;
+
+      const name = guessProductName(chunkForStock);
       if (!name) continue;
 
-      const explicit = hasExplicitPackStructure(chunk);
-      const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
+      const explicit = hasExplicitPackStructure(chunkForStock);
+      const pack = extractPackInfo(chunkForStock); // {packs, unitsPerPack, unitLabel}
 
-      // prova a catturare un numero + eventuale etichetta (bottiglie/pacchi/...)
-      let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
+      // prova a catturare numero + tag (bottiglie/pacchi/…)
+      let m = chunkForStock.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
 
       // fallback: numeri in lettere (due..dieci)
       if (!m) {
-        const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
+        const w = chunkForStock.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
         if (w) {
           const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
-          m = [null, String(map[w[1].toLowerCase()]), '']; // finto match coerente con m[1]=valore
+          m = [null, String(map[w[1].toLowerCase()]), ''];
         }
       }
 
-      // **SOLO NOME**: attiva SOLO se non ho trovato nessun numero (né cifre né lettere)
+      // SOLO NOME → aggiungi come 1 unità (su riga esistente diventa "residuo=1")
       if (!m) {
         res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
         continue;
       }
 
-      // restock esplicito “X confezioni da Y”
       if (explicit) {
+        // “X confezioni da Y” → restock esplicito
         const packs = Math.max(1, Number(pack.packs || 1));
         const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
         res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp });
         continue;
       }
 
-      // caso numerico semplice: “latte 3 bottiglie / pasta 4 pacchi / fiesta 3 unità”
+      // numerico semplice: “latte 3 bottiglie / pasta 4 pacchi / fiesta 3 unità”
       const valNum = Number(String(m[1]).replace(',', '.'));
       if (!Number.isFinite(valNum) || valNum <= 0) continue;
 
@@ -561,6 +566,7 @@ function parseStockUpdateText(text) {
   }
   return res;
 }
+
 
 /* ---------- calcoli consumo/aggiornamento ---------- */
 function computeNewAvgDailyUnits(old, newPacks) {
