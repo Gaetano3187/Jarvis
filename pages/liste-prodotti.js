@@ -458,17 +458,18 @@ function parseReceiptPurchases(ocrText) {
 }
 
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
+/* --------- Parser VOCALE per aggiornare scorte (migliorato) --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
 
   // spezzatura "soft"
   const parts = t
-    .split(/[,;]+/g)
+    .split(/[,;\n]+/g)
     .map(s => s.trim())
     .filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text); // se frasi tipo "porta a...", usiamo set come default del batch
+  const absoluteBatch = wantsAbsoluteSet(text); // "porta a", "imposta a", "ora sono", etc.
 
   for (let chunk of parts) {
     // Scarta blocchi che parlano di scadenze/date
@@ -476,29 +477,57 @@ function parseStockUpdateText(text) {
     if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(chunk)) continue;
     if (/\b20\d{2}\b/.test(chunk)) continue; // evita anni tipo 2025
 
-    // scomponi " e " solo dopo la prima scrematura
-    const candidates = chunk.split(/\s+e\s+/g).filter(Boolean);
+    // Prova match "confezioni da X":  es. "una confezione di latte da 6 bottiglie"
+    const packInfo = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
+    let nameGuess = '';
+    for (const lex of GROCERY_LEXICON) {
+      if (isSimilar(chunk, lex)) { nameGuess = lex; break; }
+    }
 
-    for (const c of (candidates.length ? candidates : [chunk])) {
-      const m = c.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
-      if (!m) continue;
-      let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
-      if (!name) continue;
+    if ((/conf|scatol|pacc|x/.test(chunk)) && Number(packInfo.packs || 0) > 0) {
+      const name = nameGuess || chunk;
+      res.push({
+        name,
+        mode: 'packs',
+        value: Number(packInfo.packs),
+        upp: Number(packInfo.unitsPerPack || 1),
+        unitLabel: packInfo.unitLabel || 'unità',
+        op: 'add'
+      });
+      continue;
+    }
 
-      let value = Number(String(m[2]).replace(',','.')) || 0;
-      if (!Number.isFinite(value) || value <= 0) continue;
-      if (value >= 1000) continue; // difesa su numeri assurdi
-      const tag = (m[3]||'').toLowerCase();
-
-      // normalizza nome
+    // Match generico: "latte sono 2 bottiglie" / "pasta 3 pacchi" / "ferrero fiesta 4"
+    const m = chunk.match(/^(.*?)(?:\s+(sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
+    if (m) {
+      let name = (m[1] || '')
+        .replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un|confezione|confezioni|pacco|pacchi|scatola|scatole|da|x)\b/g,' ')
+        .replace(/\s{2,}/g,' ')
+        .trim();
+      if (!name) name = nameGuess || chunk;
       for (const lex of GROCERY_LEXICON) { if (isSimilar(name, lex)) { name = lex; break; } }
 
-      const mode = /unit|pz|pezzi|barrett|vasett|uova/.test(tag) ? 'units' : 'packs';
+      const link = (m[2] || '').toLowerCase(); // "sono", "è", "="
+      const val  = Number(String(m[3]).replace(',','.')) || 0;
+      const rawTag = (m[4] || '').toLowerCase();
 
-      // op: se la frase complessiva conteneva pattern "porta a ..." → set, altrimenti add
-      const op = absolute ? 'set' : 'add';
+      // IMPORTANTISSIMO: "bottiglie" è UNITÀ (non pacchi)
+      const isUnitsTag = /unit|pz|pezzi|barrett|vasett|uova|bott/i.test(rawTag);
+      const mode = rawTag ? (isUnitsTag ? 'units' : 'packs') : 'auto';
 
-      res.push({ name, mode, value, op });
+      // se c'è "sono/è/=" o frasi assolute → op=set; altrimenti add
+      const op = (absoluteBatch || !!link) ? 'set' : 'add';
+
+      if (val > 0) {
+        res.push({ name, mode, value: val, op, rawTag });
+      }
+      continue;
+    }
+
+    // SOLO nome: "latte" → aggiungi 1 confezione
+    if (nameGuess) {
+      res.push({ name: nameGuess, mode: 'packs', value: 1, op: 'add' });
+      continue;
     }
   }
   return res;
