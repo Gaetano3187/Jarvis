@@ -1,3 +1,4 @@
+
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -453,29 +454,8 @@ function parseReceiptPurchases(ocrText) {
       unitLabel: pack.unitLabel || 'unità',
       expiresAt: ''
     });
-    
   }
   return out;
-}
-/** Trova il nome prodotto migliore in una frase usando il lessico */
-function guessProductName(chunk) {
-  let best = '';
-  let bestLen = 0;
-  for (const lex of GROCERY_LEXICON) {
-    if (isSimilar(chunk, lex) && lex.length > bestLen) { best = lex; bestLen = lex.length; }
-  }
-  // fallback: prima parola significativa
-  if (!best) {
-    const t = normKey(chunk).split(' ').filter(Boolean);
-    if (t.length) best = t.slice(0, 2).join(' ');
-  }
-  return best.trim();
-}
-
-/** True se la frase suona come “sono/ce ne sono/ne ho …” ⇒ set residuo (units) */
-function looksLikeSetResidue(text) {
-  const t = normKey(text);
-  return /\b(sono|ce\s+ne\s+sono|ce\s+n'?e\s+sono|ne\s+ho|adesso\s+sono|ora\s+sono|in\s+totale\s+sono)\b/.test(t);
 }
 
 /* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
@@ -484,12 +464,12 @@ function parseStockUpdateText(text) {
 
   // spezzatura "soft"
   const parts = t
-    .split(/[,;\n]+/g)
+    .split(/[,;]+/g)
     .map(s => s.trim())
     .filter(Boolean);
 
   const res = [];
-  const absoluteBatch = wantsAbsoluteSet(text); // "porta a", "imposta a", "ora sono", etc.
+  const absolute = wantsAbsoluteSet(text); // se frasi tipo "porta a...", usiamo set come default del batch
 
   for (let chunk of parts) {
     // Scarta blocchi che parlano di scadenze/date
@@ -497,57 +477,29 @@ function parseStockUpdateText(text) {
     if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(chunk)) continue;
     if (/\b20\d{2}\b/.test(chunk)) continue; // evita anni tipo 2025
 
-    // Prova match "confezioni da X":  es. "una confezione di latte da 6 bottiglie"
-    const packInfo = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
-    let nameGuess = '';
-    for (const lex of GROCERY_LEXICON) {
-      if (isSimilar(chunk, lex)) { nameGuess = lex; break; }
-    }
+    // scomponi " e " solo dopo la prima scrematura
+    const candidates = chunk.split(/\s+e\s+/g).filter(Boolean);
 
-    if ((/conf|scatol|pacc|x/.test(chunk)) && Number(packInfo.packs || 0) > 0) {
-      const name = nameGuess || chunk;
-      res.push({
-        name,
-        mode: 'packs',
-        value: Number(packInfo.packs),
-        upp: Number(packInfo.unitsPerPack || 1),
-        unitLabel: packInfo.unitLabel || 'unità',
-        op: 'add'
-      });
-      continue;
-    }
+    for (const c of (candidates.length ? candidates : [chunk])) {
+      const m = c.match(/^(.*?)(?:\s+(?:sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
+      if (!m) continue;
+      let name = (m[1]||'').replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un)\b/g,' ').replace(/\s{2,}/g,' ').trim();
+      if (!name) continue;
 
-    // Match generico: "latte sono 2 bottiglie" / "pasta 3 pacchi" / "ferrero fiesta 4"
-    const m = chunk.match(/^(.*?)(?:\s+(sono|e'|è|=))?\s*(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova)?$/i);
-    if (m) {
-      let name = (m[1] || '')
-        .replace(/\b(ho|di|della|del|dei|le|la|i|il|uno|una|un|confezione|confezioni|pacco|pacchi|scatola|scatole|da|x)\b/g,' ')
-        .replace(/\s{2,}/g,' ')
-        .trim();
-      if (!name) name = nameGuess || chunk;
+      let value = Number(String(m[2]).replace(',','.')) || 0;
+      if (!Number.isFinite(value) || value <= 0) continue;
+      if (value >= 1000) continue; // difesa su numeri assurdi
+      const tag = (m[3]||'').toLowerCase();
+
+      // normalizza nome
       for (const lex of GROCERY_LEXICON) { if (isSimilar(name, lex)) { name = lex; break; } }
 
-      const link = (m[2] || '').toLowerCase(); // "sono", "è", "="
-      const val  = Number(String(m[3]).replace(',','.')) || 0;
-      const rawTag = (m[4] || '').toLowerCase();
+      const mode = /unit|pz|pezzi|barrett|vasett|uova/.test(tag) ? 'units' : 'packs';
 
-      // IMPORTANTISSIMO: "bottiglie" è UNITÀ (non pacchi)
-      const isUnitsTag = /unit|pz|pezzi|barrett|vasett|uova|bott/i.test(rawTag);
-      const mode = rawTag ? (isUnitsTag ? 'units' : 'packs') : 'auto';
+      // op: se la frase complessiva conteneva pattern "porta a ..." → set, altrimenti add
+      const op = absolute ? 'set' : 'add';
 
-      // se c'è "sono/è/=" o frasi assolute → op=set; altrimenti add
-      const op = (absoluteBatch || !!link) ? 'set' : 'add';
-
-      if (val > 0) {
-        res.push({ name, mode, value: val, op, rawTag });
-      }
-      continue;
-    }
-
-    // SOLO nome: "latte" → aggiungi 1 confezione
-    if (nameGuess) {
-      res.push({ name: nameGuess, mode: 'packs', value: 1, op: 'add' });
-      continue;
+      res.push({ name, mode, value, op });
     }
   }
   return res;
@@ -1326,407 +1278,103 @@ function decrementAcrossBothLists(prevLists, purchases) {
       if (DEBUG) console.log('[STT inventory] text:', text);
       if (!text) { showToast('Nessun testo riconosciuto', 'err'); return; }
 
-    // Heuristica veloce
-const looksExpiry = /scad|scadenza|scade|entro|\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/i.test(text);
+      // Heuristica veloce
+      const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
 
-// Parser locali
-let localIntent   = looksExpiry ? 'expiry' : 'stock_update';
-let localExpiries = looksExpiry ? parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name)) : [];
-let localUpdates  = !looksExpiry ? parseStockUpdateText(text) : [];
+      // Parser locali
+      let localIntent = looksExpiry ? 'expiry' : 'stock_update';
+      let localExpiries = looksExpiry ? parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name)) : [];
+      let localUpdates = !looksExpiry ? parseStockUpdateText(text) : [];
 
-let intent   = localIntent;
-let updates  = localUpdates;
-let expiries = localExpiries;
+      let intent = localIntent;
+      let updates = localUpdates;
+      let expiries = localExpiries;
 
-// Se locale non trova nulla, prova Assistant (con try/catch chiuso correttamente)
-if ((intent === 'expiry' && expiries.length === 0) || (intent === 'stock_update' && updates.length === 0)) {
-  try {
-    const prompt = buildInventoryIntentPrompt(text);
-    const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
-    }, 25000);
-
-    const safe   = await readJsonSafe(r);
-    const answer = safe?.answer || safe?.data || safe;
-    const parsed = typeof answer === 'string'
-      ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-      : answer;
-
-    const pIntent = parsed?.intent;
-    if (pIntent === 'expiry') {
-      intent = 'expiry';
-      expiries = ensureArray(parsed?.expiries)
-        .map(e => ({ name: String(e?.name || '').trim(), expiresAt: toISODate(e?.expiresAt) }))
-        .filter(e => e.name && e.expiresAt);
-    } else if (pIntent === 'stock_update') {
-      intent = 'stock_update';
-      updates = ensureArray(parsed?.updates)
-        .map(u => ({
-          name: String(u?.name || '').trim(),
-          mode: (u?.mode === 'units' ? 'units' : (u?.mode === 'packs' ? 'packs' : 'auto')),
-          value: Math.max(0, Number(u?.value || 0)),
-          op: (u?.op === 'set' ? 'set' : 'add'),
-          upp: Number(u?.upp || 0) || undefined,
-          unitLabel: u?.unitLabel || undefined,
-        }))
-        .filter(u => u.name && u.value > 0);
-    }
-  } catch (e) {
-    if (DEBUG) console.warn('[Assistant intent fallback error]', e);
-  }
-}
-
-// ======= SCADENZE =======
-if (intent === 'expiry' && expiries.length) {
-  let hit = 0;
-  setStock(prev => {
-    const arr = [...prev];
-    for (const p of expiries) {
-      const idx = arr.findIndex(s => isSimilar(s.name, p.name));
-      if (idx >= 0) {
-        arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
-        hit++;
-      }
-    }
-    return arr;
-  });
-  showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
-  return;
-}
-
-// ======= SCORTE =======
-if (intent === 'stock_update' && updates.length) {
-  let applied = 0;
-
-  setStock(prev => {
-    const arr = [...prev];
-    const todayISO = new Date().toISOString().slice(0, 10);
-
-    for (const u of updates) {
-      let idx = arr.findIndex(s => isSimilar(s.name, u.name));
-      const opInput = (u.op === 'set' ? 'set' : 'add');
-      let mode = u.mode || 'packs';
-
-      // auto: se il prodotto esiste e ha UPP>1 → units, altrimenti packs
-      if (mode === 'auto') {
-        if (idx >= 0) {
-          const upp0 = Math.max(1, Number(arr[idx].unitsPerPack || 1));
-          mode = upp0 > 1 ? 'units' : 'packs';
-        } else {
-          mode = 'packs';
-        }
-      }
-
-      // --- CREAZIONE SE NON ESISTE ---
-      if (idx < 0) {
-        if (mode === 'units') {
-          const upp = Math.max(1, Number(u.upp || 1));
-          const packs = opInput === 'set' ? Math.max(1, Math.ceil(Number(u.value || 1) / upp)) : 1;
-          const residueUnits = opInput === 'set' ? Math.max(0, Number(u.value || 0)) : upp;
-
-          let next = {
-            name: u.name, brand: '',
-            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
-            expiresAt: '',
-            baselinePacks: packs, lastRestockAt: todayISO,
-            residueUnits,
-            avgDailyUnits: 0
-          };
-          if (typeof applyLearningOnRow === 'function') {
-            next = applyLearningOnRow(next, { upp, unitLabel: next.unitLabel, source: 'voice' });
+      // Se locale non trova nulla, prova Assistant
+      if ((intent === 'expiry' && !expiries.length) || (intent === 'stock_update' && !updates.length)) {
+        try {
+          const prompt = buildInventoryIntentPrompt(text);
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+          }, 25000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+          const pIntent = parsed?.intent;
+          if (pIntent === 'expiry') {
+            intent = 'expiry';
+            expiries = ensureArray(parsed?.expiries).map(e => ({ name:String(e.name||'').trim(), expiresAt: toISODate(e.expiresAt) })).filter(e=>e.name && e.expiresAt);
+          } else if (pIntent === 'stock_update') {
+            intent = 'stock_update';
+            updates = ensureArray(parsed?.updates).map(u => ({
+              name:String(u.name||'').trim(),
+              mode:(u.mode==='units'?'units':'packs'),
+              value: Math.max(0, Number(u.value||0)),
+              op: 'add' // di default aggiunge se non specificato
+            })).filter(u => u.name && u.value>0);
           }
-          arr.unshift(next);
-        } else { // packs
-          const upp = Math.max(1, Number(u.upp || 1));
-          const packs = Math.max(1, Number(u.value || 1));
-          const residueUnits = packs * upp;
+        } catch (e) {
+          if (DEBUG) console.warn('[Assistant intent fallback error]', e);
+        }
+      }
 
-          let next = {
-            name: u.name, brand: '',
-            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
-            expiresAt: '',
-            baselinePacks: packs, lastRestockAt: todayISO,
-            residueUnits,
-            avgDailyUnits: 0
-          };
-          if (typeof applyLearningOnRow === 'function') {
-            next = applyLearningOnRow(next, { upp, unitLabel: next.unitLabel, source: 'voice' });
+      if (intent === 'expiry' && expiries.length) {
+        let hit = 0;
+        setStock(prev => {
+          const arr = [...prev];
+          for (const p of expiries) {
+            const idx = arr.findIndex(s => isSimilar(s.name, p.name));
+            if (idx >= 0) { arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt }; hit++; }
           }
-          arr.unshift(next);
-        }
-        applied++;
-        continue;
+          return arr;
+        });
+        showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
+        return;
       }
 
-      // --- AGGIORNAMENTO SE ESISTE ---
-      const old = arr[idx];
-      let upp   = Math.max(1, Number(old.unitsPerPack || 1));
-      let packs = Math.max(0, Number(old.packs || 0));
-      let ru    = Number.isFinite(Number(old.residueUnits)) ? Math.max(0, Number(old.residueUnits)) : packs * upp;
+      if (intent === 'stock_update' && updates.length) {
+        let applied = 0;
+        setStock(prev => {
+          const arr = [...prev];
+          const todayISO = new Date().toISOString().slice(0,10);
 
-      // Se arriva un nuovo UPP/etichetta (es. "da 6 bottiglie")
-      if (Number(u.upp) > 0) {
-        const newUPP = Math.max(1, Number(u.upp));
-        if (!old.unitsPerPack || old.unitsPerPack === 1 || newUPP !== old.unitsPerPack) {
-          upp = newUPP;
-          ru = Math.min(ru, Math.max(upp, packs * upp)); // clamp al pieno corrente
-        }
-      }
-      const unitLabel = u.unitLabel || old.unitLabel || 'unità';
+          for (const u of updates) {
+            let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+            const isSet = (u.op === 'set');
+            const isUnits = (u.mode === 'units');
 
-      if (mode === 'units') {
-        const valUnits = Math.max(0, Number(u.value || 0));
-        ru = (opInput === 'set') ? valUnits : (ru + valUnits);
-        ru = Math.min(ru, Math.max(upp, packs * upp));
-      } else { // packs
-        const valPacks = Math.max(0, Number(u.value || 0));
-        if (opInput === 'set') {
-          packs = Math.max(0, valPacks);
-        } else {
-          const before = packs;
-          packs = Math.max(0, packs + valPacks);
-          const added = Math.max(0, packs - before);
-          if (added > 0) ru = Math.min(ru + (added * upp), Math.max(upp, packs * upp));
-        }
-        ru = Math.min(ru, Math.max(upp, packs * upp));
-      }
+            if (idx < 0) {
+              // crea nuova riga scorte
+              if (isUnits) {
+                if (isSet) {
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: Math.max(1, Math.ceil(Number(u.value||1))),
+                    unitsPerPack: 1, unitLabel:'unità',
+                    expiresAt:'', baselinePacks: Math.max(1, Math.ceil(Number(u.value||1))),
+                    lastRestockAt: todayISO, avgDailyUnits:0
+                  });
+                } else {
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: 1, unitsPerPack: Math.max(1, Math.round(Number(u.value||1))), unitLabel:'unità',
+                    expiresAt:'', baselinePacks:1,
+                    lastRestockAt: todayISO, avgDailyUnits:0
+                  });
+                }
+              } else {
+                const p = Math.max(0, Number(u.value||0));
+                arr.unshift({
+                  name: u.name, brand: '',
+                  packs: p, unitsPerPack:1, unitLabel:'unità',
+                  expiresAt:'', baselinePacks: p,
+                  lastRestockAt: todayISO, avgDailyUnits:0
+                });
+              }
+              applied++;
+              continue;
+            }
 
-      const restock = packs > Number(old.packs || 0);
-      let next = {
-        ...old,
-        packs,
-        unitsPerPack: upp,
-        unitLabel,
-        residueUnits: ru,
-        baselinePacks: packs,
-        lastRestockAt: restock ? todayISO : old.lastRestockAt,
-      };
-      if (typeof applyLearningOnRow === 'function') {
-        next = applyLearningOnRow(next, { upp: Number(u.upp) || undefined, unitLabel, source: 'voice' });
-      }
-      arr[idx] = next;
-      applied++;
-    }
-
-    return arr;
-  });
-
-  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
-  return;
-}
-
-// ===================== GESTIONE RISPOSTE =====================
-
-// 1) Scadenze
-if (intent === 'expiry' && expiries.length) {
-  let hit = 0;
-  setStock(prev => {
-    const arr = [...prev];
-    for (const p of expiries) {
-      const idx = arr.findIndex(s => isSimilar(s.name, p.name));
-      if (idx >= 0) {
-        arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
-        hit++;
-      }
-    }
-    return arr;
-  });
-  showToast(hit ? `Aggiornate ${hit} scadenze ✓` : 'Nessun prodotto corrispondente', hit ? 'ok' : 'err');
-  return;
-}
-
-// 2) Aggiornamento scorte
-if (intent === 'stock_update' && updates.length) {
-  let applied = 0;
-
-  setStock(prev => {
-    const arr = [...prev];
-    const todayISO = new Date().toISOString().slice(0, 10);
-
-    for (const u of updates) {
-      let idx = arr.findIndex(s => isSimilar(s.name, u.name));
-      const opInput = (u.op === 'set' ? 'set' : 'add');
-      let mode = u.mode || 'packs';
-
-      // mode "auto": se esiste con UPP>1 → units, altrimenti packs
-      if (mode === 'auto') {
-        if (idx >= 0) {
-          const upp0 = Math.max(1, Number(arr[idx].unitsPerPack || 1));
-          mode = upp0 > 1 ? 'units' : 'packs';
-        } else {
-          mode = 'packs';
-        }
-      }
-
-      // CREAZIONE SE NON ESISTE
-      if (idx < 0) {
-        if (mode === 'units') {
-          const upp = Math.max(1, Number(u.upp || 1));
-          const packs = opInput === 'set' ? Math.max(1, Math.ceil(Number(u.value || 1) / upp)) : 1;
-          const residueUnits = opInput === 'set' ? Math.max(0, Number(u.value || 0)) : upp;
-
-          let next = {
-            name: u.name, brand: '',
-            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
-            expiresAt: '',
-            baselinePacks: packs, lastRestockAt: todayISO,
-            residueUnits,
-            avgDailyUnits: 0
-          };
-          if (typeof applyLearningOnRow === 'function') {
-            next = applyLearningOnRow(next, { upp, unitLabel: next.unitLabel, source: 'voice' });
-          }
-          arr.unshift(next);
-        } else { // packs
-          const upp = Math.max(1, Number(u.upp || 1));
-          const packs = Math.max(1, Number(u.value || 1));
-          const residueUnits = packs * upp;
-
-          let next = {
-            name: u.name, brand: '',
-            packs, unitsPerPack: upp, unitLabel: u.unitLabel || 'unità',
-            expiresAt: '',
-            baselinePacks: packs, lastRestockAt: todayISO,
-            residueUnits,
-            avgDailyUnits: 0
-          };
-          if (typeof applyLearningOnRow === 'function') {
-            next = applyLearningOnRow(next, { upp, unitLabel: next.unitLabel, source: 'voice' });
-          }
-          arr.unshift(next);
-        }
-        applied++;
-        continue;
-      }
-
-      // AGGIORNAMENTO SE ESISTE
-      const old = arr[idx];
-      let upp   = Math.max(1, Number(old.unitsPerPack || 1));
-      let packs = Math.max(0, Number(old.packs || 0));
-      let ru    = Number.isFinite(Number(old.residueUnits)) ? Math.max(0, Number(old.residueUnits)) : packs * upp;
-
-      // Se dal parlato arriva un nuovo UPP/etichetta (es. "da 6 bottiglie")
-      if (Number(u.upp) > 0) {
-        const newUPP = Math.max(1, Number(u.upp));
-        if (!old.unitsPerPack || old.unitsPerPack === 1 || newUPP !== old.unitsPerPack) {
-          upp = newUPP;
-          // clamp ru sotto al nuovo pieno
-          const fullNow = Math.max(upp, packs * upp);
-          ru = Math.min(ru, fullNow);
-        }
-      }
-      const unitLabel = u.unitLabel || old.unitLabel || 'unità';
-
-      if (mode === 'units') {
-        const valUnits = Math.max(0, Number(u.value || 0));
-        ru = (opInput === 'set') ? valUnits : (ru + valUnits);
-        const fullNow = Math.max(upp, packs * upp);
-        ru = Math.min(ru, fullNow); // clamp al pieno corrente
-      } else { // packs
-        const valPacks = Math.max(0, Number(u.value || 0));
-        if (opInput === 'set') {
-          packs = Math.max(0, valPacks);
-        } else {
-          const before = packs;
-          packs = Math.max(0, packs + valPacks);
-          const added = Math.max(0, packs - before);
-          if (added > 0) ru = Math.min(ru + (added * upp), Math.max(upp, packs * upp));
-        }
-        // clamp col nuovo pieno
-        ru = Math.min(ru, Math.max(upp, packs * upp));
-      }
-
-      const restock = packs > Number(old.packs || 0);
-      let next = {
-        ...old,
-        packs,
-        unitsPerPack: upp,
-        unitLabel,
-        residueUnits: ru,
-        baselinePacks: packs,
-        lastRestockAt: restock ? todayISO : old.lastRestockAt,
-      };
-      if (typeof applyLearningOnRow === 'function') {
-        next = applyLearningOnRow(next, { upp: Number(u.upp) || undefined, unitLabel, source: 'voice' });
-      }
-      arr[idx] = next;
-      applied++;
-    }
-    return arr;
-  });
-
-  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
-  return;
-}
-
-      // AGGIORNAMENTO SE ESISTE
-      const old = arr[idx];
-      let upp   = Math.max(1, Number(old.unitsPerPack || 1));
-      let packs = Math.max(0, Number(old.packs || 0));
-      let ru    = Number.isFinite(Number(old.residueUnits))
-                    ? Math.max(0, Number(old.residueUnits))
-                    : packs * upp;
-
-      // se nel parlato arriva un nuovo UPP (es. "da 6 bottiglie")
-      if (Number(u.upp) > 0) {
-        const newUPP = Math.max(1, Number(u.upp));
-        // aggiorna UPP se prima era 1 o diverso
-        if (!old.unitsPerPack || old.unitsPerPack === 1 || newUPP !== old.unitsPerPack) {
-          upp = newUPP;
-        }
-      }
-      const unitLabel = u.unitLabel || old.unitLabel || 'unità';
-
-      if (mode === 'units') {
-        const valUnits = Math.max(0, Number(u.value || 0));
-        if (opInput === 'set') ru = valUnits;
-        else ru = ru + valUnits;
-
-        // clamp al pieno corrente
-        const baselineUnitsAfter = Math.max(upp, packs * upp);
-        ru = Math.min(ru, baselineUnitsAfter);
-
-      } else if (mode === 'packs') {
-        const valPacks = Math.max(0, Number(u.value || 0));
-        if (opInput === 'set') {
-          // set diretto del numero confezioni
-          packs = Math.max(0, valPacks);
-        } else {
-          // add confezioni ⇒ restock parziale: aumenta residuo di (confezioni aggiunte × UPP)
-          const before = packs;
-          packs = Math.max(0, packs + valPacks);
-          const added = Math.max(0, packs - before);
-          if (added > 0) {
-            ru = ru + (added * upp);
-          }
-        }
-
-        // baseline aggiornata alle confezioni correnti
-        const baselineUnitsAfter = Math.max(upp, packs * upp);
-        ru = Math.min(ru, baselineUnitsAfter);
-      }
-
-      // Scrivi riga aggiornata
-      const restock = packs > Number(old.packs || 0);
-      arr[idx] = {
-        ...old,
-        packs,
-        unitsPerPack: upp,
-        unitLabel,
-        residueUnits: ru,
-        baselinePacks: packs,                         // baseline = confezioni correnti
-        lastRestockAt: restock ? todayISO : old.lastRestockAt, // timestamp solo se aumentano le confezioni
-      };
-      applied++;
-    }
-    return arr;
-  });
-
-  showToast(applied ? `Aggiornate ${applied} scorte ✓` : 'Nessuna scorta aggiornata', applied ? 'ok' : 'err');
-  return;
-}
             // Esiste già
             const old = arr[idx];
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
