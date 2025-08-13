@@ -1992,16 +1992,31 @@ async function processVoiceInventory() {
             </p>
           </div>
 
-          {/* Toast */}
-          {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
-            }}>
-              {toast.msg}
-            </div>
-          )}
+        {/* Toast */}
+{toast && (
+  <div
+    style={{
+      position: 'fixed',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background:
+        toast.type === 'ok'
+          ? '#16a34a'
+          : toast.type === 'err'
+          ? '#ef4444'
+          : '#334155',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: 10,
+      boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+      zIndex: 9999
+    }}
+  >
+    {toast.msg}
+  </div>
+)}
+
 <style jsx>{`
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
@@ -2011,7 +2026,7 @@ async function processVoiceInventory() {
   .jarvisLow { animation: jarvisPulse 1.5s infinite; }
 
   /* ===== Pulsanti vetrosi come in /finanze ===== */
-  .btn-holo{
+  .btn-holo {
     --btn-size: 44px;
     --btn-radius: 12px;
     --btn-base: #3b82f6;
@@ -2037,7 +2052,7 @@ async function processVoiceInventory() {
     user-select: none;
     touch-action: manipulation;
   }
-  .btn-holo:hover{
+  .btn-holo:hover {
     transform: translateY(-2px);
     background:
       linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03)),
@@ -2046,14 +2061,14 @@ async function processVoiceInventory() {
       0 10px 26px rgba(0,0,0,0.32),
       0 0 24px color-mix(in srgb, var(--btn-hover), #fff 28%);
   }
-  .btn-holo:active{ transform: translateY(0); filter: brightness(.98); }
+  .btn-holo:active { transform: translateY(0); filter: brightness(.98); }
 
-  .glow-strong::before{
+  .glow-strong::before {
     content:""; position:absolute; inset:-20%;
     background: conic-gradient(from 0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.28), rgba(255,255,255,0.08));
     filter: blur(18px); opacity:.6; z-index:1; animation: spinGlow 8s linear infinite; pointer-events:none;
   }
-  .glow-strong::after{
+  .glow-strong::after {
     content:""; position:absolute; inset:0;
     background:
       radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.16), transparent 40%),
@@ -2061,21 +2076,21 @@ async function processVoiceInventory() {
     z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.2s ease-in-out infinite; pointer-events:none;
   }
 
-  @keyframes spinGlow{ to{ transform: rotate(360deg); } }
-  @keyframes pulseBloom{ 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.75; filter:brightness(1.35);} }
+  @keyframes spinGlow { to { transform: rotate(360deg); } }
+  @keyframes pulseBloom { 0%,100% { opacity:.32; filter:brightness(1); } 50% { opacity:.75; filter:brightness(1.35); } }
 
   .btn-sm  { --btn-size: 36px; --btn-radius: 10px; padding: 8px 12px; }
   .btn-md  { --btn-size: 44px; --btn-radius: 12px; padding: 10px 14px; }
   .btn-lg  { --btn-size: 52px; --btn-radius: 14px; padding: 12px 16px; }
 
-  .btn-ghost{
+  .btn-ghost {
     --btn-base: rgba(255,255,255,0.12);
     --btn-hover: rgba(255,255,255,0.18);
     border-color: rgba(255,255,255,0.22);
     background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
     box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.24);
   }
-}</style>
+`}</style>
     </>
   );
 }
