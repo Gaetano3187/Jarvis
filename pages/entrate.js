@@ -239,38 +239,82 @@ async function loadAll() {
       };
     });
 
-    /* -------------- SPESE CASH DA ALTRE SEZIONI -------------- */
-    const { data: finCash, error: finErr } = await supabase
-      .from('finances')
-      .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-      .eq('user_id', user.id)
-      .eq('payment_method', 'cash')
-      .or(
-        `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-        `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-      )
-      .order('spent_at', { ascending: false });
-    if (finErr) throw finErr;
+ /* -------------- SPESE CASH DA ALTRE SEZIONI
+   Regola: default CASH, escludi se descrizione contiene parole elettroniche -------------- */
+const { data: finAll, error: finErr } = await supabase
+  .from('finances')
+  .select('id, description, amount, spent_at, spent_date, category_id')
+  .eq('user_id', user.id)
+  .or(
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+  )
+  .order('spent_at', { ascending: false });
+if (finErr) throw finErr;
 
-    let cashRows = (finCash || []).map((f) => {
-      const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-      const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-      const store = m ? m[1] : 'Punto vendita';
-      const dett  = m ? m[2] : (f.description || '');
-      return {
-        id: `fin-${f.id}`,
-        dateISO,
-        label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-        amount: -Math.abs(Number(f.amount) || 0),
-        category_id: f.category_id,
-        kind: 'cash-expense',
-      };
-    });
+// Normalizzazione semplice (case/accents insensitive)
+const norm = (v) =>
+  String(v ?? '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
 
-    // Se attivo il filtro post-"Ripulisci", nascondi qui le spese cash di categoria VARIE
-    if (hideVarieCashAfterClear) {
-      cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-    }
+// Parole chiave che indicano PAGAMENTO ELETTRONICO (quindi NON contanti)
+const ELECTRONIC = [
+  'carta di credito',
+  'carta credito',
+  'carta',
+  'credito',
+  'debito',
+  'pos',
+  'contactless',
+  'satispay',
+  'paypal',
+  'iban',
+  'bonifico',
+  'sepa',
+  'apple pay',
+  'google pay',
+  'mastercard',
+  'visa',
+  'amex',
+  'stripe',
+  'nexi'
+].map(norm);
+
+const isElectronic = (desc) => {
+  const t = norm(desc);
+  return ELECTRONIC.some(k => t.includes(k));
+};
+
+// 👉 Default CASH: prendi tutte le spese che NON appaiono elettroniche dalla descrizione
+let finCash = (finAll || []).filter(r => !isElectronic(r.description));
+
+// Mappatura righe per la tabella "Soldi in tasca"
+let cashRows = finCash.map((f) => {
+  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+
+  // Supporto a descrizioni del tipo "[Negozio] dettagli"
+  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+  const store = m ? m[1] : 'Punto vendita';
+  const dett  = m ? m[2] : (f.description || '');
+
+  return {
+    id: `fin-${f.id}`,
+    dateISO,
+    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+    // Importo SEMPRE preso dal campo amount del DB e reso negativo (uscita contanti)
+    amount: -Math.abs(Number(f.amount) || 0),
+    category_id: f.category_id,
+    kind: 'cash-expense',
+  };
+});
+
+// Dopo "Ripulisci": nascondi qui le spese cash di categoria VARIE
+if (hideVarieCashAfterClear) {
+  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+}
 
     /* ----------------- AGGREGAZIONE + SET STATE ----------------- */
     const rows = [...manualRows, ...cashRows]
