@@ -17,9 +17,13 @@ const links = [
 export default function NavBar() {
   const { pathname } = useRouter();
 
+  // filler per completare multipli di 3 su mobile
+  const modulo = links.length % 3;
+  const fillers = modulo === 0 ? 0 : 3 - modulo;
+  const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
+
   return (
     <>
-      {/* font tech (consigliato) */}
       <Head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
@@ -34,9 +38,13 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
+              {/* AUREA caleidoscopio: rotazione lenta */}
               <span className="brand-aura" aria-hidden="true" />
-              {/* Testo con effetto "PC che scrive" */}
-              <span className="brand-text" data-text="JARVIS">JARVIS</span>
+              {/* GLOW variabile (contrasto con la scritta) */}
+              <span className="brand-glow" aria-hidden="true" />
+              {/* SCRITTA: forte rilievo + pulsazione + ciclo colore controllato */}
+              <span className="brand-text">JARVIS</span>
+              {/* alone sottile */}
               <span className="brand-halo" aria-hidden="true" />
             </span>
           </Link>
@@ -59,6 +67,9 @@ export default function NavBar() {
                 </li>
               );
             })}
+            {mobileFillers.map(key => (
+              <li key={key} className="item spacer" aria-hidden="true" />
+            ))}
           </ul>
         </div>
       </nav>
@@ -78,176 +89,163 @@ export default function NavBar() {
           box-shadow: 0 12px 30px rgba(0,0,0,.30);
         }
         .inner{
-          height: 64px; display: flex; align-items: center;
-          justify-content: flex-start; padding: 0 16px;
-          gap: 28px; overflow: hidden;
+          min-height: 64px; display: flex; align-items: center;
+          gap: 24px; padding: 6px 16px;
         }
 
-        /* === LOGO JARVIS (scolpito + lucido + kaleidoscopio + typing) === */
+        /* === BRAND === */
         .brand{ text-decoration:none; display:inline-flex; align-items:center; }
-        .brand-wrap{ position: relative; display:inline-grid; place-items:center; padding: 6px 2px; isolation:isolate; }
-        .brand-aura{
-          position:absolute; inset:-18px -26px; z-index:0;
-          background:
-            conic-gradient(from 0deg at 50% 50%,
-              rgba(94,234,212,.75),
-              rgba(34,211,238,.75),
-              rgba(96,165,250,.70),
-              rgba(167,139,250,.70),
-              rgba(94,234,212,.75));
-          filter: blur(28px) saturate(1.1) brightness(1.05);
-          opacity:.9; border-radius: 24px;
-          animation: auraSpin 10s linear infinite;
+        .brand-wrap{
+          position: relative; display:inline-grid; place-items:center;
+          padding: 8px 4px; isolation:isolate;
         }
 
-        /* Effetto "PC che scrive" + i tuoi effetti originali */
+        /* AUREA caleidoscopio (layer sotto) */
+        .brand-aura{
+          position:absolute; inset:-18px -26px; z-index:0; border-radius: 28px;
+          background: conic-gradient(from 0deg at 50% 50%,
+            rgba(94,234,212,.85),
+            rgba(34,211,238,.85),
+            rgba(96,165,250,.80),
+            rgba(167,139,250,.80),
+            rgba(240,171,252,.80),
+            rgba(94,234,212,.85));
+          filter: blur(28px) saturate(1.2) brightness(1.05);
+          animation: auraSpin 14s linear infinite;
+        }
+
+        /* Glow superiore: cambia tinta in controfase rispetto alla scritta */
+        .brand-glow{
+          position:absolute; inset:-10px -18px; z-index:1; border-radius: 22px;
+          background: conic-gradient(from 0deg at 50% 50%,
+            #22d3ee, #60a5fa, #a78bfa, #f0abfc, #fb7185, #34d399, #a3e635, #22d3ee);
+          filter: blur(26px) saturate(1.35) brightness(1.08);
+          opacity:.85;
+          animation: glowHue 12s linear infinite reverse, glowPulse 2.8s ease-in-out infinite;
+          mix-blend-mode: screen;
+        }
+
+        /* SCRITTA in forte rilievo + pulse + ciclo colore */
         .brand-text{
-          position:relative; z-index:1; display:inline-block;
-          overflow: hidden; white-space: nowrap;
-
+          position:relative; z-index:2; display:inline-block;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          font-weight: 900; letter-spacing: .35rem;
-          font-size: clamp(1.9rem, 4vw, 2.3rem); line-height: 1;
+          font-weight: 900; letter-spacing: .32rem;
+          font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
 
-          /* riempimento cangiante + gloss */
+          /* Riempimento brillante (niente bianco) */
           background:
-            linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 45%, rgba(255,255,255,.28) 90%),
-            conic-gradient(from 0deg at 50% 50%,
-              #a7f3d0 0%,
-              #5eead4 12%,
-              #22d3ee 24%,
-              #60a5fa 36%,
-              #a78bfa 48%,
-              #f0abfc 60%,
-              #60a5fa 72%,
-              #5eead4 84%,
-              #a7f3d0 100%);
-          background-size: 180% 180%, 200% 200%;
-          background-position: 50% 0%, 50% 50%;
+            linear-gradient(90deg,
+              #00f5ff 0%,
+              #00d8ff 14%,
+              #3aa6ff 28%,
+              #7c5cff 42%,
+              #ff3bd1 56%,
+              #00ffa8 70%,
+              #c7ff00 84%,
+              #00f5ff 100%);
+          background-size: 220% 220%;
+          background-position: 50% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
-          paint-order: stroke fill;
-
+          /* Bordo + rilievo (ombre incrociate) */
+          -webkit-text-stroke: 0.7px rgba(0,0,0,.25);
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.75),
-             1px  1px 0 rgba(0,0,0,.40),
-            -2px -2px 1px rgba(255,255,255,.40),
-             2px  2px 2px rgba(0,0,0,.34),
-             0    2px 4px rgba(0,0,0,.30);
-          filter: brightness(1.45) contrast(1.06) saturate(1.08);
+            -1px -1px 0 rgba(255,255,255,.70),  /* highlight alto-sx */
+             1.2px 1.2px 0 rgba(0,0,0,.45),     /* ombra basso-dx */
+            -2px -2px 2px rgba(255,255,255,.35),
+             2px  2px 3px rgba(0,0,0,.35),
+             0    3px 8px rgba(0,0,0,.35);
 
-          /* Animazioni originali */
+          /* Animazioni coordinate: pan + tinta (in fase) + pulsazione */
           animation:
-            kaleidoMove 7.2s linear infinite,
-            glossDrift  4.8s ease-in-out infinite,
-            typing 2.5s steps(6, end) 0.4s both,   /* typing dopo 0.4s */
-            blink-caret .75s step-end infinite 2.9s; /* cursore dopo il typing */
-
-          /* Cursore (usiamo box-shadow a destra per non perdere il background-clip) */
-          box-shadow: inset -0.15em 0 0 rgba(255,255,255,0.75);
+            textPan    7s linear infinite,
+            textHue    12s linear infinite,
+            textPulse  2.8s ease-in-out infinite;
         }
-        /* Quando finisce il typing, togliamo il cursore lampeggiante (simulato col delay dell'anim) */
 
+        /* Alone sottile sopra il testo */
         .brand-halo{
-          position:absolute; inset:-6px; z-index:2; pointer-events:none;
-          background:
-            radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.18), transparent 60%),
-            radial-gradient(100% 100% at 60% 140%, rgba(167,139,250,.18), transparent 60%);
-          mix-blend-mode: screen; filter: blur(10px);
-          animation: haloBreath 2.6s ease-in-out infinite;
+          position:absolute; inset:-4px; z-index:3; pointer-events:none;
+          background: radial-gradient(110% 110% at 50% -30%, rgba(255,255,255,.22), transparent 60%);
+          mix-blend-mode: screen; filter: blur(8px);
         }
 
-        /* === MENU link (desktop di base) === */
+        /* === MENU === */
         .track{
           display:flex; gap:16px; list-style:none; margin:0; padding:0;
         }
-        .item{ white-space:nowrap; flex: 0 0 auto; }
+        .item{ flex: 0 0 auto; }
+        .item.spacer{ visibility:hidden; height:0; padding:0; margin:0; }
         .link{
           --c1:#5eead4; --c2:#22d3ee;
-          position:relative; display:inline-grid; place-items:center;
+          display:inline-grid; place-items:center;
           padding: 12px 20px; border-radius: 16px;
           text-decoration:none; color:var(--text);
-          transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
-          border:1px solid transparent; isolation:isolate;
+          border:1px solid transparent;
+          transition: transform .18s ease, background .2s ease, box-shadow .2s ease;
         }
         .label{
-          position:relative; z-index:1; font-weight:900; letter-spacing:.05rem;
+          font-weight:900; letter-spacing:.05rem;
           background: linear-gradient(90deg, var(--c1), var(--c2));
           background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
-          text-shadow: 0 0 14px rgba(255,255,255,.14);
-          animation: shimmerText 6s linear infinite; filter: brightness(1.25);
+          text-shadow: 0 0 12px rgba(255,255,255,.12);
+          animation: labelShimmer 6s linear infinite;
         }
         .link:hover{ transform: translateY(-1px); }
         .link.is-active{
           background: rgba(255,255,255,.12);
           border-color: rgba(255,255,255,.22);
           box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
-          filter: brightness(1.12);
-        }
-        .link.is-active .label{
-          text-shadow:
-            0 0 26px color-mix(in srgb, var(--c1), #fff 40%),
-            0 0 44px color-mix(in srgb, var(--c2), #fff 30%),
-            0 0 60px rgba(255,255,255,.26);
-          animation-duration: 2.2s; filter: brightness(1.5);
         }
 
-        /* === ANIMAZIONI === */
-        @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes kaleidoMove  { to { background-position: 120% 120%, 200% 200%; } }
-        @keyframes glossDrift   {
-          0%,100% { background-position: 50% 0%, 50% 50%; }
-          50%     { background-position: 50% 22%, 60% 60%; }
-        }
+        /* === KEYFRAMES === */
+        @keyframes labelShimmer { to { background-position: -200% center; } }
         @keyframes auraSpin     { to { transform: rotate(360deg); } }
-        @keyframes haloBreath   {
-          0%,100% { opacity:.55; filter: blur(10px); }
-          50%     { opacity:.95; filter: blur(14px); }
-        }
+        @keyframes glowHue      { to { filter: hue-rotate(360deg) saturate(1.35); } }
+        @keyframes glowPulse    { 0%,100% { opacity:.70; } 50% { opacity:1; } }
+        @keyframes textPan      { to { background-position: 120% 120%; } }
+        @keyframes textHue      { to { filter: hue-rotate(360deg) saturate(1.25); } }
+        @keyframes textPulse    { 0%,100% { filter: brightness(1) contrast(1.02); } 50% { filter: brightness(1.35) contrast(1.08); } }
 
-        /* Typing + caret (solo CSS) */
-        @keyframes typing {
-          from { width: 0 }
-          to   { width: 6ch } /* "JARVIS" = 6 caratteri */
-        }
-        @keyframes blink-caret {
-          from, to { box-shadow: inset -0.15em 0 0 rgba(255,255,255,0); }
-          50%      { box-shadow: inset -0.15em 0 0 rgba(255,255,255,0.75); }
-        }
-
-        /* Riduci movimento se l'utente preferisce */
+        /* Riduci movimento se richiesto dall'utente */
         @media (prefers-reduced-motion: reduce) {
-          .brand-text { animation: none; box-shadow: none; }
-          .label { animation: none; }
-          .brand-aura, .brand-halo { animation: none; }
+          .brand-aura, .brand-glow, .brand-text, .label { animation: none !important; }
         }
 
-        /* === MOBILE: swipe orizzontale === */
+        /* === SMARTPHONE: 3 colonne x N righe === */
         @media (max-width: 560px){
-          .inner{ gap:16px; padding:0 10px; }
-          .brand-text{ font-size:1.8rem; letter-spacing:.30rem; }
-
-          .track{
-            overflow-x: auto;
-            overscroll-behavior-x: contain;
-            -webkit-overflow-scrolling: touch;
-            gap:12px;
-            padding-bottom:4px;
-            scrollbar-width: none;
+          .inner{
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            padding: 8px 10px 10px;
           }
-          .track::-webkit-scrollbar{ display:none; }
-          .link{ padding:10px 16px; }
+          .brand{ justify-content: center; }
+          .brand-text{
+            font-size: clamp(1.7rem, 8vw, 2.1rem);
+            letter-spacing: .30rem;
+          }
+          .track{
+            display:grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap:10px; width:100%;
+          }
+          .link{
+            width:100%;
+            padding:10px 12px;
+            text-align:center;
+            border-radius:14px;
+            border:1px solid rgba(255,255,255,.12);
+            background: rgba(255,255,255,.05);
+          }
         }
 
+        /* fascia intermedia (tablet verticali) */
         @media (min-width: 561px) and (max-width: 860px){
-          .track{
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: none;
-          }
-          .track::-webkit-scrollbar{ display:none; }
+          .inner{ padding: 8px 12px; }
+          .track{ flex-wrap: wrap; gap: 12px; }
+          .item{ flex: 0 0 auto; }
         }
       `}</style>
     </>
