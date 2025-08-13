@@ -300,15 +300,15 @@ function Entrate() {
       description: it.description || it.source || 'Entrata',
       amount,
       received_at: `${dataIncasso}T12:00:00Z`,
-    };
+    }
     const { error } = await supabase.from('incomes').insert(payload);
     if (error) throw error;
-  }
+  };
+
   return true;
 }
 
   }
-
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
@@ -374,22 +374,27 @@ function Entrate() {
     }
   };
 
-  /* --------------------------------- CRUD ---------------------------------- */
-  function safeParseAssistantJSON(input) {
-  if (!input) throw new Error('Empty assistant response');
+/* --------------------------------- CRUD ---------------------------------- */
+function safeParseAssistantJSON(input) {
+  if (input == null) throw new Error('Empty assistant response');
 
   // Se è già un oggetto, restituiscilo
   if (typeof input === 'object') return input;
 
-  let s = String(input).trim();
+  // Normalizza stringa
+  let s = String(input)
+    .replace(/^\uFEFF/, '') // BOM
+    .trim();
 
-  // Rimuovi eventuali code-fence ```json ... ```
-  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+  // Rimuovi eventuali fence ```json ... ```
+  if (s.startsWith('```')) {
+    s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+  }
 
-  // Tries diretti
+  // 1) Tentativo diretto
   try { return JSON.parse(s); } catch {}
 
-  // Estrai il PRIMO oggetto o array JSON dal testo (tollerante)
+  // 2) Estrai il PRIMO oggetto o array JSON dal testo
   const objMatch = s.match(/\{[\s\S]*\}/);
   const arrMatch = s.match(/\[[\s\S]*\]/);
   const candidate = (objMatch && objMatch[0]) || (arrMatch && arrMatch[0]);
@@ -397,7 +402,7 @@ function Entrate() {
     try { return JSON.parse(candidate); } catch {}
   }
 
-  // Ultimo tentativo: ripulisci trailing comma comuni
+  // 3) Ripulisci virgole pendenti tipo ", }" o ", ]"
   const cleaned = s.replace(/,\s*([}\]])/g, '$1');
   try { return JSON.parse(cleaned); } catch {}
 
@@ -405,14 +410,26 @@ function Entrate() {
 }
 
 async function callAssistant(prompt) {
-  const res = await fetch('/api/assistant', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  });
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 25000); // timeout 25s
 
-  // La tua API risponde { answer, error }
-  const payload = await res.json().catch(() => ({}));
+  let res, payload;
+  try {
+    res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal,
+    });
+    // La tua API risponde { answer, error }
+    payload = await res.json().catch(() => ({}));
+  } catch (e) {
+    clearTimeout(t);
+    throw new Error(e?.name === 'AbortError' ? 'Assistant timeout' : (e?.message || 'Assistant fetch error'));
+  } finally {
+    clearTimeout(t);
+  }
+
   if (!res.ok) {
     throw new Error(payload?.error || `HTTP ${res.status}`);
   }
@@ -420,58 +437,78 @@ async function callAssistant(prompt) {
     throw new Error(payload?.error || 'Assistant empty response');
   }
 
+  // Accetta sia stringa sia oggetto già parsato
   const parsed = safeParseAssistantJSON(payload.answer);
   return parsed;
 }
 
-  async function handleDeleteIncome(id) {
-    try {
-      const { error: e } = await supabase.from('incomes').delete().eq('id', id);
-      if (e) throw e;
-      setIncomes(incomes.filter((i) => i.id !== id));
-    } catch (err) { showError(setError, err); }
+async function handleDeleteIncome(id) {
+  try {
+    const { error: e } = await supabase.from('incomes').delete().eq('id', id);
+    if (e) throw e;
+    setIncomes((prev) => prev.filter((i) => i.id !== id));
+  } catch (err) {
+    showError(setError, err);
   }
+}
 
-  async function handleSaveCarryover(e) {
-    e.preventDefault(); setError(null);
-    try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
-      const payload = {
-        user_id: user.id, month_key: monthKey,
-        amount: Number(newCarry.amount) || 0, note: newCarry.note || null,
-      };
-      if (carryover?.id) {
-        const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('carryovers').insert(payload);
-        if (error) throw error;
-      }
-      setNewCarry({ amount: '', note: '' });
-      await loadAll();
-    } catch (err) { showError(setError, err); }
-  }
+async function handleSaveCarryover(e) {
+  e.preventDefault();
+  setError(null);
+  try {
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!user) throw new Error('Sessione scaduta');
 
-  async function handleTopUpPocket(e) {
-    e.preventDefault(); setError(null);
-    try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
-      const delta = parseAmountLoose(pocketTopUp);
-      if (!delta) return;
-      const payload = {
-        user_id: user.id,
-        note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
-        delta,
-        moved_at: new Date().toISOString(),
-      };
-      const { error } = await supabase.from('pocket_cash').insert(payload);
+    const amt = Number(newCarry.amount);
+    const payload = {
+      user_id: user.id,
+      month_key: monthKey,
+      amount: Number.isFinite(amt) ? amt : 0,
+      note: newCarry.note || null,
+    };
+
+    if (carryover?.id) {
+      const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
       if (error) throw error;
-      setPocketTopUp('');
-      await loadAll();
-    } catch (err) { showError(setError, err); }
+    } else {
+      const { error } = await supabase.from('carryovers').insert(payload);
+      if (error) throw error;
+    }
+
+    setNewCarry({ amount: '', note: '' });
+    await loadAll();
+  } catch (err) {
+    showError(setError, err);
   }
+}
+
+async function handleTopUpPocket(e) {
+  e.preventDefault();
+  setError(null);
+  try {
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!user) throw new Error('Sessione scaduta');
+
+    const delta = parseAmountLoose(pocketTopUp);
+    if (!Number.isFinite(delta) || delta === 0) return;
+
+    const payload = {
+      user_id: user.id,
+      note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
+      delta,
+      moved_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('pocket_cash').insert(payload);
+    if (error) throw error;
+
+    setPocketTopUp('');
+    await loadAll();
+  } catch (err) {
+    showError(setError, err);
+  }
+}
 
   async function handleClearPocket() {
     if (!confirm('Ripulisci: rimuove i movimenti manuali e nasconde qui le spese cash di Varie. Confermi?')) return;
