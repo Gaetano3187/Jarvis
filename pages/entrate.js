@@ -253,16 +253,15 @@ if (!finCash?.length) {
       setPocketRows(rows);
 
       // Totale spese del periodo (facoltativo)
-      const { data: exp } = await supabase.from('finances')
-        .select('amount, spent_date').eq('user_id', user.id)
-        .gte('spent_date', startDate).lte('spent_date', endDate);
-      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-      setMonthExpenses(totalExp);
-    } catch (err) {
-      showError(setError, err);
-    } finally {
-      setLoading(false);
-    }
+const { data: exp, error: expErr } = await supabase
+  .from('finances')
+  .select('amount, spent_date, spent_at')
+  .eq('user_id', user.id)
+  .or(
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+  );
+if (expErr) throw expErr;
   }
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
