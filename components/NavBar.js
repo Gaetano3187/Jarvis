@@ -38,8 +38,13 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
+              {/* AUREA caleidoscopio: rotazione lenta */}
+              <span className="brand-aura" aria-hidden="true" />
+              {/* GLOW variabile (contrasto con la scritta) */}
               <span className="brand-glow" aria-hidden="true" />
+              {/* SCRITTA: forte rilievo + pulsazione + ciclo colore controllato */}
               <span className="brand-text">JARVIS</span>
+              {/* alone sottile */}
               <span className="brand-halo" aria-hidden="true" />
             </span>
           </Link>
@@ -55,6 +60,7 @@ export default function NavBar() {
                     aria-current={active ? 'page' : undefined}
                     className={`link ${active ? 'is-active' : ''}`}
                     style={{ ['--c1']: c1, ['--c2']: c2 }}
+                    title={label}
                   >
                     <span className="label">{label}</span>
                   </Link>
@@ -87,48 +93,85 @@ export default function NavBar() {
           gap: 24px; padding: 6px 16px;
         }
 
+        /* === BRAND === */
         .brand{ text-decoration:none; display:inline-flex; align-items:center; }
         .brand-wrap{
           position: relative; display:inline-grid; place-items:center;
           padding: 8px 4px; isolation:isolate;
         }
 
-        /* Bagliore neon pulsante */
-        .brand-glow{
-          position:absolute; inset:-12px -20px; z-index:0; border-radius: 22px;
+        /* AUREA caleidoscopio (layer sotto) */
+        .brand-aura{
+          position:absolute; inset:-18px -26px; z-index:0; border-radius: 28px;
           background: conic-gradient(from 0deg at 50% 50%,
-            #22d3ee, #60a5fa, #a78bfa, #f0abfc,
-            #fb7185, #34d399, #a3e635, #22d3ee);
-          filter: blur(28px) saturate(1.4) brightness(1.1);
-          animation: glowHue 12s linear infinite, glowPulse 2.6s ease-in-out infinite;
+            rgba(94,234,212,.85),
+            rgba(34,211,238,.85),
+            rgba(96,165,250,.80),
+            rgba(167,139,250,.80),
+            rgba(240,171,252,.80),
+            rgba(94,234,212,.85));
+          filter: blur(28px) saturate(1.2) brightness(1.05);
+          animation: auraSpin 14s linear infinite;
+        }
+
+        /* Glow superiore: cambia tinta in controfase rispetto alla scritta */
+        .brand-glow{
+          position:absolute; inset:-10px -18px; z-index:1; border-radius: 22px;
+          background: conic-gradient(from 0deg at 50% 50%,
+            #22d3ee, #60a5fa, #a78bfa, #f0abfc, #fb7185, #34d399, #a3e635, #22d3ee);
+          filter: blur(26px) saturate(1.35) brightness(1.08);
+          opacity:.85;
+          animation: glowHue 12s linear infinite reverse, glowPulse 2.8s ease-in-out infinite;
           mix-blend-mode: screen;
         }
 
-        /* Scritta viva + pulsazione */
+        /* SCRITTA in forte rilievo + pulse + ciclo colore */
         .brand-text{
-          position:relative; z-index:2;
-          font-family: "Orbitron", Inter, system-ui, sans-serif;
+          position:relative; z-index:2; display:inline-block;
+          font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .32rem;
-          font-size: clamp(1.8rem, 4vw, 2.2rem); white-space: nowrap;
-          background: linear-gradient(90deg,
-              #00f5ff 0%,   #00d8ff 15%,
-              #00bfff 30%,  #008cff 45%,
-              #7700ff 60%,  #ff00c8 75%,
-              #00ff99 87%,  #b6ff00 100%);
-          background-size: 200% 200%;
+          font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
+
+          /* Riempimento brillante (niente bianco) */
+          background:
+            linear-gradient(90deg,
+              #00f5ff 0%,
+              #00d8ff 14%,
+              #3aa6ff 28%,
+              #7c5cff 42%,
+              #ff3bd1 56%,
+              #00ffa8 70%,
+              #c7ff00 84%,
+              #00f5ff 100%);
+          background-size: 220% 220%;
+          background-position: 50% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
-          -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
-          text-shadow: 0 0 10px rgba(255,255,255,.12);
-          animation: textPulse 2.6s ease-in-out infinite;
+
+          /* Bordo + rilievo (ombre incrociate) */
+          -webkit-text-stroke: 0.7px rgba(0,0,0,.25);
+          text-shadow:
+            -1px -1px 0 rgba(255,255,255,.70),  /* highlight alto-sx */
+             1.2px 1.2px 0 rgba(0,0,0,.45),     /* ombra basso-dx */
+            -2px -2px 2px rgba(255,255,255,.35),
+             2px  2px 3px rgba(0,0,0,.35),
+             0    3px 8px rgba(0,0,0,.35);
+
+          /* Animazioni coordinate: pan + tinta (in fase) + pulsazione */
+          animation:
+            textPan    7s linear infinite,
+            textHue    12s linear infinite,
+            textPulse  2.8s ease-in-out infinite;
         }
 
+        /* Alone sottile sopra il testo */
         .brand-halo{
           position:absolute; inset:-4px; z-index:3; pointer-events:none;
-          background: radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.25), transparent 60%);
+          background: radial-gradient(110% 110% at 50% -30%, rgba(255,255,255,.22), transparent 60%);
           mix-blend-mode: screen; filter: blur(8px);
         }
 
+        /* === MENU === */
         .track{
           display:flex; gap:16px; list-style:none; margin:0; padding:0;
         }
@@ -140,32 +183,69 @@ export default function NavBar() {
           padding: 12px 20px; border-radius: 16px;
           text-decoration:none; color:var(--text);
           border:1px solid transparent;
+          transition: transform .18s ease, background .2s ease, box-shadow .2s ease;
         }
         .label{
           font-weight:900; letter-spacing:.05rem;
           background: linear-gradient(90deg, var(--c1), var(--c2));
-          -webkit-background-clip:text; background-clip:text; color:transparent;
+          background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
           text-shadow: 0 0 12px rgba(255,255,255,.12);
+          animation: labelShimmer 6s linear infinite;
         }
+        .link:hover{ transform: translateY(-1px); }
         .link.is-active{
           background: rgba(255,255,255,.12);
           border-color: rgba(255,255,255,.22);
+          box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
         }
 
-        @keyframes glowHue     { to { filter: hue-rotate(360deg) saturate(1.4); } }
-        @keyframes glowPulse   { 0%,100% { opacity:.75; } 50% { opacity:1; } }
-        @keyframes textPulse   { 0%,100% { filter: brightness(1) saturate(1); } 50% { filter: brightness(1.35) saturate(1.4); } }
+        /* === KEYFRAMES === */
+        @keyframes labelShimmer { to { background-position: -200% center; } }
+        @keyframes auraSpin     { to { transform: rotate(360deg); } }
+        @keyframes glowHue      { to { filter: hue-rotate(360deg) saturate(1.35); } }
+        @keyframes glowPulse    { 0%,100% { opacity:.70; } 50% { opacity:1; } }
+        @keyframes textPan      { to { background-position: 120% 120%; } }
+        @keyframes textHue      { to { filter: hue-rotate(360deg) saturate(1.25); } }
+        @keyframes textPulse    { 0%,100% { filter: brightness(1) contrast(1.02); } 50% { filter: brightness(1.35) contrast(1.08); } }
 
-        /* Smartphone: 3 colonne x N righe */
+        /* Riduci movimento se richiesto dall'utente */
+        @media (prefers-reduced-motion: reduce) {
+          .brand-aura, .brand-glow, .brand-text, .label { animation: none !important; }
+        }
+
+        /* === SMARTPHONE: 3 colonne x N righe === */
         @media (max-width: 560px){
-          .inner{ flex-direction: column; align-items: stretch; gap: 8px; }
+          .inner{
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            padding: 8px 10px 10px;
+          }
           .brand{ justify-content: center; }
+          .brand-text{
+            font-size: clamp(1.7rem, 8vw, 2.1rem);
+            letter-spacing: .30rem;
+          }
           .track{
             display:grid;
             grid-template-columns: repeat(3, 1fr);
             gap:10px; width:100%;
           }
-          .link{ width:100%; padding:10px; text-align:center; }
+          .link{
+            width:100%;
+            padding:10px 12px;
+            text-align:center;
+            border-radius:14px;
+            border:1px solid rgba(255,255,255,.12);
+            background: rgba(255,255,255,.05);
+          }
+        }
+
+        /* fascia intermedia (tablet verticali) */
+        @media (min-width: 561px) and (max-width: 860px){
+          .inner{ padding: 8px 12px; }
+          .track{ flex-wrap: wrap; gap: 12px; }
+          .item{ flex: 0 0 auto; }
         }
       `}</style>
     </>
