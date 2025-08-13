@@ -7,12 +7,59 @@ import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
-/** YYYY-MM-DD locale (no UTC shift) */
+/** YYYY-MM-DD in fuso locale (no UTC shift) */
 function isoLocal(date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+/** parser robusto: oggi / ieri / domani / YYYY-MM-DD / DD/MM/YYYY / DD-MM-YYYY */
+function smartDate(input) {
+  const s = String(input || '').trim().toLowerCase()
+
+  // parole chiave con word boundary (funziona anche con punteggiatura "oggi," etc.)
+  if (/\boggi\b/.test(s))   return isoLocal(new Date())
+  if (/\bieri\b/.test(s))  { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
+  if (/\bdomani\b/.test(s)){ const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
+
+  // ISO YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+
+  // italiano DD/MM/YYYY o DD-MM-YYYY o DD.MM.YYYY
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/)
+  if (m) {
+    const dd = String(parseInt(m[1],10)).padStart(2,'0')
+    const mm = String(parseInt(m[2],10)).padStart(2,'0')
+    const yyyy = m[3]
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  // YYYY/MM/DD o YYYY.MM.DD
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/)
+  if (m) {
+    const yyyy = m[1]
+    const mm = String(parseInt(m[2],10)).padStart(2,'0')
+    const dd = String(parseInt(m[3],10)).padStart(2,'0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  // fallback: prova il parser JS, ma normalizza a locale
+  const d = new Date(s)
+  return isNaN(d) ? isoLocal(new Date()) : isoLocal(d)
+}
+
+/** render sicuro: se è YYYY-MM-DD lo tratto come locale puro */
+function fmtDateIT(v) {
+  if (!v) return '-'
+  const s = String(v)
+  const ymd = s.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
+  if (ymd) {
+    const [yy, mm, dd] = ymd.split('-').map(Number)
+    return new Date(yy, mm - 1, dd).toLocaleDateString('it-IT')
+  }
+  return new Date(s).toLocaleDateString('it-IT')
 }
 
 function SpeseCasa() {
@@ -154,20 +201,19 @@ function SpeseCasa() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
-    // data locale stabile (usata anche quando il campo è vuoto)
-    const spentISO = nuovaSpesa.spentAt ? normDate(nuovaSpesa.spentAt) : isoLocal(new Date())
+    // data locale stabile (accetta anche DD/MM/YYYY)
+    const spentISO = nuovaSpesa.spentAt ? smartDate(nuovaSpesa.spentAt) : isoLocal(new Date())
 
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: spentISO, // YYYY-MM-DD locale
+      // niente toISOString().slice(0,10) → salviamo YYYY-MM-DD locale
+      spent_at: spentISO,
       qty: parseFloat(nuovaSpesa.quantita) || 1,
       payment_method: method, // cash | card | bank
-      card_label: (method === 'card'
-        ? (nuovaSpesa.cardLabel?.trim() || null)
-        : null),
+      card_label: (method === 'card' ? (nuovaSpesa.cardLabel?.trim() || null) : null),
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
@@ -324,17 +370,6 @@ function SpeseCasa() {
     ].join('\n');
   }
 
-  // ----------------------------- Helpers
-  function normDate(v) {
-    const s = String(v || '').trim().toLowerCase()
-    if (s === 'oggi')   return isoLocal(new Date())
-    if (s === 'ieri')  { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
-    if (s === 'domani'){ const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-    const d = new Date(s)
-    return isNaN(d) ? isoLocal(new Date()) : isoLocal(d)
-  }
-
   // ----------------------------- PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
@@ -355,7 +390,7 @@ function SpeseCasa() {
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      const spentAt = normDate(it.data) // accetta oggi/ieri/domani o YYYY-MM-DD
+      const spentAt = smartDate(it.data) // accetta oggi/ieri/domani e formati IT
       const totalPrice = Number(it.prezzoTotale) || 0
       const qty = parseFloat(it.quantita) || 1
       const uom = (it.uom || '').trim()
@@ -523,14 +558,11 @@ function SpeseCasa() {
                 <tbody>
                   {(spese || []).map(r => {
                     const m = r.description?.match?.(/^\[(.*?)\]\s*(.*)$/) || []
-                    const when = r.spent_at
-                      ? new Date(r.spent_at).toLocaleDateString('it-IT')
-                      : '-'
                     return (
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{when}</td>
+                        <td>{fmtDateIT(r.spent_at)}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
