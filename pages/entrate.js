@@ -315,7 +315,7 @@ async function loadAll() {
   } finally {
     setLoading(false);
   }
-}
+};
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildIncomePrompt(userText) {
