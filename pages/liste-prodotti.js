@@ -1993,7 +1993,7 @@ async function processVoiceInventory() {
             </p>
           </div>
 
-         {/* Toast */}
+     {/* Toast */}
 {toast && (
   <div
     style={{
@@ -2034,7 +2034,7 @@ async function processVoiceInventory() {
     to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
   }
 
-  /* Pulsanti “vetrosi” (stile Finanze) */
+  /* Pulsanti vetrosi */
   .btn-holo{
     --btn-size: 44px;
     --btn-radius: 12px;
@@ -2111,13 +2111,12 @@ const styles = {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#fff',
-    fontFamily:
-      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+    fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
 
   card: {
@@ -2264,7 +2263,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px per schermi stretti
+    minWidth: 160,
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -2420,10 +2419,10 @@ const styles = {
   },
   progressBar: {
     position: 'absolute',
-    left: 0, // usa left/top/bottom (NON inset)
+    left: 0,
     top: 0,
     bottom: 0,
-    width: '0%', // verrà sovrascritta inline con `${pct * 100}%`
+    width: '0%',
     transition: 'width .25s ease, background-color .25s ease',
   },
-};
+}; // <— CHIUDE l’oggetto styles
