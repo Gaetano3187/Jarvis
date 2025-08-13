@@ -121,179 +121,94 @@ function Entrate() {
   const [pocketTopUp, setPocketTopUp] = useState('');
   const [monthExpenses, setMonthExpenses] = useState(0);
 
- // OCR / VOCE
-const ocrInputRef = useRef(null);
-const mediaRecRef = useRef(null);
-const recordedChunks = useRef([]);
-const streamRef = useRef(null);
-const [recBusy, setRecBusy] = useState(false);
+  // OCR / VOCE
+  const ocrInputRef = useRef(null);
+  const mediaRecRef = useRef(null);
+  const recordedChunks = useRef([]);
+  const streamRef = useRef(null);
+  const [recBusy, setRecBusy] = useState(false);
 
-// Realtime: canale per aggiornare Entrate quando cambiano le spese
-const financesChannelRef = useRef(null);
+  // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
+  const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
 
-// Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
-const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
+  const startDateIT = formatIT(startDate);
+  const endDateIT = formatIT(endDate);
 
-// Periodo corrente (in base a PAYDAY_DAY)
-const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-const startDateIT = formatIT(startDate);
-const endDateIT = formatIT(endDate);
+  useEffect(() => {
+    loadAll();
+    return () => {
+      try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
+      try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthKey, hideVarieCashAfterClear]);
 
-// Effetto: carica i dati e pulizia risorse (microfono + realtime)
-useEffect(() => {
-  loadAll();
-  return () => {
-    try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
-    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+  async function loadAll() {
+    setLoading(true); setError(null);
     try {
-      if (financesChannelRef.current) {
-        supabase.removeChannel(financesChannelRef.current);
-        financesChannelRef.current = null;
-      }
-    } catch {}
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [monthKey, hideVarieCashAfterClear]);
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
 
-// --- Realtime: sottoscrizione a tutte le modifiche della tabella 'finances' dell'utente ---
-async function setupRealtimeFinances(userId) {
-  if (financesChannelRef.current) return; // evita doppie sottoscrizioni
-  const ch = supabase
-    .channel(`finances-${userId}`)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'finances', filter: `user_id=eq.${userId}` },
-      () => { loadAll(); } // ogni change -> ricarica
-    )
-    .subscribe();
-  financesChannelRef.current = ch;
-}
+      await ensureCarryoverAuto(user.id, monthKey);
 
-// --- Loader principale ---
-async function loadAll() {
-  setLoading(true);
-  setError(null);
-  try {
-    // Utente
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!user) throw new Error('Sessione scaduta');
+      // Entrate periodo
+      const { data: inc } = await supabase.from('incomes')
+        .select('id, source, description, amount, received_at, received_date')
+        .eq('user_id', user.id)
+        .gte('received_date', startDate)
+        .lte('received_date', endDate)
+        .order('received_at', { ascending: false });
+      setIncomes(inc || []);
 
-    // Carryover auto per il mese corrente
-    await ensureCarryoverAuto(user.id, monthKey);
+      // Carryover mese
+      const { data: co } = await supabase.from('carryovers')
+        .select('id, month_key, amount, note')
+        .eq('user_id', user.id).eq('month_key', monthKey).maybeSingle();
+      setCarryover(co || null);
 
-    // Attiva realtime (una sola volta)
-    await setupRealtimeFinances(user.id);
+      // Movimenti contanti manuali
+      const { data: pc } = await supabase.from('pocket_cash')
+        .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
+        .eq('user_id', user.id)
+        .gte('moved_date', startDate).lte('moved_date', endDate)
+        .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
 
-    // Range robusto (date + timestamp)
-    const dateStartTS = `${startDate}T00:00:00`;
-    const dateEndTS   = `${endDate}T23:59:59`;
+      const manualRows = (pc || []).map((row) => {
+        const eff = (row.delta != null)
+          ? Number(row.delta || 0)
+          : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
+        const dateISO = (row.moved_date || (row.moved_at || row.created_at || '').slice(0,10));
+        return {
+          id: `pc-${row.id}`,
+          dateISO,
+          label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
+          amount: Number(eff || 0),
+          kind: 'manual',
+        };
+      });
 
-    /* ---------------------- ENTRATE ---------------------- */
-   const { data: inc, error: incErr } = await supabase
-  .from('incomes')
-  .select('id, source, description, amount, received_at, received_date')
-  .eq('user_id', user.id)
-  .or(
-    `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
-    `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
-  )
-  .order('received_at', { ascending: false, nullsFirst: false })
-  .order('received_date', { ascending: false, nullsFirst: false });
-if (incErr) throw incErr;
-setIncomes(inc || []);
+    // Spese cash dalle altre sezioni — una sola dichiarazione di cashRows
+const dateStartTS = `${startDate}T00:00:00`;
+const dateEndTS   = `${endDate}T23:59:59`;
 
-
-    /* -------------------- CARRYOVER MESE -------------------- */
-    const { data: co, error: coErr } = await supabase
-      .from('carryovers')
-      .select('id, month_key, amount, note')
-      .eq('user_id', user.id)
-      .eq('month_key', monthKey)
-      .maybeSingle();
-    if (coErr && coErr.code !== 'PGRST116') throw coErr; // ignora "no rows"
-    setCarryover(co || null);
-
-    /* --------------- MOVIMENTI CONTANTI MANUALI --------------- */
-    const { data: pc, error: pcErr } = await supabase
-      .from('pocket_cash')
-      .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
-      .eq('user_id', user.id)
-      .or(
-        `and(moved_date.gte.${startDate},moved_date.lte.${endDate}),` +
-        `and(moved_at.gte.${dateStartTS},moved_at.lte.${dateEndTS})`
-      )
-      .order('moved_at', { ascending: false })
-      .order('created_at', { ascending: false });
-    if (pcErr) throw pcErr;
-
-    const manualRows = (pc || []).map((row) => {
-      const eff = (row.delta != null)
-        ? Number(row.delta || 0)
-        : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
-      const dateISO = row.moved_date || (row.moved_at || row.created_at || '').slice(0, 10);
-      return {
-        id: `pc-${row.id}`,
-        dateISO,
-        label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-        amount: Number(eff || 0),
-        kind: 'manual',
-      };
-    });
-
- /* -------------- SPESE DALLE ALTRE SEZIONI — robusto + debug (niente OR nel SQL) -------------- */
-const { data: finRecent, error: finErr } = await supabase
+const { data: finCash, error: finErr } = await supabase
   .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, created_at, user_id')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
   .eq('user_id', user.id)
-  .order('created_at', { ascending: false })
-  .limit(500);
+  .eq('payment_method', 'cash') // enum: cash|card|bank
+  .or([
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,      // se c'è spent_date
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`,      // se spent_at è timestamp
+    `and(spent_at.gte.${startDate},spent_at.lte.${endDate})`           // se spent_at è solo YYYY-MM-DD
+  ].join(','))
+  .order('spent_at', { ascending: false });
 
 if (finErr) throw finErr;
 
-console.log('[Entrate] finances fetched (recent):', finRecent?.length || 0);
-console.table((finRecent || []).slice(0, 5).map(r => ({
-  id: r.id,
-  spent_date: r.spent_date,
-  spent_at: r.spent_at,
-  amount: r.amount,
-  desc: (r.description || '').slice(0, 40)
-})));
-
-// Converte la riga in una data ISO "YYYY-MM-DD" per confronto
-const rowISO = (r) => r.spent_date || (r.spent_at ? String(r.spent_at).slice(0,10) : null);
-// Filtro per periodo (usiamo confronto stringhe ISO)
-const inRange = (r) => {
-  const iso = rowISO(r);
-  return !!iso && iso >= startDate && iso <= endDate;
-};
-
-// Normalizzazione semplice
-const norm = (v) =>
-  String(v ?? '')
-    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
-    .toLowerCase().trim();
-
-// Parole chiave che indicano PAGAMENTO ELETTRONICO (quindi NON contanti)
-const ELECTRONIC = [
-  'carta di credito','carta credito','carta','credito','debito','pos','contactless',
-  'satispay','paypal','iban','bonifico','sepa','apple pay','google pay','mastercard','visa','amex','stripe','nexi'
-].map(norm);
-
-const isElectronic = (desc) => {
-  const t = norm(desc);
-  return ELECTRONIC.some(k => t.includes(k));
-};
-
-// 👉 Regola: CONTANTI di default. Escludi SOLO se la descrizione è “elettronica”.
-let finCash = (finRecent || []).filter(inRange).filter(r => !isElectronic(r.description));
-
-console.log('[Entrate] in-range:', (finRecent || []).filter(inRange).length,
-            ' | cash-like (default cash):', finCash.length);
-
-// Mappatura righe per la tabella "Soldi in tasca"
-let cashRows = finCash.map((f) => {
-  const dateISO = rowISO(f) || startDate; // fallback per sicurezza
+let cashRows = (finCash || []).map((f) => {
+  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
   const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
   const store = m ? m[1] : 'Punto vendita';
   const dett  = m ? m[2] : (f.description || '');
@@ -301,46 +216,35 @@ let cashRows = finCash.map((f) => {
     id: `fin-${f.id}`,
     dateISO,
     label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    // Importo SEMPRE preso dal campo amount del DB e reso negativo (uscita contanti)
     amount: -Math.abs(Number(f.amount) || 0),
     category_id: f.category_id,
     kind: 'cash-expense',
   };
 });
 
-// Dopo "Ripulisci": nascondi qui le spese cash di categoria VARIE
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
+      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
+      if (hideVarieCashAfterClear) {
+        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+      }
 
+      const rows = [...manualRows, ...cashRows]
+        .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
+        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
-    /* ----------------- AGGREGAZIONE + SET STATE ----------------- */
-    const rows = [...manualRows, ...cashRows]
-      .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
-      .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+      setPocketRows(rows);
 
-    setPocketRows(rows);
-
-    /* ----------------- TOTALE SPESE DEL PERIODO ----------------- */
-    const { data: exp, error: expErr } = await supabase
-      .from('finances')
-      .select('amount, spent_date, spent_at')
-      .eq('user_id', user.id)
-      .or(
-        `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-        `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-      );
-    if (expErr) throw expErr;
-
-    const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-    setMonthExpenses(totalExp);
-  } catch (err) {
-    showError(setError, err);
-  } finally {
-    setLoading(false);
+      // Totale spese del periodo (facoltativo)
+      const { data: exp } = await supabase.from('finances')
+        .select('amount, spent_date').eq('user_id', user.id)
+        .gte('spent_date', startDate).lte('spent_date', endDate);
+      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+      setMonthExpenses(totalExp);
+    } catch (err) {
+      showError(setError, err);
+    } finally {
+      setLoading(false);
+    }
   }
-}
-
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildIncomePrompt(userText) {
