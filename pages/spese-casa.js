@@ -1,5 +1,4 @@
-
-// pages/spese-casa.js
+// pages/spese-casa.js 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -40,7 +39,7 @@ function SpeseCasa() {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-      .select('id, description, amount, qty, spent_at, spent_date, payment_method, card_label')
+      .select('id, description, amount, qty, spent_at, payment_method, card_label')
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
@@ -144,24 +143,18 @@ function SpeseCasa() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return setError('Sessione scaduta')
 
-    // normalizza metodo pagamento
-    const methodRaw = (nuovaSpesa.paymentMethod || 'cash').toString().trim().toLowerCase()
+    const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
-    const validMethod = ['cash', 'card', 'bank'].includes(method) ? method : 'cash'
-
-    // normalizza data ed usa in entrambi i campi
-    const spentISO = (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)) // YYYY-MM-DD
 
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: spentISO,
-      spent_date: spentISO, // <— compatibilità con altre pagine/report
+      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
       qty: parseFloat(nuovaSpesa.quantita) || 1,
-      payment_method: validMethod, // cash | card | bank
-      card_label: (validMethod === 'card'
+      payment_method: method, // cash | card | bank
+      card_label: (method === 'card'
         ? (nuovaSpesa.cardLabel?.trim() || null)
         : null),
     }
@@ -333,14 +326,6 @@ function SpeseCasa() {
     return new Date().toISOString().slice(0, 10)
   }
 
-  const fmtDateIT = (v) => {
-    if (!v) return '-'
-    const s = String(v)
-    const dstr = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0,10) : new Date(s).toISOString().slice(0,10)
-    const [yy, mm, dd] = dstr.split('-').map(Number)
-    return new Date(yy, mm - 1, dd).toLocaleDateString('it-IT')
-  }
-
   // ----------------------------- PARSING & DB INSERT
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
@@ -366,18 +351,17 @@ function SpeseCasa() {
       const qty = parseFloat(it.quantita) || 1
       const uom = (it.uom || '').trim()
       const unitPrice = it.prezzoUnitario != null
-        ? (Number(it.prezzoUnitario) || 0)
+        ? Number(it.prezzoUnitario) || 0
         : (qty ? totalPrice / qty : totalPrice)
 
       const parts = []
-      parts.push(`[${(it.puntoVendita || '').trim()}] ${(it.dettaglio || '').trim()}`)
+      parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
-      // normalizza payment method (transfer -> bank) + sanitize
-      const methodRaw = (it.paymentMethod || 'cash').toString().trim().toLowerCase()
+      // normalizza payment method (transfer -> bank per coerenza UI)
+      const methodRaw = (it.paymentMethod || 'cash')
       const method = methodRaw === 'transfer' ? 'bank' : methodRaw
-      const validMethod = ['cash', 'card', 'bank'].includes(method) ? method : 'cash'
-      const label  = validMethod === 'card' ? ((it.cardLabel || '').trim() || null) : null
+      const label  = method === 'card' ? (it.cardLabel || null) : null
 
       return {
         user_id: user.id,
@@ -385,9 +369,8 @@ function SpeseCasa() {
         description: parts.join(' '),
         amount: totalPrice,
         spent_at: spentAt,
-        spent_date: spentAt, // <— compatibilità con altre pagine/report
         qty: qty,
-        payment_method: validMethod,
+        payment_method: method,
         card_label: label,
       }
     })
@@ -531,12 +514,11 @@ function SpeseCasa() {
                 <tbody>
                   {(spese || []).map(r => {
                     const m = r.description?.match?.(/^\[(.*?)\]\s*(.*)$/) || []
-                    const when = fmtDateIT(r.spent_date || r.spent_at)
                     return (
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{when}</td>
+                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
