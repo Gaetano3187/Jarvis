@@ -121,31 +121,56 @@ function Entrate() {
   const [pocketTopUp, setPocketTopUp] = useState('');
   const [monthExpenses, setMonthExpenses] = useState(0);
 
-  // OCR / VOCE
-  const ocrInputRef = useRef(null);
-  const mediaRecRef = useRef(null);
-  const recordedChunks = useRef([]);
-  const streamRef = useRef(null);
-  const [recBusy, setRecBusy] = useState(false);
-  const financesChannelRef = useRef(null);
+ // OCR / VOCE
+const ocrInputRef = useRef(null);
+const mediaRecRef = useRef(null);
+const recordedChunks = useRef([]);
+const streamRef = useRef(null);
+const [recBusy, setRecBusy] = useState(false);
 
-  // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
-  const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+// Realtime: canale per aggiornare Entrate quando cambiano le spese
+const financesChannelRef = useRef(null);
 
-  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-  const startDateIT = formatIT(startDate);
-  const endDateIT = formatIT(endDate);
+// Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
+const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
 
-  useEffect(() => {
-    loadAll();
-    return () => {
-      try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
-      try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthKey, hideVarieCashAfterClear]);
+// Periodo corrente (in base a PAYDAY_DAY)
+const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
+const startDateIT = formatIT(startDate);
+const endDateIT = formatIT(endDate);
 
-  async function loadAll() {
+// Effetto: carica i dati e pulizia risorse (microfono + realtime)
+useEffect(() => {
+  loadAll();
+  return () => {
+    try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    try {
+      if (financesChannelRef.current) {
+        supabase.removeChannel(financesChannelRef.current);
+        financesChannelRef.current = null;
+      }
+    } catch {}
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [monthKey, hideVarieCashAfterClear]);
+
+// --- Realtime: sottoscrizione a tutte le modifiche della tabella 'finances' dell'utente ---
+async function setupRealtimeFinances(userId) {
+  if (financesChannelRef.current) return; // evita doppie sottoscrizioni
+  const ch = supabase
+    .channel(`finances-${userId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'finances', filter: `user_id=eq.${userId}` },
+      () => { loadAll(); } // ogni change -> ricarica
+    )
+    .subscribe();
+  financesChannelRef.current = ch;
+}
+
+// --- Loader principale ---
+async function loadAll() {
   setLoading(true);
   setError(null);
   try {
@@ -156,6 +181,9 @@ function Entrate() {
 
     // Carryover auto per il mese corrente
     await ensureCarryoverAuto(user.id, monthKey);
+
+    // Attiva realtime (una sola volta)
+    await setupRealtimeFinances(user.id);
 
     // Range robusto (date + timestamp)
     const dateStartTS = `${startDate}T00:00:00`;
