@@ -1,45 +1,19 @@
-// pages/vestiti-ed-altro.js
+// pages/spese-casa.js 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
-// === CATEGORIA: Vestiti & Altro ===
-const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
+const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
-/** Dizionario alias → nome canonico per i punti vendita (estendibile) */
-const STORE_ALIASES = [
-  ['zara', 'Zara'],
-  ['h&m', 'H&M'],
-  ['ovs', 'OVS'],
-  ['ovs industry', 'OVS'],
-  ['decathlon', 'Decathlon'],
-  ['foot locker', 'Foot Locker'],
-  // aggiungi qui altri alias comuni
-]
-
-function canonicalizeStoreName(raw) {
-  const s = String(raw || '').trim().toLowerCase()
-  if (!s) return ''
-  for (const [alias, canon] of STORE_ALIASES) {
-    if (s === alias) return canon
-  }
-  // capitalizza parole di default
-  return s
-    .replace(/\s+/g, ' ')
-    .split(' ')
-    .map(w => (w ? w[0].toUpperCase() + w.slice(1) : ''))
-    .join(' ')
-}
-
-function VestitiEdAltro() {
+function SpeseCasa() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const [recBusy, setRecBusy] = useState(false)
-  const [stopping, setStopping] = useState(false)
+  const [recBusy, setRecBusy] = useState(false)      // true = sta registrando
+  const [stopping, setStopping] = useState(false)    // true = fermo in corso (attendi)
 
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
@@ -58,31 +32,19 @@ function VestitiEdAltro() {
   const streamRef = useRef(null)
   const recordedChunks = useRef([])
   const mimeRef = useRef('')
-  const stopWaitRef = useRef(null)
+  const stopWaitRef = useRef(null) // promise di attesa stop
 
   // ----------------------------- API
   const fetchSpese = useCallback(async () => {
     setLoading(true)
-    setError(null)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Sessione scaduta')
-
-      const { data, error } = await supabase
-        .from('finances')
-        .select('id, user_id, description, amount, qty, spent_at, payment_method, card_label')
-        .eq('user_id', user.id)
-        .eq('category_id', CATEGORY_ID_VESTITI)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setSpese(data || [])
-    } catch (err) {
-      console.error(err)
-      setError(err.message || String(err))
-    } finally {
-      setLoading(false)
-    }
+    const { data, error } = await supabase
+      .from('finances')
+      .select('id, description, amount, qty, spent_at, payment_method, card_label')
+      .eq('category_id', CATEGORY_ID_CASA)
+      .order('created_at', { ascending: false })
+    if (error) setError(error.message)
+    else setSpese(data || [])
+    setLoading(false)
   }, [])
 
   // ----------------------------- Media helpers
@@ -132,9 +94,11 @@ function VestitiEdAltro() {
     }
 
     setStopping(true)
+
+    // prepara promise che si risolve su onstop o timeout
     const p = new Promise(resolve => {
       stopWaitRef.current = { resolve }
-      setTimeout(() => resolve('timeout'), 2000)
+      setTimeout(() => resolve('timeout'), 2000) // sicurezza
     })
 
     try {
@@ -147,6 +111,7 @@ function VestitiEdAltro() {
       await p
     }
 
+    // cleanup
     mediaRecRef.current = null
     stopTracks()
     setStopping(false)
@@ -156,8 +121,9 @@ function VestitiEdAltro() {
   useEffect(() => {
     fetchSpese()
 
+    // auto-stop se si cambia scheda o si lascia la pagina
     const handleVisibility = () => { if (document.hidden) stopRecording() }
-    const handleBeforeUnload = () => { stopRecording(true) }
+    const handleBeforeUnload = () => { stopRecording(true) } // best effort sync
 
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('beforeunload', handleBeforeUnload)
@@ -180,11 +146,10 @@ function VestitiEdAltro() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
-    const storeCanon = canonicalizeStoreName(nuovaSpesa.puntoVendita)
     const row = {
       user_id: user.id,
-      category_id: CATEGORY_ID_VESTITI,
-      description: `[${storeCanon}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+      category_id: CATEGORY_ID_CASA,
+      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
       spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
       qty: parseFloat(nuovaSpesa.quantita) || 1,
@@ -195,10 +160,8 @@ function VestitiEdAltro() {
     }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
-    if (insertError) {
-      if (insertError.code === '23505') setError('Questa spesa sembra già inserita.')
-      else setError(insertError.message)
-    } else {
+    if (insertError) setError(insertError.message)
+    else {
       setNuovaSpesa({
         puntoVendita: '',
         dettaglio: '',
@@ -243,13 +206,14 @@ function VestitiEdAltro() {
   // ----------------------------- START/STOP REC
   const toggleRec = async () => {
     setError(null)
-    if (stopping) return
+    if (stopping) return // evita rimbalzi durante lo stop
 
     if (recBusy) {
       await stopRecording()
       return
     }
 
+    // già attivo?
     if (mediaRecRef.current && mediaRecRef.current.state === 'recording') return
 
     if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
@@ -280,7 +244,9 @@ function VestitiEdAltro() {
         if (e.data && e.data.size) recordedChunks.current.push(e.data)
       })
 
+      // onstop → processVoice
       mr.addEventListener('stop', () => {
+        // risolve la promise di stop (se in attesa)
         stopWaitRef.current?.resolve?.()
         processVoice().finally(() => {
           setRecBusy(false)
@@ -325,23 +291,26 @@ function VestitiEdAltro() {
       '  "nota": "string opzionale"',
       '}]}',
       '',
-      'Nota: per i nomi dei negozi usa la forma più probabile e completa.',
+      'Esempi cassa:',
+      '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
+      '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
       '',
-    ].join('\n')
+    ].join('\n');
 
     if (source === 'ocr') {
       return [
         header,
         'Testo OCR (' + fn + '):',
         String(userText || '')
-      ].join('\n')
+      ].join('\n');
     }
 
+    // STT / testo libero
     return [
       header,
       'Trascrizione:',
       String(userText || '')
-    ].join('\n')
+    ].join('\n');
   }
 
   // ----------------------------- Helpers
@@ -385,18 +354,18 @@ function VestitiEdAltro() {
         ? Number(it.prezzoUnitario) || 0
         : (qty ? totalPrice / qty : totalPrice)
 
-      const storeCanon = canonicalizeStoreName(it.puntoVendita)
       const parts = []
-      parts.push(`[${storeCanon}] ${it.dettaglio}`)
+      parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
+      // normalizza payment method (transfer -> bank per coerenza UI)
       const methodRaw = (it.paymentMethod || 'cash')
       const method = methodRaw === 'transfer' ? 'bank' : methodRaw
       const label  = method === 'card' ? (it.cardLabel || null) : null
 
       return {
         user_id: user.id,
-        category_id: CATEGORY_ID_VESTITI,
+        category_id: CATEGORY_ID_CASA,
         description: parts.join(' '),
         amount: totalPrice,
         spent_at: spentAt,
@@ -406,15 +375,13 @@ function VestitiEdAltro() {
       }
     })
 
+    // NB: niente upsert → niente onConflict → niente errore 400
     const { error: dbErr } = await supabase.from('finances').insert(rows)
-    if (dbErr) {
-      if (dbErr.code === '23505') throw new Error('Spesa già presente (duplicato).')
-      throw new Error(dbErr.message || 'Insert fallito')
-    }
+    if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
 
     await fetchSpese()
 
-    // Precompila form con ultima spesa inserita
+    // Precompila il form con l’ultima spesa inserita (comodo per correzioni rapide)
     const last = rows[0]
     setNuovaSpesa({
       puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
@@ -438,11 +405,11 @@ function VestitiEdAltro() {
 
   return (
     <>
-      <Head><title>Vestiti ed Altro</title></Head>
+      <Head><title>Spese Casa</title></Head>
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2 className="title">🛍️ Vestiti ed Altro</h2>
+          <h2 className="title">🏠 Spese Casa</h2>
 
           <div className="table-buttons">
             <button
@@ -551,7 +518,7 @@ function VestitiEdAltro() {
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString('it-IT') : '-'}</td>
+                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
@@ -643,4 +610,4 @@ function VestitiEdAltro() {
   )
 }
 
-export default withAuth(VestitiEdAltro)
+export default withAuth(SpeseCasa)
