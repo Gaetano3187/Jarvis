@@ -1,3 +1,4 @@
+
 // pages/spese-casa.js
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
@@ -6,14 +7,6 @@ import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
-
-function isoLocal(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`; // YYYY-MM-DD in fuso locale
-}
-
 
 function SpeseCasa() {
   const [spese, setSpese] = useState([])
@@ -157,16 +150,15 @@ function SpeseCasa() {
     const validMethod = ['cash', 'card', 'bank'].includes(method) ? method : 'cash'
 
     // normalizza data ed usa in entrambi i campi
-  const spentISO = (nuovaSpesa.spentAt ? normDate(nuovaSpesa.spentAt) : isoLocal(new Date()));
-
+    const spentISO = (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)) // YYYY-MM-DD
 
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: `${spentISO}T12:00:00Z`,   // timestamp sicuro (niente slittamenti)
-      spent_date: spentISO,                // solo-data per filtri
+      spent_at: spentISO,
+      spent_date: spentISO, // <— compatibilità con altre pagine/report
       qty: parseFloat(nuovaSpesa.quantita) || 1,
       payment_method: validMethod, // cash | card | bank
       card_label: (validMethod === 'card'
@@ -329,18 +321,17 @@ function SpeseCasa() {
   }
 
   // ----------------------------- Helpers
- function normDate(v) {
-  const s = String(v || '').trim().toLowerCase();
-  if (s === 'oggi') return isoLocal(new Date());
-  if (s === 'ieri') {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return isoLocal(d);
+  function normDate(v) {
+    const s = String(v || '').trim().toLowerCase()
+    if (s === 'oggi') return new Date().toISOString().slice(0, 10)
+    if (s === 'ieri') {
+      const d = new Date()
+      d.setDate(d.getDate() - 1)
+      return d.toISOString().slice(0, 10)
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+    return new Date().toISOString().slice(0, 10)
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;        // già ISO
-  const d = new Date(s);
-  return isNaN(d) ? isoLocal(new Date()) : isoLocal(d); // fallback sicuro
-}
 
   const fmtDateIT = (v) => {
     if (!v) return '-'
@@ -383,9 +374,11 @@ function SpeseCasa() {
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
       // normalizza payment method (transfer -> bank) + sanitize
-      const methodRaw = (nuovaSpesa.paymentMethod || 'cash').toString().trim().toLowerCase();
-const method = methodRaw === 'transfer' ? 'bank' : methodRaw;
-const validMethod = ['cash','card','bank'].includes(method) ? method : 'cash';
+      const methodRaw = (it.paymentMethod || 'cash').toString().trim().toLowerCase()
+      const method = methodRaw === 'transfer' ? 'bank' : methodRaw
+      const validMethod = ['cash', 'card', 'bank'].includes(method) ? method : 'cash'
+      const label  = validMethod === 'card' ? ((it.cardLabel || '').trim() || null) : null
+
       return {
         user_id: user.id,
         category_id: CATEGORY_ID_CASA,
