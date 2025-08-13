@@ -369,10 +369,12 @@ function SpeseCasa() {
         category_id: CATEGORY_ID_CASA,
         description: parts.join(' '),
         amount: totalPrice,
-        spent_at: spentAt,
-        qty: qty,
-        payment_method: method,
-        card_label: label,
+      spent_date: spentAt,
+      spent_at: `${spentAt}T12:00:00Z`,
+      qty: qty,
+      payment_method: method,
+      card_label: label,
+
       }
     })
 
