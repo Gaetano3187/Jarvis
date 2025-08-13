@@ -7,6 +7,14 @@ import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
+function isoLocal(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`; // YYYY-MM-DD in fuso locale
+}
+
+
 function SpeseCasa() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
