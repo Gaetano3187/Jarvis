@@ -2021,13 +2021,13 @@ async function processVoiceInventory() {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* ---------------- styles (ottimizzati) ---------------- */
+/* ---------------- styles (ottimizzati + animazioni NavBar) ---------------- */
 const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2043,6 +2043,8 @@ const styles = {
     borderRadius: 16,
     padding: 22,
     boxShadow: '0 6px 16px rgba(0,0,0,.3)',
+    border: '1px solid rgba(255,255,255,.12)',
+    backdropFilter: 'blur(12px) saturate(1.1)',
   },
 
   headerRow: {
@@ -2054,12 +2056,14 @@ const styles = {
     flexWrap: 'wrap',
   },
   homeBtn: {
-    background: '#6366f1',
+    background: 'linear-gradient(90deg,#5eead4,#22d3ee)',
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     textDecoration: 'none',
     fontWeight: 700,
+    boxShadow: '0 0 12px rgba(94,234,212,.5)',
+    animation: 'pulseGlow 2s ease-in-out infinite',
   },
 
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
@@ -2073,25 +2077,27 @@ const styles = {
     fontWeight: 600,
   },
   switchBtnActive: {
-    background: '#06b6d4',
+    background: 'linear-gradient(90deg,#06b6d4,#22d3ee)',
     border: 0,
     color: '#0b1220',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
+    boxShadow: '0 0 14px rgba(6,182,212,.5)',
   },
 
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
   voiceBtn: {
-    background: '#6366f1',
+    background: 'linear-gradient(90deg,#6366f1,#a78bfa)',
     border: 0,
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
     fontWeight: 800,
+    boxShadow: '0 0 14px rgba(99,102,241,.5)',
   },
 
   sectionLarge: { marginTop: 30, marginBottom: 10 },
@@ -2109,6 +2115,7 @@ const styles = {
     padding: '10px 12px',
     gap: 8,
     flexWrap: 'wrap',
+    transition: 'transform .15s ease',
   },
   itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
   qtyBadge: {
@@ -2121,7 +2128,15 @@ const styles = {
     justifyContent: 'center',
     fontWeight: 800,
   },
-  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
+  itemName: {
+    fontSize: 16,
+    fontWeight: 700,
+    lineHeight: 1.1,
+    background: 'linear-gradient(90deg,#5eead4,#22d3ee)',
+    WebkitBackgroundClip: 'text',
+    color: 'transparent',
+    animation: 'shimmerText 6s linear infinite',
+  },
   itemBrand: { fontSize: 12, opacity: 0.8 },
 
   itemActions: {
@@ -2180,7 +2195,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
+    minWidth: 160,
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -2252,7 +2267,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-    ocrInlineBtn: {
+  ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -2261,9 +2276,8 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  }, // <-- VIRGOLA QUI
+  },
 
-  /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2295,77 +2309,52 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-progressWrap: {
-  position: 'relative',
-  width: 120,
-  height: 10,
-  borderRadius: 999,
-  background: 'rgba(255,255,255,.15)',
-  overflow: 'hidden',
-  flex: '0 0 120px',
-},
-progressBar: {
-  position: 'absolute',
-  left: 0,          // <-- usa left/top/bottom (NON inset)
-  top: 0,
-  bottom: 0,
-  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
-  transition: 'width .25s ease, background-color .25s ease',
-},
 
+  inputTable: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: '100%',
+    minWidth: 0,
+  },
+  inputTableSm: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 90,
+    minWidth: 0,
+  },
   inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 110,
+    minWidth: 0,
+  },
 
-}; // <-- e chiudi l’oggetto con punto e virgola
+  progressWrap: {
+    position: 'relative',
+    width: 120,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.15)',
+    overflow: 'hidden',
+    flex: '0 0 120px',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '0%',
+    transition: 'width .25s ease, background-color .25s ease',
+  },
+};
+
+export default styles;
