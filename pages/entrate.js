@@ -196,13 +196,36 @@ if (incErr) throw incErr;
       });
 
       // Spese cash dalle altre sezioni
-      let finQuery = supabase.from('finances')
-        .select('id, description, amount, spent_at, spent_date, category_id')
-        .eq('user_id', user.id).eq('payment_method', 'cash')
-        .gte('spent_date', startDate).lte('spent_date', endDate)
-        .order('spent_at', { ascending: false });
+     const paymentCashList = ['cash','Cash','CASH','contanti','Contanti'];
 
-      const { data: finCash } = await finQuery;
+let { data: finCash, error: finErr } = await supabase
+  .from('finances')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method, payment, method')
+  .eq('user_id', user.id)
+  .or(
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+  )
+  .in('payment_method', paymentCashList)
+  .order('spent_at', { ascending: false });
+if (finErr) throw finErr;
+
+// Fallback legacy: payment/method
+if (!finCash?.length) {
+  const { data: finCashFallback, error: finErr2 } = await supabase
+    .from('finances')
+    .select('id, description, amount, spent_at, spent_date, category_id, payment, method')
+    .eq('user_id', user.id)
+    .or(
+      `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+      `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+    )
+    .or('payment.eq.cash,payment.eq.contanti,method.eq.cash,method.eq.contanti')
+    .order('spent_at', { ascending: false });
+  if (finErr2) throw finErr2;
+  finCash = finCashFallback || [];
+}
+
 
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
