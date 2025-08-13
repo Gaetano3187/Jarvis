@@ -519,7 +519,11 @@ function SpeseCasa() {
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
+                     <td>{
+  (r.spent_date || r.spent_at)
+    ? new Date((r.spent_date || r.spent_at)).toLocaleDateString('it-IT')
+    : '-'
+}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
