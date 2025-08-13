@@ -203,16 +203,17 @@ function Entrate() {
         'satispay', 'apple pay', 'google pay'
       ];
 
-      const { data: finAll, error: finAllErr } = await supabase
-        .from('finances')
-        .select('id, description, amount, spent_at, spent_date, category_id, payment_method, payment, method')
-        .eq('user_id', user.id)
-        .or(
-          `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-        )
-        .order('spent_at', { ascending: false, nullsFirst: false })
-        .order('spent_date', { ascending: false, nullsFirst: false });
+     const { data: finAll, error: finAllErr } = await supabase
+  .from('finances')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method, method')
+  .eq('user_id', user.id)
+  .or(
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+  )
+  .order('spent_at', { ascending: false, nullsFirst: false })
+  .order('spent_date', { ascending: false, nullsFirst: false });
+
       if (finAllErr) throw finAllErr;
 
       function isElectronicByText(desc) {
