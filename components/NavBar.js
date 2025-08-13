@@ -17,7 +17,7 @@ const links = [
 export default function NavBar() {
   const { pathname } = useRouter();
 
-  // filler per completare multipli di 3 su mobile
+  // Filler per completare multipli di 3 su mobile
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
@@ -38,9 +38,9 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
-              {/* AUREA: kaleidoscopio rotonda, ruota senza mostrare spigoli */}
+              {/* AUREA: ripristinata ma molto leggera e non invasiva */}
               <span className="brand-aura" aria-hidden="true" />
-              {/* SCRITTA: riempimento che cambia colore + pulsazione + bordo nero */}
+              {/* SCRITTA: bordo nero + fill che cambia colore e pulsa */}
               <span className="brand-text">JARVIS</span>
             </span>
           </Link>
@@ -96,37 +96,37 @@ export default function NavBar() {
           padding: 8px 4px; isolation:isolate;
         }
 
-        /* AUREA KALEIDOSCOPIO
-           - mascherata con ellisse per non vedere MAI gli spigoli durante la rotazione
-           - hue in controfase rispetto al testo per avere contrasto
-        */
+        /* AUREA LEGGERA (statica): bassa opacità + maschera ellittica + blend */
         .brand-aura{
-          position:absolute; z-index:0; inset:-14px; pointer-events:none;
+          position:absolute; inset:-14px; z-index:0; pointer-events:none;
+          /* colori con alpha bassi direttamente nel gradiente */
           background: conic-gradient(from 0deg at 50% 50%,
-            #22d3ee, #60a5fa, #a78bfa, #f0abfc, #fb7185, #34d399, #a3e635, #22d3ee);
-          filter: blur(22px) saturate(1.25) brightness(1.06);
-          transform-origin: 50% 50%;
-          animation: auraSpin 14s linear infinite, auraHue 12s linear infinite reverse;
-
-          /* CLIP/MASK anti-glitch */
-          border-radius: 9999px; /* fallback */
-          clip-path: ellipse(78% 66% at 50% 50%);
-          -webkit-mask-image: radial-gradient(ellipse at center, #000 72%, transparent 76%);
-          mask-image: radial-gradient(ellipse at center, #000 72%, transparent 76%);
-          will-change: transform, filter;
+            rgba(34,211,238,.25),
+            rgba(96,165,250,.22),
+            rgba(167,139,250,.22),
+            rgba(240,171,252,.22),
+            rgba(251,113,133,.22),
+            rgba(52,211,153,.22),
+            rgba(163,230,53,.25),
+            rgba(34,211,238,.25));
+          filter: blur(22px) saturate(1.05) brightness(1.0);
+          opacity: .28;                         /* << controllo intensità globale */
+          mix-blend-mode: screen;               /* non scurisce e non copre */
+          border-radius: 9999px;                /* fallback */
+          clip-path: ellipse(78% 66% at 50% 50%);/* niente spigoli visibili */
+          -webkit-mask-image: radial-gradient(ellipse at center, #000 70%, transparent 76%);
+                  mask-image: radial-gradient(ellipse at center, #000 70%, transparent 76%);
         }
 
-        /* SCRITTA: niente ombre/gloss; solo bordo nero + fill animato e pulsante */
+        /* SCRITTA: bordo nero + cambio colore + pulsazione (nessun altro effetto) */
         .brand-text{
           position:relative; z-index:1; display:inline-block;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .32rem;
           font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
 
-          /* bordo nero sottile */
           -webkit-text-stroke: 0.9px #000;
 
-          /* fill brillante (mai bianco) */
           background: linear-gradient(90deg,
             #00f5ff 0%, #00d8ff 12%, #3aa6ff 25%, #7c5cff 38%,
             #ff3bd1 51%, #00ffa8 64%, #c7ff00 77%, #00f5ff 100%);
@@ -134,14 +134,13 @@ export default function NavBar() {
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          /* SOLO cambio colore + pulsazione */
           animation:
-            textHue   10s linear infinite,
-            textPulse  2.6s ease-in-out infinite;
+            textHue   10s linear infinite,     /* cambio tinta ciclico */
+            textPulse  2.6s ease-in-out infinite; /* pulsazione morbida */
           will-change: filter;
         }
 
-        /* MENU */
+        /* === MENU === */
         .track{
           display:flex; gap:16px; list-style:none; margin:0; padding:0;
         }
@@ -167,14 +166,12 @@ export default function NavBar() {
           box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
         }
 
-        /* ANIMAZIONI */
-        @keyframes auraSpin  { to { transform: rotate(360deg); } }
-        @keyframes auraHue   { to { filter: hue-rotate(360deg) saturate(1.25) brightness(1.06); } }
-        @keyframes textHue   { to { filter: hue-rotate(360deg) saturate(1.25); } }
-        @keyframes textPulse { 0%,100% { filter: brightness(1)   } 50% { filter: brightness(1.35) } }
+        /* ANIMAZIONI SCRITTA */
+        @keyframes textHue   { to { filter: hue-rotate(360deg) saturate(1.2); } }
+        @keyframes textPulse { 0%,100% { filter: brightness(1) } 50% { filter: brightness(1.35) } }
 
         @media (prefers-reduced-motion: reduce) {
-          .brand-aura, .brand-text { animation: none !important; }
+          .brand-text { animation: none !important; }
         }
 
         /* SMARTPHONE: 3 colonne x N righe */
