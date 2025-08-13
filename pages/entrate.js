@@ -196,14 +196,14 @@ function Entrate() {
         };
       });
 
-      // Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” nella descrizione
-      const ELECTRONIC_TOKENS = [
-        'carta', 'carta di credito', 'credito', 'debito', 'pos',
-        'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-        'satispay', 'apple pay', 'google pay'
-      ];
+// Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
+const ELECTRONIC_TOKENS = [
+  'carta', 'carta di credito', 'credito', 'debito', 'pos',
+  'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
+  'satispay', 'apple pay', 'google pay'
+];
 
-    const { data: finAll, error: finAllErr } = await supabase
+const { data: finAll, error: finAllErr } = await supabase
   .from('finances')
   .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
   .eq('user_id', user.id)
@@ -214,42 +214,42 @@ function Entrate() {
   .order('spent_at', { ascending: false, nullsFirst: false })
   .order('spent_date', { ascending: false, nullsFirst: false });
 
-      if (finAllErr) throw finAllErr;
+if (finAllErr) throw finAllErr;
 
-      function isElectronicByText(desc) {
-        const t = String(desc || '').toLowerCase();
-        return ELECTRONIC_TOKENS.some(k => t.includes(k));
-      }
-      function isCashByFields(row) {
-  const v = [row.payment_method, row.method]
-    .map(x => String(x || '').toLowerCase());
-  if (v.some(x => x === 'cash' || x === 'contanti')) return true;          // marcato cash esplicito
-  if (v.some(x => x && x !== 'cash' && x !== 'contanti')) return false;    // marcato elettronico
-  // default: cash se la descrizione NON contiene parole di pagamento elettronico
+function isElectronicByText(desc) {
+  const t = String(desc || '').toLowerCase();
+  return ELECTRONIC_TOKENS.some(k => t.includes(k));
+}
+function isCashByFields(row) {
+  const pm = String(row.payment_method || '').toLowerCase();
+  if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
+  if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
+  // default: contanti se la descrizione NON contiene parole di pagamento elettronico
   return !isElectronicByText(row.description);
 }
 
-      let finCash = (finAll || []).filter(isCashByFields);
+let finCash = (finAll || []).filter(isCashByFields);
 
-      let cashRows = (finCash || []).map((f) => {
-        const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-        const store = m ? m[1] : 'Punto vendita';
-        const dett  = m ? m[2] : (f.description || '');
-        return {
-          id: `fin-${f.id}`,
-          dateISO,
-          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-          amount: -Math.abs(Number(f.amount) || 0),
-          category_id: f.category_id,
-          kind: 'cash-expense',
-        };
-      });
+let cashRows = (finCash || []).map((f) => {
+  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+  const store = m ? m[1] : 'Punto vendita';
+  const dett  = m ? m[2] : (f.description || '');
+  return {
+    id: `fin-${f.id}`,
+    dateISO,
+    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+    amount: -Math.abs(Number(f.amount) || 0),
+    category_id: f.category_id,
+    kind: 'cash-expense',
+  };
+});
 
-      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
-      if (hideVarieCashAfterClear) {
-        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-      }
+// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
+if (hideVarieCashAfterClear) {
+  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+}
+
 
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
