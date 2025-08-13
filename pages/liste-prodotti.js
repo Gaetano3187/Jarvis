@@ -2017,8 +2017,9 @@ async function processVoiceInventory() {
   >
     {toast.msg}
   </div>
-)}
-
+  </>
+);
+} // <— chiusura della funzione componente
 <style jsx>{`
   /* Pulsazione per stati "low" */
   @keyframes jarvisPulse {
