@@ -35,6 +35,10 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('user_id', userId).eq('month_key', monthKeyCurrent).maybeSingle();
   if (existing) return;
 
+  // --- RANGE DATE/TIME ROBUSTO ---
+const dateStartTS = `${startDate}T00:00:00`;
+const dateEndTS   = `${endDate}T23:59:59`;
+
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
   const prevEnd = new Date(yy, mm - 1, 0);
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
