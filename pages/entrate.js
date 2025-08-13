@@ -272,26 +272,41 @@ function Entrate() {
 
   /** Inserisce entrata (stipendio/pagamento) */
   async function insertIncomeAssistant(text) {
-    const data = await callAssistant(buildIncomePrompt(text));
-    if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
+  let data;
+  try {
+    data = await callAssistant(buildIncomePrompt(text));
+  } catch (e) {
+    // Evita crash dell’app: mostra errore e termina “false”
+    setError(`Assistant: ${e.message || e}`);
+    return false;
+  }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
+  // Schema minimo atteso
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const isIncome = (data?.type || '').toLowerCase() === 'income';
+  if (!isIncome || items.length === 0) return false;
 
-    for (const it of data.items) {
-      const dataIncasso = it.receivedAt || isoLocal(new Date());
-      const amount = Math.abs(parseAmountLoose(it.amount));
-      const payload = {
-        user_id: user.id,
-        source: it.source || 'Entrata',
-        description: it.description || it.source || 'Entrata',
-        amount,
-        received_at: `${dataIncasso}T12:00:00Z`,
-      };
-      const { error } = await supabase.from('incomes').insert(payload);
-      if (error) throw error;
-    }
-    return true;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sessione scaduta');
+
+  for (const it of items) {
+    const dataIncasso = it.receivedAt || isoLocal(new Date());
+    const amount = Math.abs(parseAmountLoose(it.amount));
+    if (!amount) continue;
+
+    const payload = {
+      user_id: user.id,
+      source: it.source || 'Entrata',
+      description: it.description || it.source || 'Entrata',
+      amount,
+      received_at: `${dataIncasso}T12:00:00Z`,
+    };
+    const { error } = await supabase.from('incomes').insert(payload);
+    if (error) throw error;
+  }
+  return true;
+}
+
   }
 
   async function handleOCR(files) {
@@ -315,12 +330,10 @@ function Entrate() {
       if (ok2) { await loadAll(); return; }
 
       setError('Nessun dato riconosciuto da OCR');
-    } catch (err) {
+     catch (err) {
       showError(setError, err);
     }
-  }
-
-  const toggleRec = async () => {
+    const toggleRec = async () => {
     if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
