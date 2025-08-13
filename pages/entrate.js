@@ -154,19 +154,13 @@ function Entrate() {
       await ensureCarryoverAuto(user.id, monthKey);
 
       // Entrate periodo
-    const dateStartTS = `${startDate}T00:00:00`;
-const dateEndTS   = `${endDate}T23:59:59`;
-
-const { data: inc, error: incErr } = await supabase
-  .from('incomes')
-  .select('id, source, description, amount, received_at, received_date')
-  .eq('user_id', user.id)
-  .or(
-    `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
-    `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
-  )
-  .order('received_at', { ascending: false });
-if (incErr) throw incErr;
+      const { data: inc } = await supabase.from('incomes')
+        .select('id, source, description, amount, received_at, received_date')
+        .eq('user_id', user.id)
+        .gte('received_date', startDate)
+        .lte('received_date', endDate)
+        .order('received_at', { ascending: false });
+      setIncomes(inc || []);
 
       // Carryover mese
       const { data: co } = await supabase.from('carryovers')
@@ -196,36 +190,13 @@ if (incErr) throw incErr;
       });
 
       // Spese cash dalle altre sezioni
-     const paymentCashList = ['cash','Cash','CASH','contanti','Contanti'];
+      let finQuery = supabase.from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id')
+        .eq('user_id', user.id).eq('payment_method', 'cash')
+        .gte('spent_date', startDate).lte('spent_date', endDate)
+        .order('spent_at', { ascending: false });
 
-let { data: finCash, error: finErr } = await supabase
-  .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method, payment, method')
-  .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  )
-  .in('payment_method', paymentCashList)
-  .order('spent_at', { ascending: false });
-if (finErr) throw finErr;
-
-// Fallback legacy: payment/method
-if (!finCash?.length) {
-  const { data: finCashFallback, error: finErr2 } = await supabase
-    .from('finances')
-    .select('id, description, amount, spent_at, spent_date, category_id, payment, method')
-    .eq('user_id', user.id)
-    .or(
-      `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-      `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-    )
-    .or('payment.eq.cash,payment.eq.contanti,method.eq.cash,method.eq.contanti')
-    .order('spent_at', { ascending: false });
-  if (finErr2) throw finErr2;
-  finCash = finCashFallback || [];
-}
-
+      const { data: finCash } = await finQuery;
 
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
