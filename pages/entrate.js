@@ -362,24 +362,54 @@ function Entrate() {
   };
 
   /* --------------------------------- CRUD ---------------------------------- */
-  async function handleAddIncome(e) {
-    e.preventDefault(); setError(null);
-    try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
-      const payload = {
-        user_id: user.id,
-        source: newIncome.source || 'Entrata',
-        description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: (newIncome.receivedAt ? `${newIncome.receivedAt}T12:00:00Z` : new Date().toISOString()),
-      };
-      const { error } = await supabase.from('incomes').insert(payload);
-      if (error) throw error;
-      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
-      await loadAll();
-    } catch (err) { showError(setError, err); }
+  function safeParseAssistantJSON(input) {
+  if (!input) throw new Error('Empty assistant response');
+
+  // Se è già un oggetto, restituiscilo
+  if (typeof input === 'object') return input;
+
+  let s = String(input).trim();
+
+  // Rimuovi eventuali code-fence ```json ... ```
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+
+  // Tries diretti
+  try { return JSON.parse(s); } catch {}
+
+  // Estrai il PRIMO oggetto o array JSON dal testo (tollerante)
+  const objMatch = s.match(/\{[\s\S]*\}/);
+  const arrMatch = s.match(/\[[\s\S]*\]/);
+  const candidate = (objMatch && objMatch[0]) || (arrMatch && arrMatch[0]);
+  if (candidate) {
+    try { return JSON.parse(candidate); } catch {}
   }
+
+  // Ultimo tentativo: ripulisci trailing comma comuni
+  const cleaned = s.replace(/,\s*([}\]])/g, '$1');
+  try { return JSON.parse(cleaned); } catch {}
+
+  throw new Error('Assistant response invalid');
+}
+
+async function callAssistant(prompt) {
+  const res = await fetch('/api/assistant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  });
+
+  // La tua API risponde { answer, error }
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(payload?.error || `HTTP ${res.status}`);
+  }
+  if (!payload || (payload.answer == null && payload.error)) {
+    throw new Error(payload?.error || 'Assistant empty response');
+  }
+
+  const parsed = safeParseAssistantJSON(payload.answer);
+  return parsed;
+}
 
   async function handleDeleteIncome(id) {
     try {
