@@ -17,7 +17,6 @@ const links = [
 export default function NavBar() {
   const { pathname } = useRouter();
 
-  // filler per completare multipli di 3 su mobile
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
@@ -38,13 +37,9 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
-              {/* AUREA caleidoscopio: rotazione lenta */}
               <span className="brand-aura" aria-hidden="true" />
-              {/* GLOW variabile (contrasto con la scritta) */}
               <span className="brand-glow" aria-hidden="true" />
-              {/* SCRITTA: forte rilievo + pulsazione + ciclo colore controllato */}
               <span className="brand-text">JARVIS</span>
-              {/* alone sottile */}
               <span className="brand-halo" aria-hidden="true" />
             </span>
           </Link>
@@ -100,41 +95,36 @@ export default function NavBar() {
           padding: 8px 4px; isolation:isolate;
         }
 
-        /* AUREA caleidoscopio (layer sotto) */
+        /* Aura caleidoscopio (lenta, sotto) */
         .brand-aura{
           position:absolute; inset:-18px -26px; z-index:0; border-radius: 28px;
           background: conic-gradient(from 0deg at 50% 50%,
-            rgba(94,234,212,.85),
-            rgba(34,211,238,.85),
-            rgba(96,165,250,.80),
-            rgba(167,139,250,.80),
-            rgba(240,171,252,.80),
-            rgba(94,234,212,.85));
+            rgba(94,234,212,.85), rgba(34,211,238,.85), rgba(96,165,250,.82),
+            rgba(167,139,250,.82), rgba(240,171,252,.82), rgba(94,234,212,.85));
           filter: blur(28px) saturate(1.2) brightness(1.05);
-          animation: auraSpin 14s linear infinite;
+          animation: auraSpin 16s linear infinite;
         }
 
-        /* Glow superiore: cambia tinta in controfase rispetto alla scritta */
+        /* Glow superiore: controfase rispetto al testo */
         .brand-glow{
           position:absolute; inset:-10px -18px; z-index:1; border-radius: 22px;
           background: conic-gradient(from 0deg at 50% 50%,
             #22d3ee, #60a5fa, #a78bfa, #f0abfc, #fb7185, #34d399, #a3e635, #22d3ee);
-          filter: blur(26px) saturate(1.35) brightness(1.08);
+          filter: blur(26px) saturate(1.3) brightness(1.06);
           opacity:.85;
           animation: glowHue 12s linear infinite reverse, glowPulse 2.8s ease-in-out infinite;
           mix-blend-mode: screen;
         }
 
-        /* SCRITTA in forte rilievo + pulse + ciclo colore */
+        /* SCRITTA: forte rilievo + SOLO pulse + cambio colore */
         .brand-text{
           position:relative; z-index:2; display:inline-block;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .32rem;
           font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
 
-          /* Riempimento brillante (niente bianco) */
-          background:
-            linear-gradient(90deg,
+          /* gradiente brillante (no layer bianco), fermo: niente pan */
+          background: linear-gradient(90deg,
               #00f5ff 0%,
               #00d8ff 14%,
               #3aa6ff 28%,
@@ -143,28 +133,26 @@ export default function NavBar() {
               #00ffa8 70%,
               #c7ff00 84%,
               #00f5ff 100%);
-          background-size: 220% 220%;
+          background-size: 200% 200%;
           background-position: 50% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          /* Bordo + rilievo (ombre incrociate) */
+          /* rilievo */
           -webkit-text-stroke: 0.7px rgba(0,0,0,.25);
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.70),  /* highlight alto-sx */
-             1.2px 1.2px 0 rgba(0,0,0,.45),     /* ombra basso-dx */
-            -2px -2px 2px rgba(255,255,255,.35),
-             2px  2px 3px rgba(0,0,0,.35),
-             0    3px 8px rgba(0,0,0,.35);
+            -1px -1px 0 rgba(255,255,255,.68),
+             1.2px 1.2px 0 rgba(0,0,0,.46),
+            -2px -2px 2px rgba(255,255,255,.34),
+             2px  2px 3px rgba(0,0,0,.34),
+             0    3px 8px rgba(0,0,0,.34);
 
-          /* Animazioni coordinate: pan + tinta (in fase) + pulsazione */
+          /* SOLO queste due animazioni */
           animation:
-            textPan    7s linear infinite,
-            textHue    12s linear infinite,
+            textHue   12s linear infinite,
             textPulse  2.8s ease-in-out infinite;
         }
 
-        /* Alone sottile sopra il testo */
         .brand-halo{
           position:absolute; inset:-4px; z-index:3; pointer-events:none;
           background: radial-gradient(110% 110% at 50% -30%, rgba(255,255,255,.22), transparent 60%);
@@ -190,7 +178,6 @@ export default function NavBar() {
           background: linear-gradient(90deg, var(--c1), var(--c2));
           background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
           text-shadow: 0 0 12px rgba(255,255,255,.12);
-          animation: labelShimmer 6s linear infinite;
         }
         .link:hover{ transform: translateY(-1px); }
         .link.is-active{
@@ -199,18 +186,15 @@ export default function NavBar() {
           box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
         }
 
-        /* === KEYFRAMES === */
-        @keyframes labelShimmer { to { background-position: -200% center; } }
-        @keyframes auraSpin     { to { transform: rotate(360deg); } }
-        @keyframes glowHue      { to { filter: hue-rotate(360deg) saturate(1.35); } }
-        @keyframes glowPulse    { 0%,100% { opacity:.70; } 50% { opacity:1; } }
-        @keyframes textPan      { to { background-position: 120% 120%; } }
-        @keyframes textHue      { to { filter: hue-rotate(360deg) saturate(1.25); } }
-        @keyframes textPulse    { 0%,100% { filter: brightness(1) contrast(1.02); } 50% { filter: brightness(1.35) contrast(1.08); } }
+        /* === KEYFRAMES (solo ciò che serve) === */
+        @keyframes auraSpin   { to { transform: rotate(360deg); } }
+        @keyframes glowHue    { to { filter: hue-rotate(360deg) saturate(1.3); } }
+        @keyframes glowPulse  { 0%,100% { opacity:.72; } 50% { opacity:1; } }
+        @keyframes textHue    { to { filter: hue-rotate(360deg) saturate(1.25); } }
+        @keyframes textPulse  { 0%,100% { filter: brightness(1) contrast(1.02); } 50% { filter: brightness(1.34) contrast(1.08); } }
 
-        /* Riduci movimento se richiesto dall'utente */
         @media (prefers-reduced-motion: reduce) {
-          .brand-aura, .brand-glow, .brand-text, .label { animation: none !important; }
+          .brand-aura, .brand-glow, .brand-text { animation: none !important; }
         }
 
         /* === SMARTPHONE: 3 colonne x N righe === */
@@ -241,7 +225,7 @@ export default function NavBar() {
           }
         }
 
-        /* fascia intermedia (tablet verticali) */
+        /* fascia intermedia */
         @media (min-width: 561px) and (max-width: 860px){
           .inner{ padding: 8px 12px; }
           .track{ flex-wrap: wrap; gap: 12px; }
