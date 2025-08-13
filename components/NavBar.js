@@ -17,7 +17,7 @@ const links = [
 export default function NavBar() {
   const { pathname } = useRouter();
 
-  // Filler per completare multipli di 3 su mobile
+  // filler per completare multipli di 3 su mobile
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
@@ -35,13 +35,13 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* BRAND */}
-          <Link href="/home" className="brand" aria-label="Jarvis Home">
+          {/* ===== LOGO GIARCIS (neon + aura) ===== */}
+          <Link href="/home" className="brand" aria-label="Giarcis Home">
             <span className="brand-wrap">
-              {/* Aurea leggera e sempre morbida */}
-              <span className="brand-aura" aria-hidden="true" />
-              {/* Scritta in rilievo con bordo, cambio colore e pulsazione */}
-              <span className="brand-text">JARVIS</span>
+              {/* Aura caleidoscopio leggera ma visibile */}
+              <span className="logo-aura" aria-hidden="true" />
+              {/* Scritta super luminosa + pulsazione */}
+              <span className="logo-text" data-text="GIARCIS">GIARCIS</span>
             </span>
           </Link>
 
@@ -89,68 +89,97 @@ export default function NavBar() {
           gap: 24px; padding: 6px 16px;
         }
 
-        /* === BRAND === */
+        /* ===== BRAND ===== */
         .brand{ text-decoration:none; display:inline-flex; align-items:center; }
         .brand-wrap{
           position: relative; display:inline-grid; place-items:center;
           padding: 8px 4px; isolation:isolate;
         }
 
-        /* AUREA: più visibile ma non invasiva (screen + maschera ellittica) */
-        .brand-aura{
-          position:absolute; inset:-14px; z-index:0; pointer-events:none;
-          background: conic-gradient(from 0deg at 50% 50%,
-            rgba(245,245,220,.45),  /* beige */
-            rgba(22,163,74,.42),    /* verde */
-            rgba(239,68,68,.42),    /* rosso */
-            rgba(17,17,17,.42),     /* nero */
-            rgba(245,245,220,.45));
-          filter: blur(22px) saturate(1.05);
-          opacity:.42;                        /* << leggermente aumentata */
-          mix-blend-mode: screen;             /* non copre mai */
-          border-radius: 9999px;              /* fallback */
+        /* AURA caleidoscopio (statica, intensa ma leggera) */
+        .logo-aura{
+          position:absolute; inset:-16px -22px; z-index:0; pointer-events:none;
+          background:
+            conic-gradient(from 0deg at 50% 50%,
+              rgba(239,68,68,.58),   /* rosso */
+              rgba(229,43,80,.54),   /* amaranto */
+              rgba(22,163,74,.54),   /* verde  */
+              rgba(239,68,68,.58));
+          filter: blur(26px) saturate(1.15);
+          opacity:.62;                         /* visibile ma non copre */
+          mix-blend-mode: screen;              /* solo schiarisce */
+          border-radius: 9999px;
           clip-path: ellipse(78% 66% at 50% 50%);
-          -webkit-mask-image: radial-gradient(ellipse at center, #000 70%, transparent 77%);
-                  mask-image: radial-gradient(ellipse at center, #000 70%, transparent 77%);
+          -webkit-mask-image: radial-gradient(ellipse at center, #000 70%, transparent 78%);
+                  mask-image: radial-gradient(ellipse at center, #000 70%, transparent 78%);
         }
 
-        /* SCRITTA: forte rilievo + bordo nero + ciclo colore beige/verde/rosso/nero + pulsazione */
-        .brand-text{
+        /* SCRITTA GIARCIS — NEON GLOW + PULSE */
+        .logo-text{
           position:relative; z-index:1; display:inline-block;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          font-weight: 900; letter-spacing: .32rem;
-          font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
+          font-weight: 900;
+          letter-spacing: .32rem;
+          font-size: clamp(1.8rem, 4vw, 2.2rem);
+          line-height: 1; white-space: nowrap;
 
-          /* bordo nero sottile per leggibilità */
-          -webkit-text-stroke: 1px #000; paint-order: stroke fill;
+          /* bordo nero netto per leggibilità */
+          -webkit-text-stroke: 1.1px #000; paint-order: stroke fill;
 
-          /* rilievo (ombre incrociate) */
-          text-shadow:
-            -1px -1px 0 rgba(255,255,255,.75),   /* highlight alto-sx */
-             1.5px 1.5px 0 rgba(0,0,0,.55),      /* ombra basso-dx netta */
-             0 3px 8px rgba(0,0,0,.45);          /* profondità */
-
-          /* gradiente solo con beige/verde/rosso/nero (no azzurri) */
-          background: linear-gradient(90deg,
-            #f5f5dc 0%,  #f5f5dc 15%,  /* beige */
-            #16a34a 16%, #16a34a 45%,  /* verde */
-            #ef4444 46%, #ef4444 75%,  /* rosso */
-            #f5f5dc 76%, #f5f5dc 94%,  /* beige di nuovo */
-            #111111 95%, #111111 100%  /* nero stretto */
-          );
-          background-size: 220% 220%;
+          /* riempimento caleidoscopio (rosso → amaranto → verde) che scorre L->R */
+          background:
+            linear-gradient(90deg,
+              #ef4444 0%,
+              #e52b50 33%,
+              #16a34a 66%,
+              #ef4444 100%
+            );
+          background-size: 300% 100%;
           background-position: 0% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          /* animazioni: pan del gradiente (cambio colore) + pulsazione */
+          /* bagliore statico base (leggero) */
+          text-shadow:
+            0 0 10px rgba(255,255,255,.25),
+            0 0 18px rgba(239,68,68,.25),
+            0 0 26px rgba(22,163,74,.20);
+
+          /* animazioni scritta: scorrimento colore + pulsazione */
           animation:
-            gradientPan 9s linear infinite,
-            textPulse   3s ease-in-out infinite;
-          will-change: background-position, filter;
+            fillSweep 8s linear infinite,   /* L -> R */
+            neonPulse 2.4s ease-in-out infinite;
+          will-change: background-position, filter, transform;
         }
 
-        /* === MENU === */
+        /* GLOW DINAMICO (doppio strato) tramite pseudo-elementi */
+        .logo-text::before,
+        .logo-text::after{
+          content: attr(data-text);
+          position: absolute; inset: 0;
+          pointer-events: none;
+          color: transparent;
+          -webkit-text-fill-color: transparent;
+          -webkit-background-clip: text; background-clip: text;
+          mix-blend-mode: screen;
+        }
+        /* glow vicino al testo (più definito) */
+        .logo-text::before{
+          background: inherit;                   /* stesso gradiente del fill */
+          filter: blur(8px) brightness(1.8) saturate(1.4);
+          opacity:.85;
+          animation: neonPulse 2.4s ease-in-out infinite;
+        }
+        /* glow più distante (alone ampio) */
+        .logo-text::after{
+          background: inherit;
+          filter: blur(18px) brightness(1.6) saturate(1.2);
+          opacity:.55;
+          animation: neonPulse 2.4s ease-in-out infinite;
+          animation-delay: .05s;                 /* leggero sfasamento */
+        }
+
+        /* ===== MENU ===== */
         .track{
           display:flex; gap:16px; list-style:none; margin:0; padding:0;
         }
@@ -176,15 +205,18 @@ export default function NavBar() {
           box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
         }
 
-        /* === KEYFRAMES === */
-        @keyframes gradientPan { to { background-position: 200% 50%; } }
-        @keyframes textPulse   { 0%,100% { filter: brightness(1) } 50% { filter: brightness(1.35) } }
-
-        @media (prefers-reduced-motion: reduce) {
-          .brand-text { animation: none !important; }
+        /* ===== KEYFRAMES (solo per il nuovo logo) ===== */
+        @keyframes fillSweep { to { background-position: 200% 50%; } }
+        @keyframes neonPulse {
+          0%, 100% { filter: brightness(1.0) saturate(1.0); transform: scale(1); }
+          50%      { filter: brightness(1.45) saturate(1.25); transform: scale(1.01); }
         }
 
-        /* SMARTPHONE: 3 colonne x N righe */
+        @media (prefers-reduced-motion: reduce) {
+          .logo-text, .logo-text::before, .logo-text::after { animation: none !important; }
+        }
+
+        /* ===== SMARTPHONE: 3 colonne x N righe ===== */
         @media (max-width: 560px){
           .inner{
             flex-direction: column;
@@ -193,7 +225,7 @@ export default function NavBar() {
             padding: 8px 10px 10px;
           }
           .brand{ justify-content: center; }
-          .brand-text{
+          .logo-text{
             font-size: clamp(1.7rem, 8vw, 2.1rem);
             letter-spacing: .30rem;
           }
