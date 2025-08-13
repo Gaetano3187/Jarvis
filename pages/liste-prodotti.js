@@ -209,16 +209,17 @@ function timeoutFetch(url, opts={}, ms=25000) {
     .finally(()=>clearTimeout(t));
 }
 
-/* ------------ Helpers residuo (usati anche per la barra) ------------ */
-/* ------------ Helpers residuo (usati anche per la barra) ------------ */
+/* ---------------- Confezioni × Unità helpers ---------------- */
+function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+// clamp 0..1
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
+// Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
 function residueUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
   const ru = Number(s.residueUnits);
-  // Se è già stato impostato, usalo così com'è (0 incluso!)
   if (Number.isFinite(ru)) return Math.max(0, ru);
-  // Fallback solo se MAI impostato
+  // default: se mai impostato, usa packs*upp
   return Math.max(0, Number(s.packs || 0) * upp);
 }
 function baselineUnitsOf(s){
@@ -227,13 +228,13 @@ function baselineUnitsOf(s){
   const base = Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp;
   return Math.max(upp, base);
 }
+// sostituisce la tua residueInfo precedente
 function residueInfo(s){
   const current  = residueUnitsOf(s);
   const baseline = baselineUnitsOf(s);
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
 }
-
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
 const RESIDUE_THRESHOLDS = { green: 0.60, amber: 0.30 };
@@ -996,7 +997,7 @@ function markBought(id, amount = 1) {
     }
   }
 
-
+  /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
  /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
 function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
@@ -1133,32 +1134,25 @@ function decrementAcrossBothLists(prevLists, purchases) {
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
   }
-/* ------------ Imposta residuo unità (MANUALE) senza toccare packs/UPP ------------ */
-function setResidualUnits(i) {
+
+  function setResidualUnits(i) {
   const it = stock[i];
   if (!it) return;
+  const upp = Math.max(1, Number(it.unitsPerPack || 1));
+  const currentRU = Number.isFinite(Number(it.residueUnits))
+    ? Math.max(0, Number(it.residueUnits))
+    : Math.max(0, Number(it.packs || 0) * upp);
 
-  // valore attuale (rispetta anche 0)
-  const currentRU = residueUnitsOf(it);
   const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
   if (v == null) return;
 
-  // parse sicuro: niente default a 1, consentito 0
-  const units = Number(String(v).replace(',', '.'));
-  if (!Number.isFinite(units) || units < 0) return;
-
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[i];
-    if (!old) return prev;
-
-    // NON toccare packs/unitsPerPack/baseline/lastRestockAt
-    // Imposta solo residueUnits esattamente al valore dato
-    arr[i] = { ...old, residueUnits: units };
-    return arr;
-  });
+  const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
+  // IMPORTANTISSIMO: aggiorna SOLO residueUnits (niente conversione in packs)
+  applyDeltaToStock(i, { setUnits: units });
 }
 
+
+  /* ---------------- Modifica / Elimina scorte ---------------- */
  /* ---------------- Modifica / Elimina scorte ---------------- */
  
   function editStockRow(i) {
@@ -1527,15 +1521,27 @@ async function processVoiceInventory() {
       });
     }
 
-  // ---- Toast finale (unico) ----
-if (expiryHits && applied) {
-  showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-} else if (expiryHits) {
-  showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-} else if (applied) {
-  showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-} else {
-  showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+    // 7) Toast finale
+    if (expiryHits && applied) {
+      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+    } else if (expiryHits) {
+      showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+    } else if (applied) {
+      showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+    } else {
+      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+    }
+  } catch (e) {
+    console.error('[Voice Inventory] error', e);
+    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    setInvRecBusy(false);
+    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    invMediaRef.current = null;
+    invStreamRef.current = null;
+    invChunksRef.current = [];
+  }
 }
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
