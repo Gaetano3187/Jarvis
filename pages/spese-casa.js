@@ -382,11 +382,9 @@ function SpeseCasa() {
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
       // normalizza payment method (transfer -> bank) + sanitize
-      const methodRaw = (it.paymentMethod || 'cash').toString().trim().toLowerCase()
-      const method = methodRaw === 'transfer' ? 'bank' : methodRaw
-      const validMethod = ['cash', 'card', 'bank'].includes(method) ? method : 'cash'
-      const label  = validMethod === 'card' ? ((it.cardLabel || '').trim() || null) : null
-
+      const methodRaw = (nuovaSpesa.paymentMethod || 'cash').toString().trim().toLowerCase();
+const method = methodRaw === 'transfer' ? 'bank' : methodRaw;
+const validMethod = ['cash','card','bank'].includes(method) ? method : 'cash';
       return {
         user_id: user.id,
         category_id: CATEGORY_ID_CASA,
