@@ -190,17 +190,19 @@ async function loadAll() {
     const dateEndTS   = `${endDate}T23:59:59`;
 
     /* ---------------------- ENTRATE ---------------------- */
-    const { data: inc, error: incErr } = await supabase
-      .from('incomes')
-      .select('id, source, description, amount, received_at, received_date')
-      .eq('user_id', user.id)
-      .or(
-        `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
-        `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
-      )
-      .order('received_at', { ascending: false });
-    if (incErr) throw incErr;
-    setIncomes(inc || []);
+   const { data: inc, error: incErr } = await supabase
+  .from('incomes')
+  .select('id, source, description, amount, received_at, received_date')
+  .eq('user_id', user.id)
+  .or(
+    `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
+    `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
+  )
+  .order('received_at', { ascending: false, nullsFirst: false })
+  .order('received_date', { ascending: false, nullsFirst: false });
+if (incErr) throw incErr;
+setIncomes(inc || []);
+
 
     /* -------------------- CARRYOVER MESE -------------------- */
     const { data: co, error: coErr } = await supabase
