@@ -1,4 +1,3 @@
-
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -209,16 +208,17 @@ function timeoutFetch(url, opts={}, ms=25000) {
     .finally(()=>clearTimeout(t));
 }
 
-/* ------------ Helpers residuo (usati anche per la barra) ------------ */
-/* ------------ Helpers residuo (usati anche per la barra) ------------ */
+/* ---------------- Confezioni × Unità helpers ---------------- */
+function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+// clamp 0..1
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
+// Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
 function residueUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
   const ru = Number(s.residueUnits);
-  // Se è già stato impostato, usalo così com'è (0 incluso!)
   if (Number.isFinite(ru)) return Math.max(0, ru);
-  // Fallback solo se MAI impostato
+  // default: se mai impostato, usa packs*upp
   return Math.max(0, Number(s.packs || 0) * upp);
 }
 function baselineUnitsOf(s){
@@ -227,13 +227,13 @@ function baselineUnitsOf(s){
   const base = Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp;
   return Math.max(upp, base);
 }
+// sostituisce la tua residueInfo precedente
 function residueInfo(s){
   const current  = residueUnitsOf(s);
   const baseline = baselineUnitsOf(s);
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
 }
-
 
 // Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
 const RESIDUE_THRESHOLDS = { green: 0.60, amber: 0.30 };
@@ -996,7 +996,7 @@ function markBought(id, amount = 1) {
     }
   }
 
-
+  /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
  /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
 function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
@@ -1133,32 +1133,25 @@ function decrementAcrossBothLists(prevLists, purchases) {
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
   }
-/* ------------ Imposta residuo unità (MANUALE) senza toccare packs/UPP ------------ */
-function setResidualUnits(i) {
+
+  function setResidualUnits(i) {
   const it = stock[i];
   if (!it) return;
+  const upp = Math.max(1, Number(it.unitsPerPack || 1));
+  const currentRU = Number.isFinite(Number(it.residueUnits))
+    ? Math.max(0, Number(it.residueUnits))
+    : Math.max(0, Number(it.packs || 0) * upp);
 
-  // valore attuale (rispetta anche 0)
-  const currentRU = residueUnitsOf(it);
   const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
   if (v == null) return;
 
-  // parse sicuro: niente default a 1, consentito 0
-  const units = Number(String(v).replace(',', '.'));
-  if (!Number.isFinite(units) || units < 0) return;
-
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[i];
-    if (!old) return prev;
-
-    // NON toccare packs/unitsPerPack/baseline/lastRestockAt
-    // Imposta solo residueUnits esattamente al valore dato
-    arr[i] = { ...old, residueUnits: units };
-    return arr;
-  });
+  const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
+  // IMPORTANTISSIMO: aggiorna SOLO residueUnits (niente conversione in packs)
+  applyDeltaToStock(i, { setUnits: units });
 }
 
+
+  /* ---------------- Modifica / Elimina scorte ---------------- */
  /* ---------------- Modifica / Elimina scorte ---------------- */
  
   function editStockRow(i) {
@@ -1527,15 +1520,27 @@ async function processVoiceInventory() {
       });
     }
 
-  // ---- Toast finale (unico) ----
-if (expiryHits && applied) {
-  showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-} else if (expiryHits) {
-  showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-} else if (applied) {
-  showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-} else {
-  showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+    // 7) Toast finale
+    if (expiryHits && applied) {
+      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+    } else if (expiryHits) {
+      showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+    } else if (applied) {
+      showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+    } else {
+      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+    }
+  } catch (e) {
+    console.error('[Voice Inventory] error', e);
+    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    setInvRecBusy(false);
+    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    invMediaRef.current = null;
+    invStreamRef.current = null;
+    invChunksRef.current = [];
+  }
 }
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
@@ -2016,148 +2021,30 @@ if (expiryHits && applied) {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* =============== GLOBAL (keyframes, font, effetti) =============== */
-const globalStyles = `
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: local('Inter'), local('Inter Var');
-}
-
-/* Palette viva + accenti */
-:root{
-  --bg:#0b1022;           /* slate-950 tendente al blu */
-  --panel:rgba(5,7,15,.65);
-  --ink:#e6f0ff;          /* very-light ink */
-  --muted:#93a4c9;        /* blue-slate */
-  --primary:#7c5cff;      /* violet/indigo vivo */
-  --accent:#16d6ff;       /* cyan acceso */
-  --success:#23d18b;      /* green neon */
-  --danger:#ff4d6d;       /* pink/red vivo */
-  --amber:#ffb020;
-  --rose:#ff5ea8;
-}
-
-*{outline:0}
-::selection{background:rgba(124,92,255,.35)}
-::-webkit-scrollbar{height:10px;width:10px}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:999px}
-html,body{
-  background:var(--bg);
-  color:var(--ink);
-  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif
-}
-
-/* Sfondi caleidoscopici dinamici (coerenti con Home) */
-body::before, body::after{
-  content:"";
-  position:fixed; inset:-20%;
-  background:
-    radial-gradient(60% 60% at 18% 22%, rgba(124,92,255,.35), transparent 60%),
-    radial-gradient(50% 50% at 82% 30%, rgba(22,214,255,.28), transparent 60%),
-    radial-gradient(45% 45% at 40% 82%, rgba(255,94,168,.22), transparent 60%),
-    radial-gradient(35% 35% at 75% 80%, rgba(255,176,32,.18), transparent 60%);
-  filter:blur(64px) saturate(120%);
-  transform:translateZ(0);
-  pointer-events:none; z-index:-1;
-  animation:hueFloat 22s ease-in-out infinite;
-}
-body::after{
-  animation:hueFloat 32s ease-in-out infinite reverse;
-  opacity:.7;
-}
-
-/* Testi luminosi animati */
-.glow-text{
-  text-shadow:
-    0 0 6px rgba(124,92,255,.45),
-    0 0 16px rgba(22,214,255,.35),
-    0 0 28px rgba(255,94,168,.25);
-  animation:floatTitle 6s ease-in-out infinite;
-}
-
-/* Bottone con bagliore + alone orbitante */
-.btn-glow{
-  position:relative; isolation:isolate; will-change:transform, box-shadow;
-  transition:transform .18s ease, box-shadow .18s ease, background-color .18s ease, border-color .18s ease;
-}
-.btn-glow::after{
-  content:""; position:absolute; inset:-2px; z-index:-1; border-radius:14px;
-  background:conic-gradient(from 0deg at 50% 50%, rgba(124,92,255,.55), rgba(22,214,255,.55), rgba(255,94,168,.45), rgba(255,176,32,.45), rgba(124,92,255,.55));
-  filter:blur(16px); opacity:.6;
-  animation:spinGlow 7.5s linear infinite;
-}
-.btn-glow:hover{transform:translateY(-1px); box-shadow:0 10px 24px rgba(0,0,0,.38), 0 0 0 1px rgba(255,255,255,.08) inset}
-.btn-glow:active{transform:translateY(0); box-shadow:0 6px 16px rgba(0,0,0,.38)}
-
-/* Sezioni con bordatura in rilievo pronunciata (neumorph + inner stroke) */
-.section-raised{
-  border:1px solid rgba(255,255,255,.12);
-  box-shadow:
-    0 14px 32px rgba(0,0,0,.45),
-    inset 0 0 0 1px rgba(255,255,255,.04),
-    0 0 0 1px rgba(255,255,255,.06);
-  backdrop-filter: blur(10px) saturate(115%);
-  background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-  border-radius:16px;
-}
-
-/* Barre di progresso “vive” */
-.progress-animated{background:linear-gradient(90deg, rgba(255,255,255,.18), rgba(255,255,255,.08)); overflow:hidden}
-.progress-animated > i{
-  position:absolute; inset:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent);
-  transform:translateX(-100%); animation:shimmer 2.6s ease-in-out infinite;
-}
-
-/* KEYFRAMES */
-@keyframes hueFloat{
-  0%{transform:translateY(0) rotate(0deg); filter:hue-rotate(0deg) blur(64px)}
-  50%{transform:translateY(-2%) rotate(2deg); filter:hue-rotate(28deg) blur(78px)}
-  100%{transform:translateY(0) rotate(0deg); filter:hue-rotate(0deg) blur(64px)}
-}
-@keyframes floatTitle{
-  0%,100%{transform:translateY(0)}
-  50%{transform:translateY(-2px)}
-}
-@keyframes spinGlow{to{transform:rotate(1turn)}}
-@keyframes shimmer{to{transform:translateX(100%)}}
-@keyframes glowPulse{
-  0%,100%{box-shadow:0 0 0 rgba(124,92,255,0)}
-  50%{box-shadow:0 0 28px rgba(22,214,255,.28)}
-}
-`;
-
-/* =============== STYLES (inline object) =============== */
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
-  /* Layout base */
   page: {
     width: '100%',
     minHeight: '100vh',
-    background: 'transparent',
-    padding: 24,
+    background: '#0f172a',
+    padding: 24, // più compatto per mobile
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#fff',
-    fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+    fontFamily:
+      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
 
-  /* Card principale con rilievo */
   card: {
     width: '100%',
-    maxWidth: 1024,
-    background: 'var(--panel)',
+    maxWidth: 1000,
+    background: 'rgba(0,0,0,.6)',
     borderRadius: 16,
     padding: 22,
-    border: '1px solid rgba(255,255,255,.10)',
-    boxShadow: '0 16px 36px rgba(0,0,0,.48), inset 0 0 0 1px rgba(255,255,255,.04)',
-    backdropFilter: 'blur(10px) saturate(115%)',
-    animation: 'glowPulse 3.6s ease-in-out infinite',
+    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
   },
 
-  /* Header */
   headerRow: {
     display: 'flex',
     alignItems: 'center',
@@ -2167,158 +2054,76 @@ const styles = {
     flexWrap: 'wrap',
   },
   homeBtn: {
-    background: 'linear-gradient(180deg, var(--primary), #5a3aff)',
+    background: '#6366f1',
     color: '#fff',
-    padding: '9px 14px',
-    borderRadius: 12,
+    padding: '8px 12px',
+    borderRadius: 10,
     textDecoration: 'none',
-    fontWeight: 800,
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: '0 10px 24px rgba(124,92,255,.35)',
+    fontWeight: 700,
   },
 
-  /* Switch liste */
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
     background: 'rgba(255,255,255,.08)',
     border: '1px solid rgba(255,255,255,.15)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 600,
   },
   switchBtnActive: {
-    background: 'linear-gradient(180deg, var(--accent), #0fbbe5)',
+    background: '#06b6d4',
     border: 0,
-    color: '#00121b',
+    color: '#0b1220',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 900,
-    boxShadow: '0 12px 24px rgba(22,214,255,.35)',
+    fontWeight: 800,
   },
 
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
-  /* Pulsanti principali (dinamici con bagliori) */
   voiceBtn: {
-    background: 'linear-gradient(180deg, var(--primary), #5a3aff)',
-    border: '1px solid rgba(255,255,255,.10)',
+    background: '#6366f1',
+    border: 0,
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 900,
-    boxShadow: '0 12px 26px rgba(124,92,255,.40)',
-  },
-  primaryBtn: {
-    background: 'linear-gradient(180deg, var(--success), #12b97c)',
-    border: 0,
-    color: '#00120d',
-    padding: '10px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 12px 24px rgba(35,209,139,.35)',
-  },
-  voiceBtnSmall: {
-    background: 'linear-gradient(180deg, var(--primary), #5a3aff)',
-    border: 0,
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
     fontWeight: 800,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 10px 22px rgba(124,92,255,.32)',
-  },
-  voiceBtnSmallStop: {
-    background: 'linear-gradient(180deg, var(--danger), #ff3156)',
-    border: 0,
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 10px 22px rgba(255,77,109,.32)',
-  },
-  ocrBtnSmall: {
-    background: 'linear-gradient(180deg, var(--accent), #0fbbe5)',
-    border: 0,
-    color: '#00121b',
-    padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 10px 22px rgba(22,214,255,.35)',
-  },
-  ocrInlineBtn: {
-    background: 'rgba(22,214,255,.16)',
-    border: '1px solid rgba(22,214,255,.62)',
-    color: '#dff8ff',
-    padding: '6px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 8px 18px rgba(22,214,255,.26)',
   },
 
-  /* Sezioni & titoli */
   sectionLarge: { marginTop: 30, marginBottom: 10 },
   sectionXL: { marginTop: 38, marginBottom: 12 },
-  h3: {
-    margin: '6px 0 12px',
-    letterSpacing: '.3px',
-    fontWeight: 900,
-    textShadow: '0 0 14px rgba(124,92,255,.35), 0 0 22px rgba(22,214,255,.25)',
-  },
+  h3: { margin: '6px 0 12px' },
 
-  /* Wrapper sezione in rilievo pronunciato */
-  sectionCard: {
-    background: 'linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.04))',
-    border: '1px solid rgba(255,255,255,.14)',
-    borderRadius: 16,
-    padding: 16,
-    boxShadow: '0 16px 36px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.05)',
-    backdropFilter: 'blur(10px) saturate(120%)',
-  },
-
-  /* Lista */
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
   itemRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.045))',
-    border: '1px solid rgba(255,255,255,.14)',
+    background: 'rgba(255,255,255,.05)',
+    border: '1px solid rgba(255,255,255,.12)',
     borderRadius: 12,
     padding: '10px 12px',
     gap: 8,
     flexWrap: 'wrap',
-    boxShadow: '0 12px 26px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.04)',
   },
   itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
   qtyBadge: {
-    minWidth: 36,
-    height: 36,
-    borderRadius: 12,
-    background: 'linear-gradient(180deg, rgba(124,92,255,.25), rgba(22,214,255,.22))',
+    minWidth: 34,
+    height: 34,
+    borderRadius: 10,
+    background: 'rgba(99,102,241,.25)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: 900,
-    color: '#04121f',
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.12), 0 6px 14px rgba(124,92,255,.25)',
+    fontWeight: 800,
   },
-  itemName: { fontSize: 16, fontWeight: 900, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, color: 'var(--muted)' },
+  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
+  itemBrand: { fontSize: 12, opacity: 0.8 },
 
-  /* Azioni riga */
   itemActions: {
     display: 'flex',
     alignItems: 'center',
@@ -2327,83 +2132,88 @@ const styles = {
     justifyContent: 'flex-end',
   },
   actionSuccess: {
-    background: 'linear-gradient(180deg, var(--success), #12b97c)',
-    border: 0,
-    color: '#00120d',
-    padding: '8px 10px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 900,
-    boxShadow: '0 10px 22px rgba(35,209,139,.32)',
-  },
-  actionDanger: {
-    background: 'linear-gradient(180deg, var(--danger), #ff3156)',
+    background: '#16a34a',
     border: 0,
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 900,
-    boxShadow: '0 10px 22px rgba(255,77,109,.32)',
+    fontWeight: 800,
+  },
+  actionDanger: {
+    background: '#ef4444',
+    border: 0,
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
   },
   actionGhost: {
     background: 'rgba(255,255,255,.12)',
     border: '1px solid rgba(255,255,255,.2)',
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 8px 18px rgba(0,0,0,.25)',
+    fontWeight: 700,
   },
   actionGhostDanger: {
-    background: 'rgba(255,77,109,.12)',
-    border: '1px solid rgba(255,77,109,.6)',
+    background: 'rgba(239,68,68,.1)',
+    border: '1px solid rgba(239,68,68,.6)',
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 8px 18px rgba(255,77,109,.28)',
+    fontWeight: 700,
   },
 
-  /* Form */
-  formRow: { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
+  formRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
+  },
   input: {
     padding: '10px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160,
+    minWidth: 160, // -40px vs prima per stare su schermi stretti
     flex: '1 1 160px',
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)',
+  },
+  primaryBtn: {
+    background: '#16a34a',
+    border: 0,
+    color: '#fff',
+    padding: '10px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
   },
 
-  /* Tabella */
   table: {
     width: '100%',
     borderCollapse: 'collapse',
     background: 'rgba(255,255,255,.04)',
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
-    boxShadow: '0 14px 28px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.04)',
   },
   th: {
     textAlign: 'left',
     padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.14)',
-    fontWeight: 900,
+    borderBottom: '1px solid rgba(255,255,255,.12)',
+    fontWeight: 700,
     whiteSpace: 'nowrap',
-    letterSpacing: '.25px',
   },
   td: {
     padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.10)',
+    borderBottom: '1px solid rgba(255,255,255,.08)',
     verticalAlign: 'middle',
   },
 
-  /* Header scorte + pulsanti piccoli */
   scorteHeader: {
     display: 'flex',
     alignItems: 'center',
@@ -2412,7 +2222,48 @@ const styles = {
     flexWrap: 'wrap',
   },
 
-  /* Badge giorni rimasti */
+  voiceBtnSmall: {
+    background: '#6366f1',
+    border: 0,
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  },
+  voiceBtnSmallStop: {
+    background: '#ef4444',
+    border: 0,
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  ocrBtnSmall: {
+    background: '#06b6d4',
+    border: 0,
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+    ocrInlineBtn: {
+    background: 'rgba(6,182,212,.15)',
+    border: '1px solid rgba(6,182,212,.6)',
+    color: '#e0fbff',
+    padding: '6px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  }, // <-- VIRGOLA QUI
+
+  /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2421,81 +2272,100 @@ const styles = {
     height: 26,
     padding: '0 8px',
     borderRadius: 999,
-    fontWeight: 900,
+    fontWeight: 800,
     fontSize: 12,
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.08)',
   },
   daysBadgeGreen: {
-    background: 'rgba(35,209,139,.18)',
-    border: '1px solid rgba(35,209,139,.70)',
-    color: '#d5ffe9',
+    background: 'rgba(22,163,74,.18)',
+    border: '1px solid rgba(22,163,74,.7)',
+    color: '#dcfce7',
   },
   daysBadgeAmber: {
-    background: 'rgba(255,176,32,.18)',
-    border: '1px solid rgba(255,176,32,.75)',
-    color: '#fff6e3',
+    background: 'rgba(245,158,11,.18)',
+    border: '1px solid rgba(245,158,11,.7)',
+    color: '#fffbeb',
   },
   daysBadgeRed: {
-    background: 'rgba(255,77,109,.18)',
-    border: '1px solid rgba(255,77,109,.75)',
-    color: '#ffe3e9',
+    background: 'rgba(239,68,68,.18)',
+    border: '1px solid rgba(239,68,68,.7)',
+    color: '#fee2e2',
   },
   daysBadgeGray: {
-    background: 'rgba(147,164,201,.18)',
-    border: '1px solid rgba(147,164,201,.65)',
-    color: '#e6edf7',
+    background: 'rgba(148,163,184,.18)',
+    border: '1px solid rgba(148,163,184,.6)',
+    color: '#e2e8f0',
   },
-
-  /* Input tabellari */
   inputTable: {
-    padding: '6px 8px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: '100%',
-    minWidth: 0,
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)',
-  },
-  inputTableSm: {
-    padding: '6px 8px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 90,
-    minWidth: 0,
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)',
-  },
-  inputTableXs: {
-    padding: '6px 8px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 110,
-    minWidth: 0,
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)',
-  },
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+  inputTable: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+progressWrap: {
+  position: 'relative',
+  width: 120,
+  height: 10,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,.15)',
+  overflow: 'hidden',
+  flex: '0 0 120px',
+},
+progressBar: {
+  position: 'absolute',
+  left: 0,          // <-- usa left/top/bottom (NON inset)
+  top: 0,
+  bottom: 0,
+  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
+  transition: 'width .25s ease, background-color .25s ease',
+},
 
-  /* Barra scorte mini (animata) */
-  progressWrap: {
-    position: 'relative',
-    width: 120,
-    height: 10,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,.18)',
-    overflow: 'hidden',
-    flex: '0 0 120px',
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.06), 0 6px 14px rgba(0,0,0,.35)',
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '0%', // imposta inline: `${pct*100}%`
-    transition: 'width .3s ease, background-color .3s ease',
-    background: 'linear-gradient(90deg, var(--accent), var(--primary), var(--rose))',
-  },
-};
+  inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+
+}; // <-- e chiudi l’oggetto con punto e virgola
