@@ -145,7 +145,6 @@ function Entrate() {
   }, [monthKey, hideVarieCashAfterClear]);
 
   async function loadAll() {
- async function loadAll() {
   setLoading(true);
   setError(null);
   try {
