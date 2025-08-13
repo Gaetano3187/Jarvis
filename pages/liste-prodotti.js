@@ -2011,9 +2011,6 @@ async function processVoiceInventory() {
   .jarvisLow {
     animation: jarvisPulse 1.5s infinite;
   }
-`}</style>
-        </div>
-      </div>
   <style jsx global>{`
   /* ===== Pulsanti vetrosi come in /finanze ===== */
   .btn-holo{
