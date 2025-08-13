@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
+
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
 
@@ -1992,32 +1993,25 @@ async function processVoiceInventory() {
             </p>
           </div>
 
-        {/* Toast */}
+{/* Toast */}
 {toast && (
   <div
     style={{
-      position: 'fixed',
-      bottom: 20,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      ...toastStyles,
       background:
         toast.type === 'ok'
           ? '#16a34a'
           : toast.type === 'err'
           ? '#ef4444'
           : '#334155',
-      color: '#fff',
-      padding: '10px 14px',
-      borderRadius: 10,
-      boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-      zIndex: 9999
     }}
   >
     {toast.msg}
   </div>
 )}
 
-<style jsx>{`
+<style jsx>{pageStyles}</style>
+
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
     70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
@@ -2091,7 +2085,9 @@ async function processVoiceInventory() {
     box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.24);
   }
 `}</style>
-    </>
+     </div>
+     </div>
+      </>
   );
 }
 
