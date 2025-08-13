@@ -189,20 +189,26 @@ function Entrate() {
         };
       });
 
-// Spese cash dalle altre sezioni
+    // Spese cash dalle altre sezioni — una sola dichiarazione di cashRows
+const dateStartTS = `${startDate}T00:00:00`;
+const dateEndTS   = `${endDate}T23:59:59`;
+
 const { data: finCash, error: finErr } = await supabase
   .from('finances')
-  .select('id, description, amount, spent_at, category_id, payment_method')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
   .eq('user_id', user.id)
-  .eq('payment_method', 'cash')        // enum: cash | card | bank
-  .gte('spent_at', startDate)          // usa spent_at (non spent_date)
-  .lte('spent_at', endDate)
+  .eq('payment_method', 'cash') // enum: cash|card|bank
+  .or([
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,      // se c'è spent_date
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`,      // se spent_at è timestamp
+    `and(spent_at.gte.${startDate},spent_at.lte.${endDate})`           // se spent_at è solo YYYY-MM-DD
+  ].join(','))
   .order('spent_at', { ascending: false });
 
 if (finErr) throw finErr;
 
 let cashRows = (finCash || []).map((f) => {
-  const dateISO = (f.spent_at || '').slice(0, 10);
+  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
   const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
   const store = m ? m[1] : 'Punto vendita';
   const dett  = m ? m[2] : (f.description || '');
@@ -216,32 +222,29 @@ let cashRows = (finCash || []).map((f) => {
   };
 });
 
-// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
+      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
+      if (hideVarieCashAfterClear) {
+        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+      }
 
-// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
       setPocketRows(rows);
 
-    const { data: exp, error: expErr } = await supabase
-  .from('finances')
-  .select('amount, spent_at')
-  .eq('user_id', user.id)
-  .gte('spent_at', startDate)
-  .lte('spent_at', endDate);
-
-if (expErr) throw expErr;
-
-const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-setMonthExpenses(totalExp);
+      // Totale spese del periodo (facoltativo)
+      const { data: exp } = await supabase.from('finances')
+        .select('amount, spent_date').eq('user_id', user.id)
+        .gte('spent_date', startDate).lte('spent_date', endDate);
+      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+      setMonthExpenses(totalExp);
+    } catch (err) {
+      showError(setError, err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildIncomePrompt(userText) {
