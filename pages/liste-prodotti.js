@@ -2008,10 +2008,8 @@ async function processVoiceInventory() {
     70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
     100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
   }
-  .jarvisLow {
-    animation: jarvisPulse 1.5s infinite;
-  }
-  <style jsx global>{`
+  .jarvisLow { animation: jarvisPulse 1.5s infinite; }
+
   /* ===== Pulsanti vetrosi come in /finanze ===== */
   .btn-holo{
     --btn-size: 44px;
@@ -2050,7 +2048,6 @@ async function processVoiceInventory() {
   }
   .btn-holo:active{ transform: translateY(0); filter: brightness(.98); }
 
-  /* Glow/shimmer forte */
   .glow-strong::before{
     content:""; position:absolute; inset:-20%;
     background: conic-gradient(from 0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.28), rgba(255,255,255,0.08));
@@ -2064,16 +2061,13 @@ async function processVoiceInventory() {
     z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.2s ease-in-out infinite; pointer-events:none;
   }
 
-  /* Animazioni */
   @keyframes spinGlow{ to{ transform: rotate(360deg); } }
   @keyframes pulseBloom{ 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.75; filter:brightness(1.35);} }
 
-  /* Taglie utili */
   .btn-sm  { --btn-size: 36px; --btn-radius: 10px; padding: 8px 12px; }
   .btn-md  { --btn-size: 44px; --btn-radius: 12px; padding: 10px 14px; }
   .btn-lg  { --btn-size: 52px; --btn-radius: 14px; padding: 12px 16px; }
 
-  /* Variante “ghost”/neutra */
   .btn-ghost{
     --btn-base: rgba(255,255,255,0.12);
     --btn-hover: rgba(255,255,255,0.18);
@@ -2081,7 +2075,7 @@ async function processVoiceInventory() {
     background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
     box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.24);
   }
-`}</style>
+}</style>
     </>
   );
 }
