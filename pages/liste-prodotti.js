@@ -2327,7 +2327,6 @@ const styles = {
     boxShadow: '0 6px 18px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.04)',
   },
 
-  // Badge “Giorni rimasti”
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2360,7 +2359,6 @@ const styles = {
     color: '#e2e8f0',
   },
 
-  // Input in tabella
   inputTable: {
     padding: '6px 8px',
     borderRadius: 8,
@@ -2389,7 +2387,6 @@ const styles = {
     minWidth: 0,
   },
 
-  // Barra progresso scorte
   progressWrap: {
     position: 'relative',
     width: 140,
