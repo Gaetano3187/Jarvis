@@ -7,6 +7,14 @@ import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
+/** YYYY-MM-DD locale (no UTC shift) */
+function isoLocal(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 function SpeseCasa() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
@@ -146,12 +154,15 @@ function SpeseCasa() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
+    // data locale stabile (usata anche quando il campo è vuoto)
+    const spentISO = nuovaSpesa.spentAt ? normDate(nuovaSpesa.spentAt) : isoLocal(new Date())
+
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
+      spent_at: spentISO, // YYYY-MM-DD locale
       qty: parseFloat(nuovaSpesa.quantita) || 1,
       payment_method: method, // cash | card | bank
       card_label: (method === 'card'
@@ -278,7 +289,7 @@ function SpeseCasa() {
       '  "quantita": number,',
       '  "uom": "string opzionale (es: kg, L, pz)",',
       '  "prezzoTotale": number,',
-      '  "data":"YYYY-MM-DD",',
+      '  "data":"YYYY-MM-DD|oggi|ieri|domani",',
       '  "paymentMethod":"cash|card|transfer",',
       '  "cardLabel": "string|optional"',
       '}]}',
@@ -287,7 +298,7 @@ function SpeseCasa() {
       '{ "type":"cash_move", "items":[{',
       '  "importo": number,',
       '  "direzione": "in|out",',
-      '  "data":"YYYY-MM-DD|oggi|ieri",',
+      '  "data":"YYYY-MM-DD|oggi|ieri|domani",',
       '  "nota": "string opzionale"',
       '}]}',
       '',
@@ -316,14 +327,12 @@ function SpeseCasa() {
   // ----------------------------- Helpers
   function normDate(v) {
     const s = String(v || '').trim().toLowerCase()
-    if (s === 'oggi') return new Date().toISOString().slice(0, 10)
-    if (s === 'ieri') {
-      const d = new Date()
-      d.setDate(d.getDate() - 1)
-      return d.toISOString().slice(0, 10)
-    }
+    if (s === 'oggi')   return isoLocal(new Date())
+    if (s === 'ieri')  { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
+    if (s === 'domani'){ const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-    return new Date().toISOString().slice(0, 10)
+    const d = new Date(s)
+    return isNaN(d) ? isoLocal(new Date()) : isoLocal(d)
   }
 
   // ----------------------------- PARSING & DB INSERT
@@ -346,7 +355,7 @@ function SpeseCasa() {
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      const spentAt = normDate(it.data)
+      const spentAt = normDate(it.data) // accetta oggi/ieri/domani o YYYY-MM-DD
       const totalPrice = Number(it.prezzoTotale) || 0
       const qty = parseFloat(it.quantita) || 1
       const uom = (it.uom || '').trim()
@@ -368,7 +377,7 @@ function SpeseCasa() {
         category_id: CATEGORY_ID_CASA,
         description: parts.join(' '),
         amount: totalPrice,
-        spent_at: spentAt,
+        spent_at: spentAt, // YYYY-MM-DD locale
         qty: qty,
         payment_method: method,
         card_label: label,
@@ -514,11 +523,14 @@ function SpeseCasa() {
                 <tbody>
                   {(spese || []).map(r => {
                     const m = r.description?.match?.(/^\[(.*?)\]\s*(.*)$/) || []
+                    const when = r.spent_at
+                      ? new Date(r.spent_at).toLocaleDateString('it-IT')
+                      : '-'
                     return (
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
+                        <td>{when}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
