@@ -69,6 +69,7 @@ export default function NavBar() {
           --text: #f8fafc;
         }
 
+            /* NAV WRAPPER */
         .nav{
           position: sticky; top: 0; z-index: 60;
           width: 100%; background: var(--nav-bg);
@@ -77,27 +78,29 @@ export default function NavBar() {
           box-shadow: 0 12px 30px rgba(0,0,0,.30);
         }
         .inner{
-          height: 64px; display: flex; align-items: center;
+          min-height: 64px; display: flex; align-items: center;
           justify-content: flex-start; padding: 0 16px;
           gap: 28px; overflow: hidden;
         }
 
-        /* === LOGO JARVIS (scolpito + lucido + kaleidoscopio) === */
+        /* === LOGO JARVIS (scolpito + gradiente animato) === */
         .brand{ text-decoration:none; display:inline-flex; align-items:center; }
         .brand-wrap{ position: relative; display:inline-grid; place-items:center; padding: 6px 2px; isolation:isolate; }
+
         .brand-aura{
           position:absolute; inset:-18px -26px; z-index:0;
-          background:
-            conic-gradient(from 0deg at 50% 50%,
-              rgba(94,234,212,.75),
-              rgba(34,211,238,.75),
-              rgba(96,165,250,.70),
-              rgba(167,139,250,.70),
-              rgba(94,234,212,.75));
+          background: conic-gradient(from 0deg at 50% 50%,
+            rgba(94,234,212,.75),
+            rgba(34,211,238,.75),
+            rgba(96,165,250,.70),
+            rgba(167,139,250,.70),
+            rgba(94,234,212,.75));
           filter: blur(28px) saturate(1.1) brightness(1.05);
           opacity:.9; border-radius: 24px;
           animation: auraSpin 10s linear infinite;
         }
+
+        /* >>> Riempimento multicolore animato (no bianco) <<< */
         .brand-text{
           position:relative; z-index:1;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -105,19 +108,18 @@ export default function NavBar() {
           font-size: clamp(1.9rem, 4vw, 2.3rem); line-height: 1; white-space: nowrap;
 
           background:
-            linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 45%, rgba(255,255,255,.28) 90%),
             conic-gradient(from 0deg at 50% 50%,
-              #a7f3d0 0%,
-              #5eead4 12%,
-              #22d3ee 24%,
-              #60a5fa 36%,
-              #a78bfa 48%,
-              #f0abfc 60%,
-              #60a5fa 72%,
-              #5eead4 84%,
-              #a7f3d0 100%);
-          background-size: 180% 180%, 200% 200%;
-          background-position: 50% 0%, 50% 50%;
+              #06b6d4 0%,
+              #22d3ee 12%,
+              #60a5fa 24%,
+              #a78bfa 36%,
+              #f0abfc 48%,
+              #fb7185 60%,
+              #34d399 72%,
+              #a3e635 84%,
+              #06b6d4 100%);
+          background-size: 200% 200%;
+          background-position: 50% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
@@ -125,17 +127,18 @@ export default function NavBar() {
           paint-order: stroke fill;
 
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.75),
+            -1px -1px 0 rgba(255,255,255,.55),
              1px  1px 0 rgba(0,0,0,.40),
-            -2px -2px 1px rgba(255,255,255,.40),
+            -2px -2px 1px rgba(255,255,255,.30),
              2px  2px 2px rgba(0,0,0,.34),
              0    2px 4px rgba(0,0,0,.30);
-          filter: brightness(1.45) contrast(1.06) saturate(1.08);
+          filter: brightness(1.35) contrast(1.06) saturate(1.10);
 
           animation:
-            kaleidoMove 7.2s linear infinite,
-            glossDrift  4.8s ease-in-out infinite;
+            kaleidoMove 7.2s linear infinite,  /* movimento del gradiente */
+            hueShift    10s linear infinite;   /* rotazione tinta */
         }
+
         .brand-halo{
           position:absolute; inset:-6px; z-index:2; pointer-events:none;
           background:
@@ -145,7 +148,7 @@ export default function NavBar() {
           animation: haloBreath 2.6s ease-in-out infinite;
         }
 
-        /* === MENU link (desktop di base) === */
+        /* === MENU link (desktop base) === */
         .track{
           display:flex; gap:16px; list-style:none; margin:0; padding:0;
         }
@@ -182,42 +185,57 @@ export default function NavBar() {
 
         /* === ANIMAZIONI === */
         @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes kaleidoMove  { to { background-position: 120% 120%, 200% 200%; } }
-        @keyframes glossDrift   {
-          0%,100% { background-position: 50% 0%, 50% 50%; }
-          50%     { background-position: 50% 22%, 60% 60%; }
-        }
+        @keyframes kaleidoMove  { to { background-position: 120% 120%; } }
+        @keyframes haloBreath   { 0%,100% { opacity:.55; filter: blur(10px); } 50% { opacity:.95; filter: blur(14px); } }
         @keyframes auraSpin     { to { transform: rotate(360deg); } }
-        @keyframes haloBreath   {
-          0%,100% { opacity:.55; filter: blur(10px); }
-          50%     { opacity:.95; filter: blur(14px); }
-        }
+        @keyframes hueShift     { to { filter: hue-rotate(360deg); } }
 
-        /* === MOBILE: swipe orizzontale con dito, senza burger === */
+        /* === MOBILE: brand in alto, menu su più righe (2 per riga) === */
         @media (max-width: 560px){
-          .inner{ gap:16px; padding:0 10px; }
-          .brand-text{ font-size:1.8rem; letter-spacing:.30rem; }
+          .inner{
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 8px 10px 10px;
+          }
+          .brand-text{
+            font-size:1.8rem; letter-spacing:.30rem;
+          }
 
           .track{
-            overflow-x: auto;                /* abilita scorrimento orizzontale */
-            overscroll-behavior-x: contain;  /* evita rimbalzi aggressivi */
-            -webkit-overflow-scrolling: touch; /* swipe fluido iOS */
-            gap:12px;
-            padding-bottom:4px;
-            scrollbar-width: none;           /* nasconde scrollbar su Firefox */
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;                   /* <-- permette più righe */
+            gap: 10px;                         /* gap uniforme tra chip */
+            margin-top: 2px;
           }
-          .track::-webkit-scrollbar{ display:none; } /* nasconde scrollbar su WebKit */
-          .link{ padding:10px 16px; }
+
+          /* 2 card per riga: (100% - gap)/2 */
+          .item{
+            white-space: normal;               /* consente wrapping del testo se serve */
+            flex: 1 1 calc(50% - 5px);         /* 2 colonne */
+          }
+
+          .link{
+            width: 100%;
+            padding: 10px 14px;
+            text-align: center;
+            border-radius: 14px;
+            border:1px solid rgba(255,255,255,.10);
+            background: rgba(255,255,255,.04);
+          }
+          .label{
+            letter-spacing:.02rem;
+            text-shadow: 0 0 10px rgba(255,255,255,.12);
+            animation-duration: 5s;
+          }
         }
 
-        /* piccola salvaguardia se lo spazio è molto stretto anche su desktop */
-        @media (min-width: 561px) and (max-width: 860px){
-          .track{
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: none;
-          }
-          .track::-webkit-scrollbar{ display:none; }
+        /* fascia intermedia stretta (tablet in verticale) */
+        @media (min-width: 561px) && (max-width: 860px){
+          .inner{ padding: 6px 12px; }
+          .track{ flex-wrap: wrap; gap: 12px; }
+          .item{ flex: 0 0 auto; }
         }
       `}</style>
     </>
