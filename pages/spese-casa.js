@@ -157,15 +157,16 @@ function SpeseCasa() {
     const validMethod = ['cash', 'card', 'bank'].includes(method) ? method : 'cash'
 
     // normalizza data ed usa in entrambi i campi
-    const spentISO = (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)) // YYYY-MM-DD
+  const spentISO = (nuovaSpesa.spentAt ? normDate(nuovaSpesa.spentAt) : isoLocal(new Date()));
+
 
     const row = {
       user_id: user.id,
       category_id: CATEGORY_ID_CASA,
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: spentISO,
-      spent_date: spentISO, // <— compatibilità con altre pagine/report
+      spent_at: `${spentISO}T12:00:00Z`,   // timestamp sicuro (niente slittamenti)
+      spent_date: spentISO,                // solo-data per filtri
       qty: parseFloat(nuovaSpesa.quantita) || 1,
       payment_method: validMethod, // cash | card | bank
       card_label: (validMethod === 'card'
