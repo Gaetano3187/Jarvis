@@ -206,10 +206,7 @@ async function loadAll() {
     // Carryover auto per il mese corrente
     await ensureCarryoverAuto(user.id, monthKey);
 
-    // Range robusto (date + timestamp)
-    const dateStartTS = `${startDate}T00:00:00`;
-    const dateEndTS   = `${endDate}T23:59:59`;
-
+   
     /* ---------------------- ENTRATE ---------------------- */
     const { data: inc, error: incErr } = await supabase
       .from('incomes')
