@@ -1993,32 +1993,115 @@ async function processVoiceInventory() {
             </p>
           </div>
 
-          {/* Toast */}
-          {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
-            }}>
-              {toast.msg}
-            </div>
-          )}
+         {/* Toast */}
+{toast && (
+  <div
+    style={{
+      position: 'fixed',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background:
+        toast.type === 'ok'
+          ? '#16a34a'
+          : toast.type === 'err'
+          ? '#ef4444'
+          : '#334155',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: 10,
+      boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+      zIndex: 9999,
+      animation: 'toastPop 0.3s ease-out',
+    }}
+  >
+    {toast.msg}
+  </div>
+)}
+
 <style jsx>{`
+  /* Pulsazione per stati "low" */
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
     70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
     100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
   }
-  .jarvisLow {
-    animation: jarvisPulse 1.5s infinite;
+  .jarvisLow { animation: jarvisPulse 1.5s infinite; }
+
+  /* Entrata del toast */
+  @keyframes toastPop {
+    from { transform: translateX(-50%) translateY(10px); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+  }
+
+  /* Pulsanti “vetrosi” (stile Finanze) */
+  .btn-holo{
+    --btn-size: 44px;
+    --btn-radius: 12px;
+    --btn-base: #3b82f6;
+    --btn-hover: #2563eb;
+    --btn-fg: #ffffff;
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    min-width: var(--btn-size);
+    height: var(--btn-size);
+    padding: 10px 14px;
+    border-radius: var(--btn-radius);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: var(--btn-fg);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02)),
+      var(--btn-base);
+    box-shadow:
+      0 6px 18px rgba(0,0,0,0.28),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .2s ease;
+    isolation: isolate;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  .btn-holo:hover{
+    transform: translateY(-2px);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03)),
+      var(--btn-hover);
+    box-shadow:
+      0 10px 26px rgba(0,0,0,0.32),
+      0 0 24px color-mix(in srgb, var(--btn-hover), #fff 28%);
+  }
+  .btn-holo:active{ transform: translateY(0); filter: brightness(.98); }
+
+  /* Effetti glow opzionali */
+  .glow-strong::before{
+    content:""; position:absolute; inset:-20%;
+    background: conic-gradient(from 0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.28), rgba(255,255,255,0.08));
+    filter: blur(18px); opacity:.6; z-index:1; animation: spinGlow 8s linear infinite; pointer-events:none;
+  }
+  .glow-strong::after{
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.16), transparent 40%),
+      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.14), transparent 40%);
+    z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.2s ease-in-out infinite; pointer-events:none;
+  }
+  @keyframes spinGlow{ to{ transform: rotate(360deg); } }
+  @keyframes pulseBloom{ 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.75; filter:brightness(1.35);} }
+
+  /* Background tabella con lieve animazione (opzionale) */
+  table.kaleido {
+    animation: tableKaleido 6s linear infinite;
+    background: conic-gradient(from 0deg at 50% 50%, #1e293b, #0f172a, #1e293b);
+    background-size: 200% 200%;
+  }
+  @keyframes tableKaleido {
+    0% { background-position: 0% 0%; }
+    50% { background-position: 100% 100%; }
+    100% { background-position: 0% 0%; }
   }
 `}</style>
 
-        </div>
-      </div>
-    </>
-  );
-}
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
@@ -2181,7 +2264,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
+    minWidth: 160, // -40px per schermi stretti
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -2253,7 +2336,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-    ocrInlineBtn: {
+  ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -2262,7 +2345,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  }, // <-- VIRGOLA QUI
+  },
 
   /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
@@ -2296,77 +2379,51 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-progressWrap: {
-  position: 'relative',
-  width: 120,
-  height: 10,
-  borderRadius: 999,
-  background: 'rgba(255,255,255,.15)',
-  overflow: 'hidden',
-  flex: '0 0 120px',
-},
-progressBar: {
-  position: 'absolute',
-  left: 0,          // <-- usa left/top/bottom (NON inset)
-  top: 0,
-  bottom: 0,
-  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
-  transition: 'width .25s ease, background-color .25s ease',
-},
 
+  /* ---------- Input da tabella + progress ---------- */
+  inputTable: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: '100%',
+    minWidth: 0,
+  },
+  inputTableSm: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 90,
+    minWidth: 0,
+  },
   inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 110,
+    minWidth: 0,
+  },
 
-}; // <-- e chiudi l’oggetto con punto e virgola
+  progressWrap: {
+    position: 'relative',
+    width: 120,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.15)',
+    overflow: 'hidden',
+    flex: '0 0 120px',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0, // usa left/top/bottom (NON inset)
+    top: 0,
+    bottom: 0,
+    width: '0%', // verrà sovrascritta inline con `${pct * 100}%`
+    transition: 'width .25s ease, background-color .25s ease',
+  },
+};
