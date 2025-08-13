@@ -1,4 +1,4 @@
-// components/NavBar.js 
+// components/NavBar.js
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -17,7 +17,7 @@ const links = [
 export default function NavBar() {
   const { pathname } = useRouter();
 
-  // Filler per completare multipli di 3 su mobile
+  // filler per completare multipli di 3 su mobile
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
@@ -38,9 +38,9 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
-              {/* Aurea caleidoscopio in contrasto */}
+              {/* AUREA: kaleidoscopio rotonda, ruota senza mostrare spigoli */}
               <span className="brand-aura" aria-hidden="true" />
-              {/* Scritta minimal: bordo nero + fill animato + pulse */}
+              {/* SCRITTA: riempimento che cambia colore + pulsazione + bordo nero */}
               <span className="brand-text">JARVIS</span>
             </span>
           </Link>
@@ -89,52 +89,59 @@ export default function NavBar() {
           gap: 24px; padding: 6px 16px;
         }
 
-        /* === BRAND (scritta pulita + aurea) === */
+        /* === BRAND === */
         .brand{ text-decoration:none; display:inline-flex; align-items:center; }
         .brand-wrap{
           position: relative; display:inline-grid; place-items:center;
           padding: 8px 4px; isolation:isolate;
         }
 
-        /* AUREA caleidoscopio: rotazione + hue in controfase rispetto alla scritta */
+        /* AUREA KALEIDOSCOPIO
+           - mascherata con ellisse per non vedere MAI gli spigoli durante la rotazione
+           - hue in controfase rispetto al testo per avere contrasto
+        */
         .brand-aura{
-          position:absolute; inset:-18px -26px; z-index:0; border-radius: 28px;
+          position:absolute; z-index:0; inset:-14px; pointer-events:none;
           background: conic-gradient(from 0deg at 50% 50%,
             #22d3ee, #60a5fa, #a78bfa, #f0abfc, #fb7185, #34d399, #a3e635, #22d3ee);
-          filter: blur(26px) saturate(1.25) brightness(1.06);
-          animation: auraSpin 16s linear infinite, auraHue 12s linear infinite reverse;
+          filter: blur(22px) saturate(1.25) brightness(1.06);
+          transform-origin: 50% 50%;
+          animation: auraSpin 14s linear infinite, auraHue 12s linear infinite reverse;
+
+          /* CLIP/MASK anti-glitch */
+          border-radius: 9999px; /* fallback */
+          clip-path: ellipse(78% 66% at 50% 50%);
+          -webkit-mask-image: radial-gradient(ellipse at center, #000 72%, transparent 76%);
+          mask-image: radial-gradient(ellipse at center, #000 72%, transparent 76%);
           will-change: transform, filter;
-          pointer-events: none;
         }
 
-        /* SCRITTA: nessun effetto extra, solo bordo, fill che cambia colore e pulsazione */
+        /* SCRITTA: niente ombre/gloss; solo bordo nero + fill animato e pulsante */
         .brand-text{
           position:relative; z-index:1; display:inline-block;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .32rem;
           font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
 
-          /* Bordo nero leggero */
-          -webkit-text-stroke: 0.8px #000;
-          text-stroke: 0.8px #000; /* fallback */
+          /* bordo nero sottile */
+          -webkit-text-stroke: 0.9px #000;
 
-          /* Riempimento a gradiente vivace (senza gloss, ombre o glow) */
+          /* fill brillante (mai bianco) */
           background: linear-gradient(90deg,
-            #00f5ff 0%, #00d8ff 14%, #3aa6ff 28%, #7c5cff 42%,
-            #ff3bd1 56%, #00ffa8 70%, #c7ff00 84%, #00f5ff 100%);
+            #00f5ff 0%, #00d8ff 12%, #3aa6ff 25%, #7c5cff 38%,
+            #ff3bd1 51%, #00ffa8 64%, #c7ff00 77%, #00f5ff 100%);
           background-size: 200% 200%;
-          background-position: 50% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          /* Solo queste due animazioni sulla scritta */
+          /* SOLO cambio colore + pulsazione */
           animation:
-            textHue   12s linear infinite,
-            textPulse  2.8s ease-in-out infinite;
+            textHue   10s linear infinite,
+            textPulse  2.6s ease-in-out infinite;
           will-change: filter;
         }
 
-        /* === MENU === */
+        /* MENU */
         .track{
           display:flex; gap:16px; list-style:none; margin:0; padding:0;
         }
@@ -160,20 +167,17 @@ export default function NavBar() {
           box-shadow: 0 14px 32px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07) inset;
         }
 
-        /* === KEYFRAMES === */
-        @keyframes auraSpin { to { transform: rotate(360deg); } }
-        @keyframes auraHue  { to { filter: hue-rotate(360deg) saturate(1.25) brightness(1.06); } }
-        @keyframes textHue  { to { filter: hue-rotate(360deg) saturate(1.2); } }
-        @keyframes textPulse{
-          0%,100% { filter: hue-rotate(0deg) saturate(1.2) brightness(1.0); }
-          50%     { filter: hue-rotate(0deg) saturate(1.2) brightness(1.35); }
-        }
+        /* ANIMAZIONI */
+        @keyframes auraSpin  { to { transform: rotate(360deg); } }
+        @keyframes auraHue   { to { filter: hue-rotate(360deg) saturate(1.25) brightness(1.06); } }
+        @keyframes textHue   { to { filter: hue-rotate(360deg) saturate(1.25); } }
+        @keyframes textPulse { 0%,100% { filter: brightness(1)   } 50% { filter: brightness(1.35) } }
 
         @media (prefers-reduced-motion: reduce) {
           .brand-aura, .brand-text { animation: none !important; }
         }
 
-        /* === SMARTPHONE: 3 colonne x N righe === */
+        /* SMARTPHONE: 3 colonne x N righe */
         @media (max-width: 560px){
           .inner{
             flex-direction: column;
@@ -201,7 +205,7 @@ export default function NavBar() {
           }
         }
 
-        /* fascia intermedia (tablet verticali) */
+        /* fascia intermedia */
         @media (min-width: 561px) and (max-width: 860px){
           .inner{ padding: 8px 12px; }
           .track{ flex-wrap: wrap; gap: 12px; }
