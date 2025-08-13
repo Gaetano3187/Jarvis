@@ -189,28 +189,37 @@ function Entrate() {
         };
       });
 
-      // Spese cash dalle altre sezioni
-          // Spese cash dalle altre sezioni — FIX: considera spent_date O spent_at (date o timestamp)
-      const dateStartTS = `${startDate}T00:00:00`;
-      const dateEndTS   = `${endDate}T23:59:59`;
+      // Spese cash dalle altre sezioni — enum-safe + date fallback
+const dateStartTS = `${startDate}T00:00:00`;
+const dateEndTS   = `${endDate}T23:59:59`;
 
-      const { data: finCash, error: finErr } = await supabase
-        .from('finances')
-        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-        .eq('user_id', user.id)
-        // accetta "cash" anche con maiuscole diverse (se la colonna è text)
-        .in('payment_method', ['cash', 'Cash', 'CASH'])
-        // periodo: match se (spent_date tra) OR (spent_at tra TS) OR (spent_at tra solo YYYY-MM-DD)
-        .or([
-          `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,
-          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`,
-          `and(spent_at.gte.${startDate},spent_at.lte.${endDate})`
-        ].join(','))
-        .order('spent_at', { ascending: false });
+const { data: finCash, error: finErr } = await supabase
+  .from('finances')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+  .eq('user_id', user.id)
+  .eq('payment_method', 'cash') // enum: niente "Cash"/"CASH"
+  .or([
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`,
+  ].join(','))
+  .order('spent_at', { ascending: false });
 
-      if (finErr) throw finErr;
+if (finErr) throw finErr;
 
-
+let cashRows = (finCash || []).map((f) => {
+  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+  const store = m ? m[1] : 'Punto vendita';
+  const dett  = m ? m[2] : (f.description || '');
+  return {
+    id: `fin-${f.id}`,
+    dateISO,
+    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+    amount: -Math.abs(Number(f.amount) || 0),
+    category_id: f.category_id,
+    kind: 'cash-expense',
+  };
+});
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
         const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
