@@ -134,6 +134,8 @@ function Entrate() {
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
   const startDateIT = formatIT(startDate);
   const endDateIT = formatIT(endDate);
+  const dateStartTS = `${startDate}T00:00:00`;
+  const dateEndTS   = `${endDate}T23:59:59`;
 
   useEffect(() => {
     loadAll();
@@ -153,13 +155,18 @@ function Entrate() {
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // Entrate periodo
-      const { data: inc } = await supabase.from('incomes')
+      // Entrate periodo (supporta sia received_date che received_at)
+      const { data: inc, error: incErr } = await supabase
+        .from('incomes')
         .select('id, source, description, amount, received_at, received_date')
         .eq('user_id', user.id)
-        .gte('received_date', startDate)
-        .lte('received_date', endDate)
-        .order('received_at', { ascending: false });
+        .or(
+          `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
+          `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
+        )
+        .order('received_at', { ascending: false, nullsFirst: false })
+        .order('received_date', { ascending: false, nullsFirst: false });
+      if (incErr) throw incErr;
       setIncomes(inc || []);
 
       // Carryover mese
@@ -189,14 +196,38 @@ function Entrate() {
         };
       });
 
-      // Spese cash dalle altre sezioni
-      let finQuery = supabase.from('finances')
-        .select('id, description, amount, spent_at, spent_date, category_id')
-        .eq('user_id', user.id).eq('payment_method', 'cash')
-        .gte('spent_date', startDate).lte('spent_date', endDate)
-        .order('spent_at', { ascending: false });
+      // Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” nella descrizione
+      const ELECTRONIC_TOKENS = [
+        'carta', 'carta di credito', 'credito', 'debito', 'pos',
+        'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
+        'satispay', 'apple pay', 'google pay'
+      ];
 
-      const { data: finCash } = await finQuery;
+      const { data: finAll, error: finAllErr } = await supabase
+        .from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id, payment_method, payment, method')
+        .eq('user_id', user.id)
+        .or(
+          `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+        )
+        .order('spent_at', { ascending: false, nullsFirst: false })
+        .order('spent_date', { ascending: false, nullsFirst: false });
+      if (finAllErr) throw finAllErr;
+
+      function isElectronicByText(desc) {
+        const t = String(desc || '').toLowerCase();
+        return ELECTRONIC_TOKENS.some(k => t.includes(k));
+      }
+      function isCashByFields(row) {
+        const v = [row.payment_method, row.payment, row.method]
+          .map(x => String(x || '').toLowerCase());
+        if (v.some(x => x === 'cash' || x === 'contanti')) return true;                 // marcato cash esplicito
+        if (v.some(x => x && x !== 'cash' && x !== 'contanti')) return false;           // marcato elettronico
+        return !isElectronicByText(row.description);                                     // default cash se descrizione non contiene token elettronici
+      }
+
+      let finCash = (finAll || []).filter(isCashByFields);
 
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
