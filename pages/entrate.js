@@ -190,13 +190,26 @@ function Entrate() {
       });
 
       // Spese cash dalle altre sezioni
-      let finQuery = supabase.from('finances')
-        .select('id, description, amount, spent_at, spent_date, category_id')
-        .eq('user_id', user.id).eq('payment_method', 'cash')
-        .gte('spent_date', startDate).lte('spent_date', endDate)
+          // Spese cash dalle altre sezioni — FIX: considera spent_date O spent_at (date o timestamp)
+      const dateStartTS = `${startDate}T00:00:00`;
+      const dateEndTS   = `${endDate}T23:59:59`;
+
+      const { data: finCash, error: finErr } = await supabase
+        .from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+        .eq('user_id', user.id)
+        // accetta "cash" anche con maiuscole diverse (se la colonna è text)
+        .in('payment_method', ['cash', 'Cash', 'CASH'])
+        // periodo: match se (spent_date tra) OR (spent_at tra TS) OR (spent_at tra solo YYYY-MM-DD)
+        .or([
+          `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,
+          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`,
+          `and(spent_at.gte.${startDate},spent_at.lte.${endDate})`
+        ].join(','))
         .order('spent_at', { ascending: false });
 
-      const { data: finCash } = await finQuery;
+      if (finErr) throw finErr;
+
 
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
