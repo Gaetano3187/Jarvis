@@ -2046,9 +2046,7 @@ async function processVoiceInventory() {
     }
   `}</style>
 </>
-        </div>
-      </div>
-      );
+);
 }
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
