@@ -1,3 +1,4 @@
+
 // pages/spese-casa.js 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
@@ -38,10 +39,14 @@ function SpeseCasa() {
   const fetchSpese = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
-  .from('finances')
-  .select('id, description, amount, qty, spent_at, spent_date, payment_method, card_label')
-  .eq('category_id', CATEGORY_ID_CASA)
-  .order('created_at', { ascending: false });
+      .from('finances')
+      .select('id, description, amount, qty, spent_at, payment_method, card_label')
+      .eq('category_id', CATEGORY_ID_CASA)
+      .order('created_at', { ascending: false })
+    if (error) setError(error.message)
+    else setSpese(data || [])
+    setLoading(false)
+  }, [])
 
   // ----------------------------- Media helpers
   const stopTracks = useCallback(() => {
@@ -142,20 +147,18 @@ function SpeseCasa() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
-   const spentISO = (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)); // "YYYY-MM-DD"
-
-const row = {
-  user_id: user.id,
-  category_id: CATEGORY_ID_CASA,
-  description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
-  amount: Number(nuovaSpesa.prezzoTotale) || 0,
-  // salva in entrambi i campi per compatibilità cross-pagina
-  spent_at: spentISO,     // ok se la colonna è timestamp o text: la maggior parte dei DB accetta "YYYY-MM-DD"
-  spent_date: spentISO,   // ***AGGIUNTO***
-  qty: parseFloat(nuovaSpesa.quantita) || 1,
-  payment_method: (method === 'card' || method === 'bank' || method === 'cash') ? method : 'cash',
-  card_label: (method === 'card' ? (nuovaSpesa.cardLabel?.trim() || null) : null),
-};
+    const row = {
+      user_id: user.id,
+      category_id: CATEGORY_ID_CASA,
+      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+      amount: Number(nuovaSpesa.prezzoTotale) || 0,
+      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
+      qty: parseFloat(nuovaSpesa.quantita) || 1,
+      payment_method: method, // cash | card | bank
+      card_label: (method === 'card'
+        ? (nuovaSpesa.cardLabel?.trim() || null)
+        : null),
+    }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
