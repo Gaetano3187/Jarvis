@@ -2062,133 +2062,145 @@ export default function NavBar() {
             </span>
           </Link>
 
-          {/* MENU */}
-          <ul className="track">
-            {links.map(({ href, label, c1, c2 }) => {
-              const active = pathname === href;
-              return (
-                <li key={href} className="item">
-                  <Link
-                    href={href}
-                    aria-current={active ? 'page' : undefined}
-                    className={`link ${active ? 'is-active' : ''}`}
-                    style={{ ['--c1']: c1, ['--c2']: c2 }}
-                  >
-                    <span className="label">{label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-            {mobileFillers.map(key => (
-              <li key={key} className="item spacer" aria-hidden="true" />
-            ))}
-          </ul>
-        </div>
-      </nav>
+{/* definisci i filler per la griglia mobile (3 celle) */}
+{/* puoi spostarlo anche sopra al return, ma così funziona uguale */}
+{(() => {
+  // genera 3 elementi "spacer" per chiudere eventuali righe dispari su mobile
+  // (evita buchi nella griglia a 3 colonne)
+  // NB: se non li vuoi, elimina questo IIFE e il map di mobileFillers sotto.
+  // eslint-disable-next-line no-unused-vars
+  var mobileFillers = Array.from({ length: 3 }, (_, i) => `filler-${i}`);
+  return null;
+})()}
 
-      <style jsx>{`
-        :root{
-          --nav-bg: rgba(2,6,23,.72);
-          --nav-brd: rgba(255,255,255,.12);
-          --text: #f8fafc;
-        }
+{/* MENU */}
+<ul className="track">
+  {links.map(({ href, label, c1, c2 }) => {
+    const active = pathname === href;
+    return (
+      <li key={href} className="item">
+        <Link
+          href={href}
+          aria-current={active ? 'page' : undefined}
+          className={`link ${active ? 'is-active' : ''}`}
+          style={{ ['--c1']: c1, ['--c2']: c2 }}
+        >
+          <span className="label">{label}</span>
+        </Link>
+      </li>
+    );
+  })}
 
-        .nav{
-          position: sticky; top: 0; z-index: 60;
-          width: 100%; background: var(--nav-bg);
-          backdrop-filter: blur(12px) saturate(1.2);
-          border-bottom: 1px solid var(--nav-brd);
-          box-shadow: 0 12px 30px rgba(0,0,0,.30);
-        }
-        .inner{
-          min-height: 64px; display: flex; align-items: center;
-          gap: 24px; padding: 6px 16px;
-        }
+  {/* Riempitivi per griglia mobile (vedi definizione sopra) */}
+  {Array.from({ length: 3 }, (_, i) => `filler-${i}`).map((key) => (
+    <li key={key} className="item spacer" aria-hidden="true" />
+  ))}
+</ul>
+</div>
+</nav>
 
-        .brand{ text-decoration:none; display:inline-flex; align-items:center; }
-        .brand-wrap{
-          position: relative; display:inline-grid; place-items:center;
-          padding: 8px 4px; isolation:isolate;
-        }
+<style jsx>{`
+  :root{
+    --nav-bg: rgba(2,6,23,.72);
+    --nav-brd: rgba(255,255,255,.12);
+    --text: #f8fafc;
+  }
 
-        /* Bagliore neon pulsante */
-        .brand-glow{
-          position:absolute; inset:-12px -20px; z-index:0; border-radius: 22px;
-          background: conic-gradient(from 0deg at 50% 50%,
-            #22d3ee, #60a5fa, #a78bfa, #f0abfc,
-            #fb7185, #34d399, #a3e635, #22d3ee);
-          filter: blur(28px) saturate(1.4) brightness(1.1);
-          animation: glowHue 12s linear infinite, glowPulse 2.6s ease-in-out infinite;
-          mix-blend-mode: screen;
-        }
+  .nav{
+    position: sticky; top: 0; z-index: 60;
+    width: 100%; background: var(--nav-bg);
+    backdrop-filter: blur(12px) saturate(1.2);
+    border-bottom: 1px solid var(--nav-brd);
+    box-shadow: 0 12px 30px rgba(0,0,0,.30);
+  }
+  .inner{
+    min-height: 64px; display: flex; align-items: center;
+    gap: 24px; padding: 6px 16px;
+  }
 
-        /* Scritta viva + pulsazione */
-        .brand-text{
-          position:relative; z-index:2;
-          font-family: "Orbitron", Inter, system-ui, sans-serif;
-          font-weight: 900; letter-spacing: .32rem;
-          font-size: clamp(1.8rem, 4vw, 2.2rem); white-space: nowrap;
-          background: linear-gradient(90deg,
-              #00f5ff 0%,   #00d8ff 15%,
-              #00bfff 30%,  #008cff 45%,
-              #7700ff 60%,  #ff00c8 75%,
-              #00ff99 87%,  #b6ff00 100%);
-          background-size: 200% 200%;
-          -webkit-background-clip: text; background-clip: text;
-          color: transparent; -webkit-text-fill-color: transparent;
-          -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
-          text-shadow: 0 0 10px rgba(255,255,255,.12);
-          animation: textPulse 2.6s ease-in-out infinite;
-        }
+  .brand{ text-decoration:none; display:inline-flex; align-items:center; }
+  .brand-wrap{
+    position: relative; display:inline-grid; place-items:center;
+    padding: 8px 4px; isolation:isolate;
+  }
 
-        .brand-halo{
-          position:absolute; inset:-4px; z-index:3; pointer-events:none;
-          background: radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.25), transparent 60%);
-          mix-blend-mode: screen; filter: blur(8px);
-        }
+  /* Bagliore neon pulsante */
+  .brand-glow{
+    position:absolute; inset:-12px -20px; z-index:0; border-radius: 22px;
+    background: conic-gradient(from 0deg at 50% 50%,
+      #22d3ee, #60a5fa, #a78bfa, #f0abfc,
+      #fb7185, #34d399, #a3e635, #22d3ee);
+    filter: blur(28px) saturate(1.4) brightness(1.1);
+    animation: glowHue 12s linear infinite, glowPulse 2.6s ease-in-out infinite;
+    mix-blend-mode: screen;
+  }
 
-        .track{
-          display:flex; gap:16px; list-style:none; margin:0; padding:0;
-        }
-        .item{ flex: 0 0 auto; }
-        .item.spacer{ visibility:hidden; height:0; padding:0; margin:0; }
-        .link{
-          --c1:#5eead4; --c2:#22d3ee;
-          display:inline-grid; place-items:center;
-          padding: 12px 20px; border-radius: 16px;
-          text-decoration:none; color:var(--text);
-          border:1px solid transparent;
-        }
-        .label{
-          font-weight:900; letter-spacing:.05rem;
-          background: linear-gradient(90deg, var(--c1), var(--c2));
-          -webkit-background-clip:text; background-clip:text; color:transparent;
-          text-shadow: 0 0 12px rgba(255,255,255,.12);
-        }
-        .link.is-active{
-          background: rgba(255,255,255,.12);
-          border-color: rgba(255,255,255,.22);
-        }
+  /* Scritta viva + pulsazione */
+  .brand-text{
+    position:relative; z-index:2;
+    font-family: "Orbitron", Inter, system-ui, sans-serif;
+    font-weight: 900; letter-spacing: .32rem;
+    font-size: clamp(1.8rem, 4vw, 2.2rem); white-space: nowrap;
+    background: linear-gradient(90deg,
+        #00f5ff 0%,   #00d8ff 15%,
+        #00bfff 30%,  #008cff 45%,
+        #7700ff 60%,  #ff00c8 75%,
+        #00ff99 87%,  #b6ff00 100%);
+    background-size: 200% 200%;
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent; -webkit-text-fill-color: transparent;
+    -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
+    text-shadow: 0 0 10px rgba(255,255,255,.12);
+    animation: textPulse 2.6s ease-in-out infinite;
+  }
 
-        @keyframes glowHue     { to { filter: hue-rotate(360deg) saturate(1.4); } }
-        @keyframes glowPulse   { 0%,100% { opacity:.75; } 50% { opacity:1; } }
-        @keyframes textPulse   { 0%,100% { filter: brightness(1) saturate(1); } 50% { filter: brightness(1.35) saturate(1.4); } }
+  .brand-halo{
+    position:absolute; inset:-4px; z-index:3; pointer-events:none;
+    background: radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.25), transparent 60%);
+    mix-blend-mode: screen; filter: blur(8px);
+  }
 
-        /* Smartphone: 3 colonne x N righe */
-        @media (max-width: 560px){
-          .inner{ flex-direction: column; align-items: stretch; gap: 8px; }
-          .brand{ justify-content: center; }
-          .track{
-            display:grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap:10px; width:100%;
-          }
-          .link{ width:100%; padding:10px; text-align:center; }
-        }
-      `}</style>
-    </>
-  );
-}
+  .track{
+    display:flex; gap:16px; list-style:none; margin:0; padding:0;
+  }
+  .item{ flex: 0 0 auto; }
+  .item.spacer{ visibility:hidden; height:0; padding:0; margin:0; }
+  .link{
+    --c1:#5eead4; --c2:#22d3ee;
+    display:inline-grid; place-items:center;
+    padding: 12px 20px; border-radius: 16px;
+    text-decoration:none; color:var(--text);
+    border:1px solid transparent;
+    transition: transform .18s ease, filter .2s ease, background .2s ease, box-shadow .2s ease;
+  }
+  .link:hover{ transform: translateY(-1px); }
+  .label{
+    font-weight:900; letter-spacing:.05rem;
+    background: linear-gradient(90deg, var(--c1), var(--c2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow: 0 0 12px rgba(255,255,255,.12);
+  }
+  .link.is-active{
+    background: rgba(255,255,255,.12);
+    border-color: rgba(255,255,255,.22);
+  }
+
+  @keyframes glowHue     { to { filter: hue-rotate(360deg) saturate(1.4); } }
+  @keyframes glowPulse   { 0%,100% { opacity:.75; } 50% { opacity:1; } }
+  @keyframes textPulse   { 0%,100% { filter: brightness(1) saturate(1); } 50% { filter: brightness(1.35) saturate(1.4); } }
+
+  /* Smartphone: 3 colonne x N righe */
+  @media (max-width: 560px){
+    .inner{ flex-direction: column; align-items: stretch; gap: 8px; }
+    .brand{ justify-content: center; }
+    .track{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:10px; width:100%;
+    }
+    .link{ width:100%; padding:10px; text-align:center; }
+  }
+`}</style>
 
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
