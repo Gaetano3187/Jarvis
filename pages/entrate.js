@@ -15,7 +15,7 @@ function isoLocal(date) {
   const m = date.getMonth() + 1;
   const d = date.getDate();
   const pad = (n) => String(n).padStart(2, '0');
-  return ${y}-${pad(m)}-${pad(d)};
+  return `${y}-${pad(m)}-${pad(d)}`;
 }
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear();
@@ -181,7 +181,7 @@ function Entrate() {
           : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
         const dateISO = (row.moved_date || (row.moved_at || row.created_at || '').slice(0,10));
         return {
-          id: pc-${row.id},
+          id: `pc-${row.id}`,
           dateISO,
           label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
           amount: Number(eff || 0),
@@ -204,9 +204,9 @@ function Entrate() {
         const store = m ? m[1] : 'Punto vendita';
         const dett  = m ? m[2] : (f.description || '');
         return {
-          id: fin-${f.id},
+          id: `fin-${f.id}`,
           dateISO,
-          label: Spesa in contante • ${store}${dett ?  • ${dett} : ''},
+          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
           amount: -Math.abs(Number(f.amount) || 0),
           category_id: f.category_id,
           kind: 'cash-expense',
@@ -264,7 +264,7 @@ function Entrate() {
       user_id: user.id,
       note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
       delta: (typeof delta === 'number') ? delta : Math.abs(amount),
-      moved_at: ${(date || isoLocal(new Date()))}T12:00:00Z,
+      moved_at: `${(date || isoLocal(new Date()))}T12:00:00Z`,
     };
     const { error } = await supabase.from('pocket_cash').insert(payload);
     if (error) throw error;
@@ -286,7 +286,7 @@ function Entrate() {
         source: it.source || 'Entrata',
         description: it.description || it.source || 'Entrata',
         amount,
-        received_at: ${dataIncasso}T12:00:00Z,
+        received_at: `${dataIncasso}T12:00:00Z`,
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -372,7 +372,7 @@ function Entrate() {
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
         amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: (newIncome.receivedAt ? ${newIncome.receivedAt}T12:00:00Z : new Date().toISOString()),
+        received_at: (newIncome.receivedAt ? `${newIncome.receivedAt}T12:00:00Z` : new Date().toISOString()),
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -518,7 +518,7 @@ function Entrate() {
           <form className="input-section" onSubmit={handleSaveCarryover}>
             <input type="number" step="0.01" value={newCarry.amount}
                    onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-                   placeholder={Importo € per ${monthKey}} required />
+                   placeholder={`Importo € per ${monthKey}`} required />
             <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
             <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
           </form>
@@ -565,7 +565,7 @@ function Entrate() {
         </div>
       </div>
 
-      <style jsx global>{
+      <style jsx global>{`
         .spese-casa-container1 { width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; min-height: 100vh; padding: 2rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
         .spese-casa-container2 { background: rgba(0, 0, 0, 0.6); padding: 2rem; border-radius: 1rem; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.3); max-width: 1000px; width: 100%; }
         .title-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .25rem; }
@@ -588,7 +588,7 @@ function Entrate() {
         .metric--saldo { color: #22c55e; }
         .metric--pocket { color: #06b6d4; }
         .error { color: #f87171; margin-top: 1rem; }
-      }</style>
+      `}</style>
     </>
   );
 }
