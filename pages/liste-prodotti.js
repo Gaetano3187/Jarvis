@@ -1,4 +1,3 @@
-
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -11,6 +10,37 @@ const DEBUG = false;
 const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
 const API_OCR = '/api/ocr';                  // usa il tuo ocr.js
 const API_FINANCES_INGEST = '/api/finances/ingest';
+
+/* ---------------- Persistenza locale (localStorage) ---------------- */
+const LS_VER = 1;
+const LS_KEY = 'jarvis_liste_prodotti@v1';
+
+function loadPersisted() {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.v !== LS_VER) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+function persistNow(snapshot) {
+  try {
+    if (typeof window === 'undefined') return;
+    const payload = {
+      v: LS_VER,
+      at: Date.now(),
+      lists: snapshot.lists,
+      stock: snapshot.stock,
+      currentList: snapshot.currentList,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('[persist] save failed', e);
+  }
+}
 
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
@@ -619,98 +649,18 @@ export default function ListeProdotti() {
     unitLabel: 'unità',
     expiresAt: ''
   });
-function startRowEdit(index, row){
-  const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
-  setEditingRow(index);
-  setEditDraft({
-    name: row.name || '',
-    brand: row.brand || '',
-    packs: String(Number(row.packs ?? 0)),
-    unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
-    unitLabel: row.unitLabel || 'unità',
-    expiresAt: row.expiresAt || '',
-    residueUnits: initRU,
-    _ruTouched: false,     // <-- nuovo flag
-  });
-}
-function handleEditDraftChange(field, value){
-  setEditDraft(prev => ({
-    ...prev,
-    [field]: value,
-    ...(field === 'residueUnits' ? { _ruTouched: true } : null),
-  }));
-}
 
-function cancelRowEdit(){
-  setEditingRow(null);
-  setEditDraft({
-    name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
-  });
-}
-
-function saveRowEdit(index){
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[index];
-    if (!old) return prev;
-
-    const name = (editDraft.name || '').trim();
-    const brand = (editDraft.brand || '').trim();
-    const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
-    const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
-    const expiresAt = toISODate(editDraft.expiresAt || '');
-
-    // Le CONFEZIONI vengono SOLO dal campo "Confezioni"
-    const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
-
-    const todayISO = new Date().toISOString().slice(0,10);
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const wasUnits = Math.max(0, Number(old.packs || 0) * uppOld);
-    const nowUnits = Math.max(0, newPacks * unitsPerPack);
-    const restock = nowUnits > wasUnits;
-
-    // RESIDUO: indipendente dalle confezioni
-    let ru = residueUnitsOf(old); // se assente → packs*upp
-    const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
-    if (ruTouched) {
-      const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-      if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
-    }
-    const fullNow = Math.max(unitsPerPack, nowUnits); // pieno attuale
-    ru = Math.min(ru, fullNow); // mai oltre il pieno
-
-    // Consumo medio stimato (se diminuisce rispetto all’ultimo restock)
-    const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
-
-    // Componi l'oggetto finale
-    let next = {
-      ...old,
-      name, brand,
-      packs: newPacks,
-      unitsPerPack, unitLabel,
-      expiresAt,
-      avgDailyUnits,
-    };
-
-    if (restock) {
-      // aumento = restock → baseline e residueUnits al pieno
-      next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
-    } else {
-      // nessun restock: aggiorna solo il residuo (clamp ≤ pieno)
-      next.residueUnits = ru;
-    }
-
-    arr[index] = next;
-    return arr;
-  });
-
-  setEditingRow(null);
-}
-
-  // Stato UI
+  // UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
-  
+
+  function showToast(msg, type='ok'){
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 1800);
+  }
+
+  // Persistenza: timer per debounce salvataggio
+  const persistTimerRef = useRef(null);
 
   // Vocale: LISTA
   theMediaWorkaround();
@@ -731,45 +681,96 @@ function saveRowEdit(index){
   // OCR scadenza per riga
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
-  
 
   // Form Aggiunta Scorta manuale
   const [stockForm, setStockForm] = useState({
     name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
-    
   });
 
   const curItems = lists[currentList] || [];
 
- /* --------------- derivati: prodotti critici --------------- */
-useEffect(() => {
-  const crit = stock.filter(p => {
-    const upp = Math.max(1, Number(p.unitsPerPack || 1));
+  /* ---- Hydration iniziale da localStorage ---- */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = loadPersisted();
+    if (!saved) return;
 
-    // Unità residue correnti: preferisci residueUnits se esiste, altrimenti packs*upp
-    const ru = Number(p.residueUnits);
-    const currentUnits = Number.isFinite(ru)
-      ? Math.max(0, ru)
-      : Math.max(0, Number(p.packs || 0) * upp);
+    // Ripristina liste
+    if (saved.lists && typeof saved.lists === 'object') {
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+      });
+    }
+    // Ripristina scorte
+    if (Array.isArray(saved.stock)) setStock(saved.stock);
 
-    // Baseline: preferisci baselinePacks*upp; fallback packs*upp; minimo = upp
-    const bp = Number(p.baselinePacks);
-    const baselineUnits = Math.max(
-      upp,
-      (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(p.packs || 0) * upp)
-    );
+    // Ripristina lista corrente
+    if (saved.currentList && (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)) {
+      setCurrentList(saved.currentList);
+    }
+  }, []);
 
-    const pct = baselineUnits ? (currentUnits / baselineUnits) : 1;
+  /* ---- Autosave con debounce ---- */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
 
-    const lowResidue = pct < 0.20;          // <20% residuo
-    const expSoon   = isExpiringSoon(p, 10); // scadenza entro 10 giorni
+    const snapshot = { lists, stock, currentList };
+    persistTimerRef.current = setTimeout(() => {
+      persistNow(snapshot);
+    }, 300);
 
-    return lowResidue || expSoon;
-  });
+    return () => clearTimeout(persistTimerRef.current);
+  }, [lists, stock, currentList]);
 
-  setCritical(crit);
-}, [stock]);
+  /* ---- Sync tra tab (evento storage) ---- */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStorage = (e) => {
+      if (e.key !== LS_KEY) return;
+      const saved = loadPersisted();
+      if (!saved) return;
 
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+      });
+      setStock(Array.isArray(saved.stock) ? saved.stock : []);
+      setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  /* --------------- derivati: prodotti critici --------------- */
+  useEffect(() => {
+    const crit = stock.filter(p => {
+      const upp = Math.max(1, Number(p.unitsPerPack || 1));
+
+      // Unità residue correnti: preferisci residueUnits se esiste, altrimenti packs*upp
+      const ru = Number(p.residueUnits);
+      const currentUnits = Number.isFinite(ru)
+        ? Math.max(0, ru)
+        : Math.max(0, Number(p.packs || 0) * upp);
+
+      // Baseline: preferisci baselinePacks*upp; fallback packs*upp; minimo = upp
+      const bp = Number(p.baselinePacks);
+      const baselineUnits = Math.max(
+        upp,
+        (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(p.packs || 0) * upp)
+      );
+
+      const pct = baselineUnits ? (currentUnits / baselineUnits) : 1;
+
+      const lowResidue = pct < 0.20;          // <20% residuo
+      const expSoon   = isExpiringSoon(p, 10); // scadenza entro 10 giorni
+
+      return lowResidue || expSoon;
+    });
+
+    setCritical(crit);
+  }, [stock]);
 
   /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
@@ -822,65 +823,64 @@ useEffect(() => {
     });
   }
 
- // Segna acquistato (confezioni) + aggiorna scorte
-function markBought(id, amount = 1) {
-  const item = (lists[currentList] || []).find(i => i.id === id);
-  if (!item) return;
+  // Segna acquistato (confezioni) + aggiorna scorte
+  function markBought(id, amount = 1) {
+    const item = (lists[currentList] || []).find(i => i.id === id);
+    if (!item) return;
 
-  const movePacks = Math.max(1, Math.min(Number(item.qty || 0), Number(amount || 1)));
-  const moveUPP   = Math.max(1, Number(item.unitsPerPack || 1));
-  const moveLabel = item.unitLabel || 'unità';
+    const movePacks = Math.max(1, Math.min(Number(item.qty || 0), Number(amount || 1)));
+    const moveUPP   = Math.max(1, Number(item.unitsPerPack || 1));
+    const moveLabel = item.unitLabel || 'unità';
 
-  // 1) aggiorna la lista
-  setLists(prev => {
-    const next = { ...prev };
-    next[currentList] = (prev[currentList] || [])
-      .map(i => {
-        if (i.id !== id) return i;
-        const newQty = Math.max(0, Number(i.qty || 0) - movePacks);
-        return { ...i, qty: newQty, purchased: true };
-      })
-      .filter(i => Number(i.qty || 0) > 0);
-    return next;
-  });
+    // 1) aggiorna la lista
+    setLists(prev => {
+      const next = { ...prev };
+      next[currentList] = (prev[currentList] || [])
+        .map(i => {
+          if (i.id !== id) return i;
+          const newQty = Math.max(0, Number(i.qty || 0) - movePacks);
+          return { ...i, qty: newQty, purchased: true };
+        })
+        .filter(i => Number(i.qty || 0) > 0);
+      return next;
+    });
 
-  // 2) aggiorna scorte (restock → baseline & residuo al pieno)
-  setStock(prev => {
-    const arr = [...prev];
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // 2) aggiorna scorte (restock → baseline & residuo al pieno)
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0, 10);
 
-    const idx = arr.findIndex(
-      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-    );
+      const idx = arr.findIndex(
+        s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+      );
 
-    if (idx >= 0) {
-      const old = arr[idx];
-      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
+      if (idx >= 0) {
+        const old = arr[idx];
+        const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
+        const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
 
-      arr[idx] = {
-        ...old,
-        packs: newPacks,
-        unitsPerPack: upp,
-        unitLabel: old.unitLabel || moveLabel,
-        ...restockTouch(newPacks, todayISO, upp), // <- passa anche UPP
-      };
-    } else {
-      arr.unshift({
-        name: item.name,
-        brand: item.brand || '',
-        packs: movePacks,
-        unitsPerPack: moveUPP,
-        unitLabel: moveLabel,
-        expiresAt: '',
-        ...restockTouch(movePacks, todayISO, moveUPP), // <- pieno al primo inserimento
-        avgDailyUnits: 0,
-      });
-    }
-    return arr;
-  });
-}
-
+        arr[idx] = {
+          ...old,
+          packs: newPacks,
+          unitsPerPack: upp,
+          unitLabel: old.unitLabel || moveLabel,
+          ...restockTouch(newPacks, todayISO, upp), // <- passa anche UPP
+        };
+      } else {
+        arr.unshift({
+          name: item.name,
+          brand: item.brand || '',
+          packs: movePacks,
+          unitsPerPack: moveUPP,
+          unitLabel: moveLabel,
+          expiresAt: '',
+          ...restockTouch(movePacks, todayISO, moveUPP), // <- pieno al primo inserimento
+          avgDailyUnits: 0,
+        });
+      }
+      return arr;
+    });
+  }
 
   /* ---------------- Vocale: LISTA (aggiunta veloce) ---------------- */
   async function toggleRecList() {
@@ -997,55 +997,53 @@ function markBought(id, amount = 1) {
     }
   }
 
-  /* ---------------- OCR: supporto decremento su entrambe le liste ---------------- */
- /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
-function decrementAcrossBothLists(prevLists, purchases) {
-  const next = { ...prevLists };
+  /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
+  function decrementAcrossBothLists(prevLists, purchases) {
+    const next = { ...prevLists };
 
-  const decList = (listKey) => {
-    const arr = [...(next[listKey] || [])];
+    const decList = (listKey) => {
+      const arr = [...(next[listKey] || [])];
 
-    for (const p of purchases) {
-      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-      const brand = (p.brand || '').trim();
-      const upp = Number(p.unitsPerPack ?? 1);
+      for (const p of purchases) {
+        const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+        const brand = (p.brand || '').trim();
+        const upp = Number(p.unitsPerPack ?? 1);
 
-      // 1) match stretto: nome ~, brand (se presente) ~, unitsPerPack uguali
-      let idx = arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        (!brand || isSimilar(i.brand || '', brand)) &&
-        Number(i.unitsPerPack || 1) === upp
-      );
-
-      // 2) se non trovato: ignora unitsPerPack
-      if (idx < 0) {
-        idx = arr.findIndex(i =>
+        // 1) match stretto: nome ~, brand (se presente) ~, unitsPerPack uguali
+        let idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
-          (!brand || isSimilar(i.brand || '', brand))
+          (!brand || isSimilar(i.brand || '', brand)) &&
+          Number(i.unitsPerPack || 1) === upp
         );
+
+        // 2) se non trovato: ignora unitsPerPack
+        if (idx < 0) {
+          idx = arr.findIndex(i =>
+            isSimilar(i.name, p.name) &&
+            (!brand || isSimilar(i.brand || '', brand))
+          );
+        }
+
+        // 3) estremo: solo nome
+        if (idx < 0) {
+          idx = arr.findIndex(i => isSimilar(i.name, p.name));
+        }
+
+        if (idx >= 0) {
+          const cur = arr[idx];
+          const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+          arr[idx] = { ...cur, qty: newQty, purchased: true };
+        }
       }
 
-      // 3) estremo: solo nome
-      if (idx < 0) {
-        idx = arr.findIndex(i => isSimilar(i.name, p.name));
-      }
+      // rimuovi dalla lista quelli portati a zero e marcati come comprati
+      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+    };
 
-      if (idx >= 0) {
-        const cur = arr[idx];
-        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-        arr[idx] = { ...cur, qty: newQty, purchased: true };
-      }
-    }
-
-    // rimuovi dalla lista quelli portati a zero e marcati come comprati
-    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-  };
-
-  decList(LIST_TYPES.SUPERMARKET);
-  decList(LIST_TYPES.ONLINE);
-  return next;
-}
-
+    decList(LIST_TYPES.SUPERMARKET);
+    decList(LIST_TYPES.ONLINE);
+    return next;
+  }
 
   /* ---------------- OCR: scontrini ---------------- */
   async function handleOCR(files) {
@@ -1099,7 +1097,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
                 packs: newPacks,
                 unitsPerPack: old.unitsPerPack || pack.unitsPerPack,
                 unitLabel: old.unitLabel || pack.unitLabel,
-                ...restockTouch(newPacks, todayISO)
+                ...restockTouch(newPacks, todayISO, old.unitsPerPack || pack.unitsPerPack)
               };
             } else {
               arr.unshift({
@@ -1110,7 +1108,8 @@ function decrementAcrossBothLists(prevLists, purchases) {
                 expiresAt: '',
                 baselinePacks: pack.packs,
                 lastRestockAt: todayISO,
-                avgDailyUnits: 0
+                avgDailyUnits: 0,
+                residueUnits: pack.packs * (pack.unitsPerPack || 1)
               });
             }
           }
@@ -1135,79 +1134,123 @@ function decrementAcrossBothLists(prevLists, purchases) {
     }
   }
 
-  function setResidualUnits(i) {
-  const it = stock[i];
-  if (!it) return;
-  const upp = Math.max(1, Number(it.unitsPerPack || 1));
-  const currentRU = Number.isFinite(Number(it.residueUnits))
-    ? Math.max(0, Number(it.residueUnits))
-    : Math.max(0, Number(it.packs || 0) * upp);
-
-  const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
-  if (v == null) return;
-
-  const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
-  // IMPORTANTISSIMO: aggiorna SOLO residueUnits (niente conversione in packs)
-  applyDeltaToStock(i, { setUnits: units });
-}
-
-
-  /* ---------------- Modifica / Elimina scorte ---------------- */
- /* ---------------- Modifica / Elimina scorte ---------------- */
- 
-  function editStockRow(i) {
-    const it = stock[i];
-    if (!it) return;
-    const name = prompt('Nome prodotto:', it.name);
-    if (name == null || !name.trim()) return;
-    const brand = prompt('Marca (opzionale):', it.brand || '');
-    if (brand == null) return;
-
-    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
-    if (packsStr == null) return;
-    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
-
-    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
-    if (uppStr == null) return;
-    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
-
-    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
-    if (unitLabel == null) return;
-
-    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
-    const ex = expStr ? toISODate(expStr) : '';
-
+  /* --------- Edit in-line scorte --------- */
+  function startRowEdit(index, row){
+    const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
+    setEditingRow(index);
+    setEditDraft({
+      name: row.name || '',
+      brand: row.brand || '',
+      packs: String(Number(row.packs ?? 0)),
+      unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
+      unitLabel: row.unitLabel || 'unità',
+      expiresAt: row.expiresAt || '',
+      residueUnits: initRU,
+      _ruTouched: false,
+    });
+  }
+  function handleEditDraftChange(field, value){
+    setEditDraft(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'residueUnits' ? { _ruTouched: true } : null),
+    }));
+  }
+  function cancelRowEdit(){
+    setEditingRow(null);
+    setEditDraft({
+      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
+    });
+  }
+  function saveRowEdit(index){
     setStock(prev => {
       const arr = [...prev];
-      const old = arr[i];
-      const todayISO = new Date().toISOString().slice(0,10);
-      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+      const old = arr[index];
+      if (!old) return prev;
 
-      // aumento? allora è restock
+      const name = (editDraft.name || '').trim();
+      const brand = (editDraft.brand || '').trim();
+      const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
+      const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
+      const expiresAt = toISODate(editDraft.expiresAt || '');
+
+      // Le CONFEZIONI vengono SOLO dal campo "Confezioni"
+      const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
+
+      const todayISO = new Date().toISOString().slice(0,10);
       const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-      const wasUnits = Number(old.packs || 0) * uppOld;
-      const nowUnits = packs * unitsPerPack;
+      const wasUnits = Math.max(0, Number(old.packs || 0) * uppOld);
+      const nowUnits = Math.max(0, newPacks * unitsPerPack);
       const restock = nowUnits > wasUnits;
 
-      arr[i] = {
+      // RESIDUO: indipendente dalle confezioni
+      let ru = residueUnitsOf(old); // se assente → packs*upp
+      const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
+      if (ruTouched) {
+        const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+        if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
+      }
+      const fullNow = Math.max(unitsPerPack, nowUnits); // pieno attuale
+      ru = Math.min(ru, fullNow); // mai oltre il pieno
+
+      // Consumo medio stimato (se diminuisce rispetto all’ultimo restock)
+      const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+
+      // Componi l'oggetto finale
+      let next = {
         ...old,
-        name: name.trim(),
-        brand: (brand||'').trim(),
-        packs, unitsPerPack, unitLabel,
-        expiresAt: ex || '',
+        name, brand,
+        packs: newPacks,
+        unitsPerPack, unitLabel,
+        expiresAt,
         avgDailyUnits,
-        ...(restock ? restockTouch(packs, todayISO) : {})
       };
+
+      if (restock) {
+        // aumento = restock → baseline e residueUnits al pieno
+        next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
+      } else {
+        // nessun restock: aggiorna solo il residuo (clamp ≤ pieno)
+        next.residueUnits = ru;
+      }
+
+      arr[index] = next;
+      return arr;
+    });
+
+    setEditingRow(null);
+  }
+
+  function setResidualUnits(i) {
+    const it = stock[i];
+    if (!it) return;
+    const upp = Math.max(1, Number(it.unitsPerPack || 1));
+    const currentRU = Number.isFinite(Number(it.residueUnits))
+      ? Math.max(0, Number(it.residueUnits))
+      : Math.max(0, Number(it.packs || 0) * upp);
+
+    const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
+    if (v == null) return;
+
+    const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
+    applyDeltaToStock(i, { setUnits: units });
+  }
+
+  // helper mancante in origine: applica setUnits sul residuo
+  function applyDeltaToStock(index, { setUnits }) {
+    setStock(prev => {
+      const arr = [...prev];
+      const row = arr[index];
+      if (!row) return prev;
+      const upp = Math.max(1, Number(row.unitsPerPack || 1));
+      const baseline = baselineUnitsOf(row) || upp;
+      const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
+      arr[index] = { ...row, residueUnits: clamped };
       return arr;
     });
   }
 
-  function deleteStockRow(i) {
-    const it = stock[i];
-    if (!it) return;
-    if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
-    setStock(prev => prev.filter((_, idx) => idx !== i));
-  }
+  /* ---------------- Modifica / Elimina scorte (modal prompt) ---------------- */
   function editStockRow(i) {
     const it = stock[i];
     if (!it) return;
@@ -1249,7 +1292,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
         packs, unitsPerPack, unitLabel,
         expiresAt: ex || '',
         avgDailyUnits,
-        ...(restock ? restockTouch(packs, todayISO) : {})
+        ...(restock ? restockTouch(packs, todayISO, unitsPerPack) : {})
       };
       return arr;
     });
@@ -1311,238 +1354,238 @@ function decrementAcrossBothLists(prevLists, purchases) {
     }
   }
 
-/* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
-async function toggleVoiceInventory() {
-  if (invRecBusy) {
-    try { invMediaRef.current?.stop(); } catch {}
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    invStreamRef.current = stream;
-    invMediaRef.current = new MediaRecorder(stream);
-    invChunksRef.current = [];
-    invMediaRef.current.ondataavailable = (e) => {
-      if (e.data && e.data.size) invChunksRef.current.push(e.data);
-    };
-    invMediaRef.current.onstop = processVoiceInventory;
-    invMediaRef.current.start();
-    setInvRecBusy(true);
-  } catch {
-    alert('Microfono non disponibile');
-  }
-}
-
-async function processVoiceInventory() {
-  const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
-  const fd = new FormData();
-  fd.append('audio', blob, 'inventory.webm');
-
-  try {
-    setBusy(true);
-
-    // 0) STT
-    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
-    const { text } = await res.json();
-    if (DEBUG) console.log('[STT inventory] text:', text);
-    if (!text) {
-      showToast('Nessun testo riconosciuto', 'err');
+  /* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
+  async function toggleVoiceInventory() {
+    if (invRecBusy) {
+      try { invMediaRef.current?.stop(); } catch {}
       return;
     }
-
-    // 1) Heuristica: presenza parole/data scadenza
-    const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
-
-    // 2) Parser locali (entrambi, per consentire modalità “mista”)
-    let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
-    let updates  = parseStockUpdateText(text);
-
-    // 3) Fallback Assistant per SCADENZE (se utile)
-    if (looksExpiry && expiries.length === 0) {
-      try {
-        const prompt = buildInventoryIntentPrompt(text);
-        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        }, 25000);
-        const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string'
-          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-          : answer;
-        if (parsed?.intent === 'expiry') {
-          const ex = ensureArray(parsed?.expiries)
-            .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
-            .filter(e => e.name && e.expiresAt);
-          if (ex.length) expiries = ex;
-        }
-      } catch (e) {
-        if (DEBUG) console.warn('[Assistant expiry fallback error]', e);
-      }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      invStreamRef.current = stream;
+      invMediaRef.current = new MediaRecorder(stream);
+      invChunksRef.current = [];
+      invMediaRef.current.ondataavailable = (e) => {
+        if (e.data && e.data.size) invChunksRef.current.push(e.data);
+      };
+      invMediaRef.current.onstop = processVoiceInventory;
+      invMediaRef.current.start();
+      setInvRecBusy(true);
+    } catch {
+      alert('Microfono non disponibile');
     }
+  }
 
-    // 4) Fallback Assistant per SCORTE (se utile)
-    if (updates.length === 0 && !looksExpiry) {
-      try {
-        const prompt = buildInventoryIntentPrompt(text);
-        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        }, 25000);
-        const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string'
-          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-          : answer;
-        if (parsed?.intent === 'stock_update') {
-          const up = ensureArray(parsed?.updates)
-            .map(u => ({
-              name: String(u.name || '').trim(),
-              mode: (u.mode === 'units' ? 'units' : 'packs'),
-              value: Math.max(0, Number(u.value || 0)),
-              op: 'add'
-            }))
-            .filter(u => u.name && u.value > 0);
-          if (up.length) updates = up;
-        }
-      } catch (e) {
-        if (DEBUG) console.warn('[Assistant updates fallback error]', e);
+  async function processVoiceInventory() {
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    const fd = new FormData();
+    fd.append('audio', blob, 'inventory.webm');
+
+    try {
+      setBusy(true);
+
+      // 0) STT
+      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+      const { text } = await res.json();
+      if (DEBUG) console.log('[STT inventory] text:', text);
+      if (!text) {
+        showToast('Nessun testo riconosciuto', 'err');
+        return;
       }
-    }
 
-    // 5) Applica SCADENZE
-    let expiryHits = 0;
-    if (expiries.length) {
-      setStock(prev => {
-        const arr = [...prev];
-        for (const p of expiries) {
-          const idx = arr.findIndex(s => isSimilar(s.name, p.name));
-          if (idx >= 0) {
-            arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
-            expiryHits++;
+      // 1) Heuristica: presenza parole/data scadenza
+      const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
+
+      // 2) Parser locali (entrambi, per consentire modalità “mista”)
+      let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
+      let updates  = parseStockUpdateText(text);
+
+      // 3) Fallback Assistant per SCADENZE (se utile)
+      if (looksExpiry && expiries.length === 0) {
+        try {
+          const prompt = buildInventoryIntentPrompt(text);
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+          }, 25000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string'
+            ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+            : answer;
+          if (parsed?.intent === 'expiry') {
+            const ex = ensureArray(parsed?.expiries)
+              .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
+              .filter(e => e.name && e.expiresAt);
+            if (ex.length) expiries = ex;
           }
+        } catch (e) {
+          if (DEBUG) console.warn('[Assistant expiry fallback error]', e);
         }
-        return arr;
-      });
-    }
+      }
 
-    // 6) Applica SCORTE (inerzia su righe esistenti)
-    let applied = 0;
-    if (updates.length) {
-      setStock(prev => {
-        const arr = [...prev];
-        const todayISO = new Date().toISOString().slice(0, 10);
+      // 4) Fallback Assistant per SCORTE (se utile)
+      if (updates.length === 0 && !looksExpiry) {
+        try {
+          const prompt = buildInventoryIntentPrompt(text);
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+          }, 25000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string'
+            ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+            : answer;
+          if (parsed?.intent === 'stock_update') {
+            const up = ensureArray(parsed?.updates)
+              .map(u => ({
+                name: String(u.name || '').trim(),
+                mode: (u.mode === 'units' ? 'units' : 'packs'),
+                value: Math.max(0, Number(u.value || 0)),
+                op: 'add'
+              }))
+              .filter(u => u.name && u.value > 0);
+            if (up.length) updates = up;
+          }
+        } catch (e) {
+          if (DEBUG) console.warn('[Assistant updates fallback error]', e);
+        }
+      }
 
-        for (const u of updates) {
-          const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-          const explicit = (u.op === 'restockExplicit');  // pattern “X confezioni da Y”
-          const hintedPacks = Math.max(1, Number(u._packs || 1));
-          const hintedUPP   = Math.max(1, Number(u._upp || 1));
+      // 5) Applica SCADENZE
+      let expiryHits = 0;
+      if (expiries.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          for (const p of expiries) {
+            const idx = arr.findIndex(s => isSimilar(s.name, p.name));
+            if (idx >= 0) {
+              arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
+              expiryHits++;
+            }
+          }
+          return arr;
+        });
+      }
 
-          // ---- PRODOTTO ESISTENTE
-          if (idx >= 0) {
-            const old = arr[idx];
-            const upp = Math.max(1, Number(old.unitsPerPack || 1));
-            const packs = Math.max(0, Number(old.packs || 0));
+      // 6) Applica SCORTE (inerzia su righe esistenti)
+      let applied = 0;
+      if (updates.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          const todayISO = new Date().toISOString().slice(0, 10);
 
-            if (explicit) {
-              // Restock esplicito: aggiorna struttura e riporta a pieno
-              const np = Math.max(0, packs + hintedPacks);
-              const nupp = Math.max(1, hintedUPP || upp);
-              arr[idx] = {
-                ...old,
-                packs: np,
-                unitsPerPack: nupp,
-                unitLabel: old.unitLabel || 'unità',
-                ...restockTouch(np, todayISO, nupp)
-              };
+          for (const u of updates) {
+            const idx = arr.findIndex(s => isSimilar(s.name, u.name));
+            const explicit = (u.op === 'restockExplicit');  // pattern “X confezioni da Y”
+            const hintedPacks = Math.max(1, Number(u._packs || 1));
+            const hintedUPP   = Math.max(1, Number(u._upp || 1));
+
+            // ---- PRODOTTO ESISTENTE
+            if (idx >= 0) {
+              const old = arr[idx];
+              const upp = Math.max(1, Number(old.unitsPerPack || 1));
+              const packs = Math.max(0, Number(old.packs || 0));
+
+              if (explicit) {
+                // Restock esplicito: aggiorna struttura e riporta a pieno
+                const np = Math.max(0, packs + hintedPacks);
+                const nupp = Math.max(1, hintedUPP || upp);
+                arr[idx] = {
+                  ...old,
+                  packs: np,
+                  unitsPerPack: nupp,
+                  unitLabel: old.unitLabel || 'unità',
+                  ...restockTouch(np, todayISO, nupp)
+                };
+                applied++;
+                continue;
+              }
+
+              // Inerzia: aggiorna SOLO il residuo in unità (anche > pieno attuale)
+              const ru = Math.max(0, Number(u.value || 0) || 0);
+              arr[idx] = { ...old, residueUnits: ru };
               applied++;
               continue;
             }
 
-            // Inerzia: aggiorna SOLO il residuo in unità (anche > pieno attuale)
-            const ru = Math.max(0, Number(u.value || 0) || 0);
-            arr[idx] = { ...old, residueUnits: ru };
+            // ---- PRODOTTO NUOVO
+            if (explicit) {
+              arr.unshift({
+                name: u.name,
+                brand: '',
+                packs: hintedPacks,
+                unitsPerPack: hintedUPP,
+                unitLabel: 'unità',
+                expiresAt: '',
+                ...restockTouch(hintedPacks, todayISO, hintedUPP),
+                avgDailyUnits: 0
+              });
+              applied++;
+              continue;
+            }
+
+            // Creazione plausibile:
+            // - units-like → packs = 1, upp = value
+            // - packs-like → packs = value, upp = 1
+            const asUnitsLike = (u.mode === 'units');
+            if (asUnitsLike) {
+              const upp = Math.max(1, Number(u.value || 1));
+              arr.unshift({
+                name: u.name,
+                brand: '',
+                packs: 1,
+                unitsPerPack: upp,
+                unitLabel: 'unità',
+                expiresAt: '',
+                ...restockTouch(1, todayISO, upp),
+                avgDailyUnits: 0
+              });
+            } else {
+              const p = Math.max(1, Number(u.value || 1));
+              arr.unshift({
+                name: u.name,
+                brand: '',
+                packs: p,
+                unitsPerPack: 1,
+                unitLabel: 'unità',
+                expiresAt: '',
+                ...restockTouch(p, todayISO, 1),
+                avgDailyUnits: 0
+              });
+            }
             applied++;
-            continue;
           }
 
-          // ---- PRODOTTO NUOVO
-          if (explicit) {
-            arr.unshift({
-              name: u.name,
-              brand: '',
-              packs: hintedPacks,
-              unitsPerPack: hintedUPP,
-              unitLabel: 'unità',
-              expiresAt: '',
-              ...restockTouch(hintedPacks, todayISO, hintedUPP),
-              avgDailyUnits: 0
-            });
-            applied++;
-            continue;
-          }
+          return arr;
+        });
+      }
 
-          // Creazione plausibile:
-          // - units-like → packs = 1, upp = value
-          // - packs-like → packs = value, upp = 1
-          const asUnitsLike = (u.mode === 'units');
-          if (asUnitsLike) {
-            const upp = Math.max(1, Number(u.value || 1));
-            arr.unshift({
-              name: u.name,
-              brand: '',
-              packs: 1,
-              unitsPerPack: upp,
-              unitLabel: 'unità',
-              expiresAt: '',
-              ...restockTouch(1, todayISO, upp),
-              avgDailyUnits: 0
-            });
-          } else {
-            const p = Math.max(1, Number(u.value || 1));
-            arr.unshift({
-              name: u.name,
-              brand: '',
-              packs: p,
-              unitsPerPack: 1,
-              unitLabel: 'unità',
-              expiresAt: '',
-              ...restockTouch(p, todayISO, 1),
-              avgDailyUnits: 0
-            });
-          }
-          applied++;
-        }
-
-        return arr;
-      });
+      // 7) Toast finale
+      if (expiryHits && applied) {
+        showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+      } else if (expiryHits) {
+        showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+      } else if (applied) {
+        showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+      } else {
+        showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+      }
+    } catch (e) {
+      console.error('[Voice Inventory] error', e);
+      showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+    } finally {
+      setBusy(false);
+      setInvRecBusy(false);
+      try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+      invMediaRef.current = null;
+      invStreamRef.current = null;
+      invChunksRef.current = [];
     }
-
-    // 7) Toast finale
-    if (expiryHits && applied) {
-      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-    } else if (expiryHits) {
-      showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-    } else if (applied) {
-      showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-    } else {
-      showToast('Nessuna scorta/scadenza riconosciuta', 'err');
-    }
-  } catch (e) {
-    console.error('[Voice Inventory] error', e);
-    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    setInvRecBusy(false);
-    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-    invMediaRef.current = null;
-    invStreamRef.current = null;
-    invChunksRef.current = [];
   }
-}
 
   /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
@@ -1568,7 +1611,7 @@ async function processVoiceInventory() {
           unitsPerPack: old.unitsPerPack || unitsPerPack,
           unitLabel: old.unitLabel || unitLabel,
           expiresAt: ex || old.expiresAt || '',
-          ...restockTouch(newPacks, todayISO)
+          ...restockTouch(newPacks, todayISO, old.unitsPerPack || unitsPerPack)
         };
       } else {
         arr.unshift({
@@ -1577,7 +1620,8 @@ async function processVoiceInventory() {
           expiresAt: ex || '',
           baselinePacks: packs,
           lastRestockAt: todayISO,
-          avgDailyUnits: 0
+          avgDailyUnits: 0,
+          residueUnits: packs * unitsPerPack
         });
       }
       return arr;
@@ -1587,18 +1631,30 @@ async function processVoiceInventory() {
     showToast('Scorta aggiunta ✓', 'ok');
   }
 
+  /* ---------------- Reset locale (facoltativo) ---------------- */
+  function resetLocalData() {
+    try { localStorage.removeItem(LS_KEY); } catch {}
+    setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
+    setStock([]);
+    setCurrentList(LIST_TYPES.SUPERMARKET);
+    showToast('Dati locali azzerati', 'ok');
+  }
+
   /* ---------------- render ---------------- */
   return (
     <>
       <Head><title>🛍 Lista Prodotti</title></Head>
 
       <div style={styles.page}>
-    <div className="bg-kaleido" aria-hidden="true" />
+        <div className="bg-kaleido" aria-hidden="true" />
         <div style={styles.card}>
           {/* Header */}
           <div style={styles.headerRow}>
             <h2 style={{margin:0}}>🛍 Lista Prodotti</h2>
-            <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
+            <div style={{display:'flex', gap:8, alignItems:'center'}}>
+              <button onClick={resetLocalData} style={styles.actionGhost} title="Cancella i dati locali">↺ Reset locale</button>
+              <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
+            </div>
           </div>
 
           {/* Switch lista */}
@@ -1748,209 +1804,209 @@ async function processVoiceInventory() {
                     <th style={styles.th}></th>
                   </tr>
                 </thead>
-               <tbody>
-  {stock.map((s, i) => {
-    const isEditing = editingRow === i;
+                <tbody>
+                  {stock.map((s, i) => {
+                    const isEditing = editingRow === i;
 
-    return (
-      <tr key={i}>
-        {/* Prodotto */}
-        <td style={styles.td}>
-          {!isEditing ? (
-            s.name
-          ) : (
-            <input
-              value={editDraft.name}
-              onChange={(e) => handleEditDraftChange('name', e.target.value)}
-              style={styles.input}
-            />
-          )}
-        </td>
+                    return (
+                      <tr key={i}>
+                        {/* Prodotto */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            s.name
+                          ) : (
+                            <input
+                              value={editDraft.name}
+                              onChange={(e) => handleEditDraftChange('name', e.target.value)}
+                              style={styles.input}
+                            />
+                          )}
+                        </td>
 
-        {/* Marca */}
-        <td style={styles.td}>
-          {!isEditing ? (
-            s.brand || '-'
-          ) : (
-            <input
-              value={editDraft.brand}
-              onChange={(e) => handleEditDraftChange('brand', e.target.value)}
-              style={styles.input}
-            />
-          )}
-        </td>
+                        {/* Marca */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            s.brand || '-'
+                          ) : (
+                            <input
+                              value={editDraft.brand}
+                              onChange={(e) => handleEditDraftChange('brand', e.target.value)}
+                              style={styles.input}
+                            />
+                          )}
+                        </td>
 
-        {/* Confezioni */}
-        <td style={styles.td}>
-          {!isEditing ? (
-            (s.packs ?? 0).toFixed?.(2) ?? s.packs
-          ) : (
-            <input
-              inputMode="decimal"
-              value={editDraft.packs}
-              onChange={(e) => handleEditDraftChange('packs', e.target.value)}
-              style={{ ...styles.input, width: 120 }}
-              placeholder="Confezioni"
-            />
-          )}
-        </td>
+                        {/* Confezioni */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            (s.packs ?? 0).toFixed?.(2) ?? s.packs
+                          ) : (
+                            <input
+                              inputMode="decimal"
+                              value={editDraft.packs}
+                              onChange={(e) => handleEditDraftChange('packs', e.target.value)}
+                              style={{ ...styles.input, width: 120 }}
+                              placeholder="Confezioni"
+                            />
+                          )}
+                        </td>
 
-        {/* Unità/conf. + Etichetta */}
-        <td style={styles.td}>
-          {!isEditing ? (
-            <>
-              {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}
-            </>
-          ) : (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <input
-                inputMode="decimal"
-                value={editDraft.unitsPerPack}
-                onChange={(e) => handleEditDraftChange('unitsPerPack', e.target.value)}
-                style={{ ...styles.input, width: 120 }}
-                placeholder="Unità/conf."
-              />
-              <input
-                value={editDraft.unitLabel}
-                onChange={(e) => handleEditDraftChange('unitLabel', e.target.value)}
-                style={{ ...styles.input, width: 150 }}
-                placeholder="Etichetta"
-              />
-            </div>
-          )}
-        </td>
+                        {/* Unità/conf. + Etichetta */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            <>
+                              {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}
+                            </>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <input
+                                inputMode="decimal"
+                                value={editDraft.unitsPerPack}
+                                onChange={(e) => handleEditDraftChange('unitsPerPack', e.target.value)}
+                                style={{ ...styles.input, width: 120 }}
+                                placeholder="Unità/conf."
+                              />
+                              <input
+                                value={editDraft.unitLabel}
+                                onChange={(e) => handleEditDraftChange('unitLabel', e.target.value)}
+                                style={{ ...styles.input, width: 150 }}
+                                placeholder="Etichetta"
+                              />
+                            </div>
+                          )}
+                        </td>
 
-        {/* Residuo unità */}
-       <td style={styles.td}>
-  {(() => {
-    const { current, baseline, pct } = residueInfo(s);
+                        {/* Residuo unità */}
+                        <td style={styles.td}>
+                          {(() => {
+                            const { current, baseline, pct } = residueInfo(s);
 
-    if (editingRow === i) {
-      const uppPreview = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
-      const ruPreviewRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-      const currentPreview = Number.isFinite(ruPreviewRaw) ? Math.max(0, ruPreviewRaw) : current;
-      const baselinePreview = baseline || uppPreview;
-      const pctPreview = clamp01(currentPreview / (baselinePreview || uppPreview));
+                            if (editingRow === i) {
+                              const uppPreview = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
+                              const ruPreviewRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+                              const currentPreview = Number.isFinite(ruPreviewRaw) ? Math.max(0, ruPreviewRaw) : current;
+                              const baselinePreview = baseline || uppPreview;
+                              const pctPreview = clamp01(currentPreview / (baselinePreview || uppPreview));
 
-      const expIso = (editDraft.expiresAt ?? s.expiresAt) || '';
-      const soon = daysToExpiry(expIso) <= 10;
+                              const expIso = (editDraft.expiresAt ?? s.expiresAt) || '';
+                              const soon = daysToExpiry(expIso) <= 10;
 
-      const barColor = soon ? '#ef4444' : colorForPct(pctPreview);
-      const isLow = soon || pctPreview < 0.20;
+                              const barColor = soon ? '#ef4444' : colorForPct(pctPreview);
+                              const isLow = soon || pctPreview < 0.20;
 
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input
-            inputMode="decimal"
-            value={editDraft.residueUnits ?? String(current)}
-            onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
-            style={{ ...styles.input, width: 150 }}
-            placeholder="Residuo unità"
-          />
-          <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
-            <div
-              className={isLow ? 'jarvisLow' : undefined}
-              style={{
-                ...styles.progressBar,
-                width: `${pctPreview * 100}%`,
-                background: barColor,
-              }}
-            />
-          </div>
-        </div>
-      );
-    }
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <input
+                                    inputMode="decimal"
+                                    value={editDraft.residueUnits ?? String(current)}
+                                    onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
+                                    style={{ ...styles.input, width: 150 }}
+                                    placeholder="Residuo unità"
+                                  />
+                                  <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
+                                    <div
+                                      className={isLow ? 'jarvisLow' : undefined}
+                                      style={{
+                                        ...styles.progressBar,
+                                        width: `${pctPreview * 100}%`,
+                                        background: barColor,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            }
 
-    const soon = isExpiringSoon(s);
-    const barColor = soon ? '#ef4444' : colorForPct(pct);
-    const isLow = soon || pct < 0.20;
+                            const soon = isExpiringSoon(s);
+                            const barColor = soon ? '#ef4444' : colorForPct(pct);
+                            const isLow = soon || pct < 0.20;
 
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>{Math.round(current)}</span>
-        <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
-          <div
-            className={isLow ? 'jarvisLow' : undefined}
-            style={{
-              ...styles.progressBar,
-              width: `${pct * 100}%`,
-              background: barColor,
-            }}
-          />
-        </div>
-      </div>
-    );
-  })()}
-</td>
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span>{Math.round(current)}</span>
+                                <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
+                                  <div
+                                    className={isLow ? 'jarvisLow' : undefined}
+                                    style={{
+                                      ...styles.progressBar,
+                                      width: `${pct * 100}%`,
+                                      background: barColor,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </td>
 
-        {/* Scadenza */}
-        <td style={styles.td}>
-          {!isEditing ? (
-            s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
-          ) : (
-            <input
-              value={editDraft.expiresAt}
-              onChange={(e) => handleEditDraftChange('expiresAt', e.target.value)}
-              style={{ ...styles.input, width: 150 }}
-              placeholder="YYYY-MM-DD"
-            />
-          )}
-        </td>
+                        {/* Scadenza */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
+                          ) : (
+                            <input
+                              value={editDraft.expiresAt}
+                              onChange={(e) => handleEditDraftChange('expiresAt', e.target.value)}
+                              style={{ ...styles.input, width: 150 }}
+                              placeholder="YYYY-MM-DD"
+                            />
+                          )}
+                        </td>
 
-        {/* Azioni: SOLO OCR / Modifica (o Salva/Annulla) / Elimina */}
-        <td style={styles.td}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => openRowOcr(i)}
-              style={styles.ocrInlineBtn}
-              disabled={busy}
-              title="Rileva scadenza da foto"
-            >
-              📷 OCR
-            </button>
+                        {/* Azioni: SOLO OCR / Modifica (o Salva/Annulla) / Elimina */}
+                        <td style={styles.td}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRowOcr(i)}
+                              style={styles.ocrInlineBtn}
+                              disabled={busy}
+                              title="Rileva scadenza da foto"
+                            >
+                              📷 OCR
+                            </button>
 
-            {!isEditing ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => startRowEdit(i, s)}
-                  style={styles.actionGhost}
-                >
-                  ✎ Modifica
-                </button>
-                <button
-                  type="button"
-                  onClick={() => deleteStockRow(i)}
-                  style={styles.actionGhostDanger}
-                >
-                  🗑 Elimina
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => saveRowEdit(i)}
-                  style={styles.actionSuccess}
-                >
-                  💾 Salva
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelRowEdit}
-                  style={styles.actionGhost}
-                >
-                  ✖ Annulla
-                </button>
-              </>
-            )}
-          </div>
-        </td>
-      </tr>
-    );
-  })}
-</tbody>
+                            {!isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => startRowEdit(i, s)}
+                                  style={styles.actionGhost}
+                                >
+                                  ✎ Modifica
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteStockRow(i)}
+                                  style={styles.actionGhostDanger}
+                                >
+                                  🗑 Elimina
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => saveRowEdit(i)}
+                                  style={styles.actionSuccess}
+                                >
+                                  💾 Salva
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelRowEdit}
+                                  style={styles.actionGhost}
+                                >
+                                  ✖ Annulla
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               </table>
             )}
             {/* input file unico per OCR scadenza di riga */}
@@ -2004,62 +2060,62 @@ async function processVoiceInventory() {
               {toast.msg}
             </div>
           )}
-<style jsx>{`
-  /* ======= BG caleidoscopio senza video ======= */
-  .bg-kaleido{
-    position: fixed; inset: 0;
-    z-index: -1; pointer-events: none;
-    background:
-      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.06), transparent 40%),
-      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.05), transparent 40%),
-      conic-gradient(from 0deg,
-        rgba(6,182,212,0.14),
-        rgba(99,102,241,0.14),
-        rgba(248,113,113,0.14),
-        rgba(6,182,212,0.14));
-    filter: saturate(1.08) contrast(1.04);
-    animation: spinGlow 28s linear infinite, pulseBloom 3.2s ease-in-out infinite;
-  }
+          <style jsx>{`
+            /* ======= BG caleidoscopio senza video ======= */
+            .bg-kaleido{
+              position: fixed; inset: 0;
+              z-index: -1; pointer-events: none;
+              background:
+                radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.06), transparent 40%),
+                radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.05), transparent 40%),
+                conic-gradient(from 0deg,
+                  rgba(6,182,212,0.14),
+                  rgba(99,102,241,0.14),
+                  rgba(248,113,113,0.14),
+                  rgba(6,182,212,0.14));
+              filter: saturate(1.08) contrast(1.04);
+              animation: spinGlow 28s linear infinite, pulseBloom 3.2s ease-in-out infinite;
+            }
 
-  /* Glow/shimmer forte in stile finanze */
-  .glow-strong::before{
-    content:""; position:absolute; inset:-22%;
-    background: conic-gradient(from 0deg,
-      rgba(255,255,255,.10),
-      rgba(255,255,255,.26),
-      rgba(255,255,255,.10));
-    filter: blur(18px); opacity:.55; z-index:1;
-    animation: spinGlow 12s linear infinite;
-    pointer-events:none;
-  }
-  .glow-strong::after{
-    content:""; position:absolute; inset:0;
-    background:
-      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.14), transparent 40%),
-      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.12), transparent 40%);
-    z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.4s ease-in-out infinite;
-    pointer-events:none;
-  }
+            /* Glow/shimmer forte in stile finanze */
+            .glow-strong::before{
+              content:""; position:absolute; inset:-22%;
+              background: conic-gradient(from 0deg,
+                rgba(255,255,255,.10),
+                rgba(255,255,255,.26),
+                rgba(255,255,255,.10));
+              filter: blur(18px); opacity:.55; z-index:1;
+              animation: spinGlow 12s linear infinite;
+              pointer-events:none;
+            }
+            .glow-strong::after{
+              content:""; position:absolute; inset:0;
+              background:
+                radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.14), transparent 40%),
+                radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.12), transparent 40%);
+              z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.4s ease-in-out infinite;
+              pointer-events:none;
+            }
 
-  /* Badge scorte basse (tua animazione mantenuta) */
-  @keyframes jarvisPulse {
-    0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
-    70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
-    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-  }
-  .jarvisLow { animation: jarvisPulse 1.5s infinite; }
+            /* Badge scorte basse (tua animazione mantenuta) */
+            @keyframes jarvisPulse {
+              0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
+              70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+              100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+            }
+            .jarvisLow { animation: jarvisPulse 1.5s infinite; }
 
-  /* Micro-animazioni condivise */
-  @keyframes spinGlow { to { transform: rotate(360deg); } }
-  @keyframes pulseBloom { 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.78; filter:brightness(1.25);} }
+            /* Micro-animazioni condivise */
+            @keyframes spinGlow { to { transform: rotate(360deg); } }
+            @keyframes pulseBloom { 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.78; filter:brightness(1.25);} }
 
-  /* Hover morbidi per bottoni (applicati via :global perché sono inline-styled) */
-  :global(button){
-    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .25s ease, border-color .25s ease;
-    will-change: transform, filter;
-  }
-  :global(button:hover){ transform: translateY(-1px); }
-`}</style>
+            /* Hover morbidi per bottoni (applicati via :global perché sono inline-styled) */
+            :global(button){
+              transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .25s ease, border-color .25s ease;
+              will-change: transform, filter;
+            }
+            :global(button:hover){ transform: translateY(-1px); }
+          `}</style>
         </div>
       </div>
     </>
@@ -2074,7 +2130,7 @@ const styles = {
     width: '100%',
     minHeight: '100vh',
     background: '#0f172a',
-    padding: 24, // più compatto per mobile
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2227,7 +2283,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160, // -40px vs prima per stare su schermi stretti
+    minWidth: 160,
     flex: '1 1 160px',
   },
   primaryBtn: {
@@ -2299,7 +2355,7 @@ const styles = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-    ocrInlineBtn: {
+  ocrInlineBtn: {
     background: 'rgba(6,182,212,.15)',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
@@ -2308,7 +2364,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
     whiteSpace: 'nowrap',
-  }, // <-- VIRGOLA QUI
+  },
 
   /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
@@ -2342,68 +2398,52 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
+
   inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-inputTableXs: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 110,
-  minWidth: 0,
-},
-  inputTable: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: '100%',
-  minWidth: 0,
-},
-inputTableSm: {
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,.2)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#fff',
-  width: 90,
-  minWidth: 0,
-},
-progressWrap: {
-  position: 'relative',
-  width: 120,
-  height: 10,
-  borderRadius: 999,
-  background: 'rgba(255,255,255,.15)',
-  overflow: 'hidden',
-  flex: '0 0 120px',
-},
-progressBar: {
-  position: 'absolute',
-  left: 0,          // <-- usa left/top/bottom (NON inset)
-  top: 0,
-  bottom: 0,
-  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
-  transition: 'width .25s ease, background-color .25s ease',
-},
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: '100%',
+    minWidth: 0,
+  },
+  inputTableSm: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 90,
+    minWidth: 0,
+  },
+  inputTableXs: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 110,
+    minWidth: 0,
+  },
+
+  progressWrap: {
+    position: 'relative',
+    width: 120,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.15)',
+    overflow: 'hidden',
+    flex: '0 0 120px',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '0%',
+    transition: 'width .25s ease, background-color .25s ease',
+  },
 
   inputTableXs: {
   padding: '6px 8px',
