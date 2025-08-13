@@ -147,18 +147,18 @@ function SpeseCasa() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
-    const row = {
-      user_id: user.id,
-      category_id: CATEGORY_ID_CASA,
-      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
-      amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
-      qty: parseFloat(nuovaSpesa.quantita) || 1,
-      payment_method: method, // cash | card | bank
-      card_label: (method === 'card'
-        ? (nuovaSpesa.cardLabel?.trim() || null)
-        : null),
-    }
+  const row = {
+  user_id: user.id,
+  category_id: CATEGORY_ID_CASA,
+  description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+  amount: Number(nuovaSpesa.prezzoTotale) || 0,
+  qty: parseFloat(nuovaSpesa.quantita) || 1,
+  payment_method: method, // cash | card | bank
+  card_label: (method === 'card' ? (nuovaSpesa.cardLabel?.trim() || null) : null),
+  // NEW:
+  spent_date: dISO,
+  spent_at: `${dISO}T12:00:00Z`,
+}
 
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
