@@ -38,14 +38,10 @@ function SpeseCasa() {
   const fetchSpese = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
-      .from('finances')
-      .select('id, description, amount, qty, spent_at, payment_method, card_label')
-      .eq('category_id', CATEGORY_ID_CASA)
-      .order('created_at', { ascending: false })
-    if (error) setError(error.message)
-    else setSpese(data || [])
-    setLoading(false)
-  }, [])
+  .from('finances')
+  .select('id, description, amount, qty, spent_at, spent_date, payment_method, card_label')
+  .eq('category_id', CATEGORY_ID_CASA)
+  .order('created_at', { ascending: false });
 
   // ----------------------------- Media helpers
   const stopTracks = useCallback(() => {
