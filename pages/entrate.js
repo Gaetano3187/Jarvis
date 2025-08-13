@@ -203,9 +203,9 @@ function Entrate() {
         'satispay', 'apple pay', 'google pay'
       ];
 
-     const { data: finAll, error: finAllErr } = await supabase
+    const { data: finAll, error: finAllErr } = await supabase
   .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method, method')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
   .eq('user_id', user.id)
   .or(
     `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
