@@ -2021,12 +2021,27 @@ async function processVoiceInventory() {
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* ---------------- styles (ottimizzati + animazioni NavBar) ---------------- */
+/* ---------------- styles (rilievo + caleidoscopio + tabella animata) ---------------- */
 export const styles = {
+  /* Fullscreen kaleidoscope layer  */
+  kaleidoLayer: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: 'none',
+    background:
+      'conic-gradient(from 0deg at 50% 50%, #5eead4, #22d3ee, #60a5fa, #a78bfa, #f0abfc, #60a5fa, #5eead4)',
+    filter: 'blur(40px) saturate(1.2) brightness(0.9)',
+    opacity: 0.28,
+    animation: 'kaleidoSpin 28s linear infinite',
+  },
+
   page: {
+    position: 'relative',
+    zIndex: 1,
     width: '100%',
     minHeight: '100vh',
-    background: '#0f172a',
+    background: 'radial-gradient(120% 120% at 50% -20%, rgba(255,255,255,.04), transparent 55%), #0f172a',
     padding: 24,
     display: 'flex',
     alignItems: 'center',
@@ -2039,12 +2054,14 @@ export const styles = {
   card: {
     width: '100%',
     maxWidth: 1000,
-    background: 'rgba(0,0,0,.6)',
-    borderRadius: 16,
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03))',
+    borderRadius: 18,
     padding: 22,
-    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
     border: '1px solid rgba(255,255,255,.12)',
-    backdropFilter: 'blur(12px) saturate(1.1)',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.15), inset 0 -1px 0 rgba(0,0,0,.3), 0 12px 26px rgba(0,0,0,.35)',
+    backdropFilter: 'blur(14px) saturate(1.15)',
   },
 
   headerRow: {
@@ -2055,89 +2072,136 @@ export const styles = {
     marginBottom: 12,
     flexWrap: 'wrap',
   },
+
   homeBtn: {
     background: 'linear-gradient(90deg,#5eead4,#22d3ee)',
-    color: '#fff',
+    color: '#0b1220',
     padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     textDecoration: 'none',
-    fontWeight: 700,
-    boxShadow: '0 0 12px rgba(94,234,212,.5)',
-    animation: 'pulseGlow 2s ease-in-out infinite',
+    fontWeight: 800,
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.6), 0 0 14px rgba(94,234,212,.45), 0 8px 18px rgba(0,0,0,.35)',
+    animation: 'pulseGlow 2.4s ease-in-out infinite',
+  },
+
+  /* ---------- TITOLI SEZIONE IN RILIEVO (Stato scorte, Prodotti in esaurimento, ecc.) ---------- */
+  sectionTitle: {
+    margin: '10px 0 12px',
+    fontSize: 20,
+    fontWeight: 900,
+    letterSpacing: '.02em',
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.2) 55%, rgba(255,255,255,.7))',
+    WebkitBackgroundClip: 'text',
+    color: 'transparent',
+    /* rilievo (bevel) */
+    textShadow:
+      '0 1px 0 rgba(0,0,0,.6), 0 2px 0 rgba(0,0,0,.45), 0 3px 2px rgba(0,0,0,.35), 0 -1px 0 rgba(255,255,255,.25)',
+    WebkitTextStroke: '0.4px rgba(0,0,0,.25)',
+    filter: 'drop-shadow(0 6px 16px rgba(0,0,0,.35))',
+  },
+
+  /* Variante con gradiente vivace + shimmer */
+  sectionTitleGlow: {
+    margin: '10px 0 12px',
+    fontSize: 20,
+    fontWeight: 900,
+    letterSpacing: '.02em',
+    background: 'linear-gradient(90deg,#5eead4,#22d3ee,#60a5fa,#a78bfa,#f0abfc,#5eead4)',
+    backgroundSize: '220% 100%',
+    WebkitBackgroundClip: 'text',
+    color: 'transparent',
+    animation: 'shimmerText 7s linear infinite',
+    textShadow:
+      '0 1px 0 rgba(0,0,0,.55), 0 2px 0 rgba(0,0,0,.4), 0 3px 2px rgba(0,0,0,.3), 0 -1px 0 rgba(255,255,255,.2)',
+    WebkitTextStroke: '0.4px rgba(0,0,0,.22)',
   },
 
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
-    background: 'rgba(255,255,255,.08)',
-    border: '1px solid rgba(255,255,255,.15)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04))',
+    border: '1px solid rgba(255,255,255,.18)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 600,
+    fontWeight: 700,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.25), 0 6px 14px rgba(0,0,0,.25)',
   },
   switchBtnActive: {
-    background: 'linear-gradient(90deg,#06b6d4,#22d3ee)',
-    border: 0,
+    background:
+      'linear-gradient(90deg, rgba(6,182,212,1), rgba(34,211,238,1))',
+    border: '1px solid rgba(255,255,255,.28)',
     color: '#0b1220',
     padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 0 14px rgba(6,182,212,.5)',
+    fontWeight: 900,
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.6), 0 0 14px rgba(6,182,212,.4), 0 10px 22px rgba(0,0,0,.3)',
   },
 
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
   voiceBtn: {
     background: 'linear-gradient(90deg,#6366f1,#a78bfa)',
-    border: 0,
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
     fontWeight: 800,
-    boxShadow: '0 0 14px rgba(99,102,241,.5)',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.5), 0 0 14px rgba(99,102,241,.45), 0 10px 22px rgba(0,0,0,.3)',
   },
 
   sectionLarge: { marginTop: 30, marginBottom: 10 },
   sectionXL: { marginTop: 38, marginBottom: 12 },
-  h3: { margin: '6px 0 12px' },
 
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
+
+  /* ---------- RIGHE LISTA/ITEM con rilievo ---------- */
   itemRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'rgba(255,255,255,.05)',
-    border: '1px solid rgba(255,255,255,.12)',
-    borderRadius: 12,
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.03))',
+    border: '1px solid rgba(255,255,255,.14)',
+    borderRadius: 14,
     padding: '10px 12px',
     gap: 8,
     flexWrap: 'wrap',
-    transition: 'transform .15s ease',
+    transition: 'transform .15s ease, box-shadow .2s ease',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.24), 0 8px 22px rgba(0,0,0,.35)',
   },
   itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
   qtyBadge: {
     minWidth: 34,
     height: 34,
     borderRadius: 10,
-    background: 'rgba(99,102,241,.25)',
+    background: 'radial-gradient(120% 120% at 50% -20%, rgba(99,102,241,.55), rgba(99,102,241,.25))',
+    border: '1px solid rgba(255,255,255,.2)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: 800,
+    fontWeight: 900,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 14px rgba(0,0,0,.3)',
   },
   itemName: {
     fontSize: 16,
-    fontWeight: 700,
+    fontWeight: 800,
     lineHeight: 1.1,
-    background: 'linear-gradient(90deg,#5eead4,#22d3ee)',
+    background: 'linear-gradient(90deg,#5eead4,#22d3ee,#60a5fa)',
     WebkitBackgroundClip: 'text',
     color: 'transparent',
-    animation: 'shimmerText 6s linear infinite',
+    animation: 'shimmerText 7s linear infinite',
+    textShadow:
+      '0 1px 0 rgba(0,0,0,.5), 0 2px 0 rgba(0,0,0,.35), 0 3px 2px rgba(0,0,0,.25)',
   },
-  itemBrand: { fontSize: 12, opacity: 0.8 },
+  itemBrand: { fontSize: 12, opacity: 0.85 },
 
   itemActions: {
     display: 'flex',
@@ -2146,41 +2210,46 @@ export const styles = {
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
   },
+
   actionSuccess: {
-    background: '#16a34a',
-    border: 0,
+    background: 'linear-gradient(180deg,#16a34a,#15803d)',
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.45), 0 8px 18px rgba(0,0,0,.3)',
   },
   actionDanger: {
-    background: '#ef4444',
-    border: 0,
+    background: 'linear-gradient(180deg,#ef4444,#b91c1c)',
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.4), 0 8px 18px rgba(0,0,0,.3)',
   },
   actionGhost: {
-    background: 'rgba(255,255,255,.12)',
-    border: '1px solid rgba(255,255,255,.2)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06))',
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 800,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.4), 0 6px 14px rgba(0,0,0,.25)',
   },
   actionGhostDanger: {
-    background: 'rgba(239,68,68,.1)',
+    background: 'linear-gradient(180deg, rgba(239,68,68,.18), rgba(239,68,68,.08))',
     border: '1px solid rgba(239,68,68,.6)',
     color: '#fff',
     padding: '8px 10px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 800,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.25), 0 6px 14px rgba(0,0,0,.25)',
   },
 
   formRow: {
@@ -2192,41 +2261,54 @@ export const styles = {
   input: {
     padding: '10px 12px',
     borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.15)',
-    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.18)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05))',
     color: '#fff',
     minWidth: 160,
     flex: '1 1 160px',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
   },
   primaryBtn: {
-    background: '#16a34a',
-    border: 0,
+    background: 'linear-gradient(90deg,#16a34a,#22c55e)',
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#fff',
     padding: '10px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.5), 0 10px 22px rgba(0,0,0,.3)',
   },
 
+  /* ---------- TABELLA IN RILIEVO + COLORE ANIMATO ---------- */
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    background: 'rgba(255,255,255,.04)',
-    borderRadius: 12,
+    borderRadius: 14,
     overflow: 'hidden',
+    background:
+      'linear-gradient(135deg, rgba(94,234,212,.12), rgba(34,211,238,.10), rgba(96,165,250,.10))',
+    border: '1px solid rgba(255,255,255,.16)',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.25), 0 14px 30px rgba(0,0,0,.35)',
+    backdropFilter: 'blur(10px)',
+    backgroundSize: '200% 200%',
+    animation: 'tableShift 16s linear infinite, hueCycle 26s linear infinite',
   },
   th: {
     textAlign: 'left',
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.12)',
-    fontWeight: 700,
+    padding: '12px',
+    borderBottom: '1px solid rgba(255,255,255,.16)',
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05))',
+    boxShadow: 'inset 0 -1px 0 rgba(0,0,0,.25)',
   },
   td: {
-    padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.08)',
+    padding: '12px',
+    borderBottom: '1px solid rgba(255,255,255,.10)',
     verticalAlign: 'middle',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03))',
   },
 
   scorteHeader: {
@@ -2238,46 +2320,51 @@ export const styles = {
   },
 
   voiceBtnSmall: {
-    background: '#6366f1',
-    border: 0,
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-  voiceBtnSmallStop: {
-    background: '#ef4444',
-    border: 0,
+    background: 'linear-gradient(90deg,#6366f1,#8b5cf6)',
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#fff',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.45), 0 8px 18px rgba(0,0,0,.28)',
+  },
+  voiceBtnSmallStop: {
+    background: 'linear-gradient(90deg,#ef4444,#b91c1c)',
+    border: '1px solid rgba(255,255,255,.25)',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35), 0 8px 18px rgba(0,0,0,.3)',
   },
   ocrBtnSmall: {
-    background: '#06b6d4',
-    border: 0,
+    background: 'linear-gradient(90deg,#06b6d4,#22d3ee)',
+    border: '1px solid rgba(255,255,255,.25)',
     color: '#0b1220',
     padding: '8px 12px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.6), 0 8px 18px rgba(0,0,0,.25)',
   },
   ocrInlineBtn: {
-    background: 'rgba(6,182,212,.15)',
+    background: 'linear-gradient(180deg, rgba(6,182,212,.18), rgba(6,182,212,.10))',
     border: '1px solid rgba(6,182,212,.6)',
     color: '#e0fbff',
     padding: '6px 10px',
     borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 800,
     whiteSpace: 'nowrap',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
   },
 
+  /* BADGE giorni rimasti (invariato, con leggero rilievo) */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2286,8 +2373,9 @@ export const styles = {
     height: 26,
     padding: '0 8px',
     borderRadius: 999,
-    fontWeight: 800,
+    fontWeight: 900,
     fontSize: 12,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 12px rgba(0,0,0,.25)',
   },
   daysBadgeGreen: {
     background: 'rgba(22,163,74,.18)',
@@ -2310,34 +2398,39 @@ export const styles = {
     color: '#e2e8f0',
   },
 
+  /* INPUT in tabella */
   inputTable: {
     padding: '6px 8px',
     borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.24)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06))',
     color: '#fff',
     width: '100%',
     minWidth: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
   },
   inputTableSm: {
     padding: '6px 8px',
     borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.24)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06))',
     color: '#fff',
     width: 90,
     minWidth: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
   },
   inputTableXs: {
     padding: '6px 8px',
     borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.2)',
-    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.24)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06))',
     color: '#fff',
     width: 110,
     minWidth: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
   },
 
+  /* Barra progressi con tonalità animate */
   progressWrap: {
     position: 'relative',
     width: 120,
@@ -2346,6 +2439,7 @@ export const styles = {
     background: 'rgba(255,255,255,.15)',
     overflow: 'hidden',
     flex: '0 0 120px',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35), 0 6px 14px rgba(0,0,0,.25)',
   },
   progressBar: {
     position: 'absolute',
@@ -2353,6 +2447,10 @@ export const styles = {
     top: 0,
     bottom: 0,
     width: '0%',
+    background:
+      'linear-gradient(90deg, #22d3ee, #60a5fa, #a78bfa, #f0abfc, #5eead4, #22d3ee)',
+    backgroundSize: '200% 100%',
+    animation: 'barShift 10s linear infinite',
     transition: 'width .25s ease, background-color .25s ease',
   },
 };
