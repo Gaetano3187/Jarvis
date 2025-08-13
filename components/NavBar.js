@@ -35,12 +35,12 @@ export default function NavBar() {
           {/* ===== BRAND ===== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
-              {/* Aurea caleidoscopio (visibile ma leggera) */}
+              {/* Aurea caleidoscopio (leggera, non copre) */}
               <span className="logo-aura" aria-hidden="true" />
-              {/* Bagliore neon pulsante */}
-              <span className="logo-glow" aria-hidden="true" data-text="jarvis">jarvis</span>
-              {/* Scritta 3D: estrusione + bevel + kaleidoscopio L->R */}
-              <span className="logo-text" data-text="jarvis">jarvis</span>
+              {/* Glow neon pulsante (mascherato al testo) */}
+              <span className="logo-glow" aria-hidden="true" data-text="JARVIS">JARVIS</span>
+              {/* Scritta 3D in MAIUSCOLO con cambio colore interno */}
+              <span className="logo-text" data-text="JARVIS">JARVIS</span>
             </span>
           </Link>
 
@@ -95,16 +95,16 @@ export default function NavBar() {
           padding: 8px 4px; isolation:isolate;
         }
 
-        /* AUREA caleidoscopio: visibile ma non copre */
+        /* AUREA caleidoscopio: visibile ma leggera (no copertura) */
         .logo-aura{
           position:absolute; inset:-18px -24px; z-index:0; pointer-events:none;
           background:
             conic-gradient(from 0deg at 50% 50%,
-              rgba(239,68,68,.60), /* rosso */
-              rgba(229,43,80,.56), /* amaranto */
-              rgba(22,163,74,.56), /* verde */
+              rgba(239,68,68,.60),  /* rosso */
+              rgba(229,43,80,.56),  /* amaranto */
+              rgba(22,163,74,.56),  /* verde */
               rgba(239,68,68,.60));
-          filter: blur(26px) saturate(1.12);
+          filter: blur(28px) saturate(1.12);
           opacity:.60;
           mix-blend-mode: screen;
           border-radius: 9999px;
@@ -113,14 +113,16 @@ export default function NavBar() {
                   mask-image: radial-gradient(ellipse at center, #000 70%, transparent 78%);
         }
 
-        /* Bagliore neon (sotto al testo) + pulsazione */
+        /* Bagliore neon pulsante — mascherato al testo, quindi “dentro” ma con alone */
         .logo-glow{
           position:absolute; z-index:1; inset:0; pointer-events:none;
           display:inline-grid; place-items:center;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .30rem;
           font-size: clamp(2rem, 4.5vw, 2.4rem); line-height: 1; white-space: nowrap;
+          text-transform: uppercase;
 
+          /* caleidoscopio interno al testo */
           background:
             conic-gradient(from 0deg at 50% 50%,
               #ef4444 0deg, #e52b50 120deg, #16a34a 240deg, #ef4444 360deg);
@@ -130,39 +132,39 @@ export default function NavBar() {
           color: transparent; -webkit-text-fill-color: transparent;
 
           mix-blend-mode: screen;
-          filter: blur(14px) brightness(1.8) saturate(1.8);
+          filter: blur(14px) brightness(1.85) saturate(1.9);
           opacity: .98;
 
           animation:
-            sweepLR 7s linear infinite,     /* caleidoscopio L->R */
-            neonPulse 2.2s ease-in-out infinite; /* pulsazione intensa */
+            sweepLR 7s linear infinite,      /* da SINISTRA a DESTRA */
+            neonPulse 2.2s ease-in-out infinite;  /* pulsazione */
           will-change: background-position, filter, opacity;
         }
 
-        /* Scritta 3D con estrusione profonda + bevel */
+        /* Scritta 3D in MAIUSCOLO con cambio colore solo all'interno */
         .logo-text{
           position:relative; z-index:2; display:inline-block;
           font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .30rem;
           font-size: clamp(2rem, 4.5vw, 2.4rem); line-height: 1; white-space: nowrap;
+          text-transform: uppercase;
 
           /* bordo nero netto */
           -webkit-text-stroke: 1.2px #000; paint-order: stroke fill;
 
-          /* estrusione con stack di ombre (3D più profondo) */
+          /* estrusione/3D (stack di ombre) */
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.75),  /* bevel highlight */
+            -1px -1px 0 rgba(255,255,255,.74),  /* bevel highlight */
              1px  1px 0 rgba(0,0,0,.60),
              2px  2px 0 rgba(0,0,0,.58),
              3px  3px 0 rgba(0,0,0,.56),
              4px  4px 0 rgba(0,0,0,.54),
              5px  5px 1px rgba(0,0,0,.52),
              6px  6px 2px rgba(0,0,0,.50),
-             7px  7px 3px rgba(0,0,0,.48),
-             8px  8px 4px rgba(0,0,0,.46),
-             0    10px 16px rgba(0,0,0,.50);
+             8px  8px 4px rgba(0,0,0,.47),
+             0   10px 16px rgba(0,0,0,.50);
 
-          /* riempimento caleidoscopio (rosso→amaranto→verde) con scorrimento L->R */
+          /* colore che cambia SOLO all'interno delle lettere */
           background:
             conic-gradient(from 0deg at 50% 50%,
               #ef4444 0deg, #e52b50 120deg, #16a34a 240deg, #ef4444 360deg);
@@ -171,32 +173,21 @@ export default function NavBar() {
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          animation: sweepLR 7s linear infinite; /* sincronizzato col glow */
+          animation: sweepLR 7s linear infinite; /* L -> R */
           will-change: background-position;
         }
 
-        /* Gloss/bevel interno leggero (accento 3D) */
-        .logo-text::before{
-          content: attr(data-text);
-          position:absolute; inset:0; pointer-events:none;
-          background: linear-gradient(145deg, rgba(255,255,255,.38), rgba(255,255,255,0) 55%);
-          -webkit-background-clip: text; background-clip: text;
-          color: transparent; -webkit-text-fill-color: transparent;
-          mix-blend-mode: screen;
-          filter: blur(.6px);
-          opacity:.45;
-        }
-
-        /* Estrusione solida dietro (ombra corpo) */
+        /* Rafforza l'effetto 3D con un'estrusione solida */
         .logo-text::after{
           content: attr(data-text);
           position:absolute; inset:0; pointer-events:none;
-          transform: translate(4px, 6px);      /* <-- estrusione più profonda */
+          transform: translate(4px, 6px);
           z-index: -1;
           color: rgba(0,0,0,.65);
           letter-spacing: inherit; font: inherit;
           -webkit-text-stroke: 0;
           filter: blur(.7px);
+          text-transform: inherit;
         }
 
         /* ===== MENU ===== */
