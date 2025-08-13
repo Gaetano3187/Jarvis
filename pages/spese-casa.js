@@ -1,4 +1,4 @@
-// pages/spese-casa.js 
+// pages/spese-casa.js
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabaseClient'
 
 const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
 
-/** YYYY-MM-DD in fuso locale (no UTC shift) */
+/** YYYY-MM-DD in fuso locale */
 function isoLocal(date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -15,42 +15,32 @@ function isoLocal(date = new Date()) {
   return `${y}-${m}-${d}`
 }
 
-/** parser robusto: oggi / ieri / domani / YYYY-MM-DD / DD/MM/YYYY / DD-MM-YYYY */
+/** oggi / ieri / domani / YYYY-MM-DD / DD/MM/YYYY / DD-MM-YYYY */
 function smartDate(input) {
   const s = String(input || '').trim().toLowerCase()
-
-  // parole chiave con word boundary (funziona anche con punteggiatura "oggi," etc.)
-  if (/\boggi\b/.test(s))   return isoLocal(new Date())
-  if (/\bieri\b/.test(s))  { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
-  if (/\bdomani\b/.test(s)){ const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
-
-  // ISO YYYY-MM-DD
+  if (/\boggi\b/.test(s))    return isoLocal(new Date())
+  if (/\bieri\b/.test(s))   { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
+  if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-
-  // italiano DD/MM/YYYY o DD-MM-YYYY o DD.MM.YYYY
-  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/)
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/) // DD/MM/YYYY
   if (m) {
     const dd = String(parseInt(m[1],10)).padStart(2,'0')
     const mm = String(parseInt(m[2],10)).padStart(2,'0')
     const yyyy = m[3]
     return `${yyyy}-${mm}-${dd}`
   }
-
-  // YYYY/MM/DD o YYYY.MM.DD
-  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/)
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/) // YYYY/MM/DD
   if (m) {
     const yyyy = m[1]
     const mm = String(parseInt(m[2],10)).padStart(2,'0')
     const dd = String(parseInt(m[3],10)).padStart(2,'0')
     return `${yyyy}-${mm}-${dd}`
   }
-
-  // fallback: prova il parser JS, ma normalizza a locale
   const d = new Date(s)
   return isNaN(d) ? isoLocal(new Date()) : isoLocal(d)
 }
 
-/** render sicuro: se è YYYY-MM-DD lo tratto come locale puro */
+/** stampa data robusta: accetta YYYY-MM-DD o ISO completo */
 function fmtDateIT(v) {
   if (!v) return '-'
   const s = String(v)
@@ -67,8 +57,8 @@ function SpeseCasa() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const [recBusy, setRecBusy] = useState(false)      // true = sta registrando
-  const [stopping, setStopping] = useState(false)    // true = fermo in corso (attendi)
+  const [recBusy, setRecBusy] = useState(false)
+  const [stopping, setStopping] = useState(false)
 
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
@@ -87,7 +77,7 @@ function SpeseCasa() {
   const streamRef = useRef(null)
   const recordedChunks = useRef([])
   const mimeRef = useRef('')
-  const stopWaitRef = useRef(null) // promise di attesa stop
+  const stopWaitRef = useRef(null)
 
   // ----------------------------- API
   const fetchSpese = useCallback(async () => {
@@ -149,24 +139,14 @@ function SpeseCasa() {
     }
 
     setStopping(true)
-
-    // prepara promise che si risolve su onstop o timeout
     const p = new Promise(resolve => {
       stopWaitRef.current = { resolve }
-      setTimeout(() => resolve('timeout'), 2000) // sicurezza
+      setTimeout(() => resolve('timeout'), 2000)
     })
 
-    try {
-      mediaRecRef.current.stop()
-    } catch {
-      stopWaitRef.current?.resolve?.()
-    }
+    try { mediaRecRef.current.stop() } catch { stopWaitRef.current?.resolve?.() }
+    if (!sync) { await p }
 
-    if (!sync) {
-      await p
-    }
-
-    // cleanup
     mediaRecRef.current = null
     stopTracks()
     setStopping(false)
@@ -175,14 +155,10 @@ function SpeseCasa() {
   // ----------------------------- Mount/Unmount
   useEffect(() => {
     fetchSpese()
-
-    // auto-stop se si cambia scheda o si lascia la pagina
     const handleVisibility = () => { if (document.hidden) stopRecording() }
-    const handleBeforeUnload = () => { stopRecording(true) } // best effort sync
-
+    const handleBeforeUnload = () => { stopRecording(true) }
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('beforeunload', handleBeforeUnload)
-
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -209,8 +185,8 @@ function SpeseCasa() {
       category_id: CATEGORY_ID_CASA,
       description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
       amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      // niente toISOString().slice(0,10) → salviamo YYYY-MM-DD locale
-      spent_at: spentISO,
+      // salva a mezzogiorno UTC per evitare slittamenti (se la colonna è timestamp)
+      spent_at: `${spentISO}T12:00:00Z`,
       qty: parseFloat(nuovaSpesa.quantita) || 1,
       payment_method: method, // cash | card | bank
       card_label: (method === 'card' ? (nuovaSpesa.cardLabel?.trim() || null) : null),
@@ -235,10 +211,7 @@ function SpeseCasa() {
   // ----------------------------- Elimina
   const handleDelete = async id => {
     setError(null)
-    const { error: deleteError } = await supabase
-      .from('finances')
-      .delete()
-      .eq('id', id)
+    const { error: deleteError } = await supabase.from('finances').delete().eq('id', id)
     if (deleteError) setError(deleteError.message)
     else setSpese(spese.filter(r => r.id !== id))
   }
@@ -263,32 +236,19 @@ function SpeseCasa() {
   // ----------------------------- START/STOP REC
   const toggleRec = async () => {
     setError(null)
-    if (stopping) return // evita rimbalzi durante lo stop
-
-    if (recBusy) {
-      await stopRecording()
-      return
-    }
-
-    // già attivo?
+    if (stopping) return
+    if (recBusy) { await stopRecording(); return }
     if (mediaRecRef.current && mediaRecRef.current.state === 'recording') return
-
     if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
       setError('Questo browser non supporta la registrazione audio.')
       return
     }
 
     const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/ogg;codecs=opus',
-      'audio/ogg'
+      'audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus','audio/ogg'
     ]
     let chosen = ''
-    for (const c of candidates) {
-      if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break }
-    }
+    for (const c of candidates) if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break }
     mimeRef.current = chosen
 
     try {
@@ -296,20 +256,8 @@ function SpeseCasa() {
       recordedChunks.current = []
       const mr = new MediaRecorder(streamRef.current, chosen ? { mimeType: chosen } : undefined)
       mediaRecRef.current = mr
-
-      mr.addEventListener('dataavailable', e => {
-        if (e.data && e.data.size) recordedChunks.current.push(e.data)
-      })
-
-      // onstop → processVoice
-      mr.addEventListener('stop', () => {
-        // risolve la promise di stop (se in attesa)
-        stopWaitRef.current?.resolve?.()
-        processVoice().finally(() => {
-          setRecBusy(false)
-        })
-      }, { once: true })
-
+      mr.addEventListener('dataavailable', e => { if (e.data && e.data.size) recordedChunks.current.push(e.data) })
+      mr.addEventListener('stop', () => { stopWaitRef.current?.resolve?.(); processVoice().finally(() => setRecBusy(false)) }, { once: true })
       mr.start()
       setRecBusy(true)
     } catch (err) {
@@ -323,7 +271,6 @@ function SpeseCasa() {
   // ----------------------------- PROMPT BUILDER
   function buildSystemPrompt(source, userText, fileName) {
     const fn = fileName || 'scontrino';
-
     const header = [
       'Sei Jarvis. Puoi restituire uno dei seguenti JSON:',
       '',
@@ -348,26 +295,12 @@ function SpeseCasa() {
       '  "nota": "string opzionale"',
       '}]}',
       '',
-      'Esempi cassa:',
-      '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
-      '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
-      '',
     ].join('\n');
 
     if (source === 'ocr') {
-      return [
-        header,
-        'Testo OCR (' + fn + '):',
-        String(userText || '')
-      ].join('\n');
+      return [header, 'Testo OCR (' + fn + '):', String(userText || '')].join('\n');
     }
-
-    // STT / testo libero
-    return [
-      header,
-      'Trascrizione:',
-      String(userText || '')
-    ].join('\n');
+    return [header, 'Trascrizione:', String(userText || '')].join('\n');
   }
 
   // ----------------------------- PARSING & DB INSERT
@@ -382,15 +315,14 @@ function SpeseCasa() {
 
     const data = JSON.parse(answer)
 
-    // In questa pagina gestiamo SOLO le spese
     if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
       throw new Error('Assistant response invalid')
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
-    const rows = data.items.map(it => {
-      const spentAt = smartDate(it.data) // accetta oggi/ieri/domani e formati IT
+    for (const it of data.items) {
+      const spentDate = smartDate(it.data) // oggi/ieri/domani/vari formati
       const totalPrice = Number(it.prezzoTotale) || 0
       const qty = parseFloat(it.quantita) || 1
       const uom = (it.uom || '').trim()
@@ -402,39 +334,39 @@ function SpeseCasa() {
       parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
       parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
 
-      // normalizza payment method (transfer -> bank per coerenza UI)
       const methodRaw = (it.paymentMethod || 'cash')
       const method = methodRaw === 'transfer' ? 'bank' : methodRaw
       const label  = method === 'card' ? (it.cardLabel || null) : null
 
-      return {
+      const row = {
         user_id: user.id,
         category_id: CATEGORY_ID_CASA,
         description: parts.join(' '),
         amount: totalPrice,
-        spent_at: spentAt, // YYYY-MM-DD locale
-        qty: qty,
+        // mezzogiorno UTC → nessuno slittamento
+        spent_at: `${spentDate}T12:00:00Z`,
+        qty,
         payment_method: method,
         card_label: label,
       }
-    })
 
-    // NB: niente upsert → niente onConflict → niente errore 400
-    const { error: dbErr } = await supabase.from('finances').insert(rows)
-    if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
+      const { error: dbErr } = await supabase.from('finances').insert(row)
+      if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
+    }
 
     await fetchSpese()
 
-    // Precompila il form con l’ultima spesa inserita (comodo per correzioni rapide)
-    const last = rows[0]
+    // Precompila il form con l’ultima spesa
+    const last = data.items[0]
+    const lastDate = smartDate(last.data)
     setNuovaSpesa({
-      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
-      prezzoTotale: String(last.amount ?? ''),
-      quantita:     String(last.qty ?? '1'),
-      spentAt:      last.spent_at ?? '',
-      paymentMethod: last.payment_method || 'cash',
-      cardLabel: last.card_label || '',
+      puntoVendita: String(last.puntoVendita || ''),
+      dettaglio:    String(last.dettaglio || ''),
+      prezzoTotale: String(last.prezzoTotale ?? ''),
+      quantita:     String(last.quantita ?? '1'),
+      spentAt:      lastDate,
+      paymentMethod: (last.paymentMethod === 'transfer' ? 'bank' : (last.paymentMethod || 'cash')),
+      cardLabel: String(last.cardLabel || ''),
     })
   }
 
@@ -566,9 +498,7 @@ function SpeseCasa() {
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
-                        <td>
-                          <button onClick={() => handleDelete(r.id)}>🗑</button>
-                        </td>
+                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
                       </tr>
                     )
                   })}
@@ -607,8 +537,6 @@ function SpeseCasa() {
         .title { margin-bottom: 1rem; font-size: 1.5rem; }
         .table-buttons { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
         .btn-vocale, .btn-ocr, .btn-manuale {
-          display: inline-block;
-          text-align: center;
           background: #10b981;
           color: #fff;
           border: none;
