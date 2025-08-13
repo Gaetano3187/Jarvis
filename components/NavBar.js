@@ -17,6 +17,11 @@ const links = [
 export default function NavBar() {
   const { pathname } = useRouter();
 
+  // --- crea "spacer" per avere un numero totale multiplo di 3 (solo mobile) ---
+  const modulo = links.length % 3;
+  const fillers = modulo === 0 ? 0 : 3 - modulo;
+  const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
+
   return (
     <>
       <Head>
@@ -33,8 +38,13 @@ export default function NavBar() {
           {/* BRAND */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap">
+              {/* bagliore colorato che cambia tinta e intensità */}
+              <span className="brand-glow" aria-hidden="true" />
+              {/* aura morbida di sfondo */}
               <span className="brand-aura" aria-hidden="true" />
+              {/* scritta con riempimento stabile e vivido */}
               <span className="brand-text">JARVIS</span>
+              {/* alone sottile */}
               <span className="brand-halo" aria-hidden="true" />
             </span>
           </Link>
@@ -57,6 +67,10 @@ export default function NavBar() {
                 </li>
               );
             })}
+            {/* filler invisibili: solo su mobile per completare la griglia 3xN */}
+            {mobileFillers.map(key => (
+              <li key={key} className="item spacer" aria-hidden="true" />
+            ))}
           </ul>
         </div>
       </nav>
@@ -78,41 +92,50 @@ export default function NavBar() {
         }
         .inner{
           min-height: 64px; display: flex; align-items: center;
-          justify-content: flex-start; padding: 0 16px;
-          gap: 28px; overflow: hidden;
+          justify-content: flex-start; padding: 6px 16px;
+          gap: 24px; overflow: hidden;
         }
 
-        /* === LOGO JARVIS (riempimento vivido + animazione compatibile) === */
-        .brand{ text-decoration:none; display:inline-flex; align-items:center; }
-        .brand-wrap{ position: relative; display:inline-grid; place-items:center; padding: 6px 2px; isolation:isolate; }
+        /* === LOGO UNIFORME (desktop & mobile) === */
+        .brand{ text-decoration:none; display:inline-flex; align-items:center; margin-right: 8px; }
+        .brand-wrap{
+          position: relative; display:inline-grid; place-items:center;
+          padding: 8px 4px; isolation:isolate;
+        }
 
-        .brand-aura{
-          position:absolute; inset:-18px -26px; z-index:0;
+        /* Bagliore colorato a "neon" che cambia tinta e pulsa (non tocca il fill) */
+        .brand-glow{
+          position:absolute; inset:-10px -18px; z-index:0; border-radius: 22px;
           background: conic-gradient(from 0deg at 50% 50%,
-            rgba(34,211,238,.90), rgba(96,165,250,.85),
-            rgba(167,139,250,.85), rgba(240,171,252,.85),
-            rgba(94,234,212,.90));
-          filter: blur(26px) saturate(1.15) brightness(1.08);
-          opacity:.9; border-radius: 24px;
-          animation: auraSpin 10s linear infinite;
+            #22d3ee, #60a5fa, #a78bfa, #f0abfc, #fb7185, #34d399, #a3e635, #22d3ee);
+          filter: blur(26px) saturate(1.25) brightness(1.1);
+          opacity:.85;
+          animation: glowHue 12s linear infinite, glowPulse 2.6s ease-in-out infinite;
+          mix-blend-mode: screen;
         }
 
-        /* Riempimento multicolore animato (no bianco) — colori più vivi */
-        .brand-text{
-          position:relative; z-index:1;
-          font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-          font-weight: 900; letter-spacing: .35rem;
-          font-size: clamp(1.9rem, 4vw, 2.3rem); line-height: 1; white-space: nowrap;
+        /* Aura morbida di sfondo (molto leggera, statica per evitare conflitti) */
+        .brand-aura{
+          position:absolute; inset:-16px -24px; z-index:0;
+          background: radial-gradient(70% 70% at 50% 40%, rgba(255,255,255,.14), transparent 60%),
+                      radial-gradient(80% 80% at 60% 140%, rgba(167,139,250,.14), transparent 60%);
+          filter: blur(18px);
+          opacity:.7; border-radius: 24px;
+        }
 
-          background:
-            conic-gradient(from 0deg at 50% 50%,
-              #06b6d4 0%,   #22d3ee 10%,
-              #60a5fa 20%,  #3b82f6 30%,
-              #a78bfa 40%,  #8b5cf6 50%,
-              #f0abfc 60%,  #fb7185 70%,
-              #34d399 80%,  #a3e635 90%,
-              #06b6d4 100%);
-          background-size: 220% 220%;
+        /* Riempimento stabile e vivido (no bianco) */
+        .brand-text{
+          position:relative; z-index:2;
+          font-family: "Orbitron", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          font-weight: 900; letter-spacing: .32rem;
+          font-size: clamp(1.8rem, 4vw, 2.2rem); line-height: 1; white-space: nowrap;
+
+          background: linear-gradient(90deg,
+              #06b6d4 0%,   #22d3ee 15%,
+              #60a5fa 30%,  #8b5cf6 45%,
+              #f0abfc 60%,  #fb7185 75%,
+              #34d399 87%,  #a3e635 100%);
+          background-size: 160% 160%;
           background-position: 50% 50%;
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
@@ -120,25 +143,17 @@ export default function NavBar() {
           -webkit-text-stroke: 0.6px rgba(0,0,0,.22);
           paint-order: stroke fill;
 
+          /* glow leggero locale (costante, il cambio colore lo fa brand-glow) */
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.45),
-             1px  1px 0 rgba(0,0,0,.40),
-             0    2px 4px rgba(0,0,0,.30);
-          filter: contrast(1.1) saturate(1.2);
-
-          /* Solo due animazioni non conflittuali */
-          animation:
-            gradientPan 6s linear infinite,
-            hueShift    12s linear infinite;
+            0 0 10px rgba(255,255,255,.10),
+            1px 1px 0 rgba(0,0,0,.40);
         }
 
+        /* alone sottile sopra */
         .brand-halo{
-          position:absolute; inset:-6px; z-index:2; pointer-events:none;
-          background:
-            radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.18), transparent 60%),
-            radial-gradient(100% 100% at 60% 140%, rgba(167,139,250,.20), transparent 60%);
-          mix-blend-mode: screen; filter: blur(10px);
-          animation: haloBreath 2.6s ease-in-out infinite;
+          position:absolute; inset:-4px; z-index:3; pointer-events:none;
+          background: radial-gradient(120% 120% at 50% -30%, rgba(255,255,255,.20), transparent 60%);
+          mix-blend-mode: screen; filter: blur(8px);
         }
 
         /* === MENU (desktop base) === */
@@ -178,50 +193,51 @@ export default function NavBar() {
 
         /* === ANIMAZIONI === */
         @keyframes shimmerText { to { background-position: -200% center; } }
-        @keyframes auraSpin     { to { transform: rotate(360deg); } }
-        @keyframes haloBreath   { 0%,100% { opacity:.55; filter: blur(10px); } 50% { opacity:.95; filter: blur(14px); } }
-        @keyframes gradientPan  { to { background-position: 120% 120%; } }
-        @keyframes hueShift     { to { filter: hue-rotate(360deg); } }
+        @keyframes glowHue     { to { filter: hue-rotate(360deg) saturate(1.25); } }
+        @keyframes glowPulse   {
+          0%, 100% { opacity:.70; filter: blur(22px) brightness(1.05); }
+          50%      { opacity:.95; filter: blur(28px) brightness(1.20); }
+        }
 
-        /* === SMARTPHONE: logo in alto, griglia compatta 2–3 colonne === */
+        /* === SMARTPHONE: 3 colonne × 3 righe (con filler se servono) === */
         @media (max-width: 560px){
           .inner{
             flex-direction: column;           /* logo sopra, menu sotto */
             align-items: stretch;
-            gap: 6px;
+            gap: 8px;
             padding: 8px 10px 10px;
           }
 
-          /* LOGO più compatto e senza animazioni in conflitto */
-          .brand{
-            justify-content: center;
-          }
+          /* logo identico come resa: solo scala leggermente per spazio */
+          .brand{ justify-content: center; }
           .brand-text{
-            font-size: 1.7rem;
-            letter-spacing: .28rem;
+            font-size: clamp(1.8rem, 8vw, 2.1rem);
+            letter-spacing: .30rem;
           }
-          /* Disabilita spin e respiro per evitare overload visivo su mobile */
-          .brand-aura{ animation: none; }
-          .brand-halo{ animation: none; }
 
-          /* Menu a griglia: auto-fit -> 2 o 3 colonne in base allo spazio */
+          /* Griglia fissa 3 colonne; aggiungiamo .spacer per riempire */
           .track{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            grid-template-columns: repeat(3, 1fr); /* 3 per riga */
             gap: 10px;
             width: 100%;
             margin-top: 4px;
           }
-          .item{
-            white-space: normal;               /* consente capo se testo lungo */
+          .item{ white-space: normal; }
+          .item.spacer{
+            visibility: hidden; /* occupa spazio ma non visibile */
+            height: 0;
+            padding: 0;
+            margin: 0;
           }
+
           .link{
             width: 100%;
             padding: 10px 12px;
             text-align: center;
             border-radius: 14px;
-            border:1px solid rgba(255,255,255,.10);
-            background: rgba(255,255,255,.04);
+            border:1px solid rgba(255,255,255,.12);
+            background: rgba(255,255,255,.05);
           }
           .label{
             letter-spacing:.02rem;
@@ -229,9 +245,9 @@ export default function NavBar() {
           }
         }
 
-        /* fascia intermedia stretta (tablet verticali) — può andare su 2 righe */
+        /* fascia intermedia stretta (tablet verticali): possiamo tenere flex-wrap */
         @media (min-width: 561px) and (max-width: 860px){
-          .inner{ padding: 6px 12px; }
+          .inner{ padding: 8px 12px; }
           .track{ flex-wrap: wrap; gap: 12px; }
           .item{ flex: 0 0 auto; }
         }
