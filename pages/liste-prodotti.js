@@ -1993,157 +1993,57 @@ async function processVoiceInventory() {
             </p>
           </div>
 
-      {/* Toast */}
-{toast && (
-  <div
-    style={{
-      position: 'fixed',
-      bottom: 20,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      background:
-        toast.type === 'ok'
-          ? '#16a34a'
-          : toast.type === 'err'
-          ? '#ef4444'
-          : '#334155',
-      color: '#fff',
-      padding: '10px 14px',
-      borderRadius: 10,
-      boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-      zIndex: 9999,
-      animation: 'toastPop .25s ease-out',
-      fontWeight: 700,
-      letterSpacing: 0.2,
-    }}
-  >
-    {toast.msg}
-  </div>
-)}
-
+          {/* Toast */}
+          {toast && (
+            <div style={{
+              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
+              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
+              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
+            }}>
+              {toast.msg}
+            </div>
+          )}
 <style jsx>{`
-  /* ===================== KALEIDOSCOPIO SFONDO ===================== */
-  :root{
-    --bg:#0b1020;
-    --panel:rgba(0,0,0,.55);
-    --ink:#e5e7eb;
-    --muted:#94a3b8;
-    --primary:#06b6d4;
-    --accent:#6366f1;
-    --success:#16a34a;
-    --danger:#ef4444;
-    --table-brd: rgba(255,255,255,.16);
-    --table-brd-strong: rgba(255,255,255,.25);
-  }
-
-  /* L'animazione agisce su background-position e hue-rotate */
-  @keyframes kaleidoMove {
-    0%   { background-position: 0% 0%,  100% 0%,   0% 100%; }
-    50%  { background-position: 100% 0%, 0% 100%,  100% 100%; }
-    100% { background-position: 0% 0%,  100% 0%,   0% 100%; }
-  }
-  @keyframes kaleidoHue {
-    0%   { filter: hue-rotate(0deg) saturate(1.05); }
-    100% { filter: hue-rotate(360deg) saturate(1.05); }
-  }
-
-  /* Pulsazione leggera per residui bassi */
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
-    70%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+    70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
     100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
   }
-  .jarvisLow { animation: jarvisPulse 1.6s infinite; }
-
-  /* Pop del toast */
-  @keyframes toastPop {
-    0% { transform: translateX(-50%) translateY(6px) scale(.98); opacity:.0; }
-    100% { transform: translateX(-50%) translateY(0) scale(1); opacity:1; }
-  }
-
-  /* Effetti hover sui bottoni (valido anche con inline styles) */
-  :global(button) {
-    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background-color .2s ease, border-color .2s ease;
-    will-change: transform, filter;
-  }
-  :global(button:hover) {
-    transform: translateY(-1px);
-    filter: brightness(1.02);
-  }
-  /* variante glow primaria (verde) */
-  :global(button.__glow-success:hover){
-    box-shadow:
-      0 10px 24px rgba(22,163,74,.35),
-      0 0 32px rgba(22,163,74,.25);
-  }
-  /* variante glow danger (rosso) */
-  :global(button.__glow-danger:hover){
-    box-shadow:
-      0 10px 24px rgba(239,68,68,.35),
-      0 0 32px rgba(239,68,68,.25);
-  }
-  /* variante glow info (blu/ciano/indigo) */
-  :global(button.__glow-info:hover){
-    box-shadow:
-      0 10px 24px rgba(6,182,212,.35),
-      0 0 32px rgba(99,102,241,.28);
-  }
-
-  /* Tabella: bordature più evidenti e divisori di sezione */
-  :global(table.__kTable){
-    border:1px solid var(--table-brd);
-    box-shadow:
-      inset 0 0 0 1px rgba(255,255,255,.04),
-      0 10px 22px rgba(0,0,0,.28);
-    overflow:hidden;
-  }
-  :global(table.__kTable thead th){
-    border-bottom: 2px solid var(--table-brd-strong) !important;
-    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
-  }
-  :global(table.__kTable tbody tr:nth-child(1) td){
-    border-top: 1px solid var(--table-brd-strong) !important; /* separatore sezione */
+  .jarvisLow {
+    animation: jarvisPulse 1.5s infinite;
   }
 `}</style>
 
-{/* ---------------- styles (rinnovati con caleidoscopio) ---------------- */}
+        </div>
+      </div>
+    </>
+  );
+}
+/** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
+function theMediaWorkaround(){}
+
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
-  /* Wrapper pieno schermo con sfondo caleidoscopico */
   page: {
     width: '100%',
     minHeight: '100vh',
-    padding: 24,
+    background: '#0f172a',
+    padding: 24, // più compatto per mobile
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#fff',
     fontFamily:
       'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
-    /* Caleidoscopio con 3 layer conici + film radiale */
-    backgroundImage: [
-      'radial-gradient(120% 90% at 50% 50%, rgba(255,255,255,.05), rgba(255,255,255,0) 60%)',
-      'conic-gradient(from 0deg at 30% 30%, #0ea5e9, #6366f1, #22c55e, #f59e0b, #ef4444, #06b6d4, #0ea5e9)',
-      'conic-gradient(from 180deg at 70% 70%, #22c55e, #06b6d4, #6366f1, #f59e0b, #ef4444, #22c55e)'
-    ].join(','),
-    backgroundColor: 'var(--bg)',
-    backgroundBlendMode: 'screen, normal, normal',
-    backgroundSize: '160% 160%, 180% 180%, 180% 180%',
-    backgroundPosition: '50% 50%, 0% 0%, 100% 100%',
-    animation: 'kaleidoMove 22s linear infinite, kaleidoHue 28s linear infinite',
-    willChange: 'background-position, filter',
   },
 
-  /* Card in “vetro” con glow */
   card: {
     width: '100%',
-    maxWidth: 1100,
-    background: 'var(--panel)',
-    borderRadius: 18,
+    maxWidth: 1000,
+    background: 'rgba(0,0,0,.6)',
+    borderRadius: 16,
     padding: 22,
-    border: '1px solid rgba(255,255,255,.14)',
-    boxShadow:
-      '0 16px 40px rgba(0,0,0,.38), 0 0 42px rgba(255,255,255,.05)',
-    backdropFilter: 'blur(10px)',
+    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
   },
 
   headerRow: {
@@ -2154,76 +2054,62 @@ const styles = {
     marginBottom: 12,
     flexWrap: 'wrap',
   },
-
   homeBtn: {
     background: '#6366f1',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     textDecoration: 'none',
-    fontWeight: 800,
-    border: '1px solid rgba(255,255,255,.18)',
-    boxShadow:
-      '0 10px 24px rgba(99,102,241,.28), 0 0 26px rgba(99,102,241,.22)',
-    cursor: 'pointer',
+    fontWeight: 700,
   },
 
-  /* Switch liste */
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
     background: 'rgba(255,255,255,.08)',
-    border: '1px solid rgba(255,255,255,.16)',
+    border: '1px solid rgba(255,255,255,.15)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 600,
   },
   switchBtnActive: {
     background: '#06b6d4',
-    border: '1px solid rgba(255,255,255,.24)',
+    border: 0,
     color: '#0b1220',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 900,
-    boxShadow:
-      '0 10px 24px rgba(6,182,212,.35), 0 0 34px rgba(6,182,212,.28)',
+    fontWeight: 800,
   },
 
-  /* Tools */
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
   voiceBtn: {
     background: '#6366f1',
-    border: '1px solid rgba(255,255,255,.18)',
+    border: 0,
     color: '#fff',
     padding: '10px 14px',
     borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 900,
-    boxShadow:
-      '0 10px 24px rgba(99,102,241,.28), 0 0 32px rgba(99,102,241,.22)',
+    fontWeight: 800,
   },
 
-  /* Sezioni */
   sectionLarge: { marginTop: 30, marginBottom: 10 },
   sectionXL: { marginTop: 38, marginBottom: 12 },
-  h3: { margin: '6px 0 12px', textShadow: '0 1px 0 rgba(0,0,0,.35)' },
+  h3: { margin: '6px 0 12px' },
 
-  /* Lista corrente */
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
   itemRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'rgba(255,255,255,.06)',
-    border: '1px solid rgba(255,255,255,.16)',
-    borderRadius: 14,
+    background: 'rgba(255,255,255,.05)',
+    border: '1px solid rgba(255,255,255,.12)',
+    borderRadius: 12,
     padding: '10px 12px',
     gap: 8,
     flexWrap: 'wrap',
-    boxShadow: '0 8px 22px rgba(0,0,0,.28)',
   },
   itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
   qtyBadge: {
@@ -2234,13 +2120,11 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: 900,
-    border: '1px solid rgba(255,255,255,.18)',
+    fontWeight: 800,
   },
-  itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.85 },
+  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
+  itemBrand: { fontSize: 12, opacity: 0.8 },
 
-  /* Azioni lista */
   itemActions: {
     display: 'flex',
     alignItems: 'center',
@@ -2250,42 +2134,41 @@ const styles = {
   },
   actionSuccess: {
     background: '#16a34a',
-    border: '1px solid rgba(255,255,255,.16)',
+    border: 0,
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 900,
+    fontWeight: 800,
   },
   actionDanger: {
     background: '#ef4444',
-    border: '1px solid rgba(255,255,255,.16)',
+    border: 0,
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 900,
+    fontWeight: 800,
   },
   actionGhost: {
-    background: 'rgba(255,255,255,.10)',
-    border: '1px solid rgba(255,255,255,.20)',
+    background: 'rgba(255,255,255,.12)',
+    border: '1px solid rgba(255,255,255,.2)',
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 700,
   },
   actionGhostDanger: {
-    background: 'rgba(239,68,68,.12)',
-    border: '1px solid rgba(239,68,68,.55)',
+    background: 'rgba(239,68,68,.1)',
+    border: '1px solid rgba(239,68,68,.6)',
     color: '#fff',
     padding: '8px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 700,
   },
 
-  /* Form */
   formRow: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -2294,50 +2177,41 @@ const styles = {
   },
   input: {
     padding: '10px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     border: '1px solid rgba(255,255,255,.15)',
     background: 'rgba(255,255,255,.06)',
     color: '#fff',
-    minWidth: 160,
+    minWidth: 160, // -40px vs prima per stare su schermi stretti
     flex: '1 1 160px',
-    outline: 'none',
   },
   primaryBtn: {
     background: '#16a34a',
-    border: '1px solid rgba(255,255,255,.16)',
+    border: 0,
     color: '#fff',
     padding: '10px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 900,
+    fontWeight: 800,
     whiteSpace: 'nowrap',
-    boxShadow:
-      '0 10px 24px rgba(22,163,74,.28), 0 0 30px rgba(22,163,74,.22)',
   },
 
-  /* Tabella scorte con bordature marcate e separatori */
   table: {
     width: '100%',
-    borderCollapse: 'separate',     // permette radius e separatori netti
-    borderSpacing: 0,
-    background: 'rgba(255,255,255,.05)',
-    borderRadius: 14,
+    borderCollapse: 'collapse',
+    background: 'rgba(255,255,255,.04)',
+    borderRadius: 12,
     overflow: 'hidden',
-    /* aggiungi classe con style jsx sopra via __kTable, ma rendiamo bello anche inline */
-    border: '1px solid rgba(255,255,255,.16)',
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.04), 0 10px 22px rgba(0,0,0,.28)',
   },
   th: {
     textAlign: 'left',
     padding: '10px',
-    borderBottom: '2px solid rgba(255,255,255,.22)',
-    fontWeight: 800,
+    borderBottom: '1px solid rgba(255,255,255,.12)',
+    fontWeight: 700,
     whiteSpace: 'nowrap',
-    background: 'linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02))',
   },
   td: {
     padding: '10px',
-    borderBottom: '1px solid rgba(255,255,255,.12)',
+    borderBottom: '1px solid rgba(255,255,255,.08)',
     verticalAlign: 'middle',
   },
 
@@ -2349,52 +2223,48 @@ const styles = {
     flexWrap: 'wrap',
   },
 
-  /* Bottoni piccoli */
   voiceBtnSmall: {
     background: '#6366f1',
-    border: '1px solid rgba(255,255,255,.18)',
+    border: 0,
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 700,
     whiteSpace: 'nowrap',
-    boxShadow: '0 8px 20px rgba(99,102,241,.26)',
   },
   voiceBtnSmallStop: {
     background: '#ef4444',
-    border: '1px solid rgba(255,255,255,.18)',
+    border: 0,
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 8px 20px rgba(239,68,68,.26)',
-  },
-  ocrBtnSmall: {
-    background: '#06b6d4',
-    border: '1px solid rgba(255,255,255,.18)',
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 8px 20px rgba(6,182,212,.28)',
-  },
-  ocrInlineBtn: {
-    background: 'rgba(6,182,212,.14)',
-    border: '1px solid rgba(6,182,212,.55)',
-    color: '#e0fbff',
-    padding: '6px 10px',
-    borderRadius: 12,
+    borderRadius: 10,
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
+  ocrBtnSmall: {
+    background: '#06b6d4',
+    border: 0,
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+    ocrInlineBtn: {
+    background: 'rgba(6,182,212,.15)',
+    border: '1px solid rgba(6,182,212,.6)',
+    color: '#e0fbff',
+    padding: '6px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  }, // <-- VIRGOLA QUI
 
-  /* Badge giorni */
+  /* ---------- Badge “Giorni rimasti” ---------- */
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2403,7 +2273,7 @@ const styles = {
     height: 26,
     padding: '0 8px',
     borderRadius: 999,
-    fontWeight: 900,
+    fontWeight: 800,
     fontSize: 12,
   },
   daysBadgeGreen: {
@@ -2426,53 +2296,77 @@ const styles = {
     border: '1px solid rgba(148,163,184,.6)',
     color: '#e2e8f0',
   },
-
-  /* Input compatti per tabella & progress */
   inputTable: {
-    padding: '6px 8px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.20)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: '100%',
-    minWidth: 0,
-  },
-  inputTableSm: {
-    padding: '6px 8px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.20)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 90,
-    minWidth: 0,
-  },
-  inputTableXs: {
-    padding: '6px 8px',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,.20)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#fff',
-    width: 110,
-    minWidth: 0,
-  },
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+  inputTable: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: '100%',
+  minWidth: 0,
+},
+inputTableSm: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 90,
+  minWidth: 0,
+},
+progressWrap: {
+  position: 'relative',
+  width: 120,
+  height: 10,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,.15)',
+  overflow: 'hidden',
+  flex: '0 0 120px',
+},
+progressBar: {
+  position: 'absolute',
+  left: 0,          // <-- usa left/top/bottom (NON inset)
+  top: 0,
+  bottom: 0,
+  width: '0%',      // verrà sovrascritta inline con `${pct * 100}%`
+  transition: 'width .25s ease, background-color .25s ease',
+},
 
-  /* Barra residuo */
-  progressWrap: {
-    position: 'relative',
-    width: 130,
-    height: 10,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,.18)',
-    overflow: 'hidden',
-    flex: '0 0 130px',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.10)',
-  },
-  progressBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '0%',
-    transition: 'width .25s ease, background-color .25s ease',
-  },
-};
+  inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+
+}; // <-- e chiudi l’oggetto con punto e virgola
