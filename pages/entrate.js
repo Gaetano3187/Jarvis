@@ -15,7 +15,7 @@ function isoLocal(date) {
   const m = date.getMonth() + 1;
   const d = date.getDate();
   const pad = (n) => String(n).padStart(2, '0');
-  return `${y}-${pad(m)}-${pad(d)}`;
+  return ${y}-${pad(m)}-${pad(d)};
 }
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear();
@@ -181,7 +181,7 @@ function Entrate() {
           : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
         const dateISO = (row.moved_date || (row.moved_at || row.created_at || '').slice(0,10));
         return {
-          id: `pc-${row.id}`,
+          id: pc-${row.id},
           dateISO,
           label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
           amount: Number(eff || 0),
@@ -204,9 +204,9 @@ function Entrate() {
         const store = m ? m[1] : 'Punto vendita';
         const dett  = m ? m[2] : (f.description || '');
         return {
-          id: `fin-${f.id}`,
+          id: fin-${f.id},
           dateISO,
-          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+          label: Spesa in contante • ${store}${dett ?  • ${dett} : ''},
           amount: -Math.abs(Number(f.amount) || 0),
           category_id: f.category_id,
           kind: 'cash-expense',
@@ -264,7 +264,7 @@ function Entrate() {
       user_id: user.id,
       note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
       delta: (typeof delta === 'number') ? delta : Math.abs(amount),
-      moved_at: `${(date || isoLocal(new Date()))}T12:00:00Z`,
+      moved_at: ${(date || isoLocal(new Date()))}T12:00:00Z,
     };
     const { error } = await supabase.from('pocket_cash').insert(payload);
     if (error) throw error;
@@ -272,43 +272,28 @@ function Entrate() {
 
   /** Inserisce entrata (stipendio/pagamento) */
   async function insertIncomeAssistant(text) {
-  let data;
-  try {
-    data = await callAssistant(buildIncomePrompt(text));
-  } catch (e) {
-    // Evita crash dell’app: mostra errore e termina “false”
-    setError(`Assistant: ${e.message || e}`);
-    return false;
-  }
+    const data = await callAssistant(buildIncomePrompt(text));
+    if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
 
-  // Schema minimo atteso
-  const items = Array.isArray(data?.items) ? data.items : [];
-  const isIncome = (data?.type || '').toLowerCase() === 'income';
-  if (!isIncome || items.length === 0) return false;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Sessione scaduta');
-
-  for (const it of items) {
-    const dataIncasso = it.receivedAt || isoLocal(new Date());
-    const amount = Math.abs(parseAmountLoose(it.amount));
-    if (!amount) continue;
-
-    const payload = {
-      user_id: user.id,
-      source: it.source || 'Entrata',
-      description: it.description || it.source || 'Entrata',
-      amount,
-      received_at: `${dataIncasso}T12:00:00Z`,
+    for (const it of data.items) {
+      const dataIncasso = it.receivedAt || isoLocal(new Date());
+      const amount = Math.abs(parseAmountLoose(it.amount));
+      const payload = {
+        user_id: user.id,
+        source: it.source || 'Entrata',
+        description: it.description || it.source || 'Entrata',
+        amount,
+        received_at: ${dataIncasso}T12:00:00Z,
+      };
+      const { error } = await supabase.from('incomes').insert(payload);
+      if (error) throw error;
     }
-    const { error } = await supabase.from('incomes').insert(payload);
-    if (error) throw error;
-  };
-
-  return true;
-}
-
+    return true;
   }
+
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
@@ -330,10 +315,12 @@ function Entrate() {
       if (ok2) { await loadAll(); return; }
 
       setError('Nessun dato riconosciuto da OCR');
-     catch (err) {
+    } catch (err) {
       showError(setError, err);
     }
-    const toggleRec = async () => {
+  }
+
+  const toggleRec = async () => {
     if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -374,141 +361,74 @@ function Entrate() {
     }
   };
 
-/* --------------------------------- CRUD ---------------------------------- */
-function safeParseAssistantJSON(input) {
-  if (input == null) throw new Error('Empty assistant response');
-
-  // Se è già un oggetto, restituiscilo
-  if (typeof input === 'object') return input;
-
-  // Normalizza stringa
-  let s = String(input)
-    .replace(/^\uFEFF/, '') // BOM
-    .trim();
-
-  // Rimuovi eventuali fence ```json ... ```
-  if (s.startsWith('```')) {
-    s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
-  }
-
-  // 1) Tentativo diretto
-  try { return JSON.parse(s); } catch {}
-
-  // 2) Estrai il PRIMO oggetto o array JSON dal testo
-  const objMatch = s.match(/\{[\s\S]*\}/);
-  const arrMatch = s.match(/\[[\s\S]*\]/);
-  const candidate = (objMatch && objMatch[0]) || (arrMatch && arrMatch[0]);
-  if (candidate) {
-    try { return JSON.parse(candidate); } catch {}
-  }
-
-  // 3) Ripulisci virgole pendenti tipo ", }" o ", ]"
-  const cleaned = s.replace(/,\s*([}\]])/g, '$1');
-  try { return JSON.parse(cleaned); } catch {}
-
-  throw new Error('Assistant response invalid');
-}
-
-async function callAssistant(prompt) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 25000); // timeout 25s
-
-  let res, payload;
-  try {
-    res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-      signal: controller.signal,
-    });
-    // La tua API risponde { answer, error }
-    payload = await res.json().catch(() => ({}));
-  } catch (e) {
-    clearTimeout(t);
-    throw new Error(e?.name === 'AbortError' ? 'Assistant timeout' : (e?.message || 'Assistant fetch error'));
-  } finally {
-    clearTimeout(t);
-  }
-
-  if (!res.ok) {
-    throw new Error(payload?.error || `HTTP ${res.status}`);
-  }
-  if (!payload || (payload.answer == null && payload.error)) {
-    throw new Error(payload?.error || 'Assistant empty response');
-  }
-
-  // Accetta sia stringa sia oggetto già parsato
-  const parsed = safeParseAssistantJSON(payload.answer);
-  return parsed;
-}
-
-async function handleDeleteIncome(id) {
-  try {
-    const { error: e } = await supabase.from('incomes').delete().eq('id', id);
-    if (e) throw e;
-    setIncomes((prev) => prev.filter((i) => i.id !== id));
-  } catch (err) {
-    showError(setError, err);
-  }
-}
-
-async function handleSaveCarryover(e) {
-  e.preventDefault();
-  setError(null);
-  try {
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!user) throw new Error('Sessione scaduta');
-
-    const amt = Number(newCarry.amount);
-    const payload = {
-      user_id: user.id,
-      month_key: monthKey,
-      amount: Number.isFinite(amt) ? amt : 0,
-      note: newCarry.note || null,
-    };
-
-    if (carryover?.id) {
-      const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
+  /* --------------------------------- CRUD ---------------------------------- */
+  async function handleAddIncome(e) {
+    e.preventDefault(); setError(null);
+    try {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const payload = {
+        user_id: user.id,
+        source: newIncome.source || 'Entrata',
+        description: newIncome.description || newIncome.source || 'Entrata',
+        amount: Math.abs(parseAmountLoose(newIncome.amount)),
+        received_at: (newIncome.receivedAt ? ${newIncome.receivedAt}T12:00:00Z : new Date().toISOString()),
+      };
+      const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
-    } else {
-      const { error } = await supabase.from('carryovers').insert(payload);
+      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
+      await loadAll();
+    } catch (err) { showError(setError, err); }
+  }
+
+  async function handleDeleteIncome(id) {
+    try {
+      const { error: e } = await supabase.from('incomes').delete().eq('id', id);
+      if (e) throw e;
+      setIncomes(incomes.filter((i) => i.id !== id));
+    } catch (err) { showError(setError, err); }
+  }
+
+  async function handleSaveCarryover(e) {
+    e.preventDefault(); setError(null);
+    try {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const payload = {
+        user_id: user.id, month_key: monthKey,
+        amount: Number(newCarry.amount) || 0, note: newCarry.note || null,
+      };
+      if (carryover?.id) {
+        const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('carryovers').insert(payload);
+        if (error) throw error;
+      }
+      setNewCarry({ amount: '', note: '' });
+      await loadAll();
+    } catch (err) { showError(setError, err); }
+  }
+
+  async function handleTopUpPocket(e) {
+    e.preventDefault(); setError(null);
+    try {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const delta = parseAmountLoose(pocketTopUp);
+      if (!delta) return;
+      const payload = {
+        user_id: user.id,
+        note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
+        delta,
+        moved_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) throw error;
-    }
-
-    setNewCarry({ amount: '', note: '' });
-    await loadAll();
-  } catch (err) {
-    showError(setError, err);
+      setPocketTopUp('');
+      await loadAll();
+    } catch (err) { showError(setError, err); }
   }
-}
-
-async function handleTopUpPocket(e) {
-  e.preventDefault();
-  setError(null);
-  try {
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!user) throw new Error('Sessione scaduta');
-
-    const delta = parseAmountLoose(pocketTopUp);
-    if (!Number.isFinite(delta) || delta === 0) return;
-
-    const payload = {
-      user_id: user.id,
-      note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
-      delta,
-      moved_at: new Date().toISOString(),
-    };
-    const { error } = await supabase.from('pocket_cash').insert(payload);
-    if (error) throw error;
-
-    setPocketTopUp('');
-    await loadAll();
-  } catch (err) {
-    showError(setError, err);
-  }
-}
 
   async function handleClearPocket() {
     if (!confirm('Ripulisci: rimuove i movimenti manuali e nasconde qui le spese cash di Varie. Confermi?')) return;
@@ -598,7 +518,7 @@ async function handleTopUpPocket(e) {
           <form className="input-section" onSubmit={handleSaveCarryover}>
             <input type="number" step="0.01" value={newCarry.amount}
                    onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-                   placeholder={`Importo € per ${monthKey}`} required />
+                   placeholder={Importo € per ${monthKey}} required />
             <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
             <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
           </form>
@@ -645,7 +565,7 @@ async function handleTopUpPocket(e) {
         </div>
       </div>
 
-      <style jsx global>{`
+      <style jsx global>{
         .spese-casa-container1 { width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; min-height: 100vh; padding: 2rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
         .spese-casa-container2 { background: rgba(0, 0, 0, 0.6); padding: 2rem; border-radius: 1rem; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.3); max-width: 1000px; width: 100%; }
         .title-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .25rem; }
@@ -668,7 +588,7 @@ async function handleTopUpPocket(e) {
         .metric--saldo { color: #22c55e; }
         .metric--pocket { color: #06b6d4; }
         .error { color: #f87171; margin-top: 1rem; }
-      `}</style>
+      }</style>
     </>
   );
 }
