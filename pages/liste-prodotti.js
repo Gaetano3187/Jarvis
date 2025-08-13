@@ -2131,15 +2131,17 @@ const styles = {
 
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
-  voiceBtn: {
-    background: '#6366f1',
-    border: 0,
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: 12,
-    cursor: 'pointer',
-    fontWeight: 800,
-  },
+ voiceBtn: {
+  position:'relative',
+  background: 'linear-gradient(180deg, rgba(99,102,241,0.95), rgba(99,102,241,0.78))',
+  border: '1px solid rgba(255,255,255,0.16)',
+  color: '#fff',
+  padding: '10px 14px',
+  borderRadius: 12,
+  cursor: 'pointer',
+  fontWeight: 800,
+  boxShadow: '0 8px 22px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.06)',
+},
 
   sectionLarge: { marginTop: 30, marginBottom: 10 },
   sectionXL: { marginTop: 38, marginBottom: 12 },
