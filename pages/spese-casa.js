@@ -328,17 +328,18 @@ function SpeseCasa() {
   }
 
   // ----------------------------- Helpers
-  function normDate(v) {
-    const s = String(v || '').trim().toLowerCase()
-    if (s === 'oggi') return new Date().toISOString().slice(0, 10)
-    if (s === 'ieri') {
-      const d = new Date()
-      d.setDate(d.getDate() - 1)
-      return d.toISOString().slice(0, 10)
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-    return new Date().toISOString().slice(0, 10)
+ function normDate(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'oggi') return isoLocal(new Date());
+  if (s === 'ieri') {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return isoLocal(d);
   }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;        // già ISO
+  const d = new Date(s);
+  return isNaN(d) ? isoLocal(new Date()) : isoLocal(d); // fallback sicuro
+}
 
   const fmtDateIT = (v) => {
     if (!v) return '-'
