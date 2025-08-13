@@ -154,13 +154,20 @@ function Entrate() {
       await ensureCarryoverAuto(user.id, monthKey);
 
       // Entrate periodo
-      const { data: inc } = await supabase.from('incomes')
-        .select('id, source, description, amount, received_at, received_date')
-        .eq('user_id', user.id)
-        .gte('received_date', startDate)
-        .lte('received_date', endDate)
-        .order('received_at', { ascending: false });
-      setIncomes(inc || []);
+     const dateStartTS = `${startDate}T00:00:00`;
+const dateEndTS   = `${endDate}T23:59:59`;
+
+const { data: inc, error: incErr } = await supabase
+  .from('incomes')
+  .select('id, source, description, amount, received_at, received_date')
+  .eq('user_id', user.id)
+  .or(
+    `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
+    `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
+  )
+  .order('received_at', { ascending: false });
+if (incErr) throw incErr;
+
 
       // Carryover mese
       const { data: co } = await supabase.from('carryovers')
