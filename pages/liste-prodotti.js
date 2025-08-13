@@ -2005,70 +2005,55 @@ async function processVoiceInventory() {
             </div>
           )}
 <style jsx>{`
-  /* ======= BG caleidoscopio senza video ======= */
-  .bg-kaleido{
-    position: fixed; inset: 0;
-    z-index: -1; pointer-events: none;
-    background:
-      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.06), transparent 40%),
-      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.05), transparent 40%),
-      conic-gradient(from 0deg,
-        rgba(6,182,212,0.14),
-        rgba(99,102,241,0.14),
-        rgba(248,113,113,0.14),
-        rgba(6,182,212,0.14));
-    filter: saturate(1.08) contrast(1.04);
-    animation: spinGlow 28s linear infinite, pulseBloom 3.2s ease-in-out infinite;
-  }
+    /* ======= Sfondo caleidoscopio animato ======= */
+    .bg-kaleido{
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.06), transparent 40%),
+        radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.05), transparent 40%),
+        conic-gradient(from 0deg,
+          rgba(6,182,212,0.14),
+          rgba(99,102,241,0.14),
+          rgba(248,113,113,0.14),
+          rgba(6,182,212,0.14));
+      filter: saturate(1.08) contrast(1.04);
+      animation: spinGlow 28s linear infinite, pulseBloom 3.2s ease-in-out infinite;
+    }
 
-  /* Glow/shimmer forte in stile finanze */
-  .glow-strong::before{
-    content:""; position:absolute; inset:-22%;
-    background: conic-gradient(from 0deg,
-      rgba(255,255,255,.10),
-      rgba(255,255,255,.26),
-      rgba(255,255,255,.10));
-    filter: blur(18px); opacity:.55; z-index:1;
-    animation: spinGlow 12s linear infinite;
-    pointer-events:none;
-  }
-  .glow-strong::after{
-    content:""; position:absolute; inset:0;
-    background:
-      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.14), transparent 40%),
-      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.12), transparent 40%);
-    z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.4s ease-in-out infinite;
-    pointer-events:none;
-  }
+    /* Effetti hover generici per button */
+    :global(button){
+      transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .25s ease, border-color .25s ease;
+      will-change: transform, filter;
+    }
+    :global(button:hover){ transform: translateY(-1px); }
 
-  /* Badge scorte basse (tua animazione mantenuta) */
-  @keyframes jarvisPulse {
-    0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
-    70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
-    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-  }
-  .jarvisLow { animation: jarvisPulse 1.5s infinite; }
+    /* Animazione scorte basse (mantengo la tua classe) */
+    @keyframes jarvisPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
+      70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+    .jarvisLow { animation: jarvisPulse 1.5s infinite; }
 
-  /* Micro-animazioni condivise */
-  @keyframes spinGlow { to { transform: rotate(360deg); } }
-  @keyframes pulseBloom { 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.78; filter:brightness(1.25);} }
-
-  /* Hover morbidi per bottoni (applicati via :global perché sono inline-styled) */
-  :global(button){
-    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .25s ease, border-color .25s ease;
-    will-change: transform, filter;
-  }
-  :global(button:hover){ transform: translateY(-1px); }
-`}</style>
+    /* Animazioni di sfondo */
+    @keyframes spinGlow { to { transform: rotate(360deg); } }
+    @keyframes pulseBloom {
+      0%,100% { opacity:.32; filter:brightness(1); }
+      50%     { opacity:.78; filter:brightness(1.25); }
+    }
+  `}</style>
+</>
         </div>
       </div>
-    </>
-  );
+      );
 }
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
 
-/* ---------------- styles (ottimizzati + aggiornati) ---------------- */
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
   page: {
     width: '100%',
@@ -2086,10 +2071,11 @@ const styles = {
   card: {
     width: '100%',
     maxWidth: 1000,
-    background: 'rgba(0,0,0,.6)',
+    background: 'rgba(0,0,0,.60)',
     borderRadius: 16,
     padding: 22,
-    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: '0 12px 28px rgba(0,0,0,0.30)',
   },
 
   headerRow: {
@@ -2101,32 +2087,39 @@ const styles = {
     flexWrap: 'wrap',
   },
   homeBtn: {
-    background: '#6366f1',
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(99,102,241,0.98), rgba(99,102,241,0.84))',
+    border: '1px solid rgba(255,255,255,0.16)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     textDecoration: 'none',
-    fontWeight: 700,
+    fontWeight: 800,
+    boxShadow: '0 8px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
   },
 
   switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
   switchBtn: {
-    background: 'rgba(255,255,255,.08)',
-    border: '1px solid rgba(255,255,255,.15)',
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04))',
+    border: '1px solid rgba(255,255,255,0.16)',
     color: '#fff',
     padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 600,
+    fontWeight: 700,
+    boxShadow: '0 6px 18px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.05)',
   },
   switchBtnActive: {
-    background: '#06b6d4',
-    border: 0,
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(6,182,212,0.98), rgba(6,182,212,0.84))',
+    border: '1px solid rgba(255,255,255,0.16)',
     color: '#0b1220',
     padding: '8px 12px',
-    borderRadius: 10,
+    borderRadius: 12,
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
+    boxShadow: '0 10px 24px rgba(0,0,0,0.28), 0 0 28px rgba(6,182,212,0.24), inset 0 1px 0 rgba(255,255,255,0.06)',
   },
 
   toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
@@ -2142,68 +2135,24 @@ const styles = {
     fontWeight: 800,
     boxShadow: '0 8px 22px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.06)',
   },
-  voiceBtnSmall: {
-    position: 'relative',
-    background: 'linear-gradient(180deg, rgba(99,102,241,0.95), rgba(99,102,241,0.78))',
-    border: '1px solid rgba(255,255,255,0.16)',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    boxShadow: '0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
-  },
-  voiceBtnSmallStop: {
-    position: 'relative',
-    background: 'linear-gradient(180deg, rgba(239,68,68,0.95), rgba(239,68,68,0.8))',
-    border: '1px solid rgba(255,255,255,0.16)',
-    color: '#fff',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
-  },
-
-  ocrBtnSmall: {
-    position: 'relative',
-    background: 'linear-gradient(180deg, rgba(6,182,212,0.95), rgba(6,182,212,0.78))',
-    border: '1px solid rgba(255,255,255,0.16)',
-    color: '#0b1220',
-    padding: '8px 12px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 800,
-    boxShadow: '0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
-  },
-  ocrInlineBtn: {
-    position: 'relative',
-    background: 'linear-gradient(180deg, rgba(6,182,212,.22), rgba(6,182,212,.12))',
-    border: '1px solid rgba(6,182,212,.6)',
-    color: '#e0fbff',
-    padding: '6px 10px',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-    boxShadow: '0 6px 18px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.04)',
-  },
 
   sectionLarge: { marginTop: 30, marginBottom: 10 },
   sectionXL: { marginTop: 38, marginBottom: 12 },
   h3: { margin: '6px 0 12px' },
 
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
+
   itemRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     background: 'rgba(255,255,255,.05)',
-    border: '1px solid rgba(255,255,255,.12)',
-    borderRadius: 12,
+    border: '1px solid rgba(255,255,255,.14)',
+    borderRadius: 14,
     padding: '10px 12px',
     gap: 8,
     flexWrap: 'wrap',
+    boxShadow: '0 10px 24px rgba(0,0,0,0.28)',
   },
   itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
   qtyBadge: {
@@ -2218,8 +2167,8 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.14)',
     boxShadow: '0 6px 16px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,0.06)',
   },
-  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
-  itemBrand: { fontSize: 12, opacity: 0.8 },
+  itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
+  itemBrand: { fontSize: 12, opacity: 0.85 },
 
   itemActions: {
     display: 'flex',
@@ -2332,6 +2281,53 @@ const styles = {
     flexWrap: 'wrap',
   },
 
+  voiceBtnSmall: {
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(99,102,241,0.95), rgba(99,102,241,0.78))',
+    border: '1px solid rgba(255,255,255,0.16)',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    boxShadow: '0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
+  },
+  voiceBtnSmallStop: {
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(239,68,68,0.95), rgba(239,68,68,0.80))',
+    border: '1px solid rgba(255,255,255,0.16)',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    boxShadow: '0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
+  },
+  ocrBtnSmall: {
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(6,182,212,0.95), rgba(6,182,212,0.78))',
+    border: '1px solid rgba(255,255,255,0.16)',
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    boxShadow: '0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
+  },
+  ocrInlineBtn: {
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(6,182,212,.22), rgba(6,182,212,.12))',
+    border: '1px solid rgba(6,182,212,.60)',
+    color: '#e0fbff',
+    padding: '6px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.04)',
+  },
+
+  // Badge “Giorni rimasti”
   daysBadgeBase: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -2364,6 +2360,7 @@ const styles = {
     color: '#e2e8f0',
   },
 
+  // Input in tabella
   inputTable: {
     padding: '6px 8px',
     borderRadius: 8,
@@ -2392,6 +2389,7 @@ const styles = {
     minWidth: 0,
   },
 
+  // Barra progresso scorte
   progressWrap: {
     position: 'relative',
     width: 140,
@@ -2411,5 +2409,3 @@ const styles = {
     transition: 'width .25s ease, background-color .25s ease',
   },
 };
-
-}; // <-- e chiudi l’oggetto con punto e virgola
