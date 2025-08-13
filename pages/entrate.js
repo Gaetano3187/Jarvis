@@ -1,4 +1,4 @@
-// pages/entrate.js 
+// pages/entrate.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -189,38 +189,29 @@ function Entrate() {
         };
       });
 
-    // Spese cash dalle altre sezioni — una sola dichiarazione di cashRows
-const dateStartTS = `${startDate}T00:00:00`;
-const dateEndTS   = `${endDate}T23:59:59`;
+      // Spese cash dalle altre sezioni
+      let finQuery = supabase.from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id')
+        .eq('user_id', user.id).eq('payment_method', 'cash')
+        .gte('spent_date', startDate).lte('spent_date', endDate)
+        .order('spent_at', { ascending: false });
 
-const { data: finCash, error: finErr } = await supabase
-  .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-  .eq('user_id', user.id)
-  .eq('payment_method', 'cash') // enum: cash|card|bank
-  .or([
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,      // se c'è spent_date
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`,      // se spent_at è timestamp
-    `and(spent_at.gte.${startDate},spent_at.lte.${endDate})`           // se spent_at è solo YYYY-MM-DD
-  ].join(','))
-  .order('spent_at', { ascending: false });
+      const { data: finCash } = await finQuery;
 
-if (finErr) throw finErr;
-
-let cashRows = (finCash || []).map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-  const store = m ? m[1] : 'Punto vendita';
-  const dett  = m ? m[2] : (f.description || '');
-  return {
-    id: `fin-${f.id}`,
-    dateISO,
-    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    amount: -Math.abs(Number(f.amount) || 0),
-    category_id: f.category_id,
-    kind: 'cash-expense',
-  };
-});
+      let cashRows = (finCash || []).map((f) => {
+        const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+        const store = m ? m[1] : 'Punto vendita';
+        const dett  = m ? m[2] : (f.description || '');
+        return {
+          id: `fin-${f.id}`,
+          dateISO,
+          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+          amount: -Math.abs(Number(f.amount) || 0),
+          category_id: f.category_id,
+          kind: 'cash-expense',
+        };
+      });
 
       // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
       if (hideVarieCashAfterClear) {
