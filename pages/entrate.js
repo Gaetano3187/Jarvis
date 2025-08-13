@@ -127,6 +127,7 @@ function Entrate() {
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
+  const financesChannelRef = useRef(null);
 
   // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
   const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
