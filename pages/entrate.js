@@ -195,38 +195,20 @@ if (incErr) throw incErr;
         };
       });
 
-     // Spese cash dalle altre sezioni (solo colonne esistenti)
-const paymentCashList = ['cash','Cash','CASH','contanti','Contanti'];
+      // Spese cash dalle altre sezioni
+     const paymentCashList = ['cash','Cash','CASH','contanti','Contanti'];
 
-const { data: finCash, error: finErr } = await supabase
+let { data: finCash, error: finErr } = await supabase
   .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method, payment, method')
   .eq('user_id', user.id)
   .or(
-    [
-      `and(spent_date.gte.${startDate},spent_date.lte.${endDate})`,
-      `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-    ].join(',')
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
   )
   .in('payment_method', paymentCashList)
   .order('spent_at', { ascending: false });
-
 if (finErr) throw finErr;
-
-let cashRows = (finCash || []).map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-  const store = m ? m[1] : 'Punto vendita';
-  const dett  = m ? m[2] : (f.description || '');
-  return {
-    id: `fin-${f.id}`,
-    dateISO,
-    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    amount: -Math.abs(Number(f.amount) || 0),
-    category_id: f.category_id,
-    kind: 'cash-expense',
-  };
-});
 
 // Fallback legacy: payment/method
 if (!finCash?.length) {
@@ -272,16 +254,9 @@ if (!finCash?.length) {
       setPocketRows(rows);
 
       // Totale spese del periodo (facoltativo)
-      const { data: exp, error: expErr } = await supabase
-  .from('finances')
-  .select('amount, spent_date, spent_at')
-  .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  );
-if (expErr) throw expErr;
-
+      const { data: exp } = await supabase.from('finances')
+        .select('amount, spent_date').eq('user_id', user.id)
+        .gte('spent_date', startDate).lte('spent_date', endDate);
       const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
       setMonthExpenses(totalExp);
     } catch (err) {
