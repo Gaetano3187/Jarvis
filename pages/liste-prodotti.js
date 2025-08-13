@@ -1593,6 +1593,7 @@ async function processVoiceInventory() {
       <Head><title>🛍 Lista Prodotti</title></Head>
 
       <div style={styles.page}>
+    <div className="bg-kaleido" aria-hidden="true" />
         <div style={styles.card}>
           {/* Header */}
           <div style={styles.headerRow}>
@@ -2004,16 +2005,61 @@ async function processVoiceInventory() {
             </div>
           )}
 <style jsx>{`
+  /* ======= BG caleidoscopio senza video ======= */
+  .bg-kaleido{
+    position: fixed; inset: 0;
+    z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.06), transparent 40%),
+      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.05), transparent 40%),
+      conic-gradient(from 0deg,
+        rgba(6,182,212,0.14),
+        rgba(99,102,241,0.14),
+        rgba(248,113,113,0.14),
+        rgba(6,182,212,0.14));
+    filter: saturate(1.08) contrast(1.04);
+    animation: spinGlow 28s linear infinite, pulseBloom 3.2s ease-in-out infinite;
+  }
+
+  /* Glow/shimmer forte in stile finanze */
+  .glow-strong::before{
+    content:""; position:absolute; inset:-22%;
+    background: conic-gradient(from 0deg,
+      rgba(255,255,255,.10),
+      rgba(255,255,255,.26),
+      rgba(255,255,255,.10));
+    filter: blur(18px); opacity:.55; z-index:1;
+    animation: spinGlow 12s linear infinite;
+    pointer-events:none;
+  }
+  .glow-strong::after{
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.14), transparent 40%),
+      radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.12), transparent 40%);
+    z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.4s ease-in-out infinite;
+    pointer-events:none;
+  }
+
+  /* Badge scorte basse (tua animazione mantenuta) */
   @keyframes jarvisPulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
     70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
     100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
   }
-  .jarvisLow {
-    animation: jarvisPulse 1.5s infinite;
-  }
-`}</style>
+  .jarvisLow { animation: jarvisPulse 1.5s infinite; }
 
+  /* Micro-animazioni condivise */
+  @keyframes spinGlow { to { transform: rotate(360deg); } }
+  @keyframes pulseBloom { 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.78; filter:brightness(1.25);} }
+
+  /* Hover morbidi per bottoni (applicati via :global perché sono inline-styled) */
+  :global(button){
+    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .25s ease, border-color .25s ease;
+    will-change: transform, filter;
+  }
+  :global(button:hover){ transform: translateY(-1px); }
+`}</style>
         </div>
       </div>
     </>
