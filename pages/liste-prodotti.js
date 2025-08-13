@@ -2201,6 +2201,11 @@ export default function NavBar() {
     .link{ width:100%; padding:10px; text-align:center; }
   }
 `}</style>
+        </div>
+      </div>
+    </>
+  );
+}
 
 /** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
 function theMediaWorkaround(){}
