@@ -221,12 +221,13 @@ function Entrate() {
         return ELECTRONIC_TOKENS.some(k => t.includes(k));
       }
       function isCashByFields(row) {
-        const v = [row.payment_method, row.payment, row.method]
-          .map(x => String(x || '').toLowerCase());
-        if (v.some(x => x === 'cash' || x === 'contanti')) return true;                 // marcato cash esplicito
-        if (v.some(x => x && x !== 'cash' && x !== 'contanti')) return false;           // marcato elettronico
-        return !isElectronicByText(row.description);                                     // default cash se descrizione non contiene token elettronici
-      }
+  const v = [row.payment_method, row.method]
+    .map(x => String(x || '').toLowerCase());
+  if (v.some(x => x === 'cash' || x === 'contanti')) return true;          // marcato cash esplicito
+  if (v.some(x => x && x !== 'cash' && x !== 'contanti')) return false;    // marcato elettronico
+  // default: cash se la descrizione NON contiene parole di pagamento elettronico
+  return !isElectronicByText(row.description);
+}
 
       let finCash = (finAll || []).filter(isCashByFields);
 
