@@ -39,8 +39,7 @@ function SpeseCasa() {
     setLoading(true)
     const { data, error } = await supabase
       .from('finances')
-     .select('id, description, amount, qty, spent_at, spent_date, payment_method, card_label')
-
+      .select('id, description, amount, qty, spent_at, payment_method, card_label')
       .eq('category_id', CATEGORY_ID_CASA)
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
@@ -147,18 +146,18 @@ function SpeseCasa() {
     const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
     const method = methodRaw === 'transfer' ? 'bank' : methodRaw
 
-  const row = {
-  user_id: user.id,
-  category_id: CATEGORY_ID_CASA,
-  description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
-  amount: Number(nuovaSpesa.prezzoTotale) || 0,
-  qty: parseFloat(nuovaSpesa.quantita) || 1,
-  payment_method: method, // cash | card | bank
-  card_label: (method === 'card' ? (nuovaSpesa.cardLabel?.trim() || null) : null),
-  // NEW:
-  spent_date: dISO,
-  spent_at: `${dISO}T12:00:00Z`,
-}
+    const row = {
+      user_id: user.id,
+      category_id: CATEGORY_ID_CASA,
+      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
+      amount: Number(nuovaSpesa.prezzoTotale) || 0,
+      spent_at: (nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10)),
+      qty: parseFloat(nuovaSpesa.quantita) || 1,
+      payment_method: method, // cash | card | bank
+      card_label: (method === 'card'
+        ? (nuovaSpesa.cardLabel?.trim() || null)
+        : null),
+    }
 
     const { error: insertError } = await supabase.from('finances').insert(row)
     if (insertError) setError(insertError.message)
@@ -369,12 +368,10 @@ function SpeseCasa() {
         category_id: CATEGORY_ID_CASA,
         description: parts.join(' '),
         amount: totalPrice,
-      spent_date: spentAt,
-      spent_at: `${spentAt}T12:00:00Z`,
-      qty: qty,
-      payment_method: method,
-      card_label: label,
-
+        spent_at: spentAt,
+        qty: qty,
+        payment_method: method,
+        card_label: label,
       }
     })
 
@@ -521,11 +518,7 @@ function SpeseCasa() {
                       <tr key={r.id}>
                         <td>{m[1] || '-'}</td>
                         <td>{m[2] || r.description}</td>
-                     <td>{
-  (r.spent_date || r.spent_at)
-    ? new Date((r.spent_date || r.spent_at)).toLocaleDateString('it-IT')
-    : '-'
-}</td>
+                        <td>{r.spent_at ? new Date(r.spent_at).toLocaleDateString() : '-'}</td>
                         <td>{r.qty}</td>
                         <td>{Number(r.amount).toFixed(2)}</td>
                         <td>{renderPayBadge(r)}</td>
