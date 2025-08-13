@@ -2022,7 +2022,7 @@ async function processVoiceInventory() {
 function theMediaWorkaround(){}
 
 /* ---------------- styles (ottimizzati + animazioni NavBar) ---------------- */
-const styles = {
+export const styles = {
   page: {
     width: '100%',
     minHeight: '100vh',
@@ -2356,5 +2356,3 @@ const styles = {
     transition: 'width .25s ease, background-color .25s ease',
   },
 };
-
-export default styles;
