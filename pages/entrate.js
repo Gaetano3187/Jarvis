@@ -10,13 +10,63 @@ const PAYDAY_DAY = 10;
 const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';
 
 /* --------------------------- helpers --------------------------- */
-function isoLocal(date) {
+function isoLocal(date = new Date()) {
   const y = date.getFullYear();
-  const m = date.getMonth() + 1;
-  const d = date.getDate();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${y}-${pad(m)}-${pad(d)}`;
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
+
+/** oggi / ieri / domani / YYYY-MM-DD / DD/MM/YYYY / DD-MM-YYYY / DD.MM.YYYY / YYYY/MM/DD / YYYY.MM.DD */
+function smartDate(input) {
+  const s = String(input || '').trim().toLowerCase();
+
+  if (/\boggi\b/.test(s))    return isoLocal(new Date());
+  if (/\bieri\b/.test(s))   { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d); }
+  if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d); }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (m) {
+    const dd = String(parseInt(m[1],10)).padStart(2,'0');
+    const mm = String(parseInt(m[2],10)).padStart(2,'0');
+    const yyyy = m[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if (m) {
+    const yyyy = m[1];
+    const mm = String(parseInt(m[2],10)).padStart(2,'0');
+    const dd = String(parseInt(m[3],10)).padStart(2,'0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  const d = new Date(s);
+  return isNaN(d) ? isoLocal(new Date()) : isoLocal(d);
+}
+
+/** render sicuro IT: se stringa è YYYY-MM-DD, la tratto come locale puro */
+function fmtDateIT(v) {
+  if (!v) return '-';
+  const s = String(v);
+  const ymd = s.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (ymd) {
+    const [yy, mm, dd] = ymd.split('-').map(Number);
+    return new Date(yy, mm - 1, dd).toLocaleDateString('it-IT');
+  }
+  return new Date(s).toLocaleDateString('it-IT');
+}
+
+function extractRelativeDateFromText(text) {
+  const t = String(text || '').toLowerCase();
+  if (/\boggi\b/.test(t))    return isoLocal(new Date());
+  if (/\bieri\b/.test(t))   { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d); }
+  if (/\bdomani\b/.test(t)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d); }
+  return null;
+}
+
 function computeCurrentPayPeriod(today, paydayDay) {
   const y = today.getFullYear();
   const m = today.getMonth();
@@ -30,6 +80,7 @@ function computeCurrentPayPeriod(today, paydayDay) {
   const monthKey = isoLocal(end).slice(0, 7);
   return { startDate, endDate, monthKey };
 }
+
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const { data: existing } = await supabase.from('carryovers').select('id')
     .eq('user_id', userId).eq('month_key', monthKeyCurrent).maybeSingle();
@@ -59,6 +110,7 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     amount: Number(saldoPrevBase.toFixed(2)), note: 'Auto-carryover da mese precedente',
   });
 }
+
 function parseAmountLoose(v) {
   if (typeof v === 'number') return v;
   const s = String(v ?? '').trim().replace(/\s/g, '')
@@ -196,60 +248,54 @@ function Entrate() {
         };
       });
 
-// Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
-const ELECTRONIC_TOKENS = [
-  'carta', 'carta di credito', 'credito', 'debito', 'pos',
-  'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-  'satispay', 'apple pay', 'google pay'
-];
+      // Spese cash dalle altre sezioni (filtrate a contanti)
+      const ELECTRONIC_TOKENS = [
+        'carta','carta di credito','credito','debito','pos',
+        'visa','mastercard','amex','paypal','iban','bonifico',
+        'satispay','apple pay','google pay'
+      ];
+      const { data: finAll, error: finAllErr } = await supabase
+        .from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+        .eq('user_id', user.id)
+        .or(
+          `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+        )
+        .order('spent_at', { ascending: false, nullsFirst: false })
+        .order('spent_date', { ascending: false, nullsFirst: false });
+      if (finAllErr) throw finAllErr;
 
-const { data: finAll, error: finAllErr } = await supabase
-  .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-  .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  )
-  .order('spent_at', { ascending: false, nullsFirst: false })
-  .order('spent_date', { ascending: false, nullsFirst: false });
+      function isElectronicByText(desc) {
+        const t = String(desc || '').toLowerCase();
+        return ELECTRONIC_TOKENS.some(k => t.includes(k));
+      }
+      function isCashByFields(row) {
+        const pm = String(row.payment_method || '').toLowerCase();
+        if (pm === 'cash' || pm === 'contanti') return true;
+        if (pm && pm !== 'cash' && pm !== 'contanti') return false;
+        return !isElectronicByText(row.description);
+      }
+      let finCash = (finAll || []).filter(isCashByFields);
 
-if (finAllErr) throw finAllErr;
+      let cashRows = (finCash || []).map((f) => {
+        const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+        const store = m ? m[1] : 'Punto vendita';
+        const dett  = m ? m[2] : (f.description || '');
+        return {
+          id: `fin-${f.id}`,
+          dateISO,
+          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+          amount: -Math.abs(Number(f.amount) || 0),
+          category_id: f.category_id,
+          kind: 'cash-expense',
+        };
+      });
 
-function isElectronicByText(desc) {
-  const t = String(desc || '').toLowerCase();
-  return ELECTRONIC_TOKENS.some(k => t.includes(k));
-}
-function isCashByFields(row) {
-  const pm = String(row.payment_method || '').toLowerCase();
-  if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
-  if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
-  // default: contanti se la descrizione NON contiene parole di pagamento elettronico
-  return !isElectronicByText(row.description);
-}
-
-let finCash = (finAll || []).filter(isCashByFields);
-
-let cashRows = (finCash || []).map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-  const store = m ? m[1] : 'Punto vendita';
-  const dett  = m ? m[2] : (f.description || '');
-  return {
-    id: `fin-${f.id}`,
-    dateISO,
-    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    amount: -Math.abs(Number(f.amount) || 0),
-    category_id: f.category_id,
-    kind: 'cash-expense',
-  };
-});
-
-// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
-
+      if (hideVarieCashAfterClear) {
+        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+      }
 
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
@@ -275,13 +321,27 @@ if (hideVarieCashAfterClear) {
     const today = isoLocal(new Date());
     const example = JSON.stringify({
       type: 'income',
-      items: [{ source: 'Stipendio', description: 'Stipendio', amount: 1500, receivedAt: today }],
+      items: [{
+        source: 'Stipendio',
+        description: 'Stipendio di giugno',
+        amount: 1500,
+        receivedAt: today // può anche essere "oggi|ieri|domani|DD/MM/YYYY"
+      }],
     });
     return [
       'Sei Jarvis. Estrai ENTRATE economiche (stipendio, pagamenti, rimborsi).',
-      'Rispondi SOLO con JSON:', example, '', 'Testo:', userText,
+      'Restituisci solo JSON con schema:',
+      example,
+      '',
+      'Regole importanti:',
+      '- "receivedAt" può essere "YYYY-MM-DD" oppure "DD/MM/YYYY" oppure "oggi|ieri|domani".',
+      '- Se il testo dice "stipendio di <mese>", metti quel mese nella description (es: "Stipendio di giugno").',
+      '',
+      'Testo:',
+      userText,
     ].join('\n');
   }
+
   async function callAssistant(prompt) {
     const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
     const { answer, error: apiErr } = await res.json();
@@ -289,37 +349,30 @@ if (hideVarieCashAfterClear) {
     return JSON.parse(answer);
   }
 
-  /** Inserisce pocket_cash (ricarica/uscita) — usato per voce/OCR “prelevato / messo in tasca” */
-  async function insertPocketQuick({ amount, date, delta, note }) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-    const payload = {
-      user_id: user.id,
-      note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-      delta: (typeof delta === 'number') ? delta : Math.abs(amount),
-      moved_at: `${(date || isoLocal(new Date()))}T12:00:00Z`,
-    };
-    const { error } = await supabase.from('pocket_cash').insert(payload);
-    if (error) throw error;
-  }
-
-  /** Inserisce entrata (stipendio/pagamento) */
-  async function insertIncomeAssistant(text) {
-    const data = await callAssistant(buildIncomePrompt(text));
+  /** Inserisce entrata (stipendio/pagamento) — robusto a "oggi/ieri/domani" */
+  async function insertIncomeAssistant(rawText) {
+    const data = await callAssistant(buildIncomePrompt(rawText));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
+    const forcedFromText = extractRelativeDateFromText(rawText); // oggi/ieri/domani nel parlato
+
     for (const it of data.items) {
-      const dataIncasso = it.receivedAt || isoLocal(new Date());
+      // tenta più chiavi e normalizza
+      const rawDate =
+        it.receivedAt ?? it.date ?? it.data ?? it.when ?? it.day ?? '';
+      let receivedISO = smartDate(rawDate);
+      if (forcedFromText) receivedISO = forcedFromText; // priorità al segnale relativo nel testo
+
       const amount = Math.abs(parseAmountLoose(it.amount));
       const payload = {
         user_id: user.id,
         source: it.source || 'Entrata',
         description: it.description || it.source || 'Entrata',
         amount,
-        received_at: `${dataIncasso}T12:00:00Z`,
+        received_at: `${receivedISO}T12:00:00Z`, // niente slittamenti di fuso
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -394,18 +447,33 @@ if (hideVarieCashAfterClear) {
     }
   };
 
+  /** Inserisce pocket_cash (ricarica/uscita) — usato per voce/OCR “prelevato / messo in tasca” */
+  async function insertPocketQuick({ amount, date, delta, note }) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
+    const payload = {
+      user_id: user.id,
+      note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
+      delta: (typeof delta === 'number') ? delta : Math.abs(amount),
+      moved_at: `${(date || isoLocal(new Date()))}T12:00:00Z`,
+    };
+    const { error } = await supabase.from('pocket_cash').insert(payload);
+    if (error) throw error;
+  }
+
   /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
     e.preventDefault(); setError(null);
     try {
       const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const receivedISO = newIncome.receivedAt ? smartDate(newIncome.receivedAt) : isoLocal(new Date());
       const payload = {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
         amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: (newIncome.receivedAt ? `${newIncome.receivedAt}T12:00:00Z` : new Date().toISOString()),
+        received_at: `${receivedISO}T12:00:00Z`,
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -533,15 +601,18 @@ if (hideVarieCashAfterClear) {
             <table className="custom-table">
               <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
               <tbody>
-                {incomes.map((i) => (
-                  <tr key={i.id}>
-                    <td>{i.source || '-'}</td>
-                    <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
-                    <td>{Number(i.amount).toFixed(2)}</td>
-                    <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
-                  </tr>
-                ))}
+                {incomes.map((i) => {
+                  const datePref = i.received_date || (i.received_at || '').slice(0,10);
+                  return (
+                    <tr key={i.id}>
+                      <td>{i.source || '-'}</td>
+                      <td>{i.description}</td>
+                      <td>{datePref ? fmtDateIT(datePref) : '-'}</td>
+                      <td>{Number(i.amount).toFixed(2)}</td>
+                      <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -583,7 +654,7 @@ if (hideVarieCashAfterClear) {
               <tbody>
                 {pocketRows.map((m) => (
                   <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                    <td>{m.dateISO ? fmtDateIT(m.dateISO) : '-'}</td>
                     <td>{m.label}</td>
                     <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
                   </tr>
