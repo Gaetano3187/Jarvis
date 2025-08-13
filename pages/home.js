@@ -1,58 +1,194 @@
 // pages/home.js
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
-import { askAssistant } from '@/lib/assistant';
 import VoiceRecorder from '../components/VoiceRecorder';
+
+// —— CERVELLO: ingest voce + OCR
+import { handleVoiceTranscript, handleOCR } from '@/lib/brainRouter';
+// —— CERVELLO: domande/analitiche
+import { runQueryFromText } from '@/lib/brainQuery';
+
+/* ---------- Helper formattazione risultato ---------- */
+function formatResult(res) {
+  if (!res) return 'Nessun risultato.';
+  // Se backend restituisce stringa, usala; altrimenti JSON pretty.
+  if (typeof res === 'string') return res;
+  try {
+    return JSON.stringify(res, null, 2);
+  } catch {
+    return String(res);
+  }
+}
+
+/* ---------- Componente Chat Modal ---------- */
+function ChatModal({ open, onClose, onSend, messages, busy }) {
+  const [input, setInput] = useState('');
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    // scroll in fondo ad ogni nuovo messaggio
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [messages, open]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    if (open) window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    await onSend(text);
+  };
+
+  if (!open) return null;
+  return (
+    <div className="chat-overlay" role="dialog" aria-modal="true" aria-label="Chat dati">
+      <div className="chat-modal">
+        <div className="chat-header">
+          <div className="chat-title">💬 Interroga dati</div>
+          <button className="chat-close" onClick={onClose} aria-label="Chiudi">✖</button>
+        </div>
+
+        <div className="chat-body" ref={bodyRef}>
+          {messages.length === 0 && (
+            <div className="chat-hint">
+              Inizia chiedendo: “Quanto ho speso questo mese?” oppure
+              “Il prosciutto San Daniele dove l’ho pagato di meno?”.
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`chat-msg ${m.role === 'user' ? 'me' : 'bot'}`}>
+              <div className="bubble">
+                {m.mono ? <pre>{m.text}</pre> : <span>{m.text}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="chat-inputrow">
+          <input
+            type="text"
+            className="chat-input"
+            placeholder="Scrivi la tua domanda e premi Invio…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            disabled={busy}
+          />
+          <button className="chat-send" onClick={handleSend} disabled={busy}>
+            {busy ? '⏳' : 'Invia'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const Home = () => {
   const fileInputRef = useRef(null);
+  const [queryText, setQueryText] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  /* —— OCR —— */
+  // Stato chat
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMsgs, setChatMsgs] = useState([]); // {role:'user'|'assistant', text, mono?}
+
+  /* —— OCR → ingest —— */
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = String(reader.result || '').split(',')[1];
-      const prompt = `
-Analizza l’immagine OCR seguente.
-Restituisci solo JSON {descrizione, importo, esercizio, data, categoria}.
-
-IMMAGINE_BASE64:
-${base64}`.trim();
-
       try {
-        const { answer } = await askAssistant(prompt);
-        console.log('🛈 Assistant OCR:', answer);
+        const base64 = String(reader.result || '').split(',')[1];
+        setBusy(true);
+        await handleOCR({ raw: 'OCR_UPLOADED_IMAGE', base64 });
+        alert('✅ Scontrino riconosciuto e registrato');
       } catch (err) {
         console.error(err);
-        alert('Errore OCR/assistant');
+        alert('❌ Errore OCR');
+      } finally {
+        setBusy(false);
       }
     };
     reader.readAsDataURL(file);
   };
   const handleSelectReceipt = () => fileInputRef.current?.click();
 
-  /* —— VOCE —— */
+  /* —— VOCE → ingest —— */
   const handleVoiceText = async (spoken) => {
     if (!spoken) return;
-
-    const prompt = `
-Estrai descrizione, importo, data e categoria dal testo seguente.
-Restituisci solo JSON.
-
-TESTO:
-"${spoken}"`.trim();
-
     try {
-      const { answer } = await askAssistant(prompt);
-      console.log('🛈 Assistant voice:', answer);
+      setBusy(true);
+      await handleVoiceTranscript(spoken);
+      alert('✅ Spesa registrata correttamente');
     } catch (err) {
       console.error(err);
-      alert('Errore assistant');
+      alert('❌ Errore registrazione spesa');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* —— Invio domanda rapida dalla barra —— */
+  const submitQuery = async () => {
+    const q = queryText.trim();
+    if (!q) return;
+    setQueryText('');
+    // Apri chat e logga messaggio utente
+    setChatOpen(true);
+    setChatMsgs((arr) => [...arr, { role: 'user', text: q }]);
+    await handleChatSend(q);
+  };
+  const handleQueryKey = (e) => {
+    if (e.key === 'Enter') submitQuery();
+  };
+
+  /* —— Invio dalla chat —— */
+  const handleChatSend = async (text) => {
+    try {
+      setBusy(true);
+      const res = await runQueryFromText(text);
+      if (res?.redirect) {
+        setChatMsgs((arr) => [
+          ...arr,
+          { role: 'assistant', text: `Apri: ${res.redirect}` },
+        ]);
+        // Se preferisci navigare automaticamente:
+        // window.location.href = res.redirect;
+        return;
+      }
+      if (res?.ok && res?.result) {
+        setChatMsgs((arr) => [
+          ...arr,
+          { role: 'assistant', text: formatResult(res.result), mono: typeof res.result !== 'string' },
+        ]);
+      } else {
+        // Fallback debug (azione strutturata)
+        const dbg = res?.debug ? JSON.stringify(res.debug, null, 2) : 'Nessuna risposta.';
+        setChatMsgs((arr) => [
+          ...arr,
+          { role: 'assistant', text: dbg, mono: true },
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+      setChatMsgs((arr) => [
+        ...arr,
+        { role: 'assistant', text: '❌ Errore interrogazione dati.' },
+      ]);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -93,7 +229,7 @@ TESTO:
             <span className="hint">Crea e gestisci le tue liste</span>
           </Link>
 
-          <Link
+        <Link
             href="/finanze"
             className="card-cta card-finanze animate-card pulse-finanze sheen"
             style={{ animationDelay: '0.15s' }}
@@ -107,9 +243,26 @@ TESTO:
         {/* Funzionalità Avanzate */}
         <section className="advanced-box">
           <h2>Funzionalità Avanzate</h2>
+
+          {/* —— STRINGA DI DIALOGO —— */}
+          <div className="ask-row">
+            <input
+              className="query-input"
+              type="text"
+              placeholder="Chiedi a Jarvis… (es. Quanto ho speso questo mese? Dove ho pagato meno il prosciutto San Daniele?)"
+              value={queryText}
+              onChange={(e)=>setQueryText(e.target.value)}
+              onKeyDown={handleQueryKey}
+              disabled={busy}
+            />
+            <button className="btn-ask" onClick={submitQuery} disabled={busy}>
+              {busy ? '⏳' : '💬 Chiedi'}
+            </button>
+          </div>
+
           <div className="advanced-actions">
-            <button className="btn-ocr" onClick={handleSelectReceipt}>
-              📷 OCR Scontrino
+            <button className="btn-ocr" onClick={handleSelectReceipt} disabled={busy}>
+              {busy ? '⏳' : '📷 OCR Scontrino'}
             </button>
 
             <VoiceRecorder
@@ -117,6 +270,7 @@ TESTO:
               idleLabel="🎤 Comando vocale"
               recordingLabel="⏹ Stop"
               onText={handleVoiceText}
+              disabled={busy}
             />
 
             <Link href="/dashboard" className="btn-manuale">
@@ -133,6 +287,15 @@ TESTO:
         ref={fileInputRef}
         onChange={handleFileChange}
         style={{ display: 'none' }}
+      />
+
+      {/* —— CHAT MODAL —— */}
+      <ChatModal
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        onSend={handleChatSend}
+        messages={chatMsgs}
+        busy={busy}
       />
 
       <style jsx global>{`
@@ -176,9 +339,7 @@ TESTO:
           width: min(1100px, 96vw);
         }
         @media (max-width: 760px) {
-          .primary-grid {
-            grid-template-columns: 1fr;
-          }
+          .primary-grid { grid-template-columns: 1fr; }
         }
 
         /* —— Card CTA —— */
@@ -264,6 +425,129 @@ TESTO:
           display: flex;
           flex-wrap: wrap;
           gap: .5rem;
+        }
+
+        /* —— Barra domande —— */
+        .ask-row {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: .5rem;
+          margin-bottom: .6rem;
+        }
+        .query-input {
+          width: 100%;
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.2);
+          border-radius: .55rem;
+          padding: .52rem .7rem;
+          color: #fff;
+          outline: none;
+        }
+        .query-input::placeholder { color: rgba(255,255,255,0.65); }
+        .btn-ask {
+          background: linear-gradient(135deg, #6366f1, #06b6d4);
+          border: 1px solid rgba(255,255,255,0.2);
+          border-radius: .55rem;
+          padding: .45rem .7rem;
+          color: #fff;
+          cursor: pointer;
+        }
+
+        /* —— Chat Modal —— */
+        .chat-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,.55);
+          display: grid;
+          place-items: center;
+          z-index: 9999;
+          backdrop-filter: blur(2px);
+        }
+        .chat-modal {
+          width: min(920px, 92vw);
+          max-height: 82vh;
+          background: rgba(0,0,0,.78);
+          border: 1px solid rgba(255,255,255,.18);
+          border-radius: 16px;
+          display: grid;
+          grid-template-rows: auto 1fr auto;
+          overflow: hidden;
+          box-shadow: 0 12px 30px rgba(0,0,0,.45);
+        }
+        .chat-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: .7rem .9rem;
+          background: linear-gradient(145deg, rgba(99,102,241,.28), rgba(6,182,212,.22));
+          border-bottom: 1px solid rgba(255,255,255,.16);
+        }
+        .chat-title { font-weight: 800; color: #fff; }
+        .chat-close {
+          background: transparent;
+          color: #fff;
+          border: 1px solid rgba(255,255,255,.25);
+          border-radius: 10px;
+          padding: .2rem .5rem;
+          cursor: pointer;
+        }
+        .chat-body {
+          padding: .8rem .9rem;
+          overflow: auto;
+          display: grid;
+          gap: .6rem;
+          background:
+            radial-gradient(1200px 500px at 10% 0%, rgba(236,72,153,.05), transparent 60%),
+            radial-gradient(800px 400px at 100% 100%, rgba(59,130,246,.06), transparent 60%),
+            rgba(0,0,0,.15);
+        }
+        .chat-hint {
+          opacity: .85;
+          font-size: .95rem;
+          color: #e5e7eb;
+        }
+        .chat-msg { display: grid; }
+        .chat-msg.me { justify-content: end; }
+        .chat-msg.bot { justify-content: start; }
+        .bubble {
+          max-width: 78ch;
+          white-space: pre-wrap;
+          word-break: break-word;
+          background: rgba(255,255,255,.08);
+          border: 1px solid rgba(255,255,255,.18);
+          padding: .55rem .7rem;
+          border-radius: 12px;
+          color: #fff;
+        }
+        .chat-msg.me .bubble {
+          background: linear-gradient(145deg, rgba(99,102,241,.45), rgba(6,182,212,.38));
+          border-color: rgba(255,255,255,.22);
+        }
+        .chat-inputrow {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: .6rem;
+          padding: .7rem .9rem;
+          border-top: 1px solid rgba(255,255,255,.16);
+          background: rgba(0,0,0,.35);
+        }
+        .chat-input {
+          width: 100%;
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.2);
+          border-radius: .55rem;
+          padding: .55rem .7rem;
+          color: #fff;
+          outline: none;
+        }
+        .chat-input::placeholder { color: rgba(255,255,255,.65); }
+        .chat-send {
+          background: linear-gradient(135deg, #6366f1, #06b6d4);
+          border: 1px solid rgba(255,255,255,0.2);
+          border-radius: .55rem;
+          padding: .45rem .9rem;
+          color: #fff;
+          cursor: pointer;
         }
 
         /* —— Bottoni —— */
