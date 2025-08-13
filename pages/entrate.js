@@ -239,48 +239,43 @@ async function loadAll() {
       };
     });
 
- /* -------------- SPESE CASH DA ALTRE SEZIONI
-   Regola: default CASH, escludi se descrizione contiene parole elettroniche -------------- */
-const { data: finAll, error: finErr } = await supabase
+ /* -------------- SPESE DALLE ALTRE SEZIONI — robusto + debug (niente OR nel SQL) -------------- */
+const { data: finRecent, error: finErr } = await supabase
   .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id')
+  .select('id, description, amount, spent_at, spent_date, category_id, created_at, user_id')
   .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  )
-  .order('spent_at', { ascending: false });
+  .order('created_at', { ascending: false })
+  .limit(500);
+
 if (finErr) throw finErr;
 
-// Normalizzazione semplice (case/accents insensitive)
+console.log('[Entrate] finances fetched (recent):', finRecent?.length || 0);
+console.table((finRecent || []).slice(0, 5).map(r => ({
+  id: r.id,
+  spent_date: r.spent_date,
+  spent_at: r.spent_at,
+  amount: r.amount,
+  desc: (r.description || '').slice(0, 40)
+})));
+
+// Converte la riga in una data ISO "YYYY-MM-DD" per confronto
+const rowISO = (r) => r.spent_date || (r.spent_at ? String(r.spent_at).slice(0,10) : null);
+// Filtro per periodo (usiamo confronto stringhe ISO)
+const inRange = (r) => {
+  const iso = rowISO(r);
+  return !!iso && iso >= startDate && iso <= endDate;
+};
+
+// Normalizzazione semplice
 const norm = (v) =>
   String(v ?? '')
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .trim();
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .toLowerCase().trim();
 
 // Parole chiave che indicano PAGAMENTO ELETTRONICO (quindi NON contanti)
 const ELECTRONIC = [
-  'carta di credito',
-  'carta credito',
-  'carta',
-  'credito',
-  'debito',
-  'pos',
-  'contactless',
-  'satispay',
-  'paypal',
-  'iban',
-  'bonifico',
-  'sepa',
-  'apple pay',
-  'google pay',
-  'mastercard',
-  'visa',
-  'amex',
-  'stripe',
-  'nexi'
+  'carta di credito','carta credito','carta','credito','debito','pos','contactless',
+  'satispay','paypal','iban','bonifico','sepa','apple pay','google pay','mastercard','visa','amex','stripe','nexi'
 ].map(norm);
 
 const isElectronic = (desc) => {
@@ -288,18 +283,18 @@ const isElectronic = (desc) => {
   return ELECTRONIC.some(k => t.includes(k));
 };
 
-// 👉 Default CASH: prendi tutte le spese che NON appaiono elettroniche dalla descrizione
-let finCash = (finAll || []).filter(r => !isElectronic(r.description));
+// 👉 Regola: CONTANTI di default. Escludi SOLO se la descrizione è “elettronica”.
+let finCash = (finRecent || []).filter(inRange).filter(r => !isElectronic(r.description));
+
+console.log('[Entrate] in-range:', (finRecent || []).filter(inRange).length,
+            ' | cash-like (default cash):', finCash.length);
 
 // Mappatura righe per la tabella "Soldi in tasca"
 let cashRows = finCash.map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-
-  // Supporto a descrizioni del tipo "[Negozio] dettagli"
+  const dateISO = rowISO(f) || startDate; // fallback per sicurezza
   const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
   const store = m ? m[1] : 'Punto vendita';
   const dett  = m ? m[2] : (f.description || '');
-
   return {
     id: `fin-${f.id}`,
     dateISO,
@@ -315,6 +310,7 @@ let cashRows = finCash.map((f) => {
 if (hideVarieCashAfterClear) {
   cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
 }
+
 
     /* ----------------- AGGREGAZIONE + SET STATE ----------------- */
     const rows = [...manualRows, ...cashRows]
