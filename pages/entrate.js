@@ -1,4 +1,3 @@
-
 // pages/entrate.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -129,22 +128,14 @@ function Entrate() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
- // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
- const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
-function nowInRome() {
-  const fmt = new Intl.DateTimeFormat('it-IT', {
-    timeZone: 'Europe/Rome',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-  const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
-  return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+01:00`);
-}
+  // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
+  const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
 
-// --- dentro Entrate(), al posto della tua riga attuale
-const now = nowInRome();
-const { startDate, endDate, monthKey } = computeCurrentPayPeriod(now, PAYDAY_DAY);
-
+  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
+  const startDateIT = formatIT(startDate);
+  const endDateIT = formatIT(endDate);
+  const dateStartTS = `${startDate}T00:00:00`;
+  const dateEndTS   = `${endDate}T23:59:59`;
 
   useEffect(() => {
     loadAll();
@@ -154,45 +145,6 @@ const { startDate, endDate, monthKey } = computeCurrentPayPeriod(now, PAYDAY_DAY
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
-/* === BRIDGE Entrate → JARVIS_HUB === */
-if (typeof window !== 'undefined') {
-  window.JARVIS_HUB = window.JARVIS_HUB || {};
-
-  const getEntrate = () => (incomes || []).map(r => ({
-    source: r.source || '',
-    description: r.description || '',
-    amount: Number(r.amount) || 0,
-    date: r.received_date || r.received_at || ''
-  }));
-
-  const getCarryover = () => Number(carryover?.amount || 0);
-  const getPocketBalance = () => pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
-
-  const getSaldoDisponibile = () => {
-    const entratePeriodo = (incomes || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-    const carryAmount = Number(carryover?.amount || 0);
-    const prelievi = pocketRows
-      .filter(r => r.kind === 'manual' && r.amount > 0)
-      .reduce((t, r) => t + r.amount, 0);
-    return Math.max(0, entratePeriodo + carryAmount - prelievi);
-  };
-
-  const getSpeseMese = () => Number(monthExpenses || 0);
-
-  const oldGet = window.JARVIS_HUB.getHub;
-  window.JARVIS_HUB.getHub = function () {
-    const base = oldGet ? oldGet() : {};
-    return {
-      ...base,
-      entrate_list: getEntrate(),
-      entrate_carryover: getCarryover(),
-      entrate_pocketBalance: getPocketBalance(),
-      entrate_saldoDisponibile: getSaldoDisponibile(),
-      entrate_speseMese: getSpeseMese()
-    };
-  };
-}
-/* === FINE BRIDGE === */
 
   async function loadAll() {
     setLoading(true); setError(null);
@@ -244,60 +196,58 @@ if (typeof window !== 'undefined') {
         };
       });
 
-// Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
-const ELECTRONIC_TOKENS = [
-  'carta', 'carta di credito', 'credito', 'debito', 'pos',
-  'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-  'satispay', 'apple pay', 'google pay'
-];
+      // Spese cash rilevate dalle altre sezioni
+      const ELECTRONIC_TOKENS = [
+        'carta', 'carta di credito', 'credito', 'debito', 'pos',
+        'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
+        'satispay', 'apple pay', 'google pay'
+      ];
 
-const { data: finAll, error: finAllErr } = await supabase
-  .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-  .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  )
-  .order('spent_at', { ascending: false, nullsFirst: false })
-  .order('spent_date', { ascending: false, nullsFirst: false });
+      const { data: finAll, error: finAllErr } = await supabase
+        .from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+        .eq('user_id', user.id)
+        .or(
+          `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+        )
+        .order('spent_at', { ascending: false, nullsFirst: false })
+        .order('spent_date', { ascending: false, nullsFirst: false });
+      if (finAllErr) throw finAllErr;
 
-if (finAllErr) throw finAllErr;
+      function isElectronicByText(desc) {
+        const t = String(desc || '').toLowerCase();
+        return ELECTRONIC_TOKENS.some(k => t.includes(k));
+      }
+      function isCashByFields(row) {
+        const pm = String(row.payment_method || '').toLowerCase();
+        if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
+        if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
+        // default: contanti se la descrizione NON contiene parole di pagamento elettronico
+        return !isElectronicByText(row.description);
+      }
 
-function isElectronicByText(desc) {
-  const t = String(desc || '').toLowerCase();
-  return ELECTRONIC_TOKENS.some(k => t.includes(k));
-}
-function isCashByFields(row) {
-  const pm = String(row.payment_method || '').toLowerCase();
-  if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
-  if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
-  // default: contanti se la descrizione NON contiene parole di pagamento elettronico
-  return !isElectronicByText(row.description);
-}
+      let finCash = (finAll || []).filter(isCashByFields);
 
-let finCash = (finAll || []).filter(isCashByFields);
+      let cashRows = (finCash || []).map((f) => {
+        const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+        const store = m ? m[1] : 'Punto vendita';
+        const dett  = m ? m[2] : (f.description || '');
+        return {
+          id: `fin-${f.id}`,
+          dateISO,
+          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+          amount: -Math.abs(Number(f.amount) || 0),
+          category_id: f.category_id,
+          kind: 'cash-expense',
+        };
+      });
 
-let cashRows = (finCash || []).map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-  const store = m ? m[1] : 'Punto vendita';
-  const dett  = m ? m[2] : (f.description || '');
-  return {
-    id: `fin-${f.id}`,
-    dateISO,
-    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    amount: -Math.abs(Number(f.amount) || 0),
-    category_id: f.category_id,
-    kind: 'cash-expense',
-  };
-});
-
-// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
-
+      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE in questa pagina
+      if (hideVarieCashAfterClear) {
+        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+      }
 
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
@@ -305,7 +255,7 @@ if (hideVarieCashAfterClear) {
 
       setPocketRows(rows);
 
-      // Totale spese del periodo (facoltativo)
+      // Totale spese del periodo (facoltativo: se non usi monthExpenses puoi rimuoverlo)
       const { data: exp } = await supabase.from('finances')
         .select('amount, spent_date').eq('user_id', user.id)
         .gte('spent_date', startDate).lte('spent_date', endDate);
@@ -585,7 +535,7 @@ if (hideVarieCashAfterClear) {
                   <tr key={i.id}>
                     <td>{i.source || '-'}</td>
                     <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
+                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : (i.received_date ? formatIT(i.received_date) : '-')}</td>
                     <td>{Number(i.amount).toFixed(2)}</td>
                     <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
                   </tr>
