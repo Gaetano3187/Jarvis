@@ -128,7 +128,7 @@ function Entrate() {
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
-const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+
 
 
 
