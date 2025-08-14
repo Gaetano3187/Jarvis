@@ -1,5 +1,7 @@
 // pages/api/assistant.js
 import OpenAI from 'openai'
+import { runBrainQuery } from '@/lib/brainQuery';
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? '',
