@@ -7,8 +7,7 @@ import VoiceRecorder from '../components/VoiceRecorder';
 
 // —— CERVELLO: ingest voce + OCR
 import { handleVoiceTranscript, handleOCR, runQueryFromText } from '@/lib/brainQuery';
-// —— CERVELLO: domande/analitiche
-import { handleVoiceTranscript, handleOCR, runQueryFromText } from '@/lib/brainQuery';
+
 
 /* ---------- Helper formattazione risultato ---------- */
 function formatResult(res) {
