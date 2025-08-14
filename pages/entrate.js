@@ -522,18 +522,26 @@ function Entrate() {
 
   // --- BRIDGE PER IL BRAIN (effect separato, con dipendenze memoizzate) ---
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
-    window.__JARVIS_DATA__.entrate = {
-      saldoDisponibile,
-      soldiInTasca,
-      entratePeriodo,
-      spesePeriodo,
-      carryoverMese,
-      startDate,
-      endDate
-    };
-  }, [saldoDisponibile, soldiInTasca, entratePeriodo, spesePeriodo, carryoverMese, startDate, endDate]);
+  if (typeof window === 'undefined') return;
+  window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
+  window.__JARVIS_DATA__.entrate = {
+    saldoDisponibile,      // numero
+    soldiInTasca,          // numero (uguale a pocketBalance)
+    entratePeriodo,        // numero
+    spesePeriodo,          // numero (somma uscite cash del periodo)
+    carryoverMese,         // numero (uguale a carryAmount)
+    startDate,             // "YYYY-MM-DD"
+    endDate                // "YYYY-MM-DD"
+  };
+}, [
+  saldoDisponibile,
+  soldiInTasca,
+  entratePeriodo,
+  spesePeriodo,
+  carryoverMese,
+  startDate,
+  endDate
+]);
 
   /* ------------------------------ UI ------------------------------ */
   return (
