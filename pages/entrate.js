@@ -263,37 +263,33 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // === >>> BRIDGE per il brain: esponi i numeri già calcolati <<<
-      try {
-        const entratePeriodo = (inc || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-        const carryAmount = Number(co?.amount || 0);
-        const prelievi = rows
-          .filter(r => r.kind === 'manual' && r.amount > 0)
-          .reduce((t, r) => t + r.amount, 0);
-        const saldoDisponibile = Math.max(0, entratePeriodo + carryAmount - prelievi);
-        const pocketBalance = rows.reduce((t, r) => t + Number(r.amount || 0), 0);
-        const spesePeriodo = (finAll || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+     // --- BRIDGE PER IL BRAIN: espone i numeri già calcolati ---
+// (incolla questo in fondo al componente, PRIMA del return o comunque dentro il componente)
+useEffect(() => {
+  if (typeof window === 'undefined') return;
 
-        if (typeof window !== 'undefined') {
-          window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
-          window.__JARVIS_DATA__.entrate = {
-     if (typeof window !== 'undefined') {
-  const payload = {
-    entratePeriodo,
-    spesePeriodo,
-    carryoverMese: carryAmount,
-    saldoDisponibile,
-    soldiInTasca: pocketBalance,
-    startDate,
-    endDate,
-    monthKey,
-  };
+  // Assicurati che l’oggetto globale esista
   window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
-  window.__JARVIS_DATA__.entrate = payload;
 
-  try { localStorage.setItem('JARVIS_ENTRATE', JSON.stringify(payload)); } catch {}
-}
-      // === <<< FINE BRIDGE >>>
+  // Scrivi SOLO i valori calcolati dalla pagina Entrate
+  window.__JARVIS_DATA__.entrate = {
+    saldoDisponibile,   // numero
+    soldiInTasca,       // numero
+    entratePeriodo,     // numero
+    spesePeriodo,       // numero
+    carryoverMese,      // numero
+    startDate,          // "YYYY-MM-DD" o ISO
+    endDate             // "YYYY-MM-DD" o ISO
+  };
+}, [
+  saldoDisponibile,
+  soldiInTasca,
+  entratePeriodo,
+  spesePeriodo,
+  carryoverMese,
+  startDate,
+  endDate
+]);
 
     } catch (err) {
       showError(setError, err);
