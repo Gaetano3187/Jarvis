@@ -5,7 +5,7 @@ import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import { supabase } from '@/lib/supabaseClient';
 
-const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+
 const PAYDAY_DAY = 10;
 /** Categoria "Spese Varie" */
 const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';
