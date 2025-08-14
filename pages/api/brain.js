@@ -18,9 +18,17 @@ export default async function handler(req, res) {
     try {
       const body = typeof req.body === 'object' && req.body ? req.body : {};
       const { handleBrainRequest } = await import('@/lib/brainRouter.js');
-      const result = await handleBrainRequest(body);
-      const status = result?.ok === false ? 400 : 200;
-      return res.status(status).json({ ok: true, ...result });
+      const brain = await handleBrainRequest(body);
+      const status = brain?.ok === false ? 400 : 200;
+
+      // 🔧 QUI la patch: esponi SEMPRE `result` (testo) e `debug` (oggetto completo)
+      const resultText = typeof brain?.answer === 'string' ? brain.answer : JSON.stringify(brain);
+      return res.status(status).json({
+        ok: true,
+        result: resultText,   // <- usato da home.js per mostrare la risposta
+        debug: brain,         // <- utile se vuoi vedere i dettagli (intent, data)
+        ...brain,
+      });
     } catch (e) {
       console.error('Brain API error:', e);
       return res.status(500).json({ ok: false, error: 'Internal error' });
