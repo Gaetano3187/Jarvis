@@ -1,4 +1,6 @@
 import React, { Fragment } from 'react'
+import { runBrainQuery } from '@/lib/brainQuery';
+
 
 import PropTypes from 'prop-types'
 import { useTranslations } from 'next-intl'
