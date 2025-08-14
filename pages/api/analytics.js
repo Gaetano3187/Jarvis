@@ -3,18 +3,13 @@ export async function sendAnalytics(payload) {
   const res = await fetch('/api/analytics', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
     body: JSON.stringify(payload),
   });
-
-  // Se vuoi loggare eventuali errori del backend:
   if (!res.ok) {
     let msg = `Analytics ${res.status}`;
-    try {
-      const data = await res.json();
-      if (data?.error) msg += `: ${data.error}`;
-    } catch (_) {}
+    try { const j = await res.json(); if (j?.error) msg += `: ${j.error}`; } catch {}
     throw new Error(msg);
   }
-
   return res.json();
 }
