@@ -129,11 +129,8 @@ function Entrate() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-
-
-
-  // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
-// --- funzione helper in alto al file (fuori dal componente Entrate)
+ // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
+ const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
 function nowInRome() {
   const fmt = new Intl.DateTimeFormat('it-IT', {
     timeZone: 'Europe/Rome',
