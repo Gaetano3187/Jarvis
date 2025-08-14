@@ -128,6 +128,9 @@ function Entrate() {
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
+const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+
+
 
   // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
   const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
@@ -146,6 +149,45 @@ function Entrate() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
+/* === BRIDGE Entrate → JARVIS_HUB === */
+if (typeof window !== 'undefined') {
+  window.JARVIS_HUB = window.JARVIS_HUB || {};
+
+  const getEntrate = () => (incomes || []).map(r => ({
+    source: r.source || '',
+    description: r.description || '',
+    amount: Number(r.amount) || 0,
+    date: r.received_date || r.received_at || ''
+  }));
+
+  const getCarryover = () => Number(carryover?.amount || 0);
+  const getPocketBalance = () => pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
+
+  const getSaldoDisponibile = () => {
+    const entratePeriodo = (incomes || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+    const carryAmount = Number(carryover?.amount || 0);
+    const prelievi = pocketRows
+      .filter(r => r.kind === 'manual' && r.amount > 0)
+      .reduce((t, r) => t + r.amount, 0);
+    return Math.max(0, entratePeriodo + carryAmount - prelievi);
+  };
+
+  const getSpeseMese = () => Number(monthExpenses || 0);
+
+  const oldGet = window.JARVIS_HUB.getHub;
+  window.JARVIS_HUB.getHub = function () {
+    const base = oldGet ? oldGet() : {};
+    return {
+      ...base,
+      entrate_list: getEntrate(),
+      entrate_carryover: getCarryover(),
+      entrate_pocketBalance: getPocketBalance(),
+      entrate_saldoDisponibile: getSaldoDisponibile(),
+      entrate_speseMese: getSpeseMese()
+    };
+  };
+}
+/* === FINE BRIDGE === */
 
   async function loadAll() {
     setLoading(true); setError(null);
