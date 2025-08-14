@@ -277,19 +277,22 @@ function Entrate() {
         if (typeof window !== 'undefined') {
           window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
           window.__JARVIS_DATA__.entrate = {
-            entratePeriodo,
-            spesePeriodo,
-            carryoverMese: carryAmount,
-            saldoDisponibile,
-            soldiInTasca: pocketBalance,
-            startDate,
-            endDate,
-            monthKey,
-          };
-        }
-      } catch (e) {
-        console.warn('[Bridge entrate] Non sono riuscito ad aggiornare __JARVIS_DATA__', e);
-      }
+     if (typeof window !== 'undefined') {
+  const payload = {
+    entratePeriodo,
+    spesePeriodo,
+    carryoverMese: carryAmount,
+    saldoDisponibile,
+    soldiInTasca: pocketBalance,
+    startDate,
+    endDate,
+    monthKey,
+  };
+  window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
+  window.__JARVIS_DATA__.entrate = payload;
+
+  try { localStorage.setItem('JARVIS_ENTRATE', JSON.stringify(payload)); } catch {}
+}
       // === <<< FINE BRIDGE >>>
 
     } catch (err) {
