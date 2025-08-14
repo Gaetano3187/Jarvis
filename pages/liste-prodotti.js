@@ -689,11 +689,6 @@ export default function ListeProdotti() {
 
   const curItems = lists[currentList] || [];
   
-  // Form Aggiunta Scorta manuale
-const [stockForm, setStockForm] = useState({
-  name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
-});
-
 /* =========================
    === BRAIN BRIDGE FULL ===
    =========================
