@@ -23,16 +23,25 @@ function computeCurrentPayPeriod(today, paydayDay) {
   const d = today.getDate();
   const thisPayday = new Date(y, m, paydayDay);
   let start, end;
-  if (d >= paydayDay) { start = thisPayday; end = new Date(y, m + 1, paydayDay - 1); }
-  else { start = new Date(y, m - 1, paydayDay); end = new Date(y, m, paydayDay - 1); }
+  if (d >= paydayDay) {
+    start = thisPayday;
+    end = new Date(y, m + 1, paydayDay - 1);
+  } else {
+    start = new Date(y, m - 1, paydayDay);
+    end = new Date(y, m, paydayDay - 1);
+  }
   const startDate = isoLocal(start);
   const endDate = isoLocal(end);
   const monthKey = isoLocal(end).slice(0, 7);
   return { startDate, endDate, monthKey };
 }
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
-  const { data: existing } = await supabase.from('carryovers').select('id')
-    .eq('user_id', userId).eq('month_key', monthKeyCurrent).maybeSingle();
+  const { data: existing } = await supabase
+    .from('carryovers')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('month_key', monthKeyCurrent)
+    .maybeSingle();
   if (existing) return;
 
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
@@ -42,12 +51,26 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const prevEndISO = isoLocal(prevEnd);
   const prevKey = prevEndISO.slice(0, 7);
 
-  const { data: incPrev } = await supabase.from('incomes').select('amount')
-    .eq('user_id', userId).gte('received_date', prevStartISO).lte('received_date', prevEndISO);
-  const { data: expPrev } = await supabase.from('finances').select('amount')
-    .eq('user_id', userId).gte('spent_date', prevStartISO).lte('spent_date', prevEndISO);
-  const { data: coPrev } = await supabase.from('carryovers').select('amount')
-    .eq('user_id', userId).eq('month_key', prevKey).maybeSingle();
+  const { data: incPrev } = await supabase
+    .from('incomes')
+    .select('amount')
+    .eq('user_id', userId)
+    .gte('received_date', prevStartISO)
+    .lte('received_date', prevEndISO);
+
+  const { data: expPrev } = await supabase
+    .from('finances')
+    .select('amount')
+    .eq('user_id', userId)
+    .gte('spent_date', prevStartISO)
+    .lte('spent_date', prevEndISO);
+
+  const { data: coPrev } = await supabase
+    .from('carryovers')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('month_key', prevKey)
+    .maybeSingle();
 
   const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
   const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
@@ -55,14 +78,19 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const saldoPrevBase = totalInc + prevCarry - totalExp;
 
   await supabase.from('carryovers').insert({
-    user_id: userId, month_key: monthKeyCurrent,
-    amount: Number(saldoPrevBase.toFixed(2)), note: 'Auto-carryover da mese precedente',
+    user_id: userId,
+    month_key: monthKeyCurrent,
+    amount: Number(saldoPrevBase.toFixed(2)),
+    note: 'Auto-carryover da mese precedente',
   });
 }
 function parseAmountLoose(v) {
   if (typeof v === 'number') return v;
-  const s = String(v ?? '').trim().replace(/\s/g, '')
-    .replace(/\./g, '').replace(',', '.'); // “1.200,50” -> “1200.50”
+  const s = String(v ?? '')
+    .trim()
+    .replace(/\s/g, '')
+    .replace(/\./g, '')
+    .replace(',', '.'); // “1.200,50” -> “1200.50”
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
@@ -72,19 +100,28 @@ function formatIT(iso) {
   return isNaN(d.getTime()) ? '' : d.toLocaleDateString('it-IT');
 }
 function showError(setter, err) {
-  const msg = err?.message || err?.error_description || err?.hint || (typeof err === 'string' ? err : JSON.stringify(err));
-  setter(msg); console.error('[SUPABASE ERROR]', err);
+  const msg =
+    err?.message ||
+    err?.error_description ||
+    err?.hint ||
+    (typeof err === 'string' ? err : JSON.stringify(err));
+  setter(msg);
+  console.error('[SUPABASE ERROR]', err);
 }
 
 /* ----------- intent detection + quick parsing senza assistant ----------- */
 function isCashIntent(text) {
   const t = (text || '').toLowerCase();
-  return /(prelev|ritirat|bancomat|atm|in tasca|contanti|cash)/.test(t)
-      || /ho preso\s*\d+([.,]\d{1,2})?\s*€.*(tasca|contanti)/.test(t);
+  return (
+    /(prelev|ritirat|bancomat|atm|in tasca|contanti|cash)/.test(t) ||
+    /ho preso\s*\d+([.,]\d{1,2})?\s*€.*(tasca|contanti)/.test(t)
+  );
 }
 function isIncomeIntent(text) {
   const t = (text || '').toLowerCase();
-  return /(stipendio|busta paga|accredito|bonifico|fattura|pagamento|mi hanno pagato|compenso|rimborso)/.test(t);
+  return /(stipendio|busta paga|accredito|bonifico|fattura|pagamento|mi hanno pagato|compenso|rimborso)/.test(
+    t
+  );
 }
 function quickParseCash(text) {
   const t = (text || '').toLowerCase();
@@ -94,11 +131,17 @@ function quickParseCash(text) {
   const amount = parseAmountLoose(raw);
   let date = isoLocal(new Date());
   if (/\bieri\b/.test(t)) {
-    const d = new Date(); d.setDate(d.getDate() - 1); date = isoLocal(d);
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    date = isoLocal(d);
   }
   const isOut = /(uscita|spes|pagat.*contanti)/.test(t);
   const delta = isOut ? -Math.abs(amount) : Math.abs(amount);
-  const note = isOut ? 'Uscita contanti' : (/prelev/.test(t) ? 'Prelievo/ricarica contanti' : 'Ricarica contanti');
+  const note = isOut
+    ? 'Uscita contanti'
+    : /prelev/.test(t)
+    ? 'Prelievo/ricarica contanti'
+    : 'Ricarica contanti';
   return { amount, date, delta, note };
 }
 
@@ -137,23 +180,31 @@ function Entrate() {
   const startDateIT = formatIT(startDate);
   const endDateIT = formatIT(endDate);
   const dateStartTS = `${startDate}T00:00:00`;
-  const dateEndTS   = `${endDate}T23:59:59`;
+  const dateEndTS = `${endDate}T23:59:59`;
 
   // --- Effect per caricare/ricaricare i dati ---
   useEffect(() => {
     loadAll();
     return () => {
-      try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
-      try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+      try {
+        if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop();
+      } catch {}
+      try {
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
+      } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
 
   // --- FUNZIONE DI CARICO (no hook qui dentro!) ---
   async function loadAll() {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
 
@@ -166,7 +217,7 @@ function Entrate() {
         .eq('user_id', user.id)
         .or(
           `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
-          `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
+            `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
         )
         .order('received_at', { ascending: false, nullsFirst: false })
         .order('received_date', { ascending: false, nullsFirst: false });
@@ -174,26 +225,34 @@ function Entrate() {
       setIncomes(inc || []);
 
       // Carryover mese
-      const { data: co } = await supabase.from('carryovers')
+      const { data: co } = await supabase
+        .from('carryovers')
         .select('id, month_key, amount, note')
-        .eq('user_id', user.id).eq('month_key', monthKey).maybeSingle();
+        .eq('user_id', user.id)
+        .eq('month_key', monthKey)
+        .maybeSingle();
       setCarryover(co || null);
 
       // Movimenti contanti manuali
-      const { data: pc } = await supabase.from('pocket_cash')
+      const { data: pc } = await supabase
+        .from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
         .or(
           `and(moved_date.gte.${startDate},moved_date.lte.${endDate}),` +
-          `and(moved_at.gte.${dateStartTS},moved_at.lte.${dateEndTS})`
+            `and(moved_at.gte.${dateStartTS},moved_at.lte.${dateEndTS})`
         )
-        .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
+        .order('moved_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
       const manualRows = (pc || []).map((row) => {
-        const eff = (row.delta != null)
-          ? Number(row.delta || 0)
-          : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
-        const dateISO = (row.moved_date || (row.moved_at || row.created_at || '').slice(0,10));
+        const eff =
+          row.delta != null
+            ? Number(row.delta || 0)
+            : row.amount != null
+            ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0)
+            : 0;
+        const dateISO = row.moved_date || (row.moved_at || row.created_at || '').slice(0, 10);
         return {
           id: `pc-${row.id}`,
           dateISO,
@@ -205,9 +264,20 @@ function Entrate() {
 
       // Spese cash dalle altre sezioni
       const ELECTRONIC_TOKENS = [
-        'carta', 'carta di credito', 'credito', 'debito', 'pos',
-        'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-        'satispay', 'apple pay', 'google pay'
+        'carta',
+        'carta di credito',
+        'credito',
+        'debito',
+        'pos',
+        'visa',
+        'mastercard',
+        'amex',
+        'paypal',
+        'iban',
+        'bonifico',
+        'satispay',
+        'apple pay',
+        'google pay',
       ];
 
       const { data: finAll, error: finAllErr } = await supabase
@@ -216,7 +286,7 @@ function Entrate() {
         .eq('user_id', user.id)
         .or(
           `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+            `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
         )
         .order('spent_at', { ascending: false, nullsFirst: false })
         .order('spent_date', { ascending: false, nullsFirst: false });
@@ -225,7 +295,7 @@ function Entrate() {
 
       function isElectronicByText(desc) {
         const t = String(desc || '').toLowerCase();
-        return ELECTRONIC_TOKENS.some(k => t.includes(k));
+        return ELECTRONIC_TOKENS.some((k) => t.includes(k));
       }
       function isCashByFields(row) {
         const pm = String(row.payment_method || '').toLowerCase();
@@ -240,7 +310,7 @@ function Entrate() {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
         const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
         const store = m ? m[1] : 'Punto vendita';
-        const dett  = m ? m[2] : (f.description || '');
+        const dett = m ? m[2] : f.description || '';
         return {
           id: `fin-${f.id}`,
           dateISO,
@@ -252,11 +322,11 @@ function Entrate() {
       });
 
       if (hideVarieCashAfterClear) {
-        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+        cashRows = cashRows.filter((r) => r.category_id !== CATEGORY_ID_VARIE);
       }
 
       const rows = [...manualRows, ...cashRows]
-        .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
+        .filter((r) => Number.isFinite(r.amount) && r.amount !== 0)
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
       setPocketRows(rows);
@@ -276,24 +346,34 @@ function Entrate() {
     });
     return [
       'Sei Jarvis. Estrai ENTRATE economiche (stipendio, pagamenti, rimborsi).',
-      'Rispondi SOLO con JSON:', example, '', 'Testo:', userText,
+      'Rispondi SOLO con JSON:',
+      example,
+      '',
+      'Testo:',
+      userText,
     ].join('\n');
   }
   async function callAssistant(prompt) {
-    const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
     const { answer, error: apiErr } = await res.json();
     if (!res.ok || apiErr) throw new Error(apiErr || String(res.status));
     return JSON.parse(answer);
   }
 
   async function insertPocketQuick({ amount, date, delta, note }) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
     const moved_date = date || isoLocal(new Date());
     const payload = {
       user_id: user.id,
       note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-      delta: (typeof delta === 'number') ? delta : Math.abs(amount),
+      delta: typeof delta === 'number' ? delta : Math.abs(amount),
       moved_date,
       moved_at: `${moved_date}T12:00:00`,
     };
@@ -305,7 +385,9 @@ function Entrate() {
     const data = await callAssistant(buildIncomePrompt(text));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
     for (const it of data.items) {
@@ -317,7 +399,7 @@ function Entrate() {
         description: it.description || it.source || 'Entrata',
         amount,
         received_date: dataIncasso,
-        received_at: `${dataIncasso}T12:00:00`
+        received_at: `${dataIncasso}T12:00:00`,
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -335,14 +417,24 @@ function Entrate() {
 
       if (isCashIntent(text)) {
         const parsed = quickParseCash(text);
-        if (parsed) { await insertPocketQuick(parsed); await loadAll(); return; }
+        if (parsed) {
+          await insertPocketQuick(parsed);
+          await loadAll();
+          return;
+        }
       }
       if (isIncomeIntent(text)) {
         const ok = await insertIncomeAssistant(text);
-        if (ok) { await loadAll(); return; }
+        if (ok) {
+          await loadAll();
+          return;
+        }
       }
       const ok2 = await insertIncomeAssistant(text);
-      if (ok2) { await loadAll(); return; }
+      if (ok2) {
+        await loadAll();
+        return;
+      }
 
       setError('Nessun dato riconosciuto da OCR');
     } catch (err) {
@@ -351,52 +443,85 @@ function Entrate() {
   }
 
   const toggleRec = async () => {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
+    if (recBusy) {
+      try {
+        mediaRecRef.current?.stop();
+      } catch {}
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       mediaRecRef.current = new MediaRecorder(stream);
       recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
+      mediaRecRef.current.ondataavailable = (e) => {
+        if (e.data?.size) recordedChunks.current.push(e.data);
+      };
       mediaRecRef.current.onstop = processVoice;
       mediaRecRef.current.start();
       setRecBusy(true);
-    } catch { setError('Microfono non disponibile'); }
+    } catch {
+      setError('Microfono non disponibile');
+    }
   };
 
   const processVoice = async () => {
     const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
+    const fd = new FormData();
+    fd.append('audio', blob, 'voice.webm');
     try {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
 
       if (isCashIntent(text)) {
         const parsed = quickParseCash(text);
-        if (parsed) { await insertPocketQuick(parsed); setRecBusy(false); streamRef.current?.getTracks?.().forEach(t=>t.stop()); await loadAll(); return; }
+        if (parsed) {
+          await insertPocketQuick(parsed);
+          setRecBusy(false);
+          streamRef.current?.getTracks?.().forEach((t) => t.stop());
+          await loadAll();
+          return;
+        }
       }
       if (isIncomeIntent(text)) {
         const ok = await insertIncomeAssistant(text);
-        if (ok) { setRecBusy(false); streamRef.current?.getTracks?.().forEach(t=>t.stop()); await loadAll(); return; }
+        if (ok) {
+          setRecBusy(false);
+          streamRef.current?.getTracks?.().forEach((t) => t.stop());
+          await loadAll();
+          return;
+        }
       }
       const ok2 = await insertIncomeAssistant(text);
-      if (ok2) { setRecBusy(false); streamRef.current?.getTracks?.().forEach(t=>t.stop()); await loadAll(); return; }
+      if (ok2) {
+        setRecBusy(false);
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
+        await loadAll();
+        return;
+      }
 
       setError('Nessun dato riconosciuto dalla voce');
     } catch (err) {
       showError(setError, err);
     } finally {
       setRecBusy(false);
-      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
+      try {
+        streamRef.current?.getTracks?.().forEach((t) => t.stop());
+      } catch {}
     }
   };
 
   /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
-    e.preventDefault(); setError(null);
+    e.preventDefault();
+    setError(null);
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
 
       const recDate = newIncome.receivedAt || isoLocal(new Date());
 
@@ -411,9 +536,16 @@ function Entrate() {
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
 
-      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: isoLocal(new Date()) });
+      setNewIncome({
+        source: 'Stipendio',
+        description: '',
+        amount: '',
+        receivedAt: isoLocal(new Date()),
+      });
       await loadAll();
-    } catch (err) { showError(setError, err); }
+    } catch (err) {
+      showError(setError, err);
+    }
   }
 
   async function handleDeleteIncome(id) {
@@ -421,17 +553,26 @@ function Entrate() {
       const { error: e } = await supabase.from('incomes').delete().eq('id', id);
       if (e) throw e;
       setIncomes(incomes.filter((i) => i.id !== id));
-    } catch (err) { showError(setError, err); }
+    } catch (err) {
+      showError(setError, err);
+    }
   }
 
   async function handleSaveCarryover(e) {
-    e.preventDefault(); setError(null);
+    e.preventDefault();
+    setError(null);
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
       const payload = {
-        user_id: user.id, month_key: monthKey,
-        amount: Number(newCarry.amount) || 0, note: newCarry.note || null,
+        user_id: user.id,
+        month_key: monthKey,
+        amount: Number(newCarry.amount) || 0,
+        note: newCarry.note || null,
       };
       if (carryover?.id) {
         const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
@@ -442,14 +583,21 @@ function Entrate() {
       }
       setNewCarry({ amount: '', note: '' });
       await loadAll();
-    } catch (err) { showError(setError, err); }
+    } catch (err) {
+      showError(setError, err);
+    }
   }
 
   async function handleTopUpPocket(e) {
-    e.preventDefault(); setError(null);
+    e.preventDefault();
+    setError(null);
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
       const delta = parseAmountLoose(pocketTopUp);
       if (!delta) return;
 
@@ -466,14 +614,20 @@ function Entrate() {
       if (error) throw error;
       setPocketTopUp('');
       await loadAll();
-    } catch (err) { showError(setError, err); }
+    } catch (err) {
+      showError(setError, err);
+    }
   }
 
   async function handleClearPocket() {
     if (!confirm('Ripulisci: rimuove i movimenti manuali e nasconde qui le spese cash di Varie. Confermi?')) return;
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
 
       // 1) cancella SOLO pocket_cash
       const { error } = await supabase.from('pocket_cash').delete().eq('user_id', user.id);
@@ -483,7 +637,9 @@ function Entrate() {
       setHideVarieCashAfterClear(true);
 
       await loadAll();
-    } catch (err) { showError(setError, err); }
+    } catch (err) {
+      showError(setError, err);
+    }
   }
 
   /* --------------------------- calcoli per UI (memo) --------------------------- */
@@ -492,13 +648,13 @@ function Entrate() {
     [incomes]
   );
 
-  const carryAmount = useMemo(
-    () => Number(carryover?.amount || 0),
-    [carryover]
-  );
+  const carryAmount = useMemo(() => Number(carryover?.amount || 0), [carryover]);
 
   const prelievi = useMemo(
-    () => pocketRows.filter(r => r.kind === 'manual' && r.amount > 0).reduce((t, r) => t + r.amount, 0),
+    () =>
+      pocketRows
+        .filter((r) => r.kind === 'manual' && r.amount > 0)
+        .reduce((t, r) => t + r.amount, 0),
     [pocketRows]
   );
 
@@ -513,7 +669,10 @@ function Entrate() {
   );
 
   const spesePeriodo = useMemo(
-    () => pocketRows.filter(r => r.kind === 'cash-expense').reduce((t, r) => t + Math.abs(Number(r.amount || 0)), 0),
+    () =>
+      pocketRows
+        .filter((r) => r.kind === 'cash-expense')
+        .reduce((t, r) => t + Math.abs(Number(r.amount || 0)), 0),
     [pocketRows]
   );
 
@@ -522,31 +681,27 @@ function Entrate() {
 
   // --- BRIDGE PER IL BRAIN (effect separato, con dipendenze memoizzate) ---
   useEffect(() => {
-  if (typeof window === 'undefined') return;
-  window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
-  window.__JARVIS_DATA__.entrate = {
-    saldoDisponibile,      // numero
-    soldiInTasca,          // numero (uguale a pocketBalance)
-    entratePeriodo,        // numero
-    spesePeriodo,          // numero (somma uscite cash del periodo)
-    carryoverMese,         // numero (uguale a carryAmount)
-    startDate,             // "YYYY-MM-DD"
-    endDate                // "YYYY-MM-DD"
-  };
-}, [
-  saldoDisponibile,
-  soldiInTasca,
-  entratePeriodo,
-  spesePeriodo,
-  carryoverMese,
-  startDate,
-  endDate
-]);
+    if (typeof window === 'undefined') return;
+    window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
+    window.__JARVIS_DATA__.entrate = {
+      saldoDisponibile, // numero
+      soldiInTasca, // numero
+      entratePeriodo, // numero
+      spesePeriodo, // numero
+      carryoverMese, // numero
+      startDate, // "YYYY-MM-DD"
+      endDate, // "YYYY-MM-DD"
+    };
+    // opzionale: notifica i listener che i dati sono pronti
+    window.dispatchEvent(new CustomEvent('jarvis:data', { detail: { scope: 'entrate' } }));
+  }, [saldoDisponibile, soldiInTasca, entratePeriodo, spesePeriodo, carryoverMese, startDate, endDate]);
 
   /* ------------------------------ UI ------------------------------ */
   return (
     <>
-      <Head><title>Entrate & Saldi</title></Head>
+      <Head>
+        <title>Entrate & Saldi</title>
+      </Head>
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
@@ -554,8 +709,12 @@ function Entrate() {
           <div className="title-row">
             <h2 className="title">Entrate &amp; Saldi</h2>
             <div className="title-actions">
-              <button className="btn-vocale" onClick={toggleRec}>{recBusy ? 'Stop' : 'Voce'}</button>
-              <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>OCR</button>
+              <button className="btn-vocale" onClick={toggleRec}>
+                {recBusy ? 'Stop' : 'Voce'}
+              </button>
+              <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
+                OCR
+              </button>
               <input
                 ref={ocrInputRef}
                 type="file"
@@ -570,41 +729,92 @@ function Entrate() {
 
           {/* Periodo */}
           <div className="periodo-row">
-            <span>Periodo corrente:</span><b>{startDateIT}</b><span>–</span><b>{endDateIT}</b>
+            <span>Periodo corrente:</span>
+            <b>{startDateIT}</b>
+            <span>–</span>
+            <b>{endDateIT}</b>
           </div>
 
           {/* Box metriche */}
           <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
             <h3>Disponibilità</h3>
-            <div className="flex-line metric-sub"><span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b></div>
-            <div className="flex-line metric-sub"><span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b></div>
-            <div className="flex-line"><span>Saldo disponibile:</span><b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b></div>
-            <div className="flex-line"><span>Soldi in tasca (restanti):</span><b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b></div>
+            <div className="flex-line metric-sub">
+              <span>Entrate periodo corrente:</span>
+              <b>€ {entratePeriodo.toFixed(2)}</b>
+            </div>
+            <div className="flex-line metric-sub">
+              <span>Carryover mese precedente:</span>
+              <b>€ {carryAmount.toFixed(2)}</b>
+            </div>
+            <div className="flex-line">
+              <span>Saldo disponibile:</span>
+              <b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b>
+            </div>
+            <div className="flex-line">
+              <span>Soldi in tasca (restanti):</span>
+              <b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b>
+            </div>
           </div>
 
           {/* Entrate */}
           <h3>1) Entrate del periodo</h3>
           <form className="input-section" onSubmit={handleAddIncome}>
-            <input value={newIncome.source} onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })} placeholder="Fonte" required />
-            <input value={newIncome.description} onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })} placeholder="Descrizione" required />
-            <input type="date" value={newIncome.receivedAt} onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })} required />
-            <input type="text" inputMode="decimal" value={newIncome.amount} onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })} placeholder="Importo €" required />
+            <input
+              value={newIncome.source}
+              onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })}
+              placeholder="Fonte"
+              required
+            />
+            <input
+              value={newIncome.description}
+              onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
+              placeholder="Descrizione"
+              required
+            />
+            <input
+              type="date"
+              value={newIncome.receivedAt}
+              onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })}
+              required
+            />
+            <input
+              type="text"
+              inputMode="decimal"
+              value={newIncome.amount}
+              onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
+              placeholder="Importo €"
+              required
+            />
             <button className="btn-manuale">Aggiungi</button>
           </form>
 
-          {loading ? <p>Caricamento…</p> : (
+          {loading ? (
+            <p>Caricamento…</p>
+          ) : (
             <table className="custom-table">
-              <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Fonte</th>
+                  <th>Descrizione</th>
+                  <th>Data</th>
+                  <th>Importo €</th>
+                  <th></th>
+                </tr>
+              </thead>
               <tbody>
                 {incomes.map((i) => {
-                  const dISO = i.received_date || (i.received_at ? String(i.received_at).slice(0,10) : '');
+                  const dISO = i.received_date || (i.received_at ? String(i.received_at).slice(0, 10) : '');
                   return (
                     <tr key={i.id}>
                       <td>{i.source || '-'}</td>
                       <td>{i.description}</td>
                       <td>{formatIT(dISO)}</td>
                       <td>{Number(i.amount).toFixed(2)}</td>
-                      <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
+                      <td>
+                        <button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>
+                          Elimina
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -616,18 +826,37 @@ function Entrate() {
           <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
           <form className="input-section" onSubmit={handleSaveCarryover}>
             <input
-              type="number" step="0.01" value={newCarry.amount}
+              type="number"
+              step="0.01"
+              value={newCarry.amount}
               onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-              placeholder={`Importo € per ${monthKey}`} required
+              placeholder={`Importo € per ${monthKey}`}
+              required
             />
-            <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
+            <input
+              value={newCarry.note}
+              onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })}
+              placeholder="Nota (opzionale)"
+            />
             <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
           </form>
 
           {carryover && (
             <table className="custom-table">
-              <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
-              <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
+              <thead>
+                <tr>
+                  <th>Mese</th>
+                  <th>Importo €</th>
+                  <th>Nota</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{carryover.month_key}</td>
+                  <td>{Number(carryover.amount).toFixed(2)}</td>
+                  <td>{carryover.note || '-'}</td>
+                </tr>
+              </tbody>
             </table>
           )}
 
@@ -635,27 +864,44 @@ function Entrate() {
           <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
           <form className="input-section" onSubmit={handleTopUpPocket}>
             <input
-              type="text" inputMode="decimal" value={pocketTopUp}
-              onChange={(e) => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required
+              type="text"
+              inputMode="decimal"
+              value={pocketTopUp}
+              onChange={(e) => setPocketTopUp(e.target.value)}
+              placeholder="Ricarica (+) / Uscita (-) €"
+              required
             />
             <button className="btn-manuale">+ Aggiungi</button>
-            <button type="button" className="btn-danger" onClick={handleClearPocket}>Ripulisci</button>
+            <button type="button" className="btn-danger" onClick={handleClearPocket}>
+              Ripulisci
+            </button>
             {hideVarieCashAfterClear && (
               <p style={{ opacity: 0.85, marginTop: '.5rem', flexBasis: '100%' }}>
-                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
+                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive
+                sezioni).
               </p>
             )}
           </form>
 
-          {loading ? <p>Caricamento…</p> : (
+          {loading ? (
+            <p>Caricamento…</p>
+          ) : (
             <table className="custom-table">
-              <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrizione</th>
+                  <th style={{ textAlign: 'right' }}>Importo €</th>
+                </tr>
+              </thead>
               <tbody>
                 {pocketRows.map((m) => (
                   <tr key={m.id}>
                     <td>{formatIT(m.dateISO)}</td>
                     <td>{m.label}</td>
-                    <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -664,33 +910,150 @@ function Entrate() {
 
           {error && <p className="error">{error}</p>}
 
-          <Link href="/home"><button className="btn-vocale" style={{ marginTop: '1rem' }}>Home</button></Link>
+          <Link href="/home">
+            <button className="btn-vocale" style={{ marginTop: '1rem' }}>
+              Home
+            </button>
+          </Link>
         </div>
       </div>
 
       <style jsx global>{`
-        .spese-casa-container1 { width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; min-height: 100vh; padding: 2rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-        .spese-casa-container2 { background: rgba(0, 0, 0, 0.6); padding: 2rem; border-radius: 1rem; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.3); max-width: 1000px; width: 100%; }
-        .title-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .25rem; }
-        .title { margin: 0; font-size: 1.5rem; }
-        .title-actions { display: flex; gap: .5rem; }
-        .periodo-row { display:flex; gap:.4rem; align-items:center; margin: .25rem 0 .6rem; font-size: .95rem; opacity:.9; }
-        .btn-vocale, .btn-ocr, .btn-manuale { background: #6366f1; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; transition: transform .06s ease, opacity .12s ease; }
-        .btn-ocr { background: #06b6d4; }
-        .btn-manuale:hover, .btn-vocale:hover, .btn-ocr:hover, .btn-danger:hover, .btn-danger-outline:hover { transform: translateY(-1px); opacity: .95; }
-        .btn-danger { background: #ef4444; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color:#fff; }
-        .btn-danger-outline { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: .35rem .55rem; border-radius: .45rem; cursor: pointer; }
-        .input-section { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
-        .input-section input { padding: .45rem; border-radius: .55rem; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06); color: #fff; }
-        .custom-table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
-        .custom-table th, .custom-table td { border-bottom: 1px solid rgba(255,255,255,.12); padding: .55rem; text-align: left; }
-        .flex-line { display: flex; justify-content: space-between; margin: .35rem 0; gap: 1rem; }
-        .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
-        .metric { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
-        .metric-sub { font-size: 1rem; opacity: .85; }
-        .metric--saldo { color: #22c55e; }
-        .metric--pocket { color: #06b6d4; }
-        .error { color: #f87171; margin-top: 1rem; }
+        .spese-casa-container1 {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #0f172a;
+          min-height: 100vh;
+          padding: 2rem;
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        }
+        .spese-casa-container2 {
+          background: rgba(0, 0, 0, 0.6);
+          padding: 2rem;
+          border-radius: 1rem;
+          color: #fff;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+          max-width: 1000px;
+          width: 100%;
+        }
+        .title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          margin-bottom: 0.25rem;
+        }
+        .title {
+          margin: 0;
+          font-size: 1.5rem;
+        }
+        .title-actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .periodo-row {
+          display: flex;
+          gap: 0.4rem;
+          align-items: center;
+          margin: 0.25rem 0 0.6rem;
+          font-size: 0.95rem;
+          opacity: 0.9;
+        }
+        .btn-vocale,
+        .btn-ocr,
+        .btn-manuale {
+          background: #6366f1;
+          border: 0;
+          padding: 0.45rem 0.7rem;
+          border-radius: 0.55rem;
+          cursor: pointer;
+          color: #fff;
+          transition: transform 0.06s ease, opacity 0.12s ease;
+        }
+        .btn-ocr {
+          background: #06b6d4;
+        }
+        .btn-manuale:hover,
+        .btn-vocale:hover,
+        .btn-ocr:hover,
+        .btn-danger:hover,
+        .btn-danger-outline:hover {
+          transform: translateY(-1px);
+          opacity: 0.95;
+        }
+        .btn-danger {
+          background: #ef4444;
+          border: 0;
+          padding: 0.45rem 0.7rem;
+          border-radius: 0.55rem;
+          cursor: pointer;
+          color: #fff;
+        }
+        .btn-danger-outline {
+          background: transparent;
+          color: #ef4444;
+          border: 1px solid #ef4444;
+          padding: 0.35rem 0.55rem;
+          border-radius: 0.45rem;
+          cursor: pointer;
+        }
+        .input-section {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          align-items: center;
+          margin: 0.5rem 0;
+        }
+        .input-section input {
+          padding: 0.45rem;
+          border-radius: 0.55rem;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: rgba(255, 255, 255, 0.06);
+          color: #fff;
+        }
+        .custom-table {
+          width: 100%;
+          margin-top: 0.5rem;
+          border-collapse: collapse;
+        }
+        .custom-table th,
+        .custom-table td {
+          border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+          padding: 0.55rem;
+          text-align: left;
+        }
+        .flex-line {
+          display: flex;
+          justify-content: space-between;
+          margin: 0.35rem 0;
+          gap: 1rem;
+        }
+        .total-box {
+          background: rgba(255, 255, 255, 0.06);
+          padding: 1rem;
+          border-radius: 0.75rem;
+        }
+        .metric {
+          font-size: 1.6rem;
+          font-weight: 800;
+          line-height: 1.1;
+        }
+        .metric-sub {
+          font-size: 1rem;
+          opacity: 0.85;
+        }
+        .metric--saldo {
+          color: #22c55e;
+        }
+        .metric--pocket {
+          color: #06b6d4;
+        }
+        .error {
+          color: #f87171;
+          margin-top: 1rem;
+        }
       `}</style>
     </>
   );
