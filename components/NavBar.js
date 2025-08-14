@@ -4,20 +4,19 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 
 const links = [
-  { href: '/home',             label: 'Home',           c1: '#5eead4', c2: '#22d3ee' }, // teal-cyan
-  { href: '/dashboard',        label: 'Dashboard',      c1: '#f0abfc', c2: '#c084fc' }, // pink-lilac
-  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#34d399', c2: '#a3e635' }, // green-lime
-  { href: '/finanze',          label: 'Finanze',        c1: '#60a5fa', c2: '#a78bfa' }, // blue-violet
-  { href: '/spese-casa',       label: 'Casa',           c1: '#38bdf8', c2: '#60a5fa' }, // sky-blue
-  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#f472b6', c2: '#fb7185' }, // pink-peach
-  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#fb923c' }, // amber-orange
-  { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' }, // violet-pastel blue
+  { href: '/home',             label: 'Home',           c1: '#8b5cf6', c2: '#60a5fa' },
+  { href: '/dashboard',        label: 'Dashboard',      c1: '#22d3ee', c2: '#a78bfa' },
+  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#34d399', c2: '#a3e635' },
+  { href: '/finanze',          label: 'Finanze',        c1: '#f472b6', c2: '#fb7185' },
+  { href: '/spese-casa',       label: 'Casa',           c1: '#38bdf8', c2: '#60a5fa' },
+  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#f59e0b', c2: '#fb923c' },
+  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#06b6d4', c2: '#22d3ee' },
+  { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' },
 ];
 
 export default function NavBar() {
   const { pathname } = useRouter();
 
-  // Filler per completare multipli di 3 su mobile
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
@@ -32,15 +31,17 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ===== BRAND: Logo 3D neon con aurea arcobaleno ===== */}
+          {/* ====== LOGO: AI Agent neon 3D con aurea arcobaleno ====== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
             <span className="brand-wrap" title="JARVIS">
-              {/* Aurea arcobaleno tenue dietro al logo */}
-              <span className="logo-aura" aria-hidden="true" />
-              {/* Alone neon interno (blur sul testo) */}
-              <span className="logo-glow" data-text="JARVIS" aria-hidden="true">JARVIS</span>
-              {/* Testo in rilievo 3D con cambio colore */}
-              <span className="logo-3d" data-text="JARVIS">JARVIS</span>
+              {/* Aurea arcobaleno tenue (dietro) */}
+              <span className="logo-halo" aria-hidden="true" />
+              {/* Contorno neon morbido (non sbianca il riempimento) */}
+              <span className="logo-stroke" aria-hidden="true">JARVIS</span>
+              {/* Trama “scan” da AI (righe sottili che scorrono) */}
+              <span className="logo-scan" aria-hidden="true">JARVIS</span>
+              {/* Core 3D a gradiente dinamico (mai bianco) */}
+              <span className="logo-core" data-text="JARVIS">JARVIS</span>
             </span>
           </Link>
 
@@ -54,7 +55,7 @@ export default function NavBar() {
                     href={href}
                     aria-current={active ? 'page' : undefined}
                     className={`link ${active ? 'is-active' : ''}`}
-                    style={{ ['--c1']: c1, ['--c2']: c2 }}
+                    style={{ '--c1': c1, '--c2': c2 }}
                     title={label}
                   >
                     <span className="label">{label}</span>
@@ -71,98 +72,123 @@ export default function NavBar() {
 
       <style jsx>{`
         :root{
-          --nav-bg: rgba(5, 8, 22, 0.72);
+          --nav-bg: rgba(6, 10, 28, .72);
           --nav-brd: rgba(255,255,255,.12);
 
-          /* Palette principale logo */
-          --violet: #a78bfa;        /* violetto */
-          --blue:   #93c5fd;        /* azzurro pastello */
-          --deep:   #0b0b0f;        /* ombra estrusione 3D */
+          /* Palette logo (veri colori, niente bianco) */
+          --c1: #8b5cf6; /* violet */
+          --c2: #60a5fa; /* light blue */
+          --c3: #22d3ee; /* cyan */
+          --c4: #f472b6; /* pink */
+          --c5: #f59e0b; /* amber */
 
-          --cycle: 5.2s;            /* durata ciclo colori */
-          --pulse: 1.25s;           /* durata pulsazione */
+          --deep: #0a0a0e;  /* ombra estrusione */
+
+          --cycle: 7s;   /* giro colori */
+          --pulse: 1.3s; /* pulsazione */
+        }
+
+        /* Supporto animazione angolo per gradienti rotanti */
+        @property --ang {
+          syntax: '<angle>';
+          inherits: false;
+          initial-value: 0deg;
         }
 
         .nav{
           position: sticky; top: 0; z-index: 60;
           width: 100%;
           background: var(--nav-bg);
-          backdrop-filter: blur(14px) saturate(1.2);
+          backdrop-filter: blur(14px) saturate(1.22);
+          -webkit-backdrop-filter: blur(14px) saturate(1.22);
           border-bottom: 1px solid var(--nav-brd);
-          box-shadow: 0 12px 30px rgba(0,0,0,.30);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 18px 40px rgba(0,0,0,.36);
         }
         .inner{
-          min-height: 72px; display: flex; align-items: center;
-          gap: 24px; padding: 10px 16px;
+          min-height: 74px; display: flex; align-items: center;
+          gap: 22px; padding: 10px 16px;
         }
 
         /* ===== LOGO ===== */
-        .brand{ text-decoration:none; display:inline-flex; align-items:center; }
+        .brand{ text-decoration:none; display:flex; align-items:center; }
         .brand-wrap{
-          position: relative; display:inline-grid; place-items:center;
-          padding: 6px 4px; isolation:isolate;
+          position: relative; display:grid; place-items:center;
+          padding: 6px 6px; isolation:isolate;
         }
 
-        /* Aurea arcobaleno tenue dietro al logo */
-        .logo-aura{
+        /* Aurea arcobaleno tenue dietro */
+        .logo-halo{
           position:absolute; inset:-26px -34px; z-index:0; pointer-events:none;
           border-radius: 9999px;
           background:
-            conic-gradient(from 0deg,
-              rgba(167,139,250,.55),   /* violet */
-              rgba(147,197,253,.45),   /* pastel blue */
-              rgba(34,211,238,.35),    /* cyan */
-              rgba(16,185,129,.35),    /* emerald */
-              rgba(250,204,21,.35),    /* amber */
-              rgba(244,114,182,.40),   /* pink */
-              rgba(167,139,250,.55));
+            conic-gradient(from var(--ang),
+              rgba(139,92,246,.55), /* violet */
+              rgba(96,165,250,.45), /* blue  */
+              rgba(34,211,238,.40), /* cyan  */
+              rgba(244,114,182,.40),/* pink  */
+              rgba(245,158,11,.38), /* amber */
+              rgba(139,92,246,.55));
           filter: blur(28px) saturate(1.15);
-          opacity:.60;
+          opacity:.65;
           mix-blend-mode: screen;
-          -webkit-mask-image: radial-gradient(ellipse at center, #000 64%, transparent 78%);
-                  mask-image: radial-gradient(ellipse at center, #000 64%, transparent 78%);
-          animation: auraSpin calc(var(--cycle) * 2) linear infinite;
+          animation: spinAng var(--cycle) linear infinite;
         }
 
-        /* Alone neon interno (bagliore sul testo) */
-        .logo-glow{
-          position:absolute; inset:0; z-index:1; pointer-events:none;
-          display:grid; place-items:center;
+        /* Contorno neon morbido (non riempie il testo) */
+        .logo-stroke{
+          position:absolute; z-index:1; pointer-events:none;
           font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .38rem;
-          font-size: clamp(2.1rem, 5vw, 2.8rem);
+          font-size: clamp(2.1rem, 5vw, 3rem);
           text-transform: uppercase;
-          background: linear-gradient(90deg, var(--violet), var(--blue), var(--violet));
-          background-size: 220% 220%;
-          -webkit-background-clip: text; color: transparent;
-          filter: blur(16px) brightness(2.1) saturate(2.1);
-          opacity:.95;
-          animation:
-            sweepColors var(--cycle) linear infinite,
-            pulseGlow var(--pulse) ease-in-out infinite;
+          color: transparent; -webkit-text-fill-color: transparent;
+          -webkit-text-stroke: 2px #7c3aed; /* viola pieno come base del neon */
+          filter: blur(6px) brightness(1.8) saturate(1.8);
+          opacity:.9;
+          animation: pulseGlow var(--pulse) ease-in-out infinite;
         }
 
-        /* Testo 3D in rilievo (bevel + estrusione) con cambio colore */
-        .logo-3d{
-          position:relative; z-index:2; display:inline-block;
+        /* Trama “AI scan” (righe nel testo) */
+        .logo-scan{
+          position:absolute; z-index:2; pointer-events:none;
           font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           font-weight: 900; letter-spacing: .38rem;
-          font-size: clamp(2.1rem, 5vw, 2.8rem);
+          font-size: clamp(2.1rem, 5vw, 3rem);
+          text-transform: uppercase;
+          background:
+            linear-gradient(90deg, transparent 0 46%, rgba(255,255,255,.55) 50%, transparent 54%),
+            repeating-linear-gradient(180deg, rgba(255,255,255,.10) 0 2px, transparent 2px 6px);
+          background-size: 200% 100%, 100% 100%;
+          background-position: 0% 0%, 50% 50%;
+          -webkit-background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+          mix-blend-mode: screen; opacity:.35;
+          animation: scanX 2.6s linear infinite;
+        }
+
+        /* Core 3D con gradiente dinamico (mai bianco) */
+        .logo-core{
+          position:relative; z-index:3; display:inline-block;
+          font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          font-weight: 900; letter-spacing: .38rem;
+          font-size: clamp(2.1rem, 5vw, 3rem);
           text-transform: uppercase;
 
-          /* riempimento animato (cambia colore) */
-          background: linear-gradient(90deg, var(--violet), var(--blue), var(--violet));
-          background-size: 220% 220%;
-          background-position: 0% 50%;
-          -webkit-background-clip: text; color: transparent;
+          /* riempimento a gradiente in rotazione + sweep */
+          --ang: 0deg;
+          background:
+            conic-gradient(from var(--ang) at 50% 50%, var(--c1), var(--c2), var(--c3), var(--c4), var(--c5), var(--c1));
+          background-size: 200% 200%;
+          background-position: 50% 50%;
+          -webkit-background-clip: text; background-clip: text;
+          color: transparent; -webkit-text-fill-color: transparent;
 
-          /* bordo inciso + highlight */
+          /* bordo inciso + estrusione (rilievo) */
           -webkit-text-stroke: 1.4px rgba(0,0,0,.85);
           paint-order: stroke fill;
-
-          /* rilievo profondo con stack ombre */
           text-shadow:
-            -1px -1px 0 rgba(255,255,255,.85), /* bevel alto */
+            /* highlights */
+            -1px -1px 0 rgba(255,255,255,.80),
+            /* estrusione */
             1px 1px 0 rgba(0,0,0,.64),
             2px 2px 0 rgba(0,0,0,.62),
             3px 3px 1px rgba(0,0,0,.60),
@@ -171,22 +197,23 @@ export default function NavBar() {
             10px 12px 16px rgba(0,0,0,.46);
 
           animation:
-            sweepColors var(--cycle) linear infinite,
+            spinAng var(--cycle) linear infinite,
+            sweepBG calc(var(--cycle) * 1.1) linear infinite,
             pulseCore var(--pulse) ease-in-out infinite;
         }
-        /* estrusione solida dietro (profondità) */
-        .logo-3d::after{
+        /* estrusione solida retro */
+        .logo-core::after{
           content: attr(data-text);
           position:absolute; inset:0; z-index:-1; pointer-events:none;
           transform: translate(6px, 8px);
           color: var(--deep);
           letter-spacing: inherit; font: inherit; -webkit-text-stroke: 0;
-          filter: blur(.7px); opacity:.96;
+          filter: blur(.7px); opacity:.98;
           animation: extrudeBreath var(--pulse) ease-in-out infinite;
         }
         /* riflesso vetroso superiore */
-        .logo-3d::before{
-          content:""; position:absolute; left:-4%; right:-4%; top:0; height:56%;
+        .logo-core::before{
+          content:""; position:absolute; left:-4%; right:-4%; top:0; height:58%;
           background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0));
           mix-blend-mode: screen; border-radius: 18px / 62%;
           filter: blur(2px); opacity:.58;
@@ -201,9 +228,9 @@ export default function NavBar() {
         .item.spacer{ visibility:hidden; height:0; padding:0; margin:0; }
 
         .link{
-          --c1:#a78bfa; --c2:#93c5fd;
+          --c1:#8b5cf6; --c2:#60a5fa;
           position: relative;
-          display:inline-grid; place-items:center;
+          display:grid; place-items:center;
           padding: 12px 20px; border-radius: 16px;
           text-decoration:none; color:#eef2ff;
           border:1px solid rgba(255,255,255,.14);
@@ -213,7 +240,7 @@ export default function NavBar() {
           overflow: hidden;
         }
         .link::before{
-          /* riflesso scorrevole sul “vetro” */
+          /* riflesso scorrevole tipo vetro */
           content:""; position:absolute; left:-60%; top:-160%; width:60%; height:320%;
           background: linear-gradient(130deg, rgba(255,255,255,.16), transparent 40%);
           transform: rotate(12deg);
@@ -222,32 +249,32 @@ export default function NavBar() {
         }
 
         .label{
-          position: relative;
+          position:relative;
           font-weight:900; letter-spacing:.06rem;
           background: linear-gradient(90deg, var(--c1), var(--c2), var(--c1));
           background-size:220% auto; -webkit-background-clip:text; color:transparent;
 
-          /* glow neon “americano” spesso */
+          /* neon “americano” colorato (no bianco) */
           text-shadow:
-            0 0 6px var(--c2),
-            0 0 14px var(--c1),
+            0 0 6px color-mix(in oklab, var(--c2) 80%, #000),
+            0 0 16px color-mix(in oklab, var(--c1) 80%, #000),
             1px 1px 0 rgba(0,0,0,.55);
 
           animation:
-            sweepColors var(--cycle) linear infinite,
+            sweepBG var(--cycle) linear infinite,
             pulseLabel var(--pulse) ease-in-out infinite;
         }
-        /* aurea morbida dietro ogni etichetta */
         .label::after{
+          /* aurea morbida dietro ogni voce */
           content:""; position:absolute; inset:-8px -10px; pointer-events:none;
           border-radius: 9999px;
           background: radial-gradient(60% 55% at 50% 50%,
-            color-mix(in oklab, var(--c1) 55%, transparent) 0%,
-            color-mix(in oklab, var(--c2) 40%, transparent) 35%,
+            color-mix(in oklab, var(--c1) 42%, transparent),
+            color-mix(in oklab, var(--c2) 30%, transparent) 40%,
             transparent 70%);
           mix-blend-mode: screen;
           filter: blur(12px);
-          opacity:.65;
+          opacity:.55;
           animation: pulseAura var(--pulse) ease-in-out infinite;
         }
 
@@ -258,66 +285,49 @@ export default function NavBar() {
           box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 18px 36px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.06) inset;
         }
 
-        /* ===== ANIMAZIONI ===== */
-        @keyframes sweepColors { to { background-position: 200% 50%; } }
-        @keyframes auraSpin { to { transform: rotate(360deg); } }
-        @keyframes shineSweep { 0% { transform: translateY(0) } 100% { transform: translateY(-3%) } }
-
-        /* Pulsazioni */
+        /* ===== KEYFRAMES ===== */
+        @keyframes spinAng { to { --ang: 360deg; } }
+        @keyframes sweepBG { to { background-position: 200% 50%; } }
+        @keyframes scanX  { to { background-position: 200% 0, 50% 50%; } }
         @keyframes pulseGlow {
-          0%,100% { filter: blur(16px) brightness(1.7) saturate(1.6); opacity:.9; }
-          50%     { filter: blur(22px) brightness(2.5) saturate(2.2); opacity:1; }
+          0%,100% { filter: blur(6px) brightness(1.4) saturate(1.4); opacity:.85; }
+          50%     { filter: blur(10px) brightness(2.0) saturate(2.0); opacity:1; }
         }
         @keyframes pulseCore {
           0%,100% { transform: scale(1); filter: contrast(1) brightness(1); }
-          50%     { transform: scale(1.04); filter: contrast(1.12) brightness(1.08); }
+          50%     { transform: scale(1.04); filter: contrast(1.1) brightness(1.08); }
         }
         @keyframes extrudeBreath {
-          0%,100% { transform: translate(6px, 8px); opacity:.96; }
+          0%,100% { transform: translate(6px, 8px); opacity:.98; }
           50%     { transform: translate(7px, 10px); opacity:1; }
         }
+        @keyframes shineSweep { 0% { transform: translateY(0) } 100% { transform: translateY(-3%) } }
         @keyframes pulseLabel {
-          0%,100% { filter: brightness(1) saturate(1); text-shadow: 0 0 6px var(--c2), 0 0 14px var(--c1), 1px 1px 0 rgba(0,0,0,.55); }
-          50%     { filter: brightness(1.35) saturate(1.6); text-shadow: 0 0 12px var(--c2), 0 0 28px var(--c1), 1px 1px 0 rgba(0,0,0,.55); }
+          0%,100% { filter: brightness(1) saturate(1); }
+          50%     { filter: brightness(1.3) saturate(1.5); }
         }
         @keyframes pulseAura {
-          0%,100% { opacity:.55; transform: scale(1); }
-          50%     { opacity:.85; transform: scale(1.06); }
+          0%,100% { opacity:.48; transform: scale(1); }
+          50%     { opacity:.8;  transform: scale(1.06); }
         }
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
-          .logo-aura, .logo-glow, .logo-3d, .logo-3d::after, .logo-3d::before,
-          .label, .label::after, .link::before {
-            animation: none !important;
-          }
+          .logo-halo, .logo-stroke, .logo-scan, .logo-core,
+          .logo-core::before, .logo-core::after,
+          .label, .label::after, .link::before { animation: none !important; }
         }
 
-        /* ===== MOBILE ===== */
+        /* ===== RESPONSIVE ===== */
         @media (max-width: 560px){
-          .inner{
-            flex-direction: column;
-            align-items: stretch;
-            gap: 8px;
-            padding: 8px 10px 12px;
-          }
+          .inner{ flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px 12px; }
           .brand{ justify-content: center; }
-          .track{
-            display:grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap:10px; width:100%;
-          }
-          .link{
-            width:100%;
-            padding:10px 12px;
-            text-align:center;
-            border-radius:14px;
-          }
+          .track{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; width:100%; }
+          .link{ width:100%; padding:10px 12px; text-align:center; border-radius:14px; }
         }
         @media (min-width: 561px) and (max-width: 860px){
           .inner{ padding: 8px 12px; }
           .track{ flex-wrap: wrap; gap: 12px; }
-          .item{ flex: 0 0 auto; }
         }
       `}</style>
     </>
