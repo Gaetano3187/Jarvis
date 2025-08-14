@@ -688,6 +688,477 @@ export default function ListeProdotti() {
   });
 
   const curItems = lists[currentList] || [];
+  
+  // Form Aggiunta Scorta manuale
+const [stockForm, setStockForm] = useState({
+  name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
+});
+
+/* =========================
+   === BRAIN BRIDGE FULL ===
+   =========================
+   Espone al "cervello" tutti i dati e tutte le azioni già presenti nella pagina,
+   riutilizzando la tua logica: parseExpiryPairs, parseStockUpdateText, isSimilar,
+   residueInfo, daysToExpiry, toISODate, decrementAcrossBothLists, markBought, ecc.
+*/
+{
+  // --- piccoli riferimenti reattivi allo stato corrente
+  const stockRef = useRef(stock);
+  const listsRef = useRef(lists);
+  const currentListRef = useRef(currentList);
+  useEffect(()=>{ stockRef.current = stock; }, [stock]);
+  useEffect(()=>{ listsRef.current = lists; }, [lists]);
+  useEffect(()=>{ currentListRef.current = currentList; }, [currentList]);
+
+  // --- shim minimo se /lib/brainHub non esiste: crea un hub globale
+  function getHub() {
+    if (typeof window === 'undefined') return null;
+    window.__jarvisBrainHub = window.__jarvisBrainHub || {
+      _datasources: new Map(),
+      _commands: new Map(),
+      registerDataSource(def){ this._datasources.set(def.name, def); },
+      registerCommand(def){ this._commands.set(def.name, def); },
+      async ask(name, payload){ const ds=this._datasources.get(name); return ds?.fetch(payload); },
+      async run(name, payload){ const cmd=this._commands.get(name); return cmd?.execute(payload); },
+      list(){ return { datasources:[...this._datasources.keys()], commands:[...this._commands.keys()]}; }
+    };
+    return window.__jarvisBrainHub;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function wireBrain() {
+      const hub = getHub();
+      if (!hub) return;
+
+      /* ============= DATASOURCES (LETTURA) ============= */
+
+      // Scorte complete (confezioni, unità residue, baseline, consumo, scadenza)
+      hub.registerDataSource({
+        name: 'scorte-complete',
+        fetch: () => {
+          return (stockRef.current || []).map(s => {
+            const upp = Math.max(1, Number(s.unitsPerPack || 1));
+            const residueUnits = Number.isFinite(Number(s.residueUnits))
+              ? Math.max(0, Number(s.residueUnits))
+              : Math.max(0, Number(s.packs || 0) * upp);
+            const baselineUnits = Math.max(
+              upp,
+              (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp)
+            );
+            const avgDailyUnits = Number(s.avgDailyUnits || 0);
+            return {
+              name: String(s.name || '').trim(),
+              brand: String(s.brand || '').trim(),
+              packs: Number(s.packs || 0),
+              unitsPerPack: upp,
+              unitLabel: s.unitLabel || 'unità',
+              residueUnits,
+              baselineUnits,
+              avgDailyUnits,
+              expiresAt: s.expiresAt || ''
+            };
+          });
+        }
+      });
+
+      // Prodotti in esaurimento (residuo < 20% baseline)
+      hub.registerDataSource({
+        name: 'scorte-esaurimento',
+        fetch: () => {
+          return (stockRef.current || []).filter(s => {
+            const { current, baseline } = residueInfo(s);
+            return baseline > 0 && current / baseline < 0.20;
+          });
+        }
+      });
+
+      // Prodotti in scadenza (entro N giorni, default 10)
+      hub.registerDataSource({
+        name: 'scorte-scadenza',
+        fetch: ({ entroGiorni = 10 } = {}) => {
+          return (stockRef.current || []).filter(s => isExpiringSoon(s, entroGiorni));
+        }
+      });
+
+      // Giorni all’esaurimento stimati (usa avgDailyUnits e residueUnits)
+      hub.registerDataSource({
+        name: 'scorte-giorni-esaurimento',
+        fetch: () => {
+          const out = [];
+          for (const s of (stockRef.current || [])) {
+            const upp = Math.max(1, Number(s.unitsPerPack || 1));
+            const currentUnits = Number.isFinite(Number(s.residueUnits))
+              ? Math.max(0, Number(s.residueUnits))
+              : Math.max(0, Number(s.packs || 0) * upp);
+            const day = Number(s.avgDailyUnits || 0);
+            const days = day > 0 ? Math.ceil(currentUnits / day) : null; // null = non stimabile
+            out.push({
+              name: s.name, brand: s.brand || '', unitLabel: s.unitLabel || 'unità',
+              residueUnits: currentUnits, avgDailyUnits: day, daysToDepletion: days
+            });
+          }
+          return out;
+        }
+      });
+
+      // Liste della spesa (tutte le liste, solo righe non acquistate)
+      hub.registerDataSource({
+        name: 'liste-spesa',
+        fetch: () => {
+          const data = listsRef.current || {};
+          return Object.entries(data).flatMap(([type, items]) =>
+            (items || [])
+              .filter(it => !it.purchased && it.qty > 0)
+              .map(it => ({
+                listType: type,                   // 'supermercato' | 'online'
+                name: String(it.name || '').trim(),
+                brand: String(it.brand || '').trim(),
+                qty: Number(it.qty || 0),
+                unitsPerPack: Number(it.unitsPerPack || 1),
+                unitLabel: String(it.unitLabel || 'unità').trim()
+              }))
+          );
+        }
+      });
+
+      // Cosa comprare oggi (shorthand = lista corrente)
+      hub.registerDataSource({
+        name: 'lista-oggi',
+        fetch: () => {
+          const cur = currentListRef.current;
+          const items = (listsRef.current?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
+          return items.map(i => ({
+            listType: cur,
+            name: i.name, brand: i.brand || '', qty: i.qty,
+            unitsPerPack: i.unitsPerPack || 1, unitLabel: i.unitLabel || 'unità'
+          }));
+        }
+      });
+
+      /* ============= COMMANDS (AZIONI) ============= */
+
+      // 1) Imposta scadenze da testo libero (riusa la tua logica)
+      hub.registerCommand({
+        name: 'imposta-scadenze',
+        execute: (text) => {
+          const expiries = parseExpiryPairs(
+            text,
+            GROCERY_LEXICON,
+            (stockRef.current || []).map(s => s.name)
+          );
+          if (!expiries.length) return 'Nessuna scadenza riconosciuta.';
+          let updated = 0;
+          setStock(prev => {
+            const arr = [...prev];
+            for (let i=0;i<arr.length;i++){
+              const hit = expiries.find(e => isSimilar(e.name, arr[i].name));
+              if (hit?.expiresAt) {
+                const iso = toISODate(hit.expiresAt);
+                if (iso) { arr[i] = { ...arr[i], expiresAt: iso }; updated++; }
+              }
+            }
+            return arr;
+          });
+          return updated ? `Aggiornate ${updated} scadenze.` : 'Nessuna scadenza aggiornata.';
+        }
+      });
+
+      // 2) Aggiorna SCORTE da testo libero (inerzia su residueUnits o restock esplicito)
+      hub.registerCommand({
+        name: 'aggiorna-scorte',
+        execute: (text) => {
+          const updates = parseStockUpdateText(text);
+          if (!updates.length) return 'Nessun aggiornamento scorte riconosciuto.';
+          let applied = 0;
+          setStock(prev => {
+            const arr = [...prev];
+            const todayISO = new Date().toISOString().slice(0, 10);
+            for (const u of updates) {
+              const idx = arr.findIndex(s => isSimilar(s.name, u.name));
+              const hintedPacks = Math.max(1, Number(u._packs || 1));
+              const hintedUPP   = Math.max(1, Number(u._upp || 1));
+
+              if (idx >= 0) {
+                const old = arr[idx];
+                const upp = Math.max(1, Number(old.unitsPerPack || 1));
+
+                if (u.op === 'restockExplicit') {
+                  // vero restock con struttura “X conf da Y”
+                  const np = Math.max(0, Number(old.packs || 0) + hintedPacks);
+                  const nupp = Math.max(1, hintedUPP || upp);
+                  arr[idx] = { ...old, packs: np, unitsPerPack: nupp, unitLabel: old.unitLabel || 'unità', ...restockTouch(np, todayISO, nupp) };
+                  applied++; continue;
+                }
+                if (u.op === 'set' || u.mode === 'units' || u.mode === 'packs') {
+                  // inerzia: imposta residueUnits = valore (in unità); se packs → converto in unità
+                  const asUnits = (u.mode === 'units');
+                  const valueUnits = asUnits ? Math.max(0, Number(u.value || 0)) : Math.max(0, Number(u.value || 0) * upp);
+                  arr[idx] = { ...old, residueUnits: valueUnits };
+                  applied++; continue;
+                }
+              } else {
+                // nuovo prodotto: crea struttura plausibile
+                if (u.op === 'restockExplicit') {
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: hintedPacks, unitsPerPack: hintedUPP, unitLabel: 'unità',
+                    expiresAt: '', ...restockTouch(hintedPacks, todayISO, hintedUPP), avgDailyUnits: 0
+                  });
+                  applied++; continue;
+                }
+                const asUnitsLike = (u.mode === 'units');
+                if (asUnitsLike) {
+                  const upp = Math.max(1, Number(u.value || 1));
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: 1, unitsPerPack: upp, unitLabel: 'unità',
+                    expiresAt: '', ...restockTouch(1, todayISO, upp), avgDailyUnits: 0
+                  });
+                } else {
+                  const p = Math.max(1, Number(u.value || 1));
+                  arr.unshift({
+                    name: u.name, brand: '',
+                    packs: p, unitsPerPack: 1, unitLabel: 'unità',
+                    expiresAt: '', ...restockTouch(p, todayISO, 1), avgDailyUnits: 0
+                  });
+                }
+                applied++;
+              }
+            }
+            return arr;
+          });
+          return applied ? `Aggiornate ${applied} scorte.` : 'Nessuna scorta aggiornata.';
+        }
+      });
+
+      // 3) Imposta residueUnits direttamente (es. { name:'latte', units: 8 })
+      hub.registerCommand({
+        name: 'imposta-residuo',
+        execute: ({ name, units }) => {
+          if (!name || units == null) return 'Parametri mancanti.';
+          let ok = false;
+          setStock(prev => {
+            const arr = [...prev];
+            const i = arr.findIndex(s => isSimilar(s.name, name));
+            if (i >= 0) {
+              const upp = Math.max(1, Number(arr[i].unitsPerPack || 1));
+              const baseline = Math.max(upp, Number(arr[i].baselinePacks || arr[i].packs || 0) * upp);
+              const clamped = Math.max(0, Math.min(Number(units || 0), baseline));
+              arr[i] = { ...arr[i], residueUnits: clamped };
+              ok = true;
+            }
+            return arr;
+          });
+          return ok ? `Impostato residuo per ${name}.` : `Prodotto "${name}" non trovato.`;
+        }
+      });
+
+      // 4) Imposta confezioni / UPP (restock pieno)
+      hub.registerCommand({
+        name: 'set-confezioni',
+        execute: ({ name, packs, unitsPerPack, unitLabel }) => {
+          if (!name) return 'Nome mancante.';
+          const p = Math.max(0, Number(packs || 0));
+          const upp = Math.max(1, Number(unitsPerPack || 1));
+          const ulabel = (unitLabel || 'unità').trim() || 'unità';
+          let done = false;
+
+          setStock(prev => {
+            const arr = [...prev];
+            const i = arr.findIndex(s => isSimilar(s.name, name));
+            const todayISO = new Date().toISOString().slice(0,10);
+            if (i >= 0) {
+              arr[i] = { ...arr[i], packs: p, unitsPerPack: upp, unitLabel: ulabel, ...restockTouch(p, todayISO, upp) };
+              done = true;
+            } else {
+              arr.unshift({
+                name, brand:'', packs:p, unitsPerPack:upp, unitLabel: ulabel,
+                expiresAt:'', ...restockTouch(p, todayISO, upp), avgDailyUnits:0
+              });
+              done = true;
+            }
+            return arr;
+          });
+
+          return done ? `Impostate confezioni per ${name}.` : `Impossibile impostare ${name}.`;
+        }
+      });
+
+      // 5) Aggiungi voce in lista (alla lista corrente o a scelta)
+      hub.registerCommand({
+        name: 'aggiungi-alla-lista',
+        execute: ({ name, brand = '', packs = 1, unitsPerPack = 1, unitLabel = 'unità', listType }) => {
+          if (!name) return 'Nome prodotto mancante.';
+          const target = listType && listsRef.current?.[listType] ? listType : currentListRef.current;
+
+          setLists(prev => {
+            const next = { ...prev };
+            const items = [...(prev[target] || [])];
+            const idx = items.findIndex(i =>
+              i.name.toLowerCase() === name.toLowerCase() &&
+              (i.brand||'').toLowerCase() === brand.toLowerCase() &&
+              Number(i.unitsPerPack||1) === Number(unitsPerPack||1)
+            );
+            if (idx >= 0) {
+              items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + Math.max(1, Number(packs || 1)) };
+            } else {
+              items.push({
+                id: 'tmp-' + Math.random().toString(36).slice(2),
+                name, brand, qty: Math.max(1, Number(packs || 1)),
+                unitsPerPack: Math.max(1, Number(unitsPerPack || 1)),
+                unitLabel, purchased: false
+              });
+            }
+            next[target] = items;
+            return next;
+          });
+
+          return `Aggiunto "${name}" alla lista ${target}.`;
+        }
+      });
+
+      // 6) Segna comprato dalla lista (1 o tutta la quantità)
+      hub.registerCommand({
+        name: 'segna-comprato',
+        execute: ({ name, amount = 1, listType }) => {
+          const allLists = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE];
+          const targets = listType && allLists.includes(listType) ? [listType] : allLists;
+          let done = false;
+
+          // replica la logica markBought per match tollerante
+          setLists(prev => {
+            const next = { ...prev };
+            for (const key of targets) {
+              const arr = [...(next[key] || [])];
+              const idx = arr.findIndex(i => isSimilar(i.name, name));
+              if (idx >= 0) {
+                // aggiorna scorte come markBought()
+                const it = arr[idx];
+                const movePacks = Math.max(1, Math.min(Number(it.qty || 0), Number(amount || 1)));
+                const moveUPP   = Math.max(1, Number(it.unitsPerPack || 1));
+                const moveLabel = it.unitLabel || 'unità';
+
+                // decrementa lista
+                arr[idx] = { ...it, qty: Math.max(0, Number(it.qty || 0) - movePacks), purchased: true };
+                next[key] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+
+                // aggiorna scorte
+                setStock(prevStock => {
+                  const st = [...prevStock];
+                  const todayISO = new Date().toISOString().slice(0, 10);
+                  const j = st.findIndex(s => isSimilar(s.name, it.name) && (!it.brand || isSimilar(s.brand || '', it.brand)));
+                  if (j >= 0) {
+                    const old = st[j];
+                    const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
+                    const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
+                    st[j] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
+                  } else {
+                    st.unshift({
+                      name: it.name, brand: it.brand || '',
+                      packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
+                      expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
+                    });
+                  }
+                  return st;
+                });
+
+                done = true;
+                break;
+              }
+            }
+            return next;
+          });
+
+          return done ? `Segnato "${name}" come comprato.` : `Prodotto "${name}" non trovato nelle liste.`;
+        }
+      });
+
+      // 7) Risponditore naturale (router di intenti) per domande comuni:
+      //    - "cosa devo comprare oggi"
+      //    - "prodotti in esaurimento/scadenza"
+      //    - "quanti giorni mancano al [prodotto]"
+      //    - "imposta scadenza ..." / "scade il ..."
+      //    - "aggiorna scorte ..." (latte 3 bottiglie, ecc.)
+      hub.registerCommand({
+        name: 'rispondi',
+        execute: async (textRaw) => {
+          const text = (textRaw || '').toLowerCase();
+
+          // 7.1 lista oggi
+          if (/cosa\s+devo\s+comprare|cosa\s+compr(are|o)\s+oggi|lista\s+(di\s+)?oggi/.test(text)) {
+            const items = await hub.ask('lista-oggi');
+            if (!items?.length) return 'La lista di oggi è vuota.';
+            const rows = items.map(i => `• ${i.name}${i.brand?` (${i.brand})`:''} — ${i.qty} conf. × ${i.unitsPerPack} ${i.unitLabel}`).join('\n');
+            return `Ecco la lista di oggi:\n${rows}`;
+          }
+
+          // 7.2 prodotti in esaurimento
+          if (/in\s+esaurimento|quasi\s+finiti|scorte\s+basse/.test(text)) {
+            const crit = await hub.ask('scorte-esaurimento');
+            if (!crit?.length) return 'Nessun prodotto in esaurimento.';
+            const lines = crit.map(p => {
+              const { current, baseline } = residueInfo(p);
+              const pct = Math.round((current / Math.max(1, baseline)) * 100);
+              return `• ${p.name}${p.brand?` (${p.brand})`:''} — ${Math.round(current)}/${Math.round(baseline)} unità (${pct}%)`;
+            }).join('\n');
+            return `Prodotti in esaurimento:\n${lines}`;
+          }
+
+          // 7.3 prodotti in scadenza (entro 10 giorni, o "entro X giorni")
+          const mEntro = text.match(/entro\s+(\d{1,3})\s+giorni/);
+          if (/in\s+scadenza|scadono|scadenze/.test(text) || mEntro) {
+            const entro = mEntro ? Number(mEntro[1]) : 10;
+            const exp = await hub.ask('scorte-scadenza', { entroGiorni: entro });
+            if (!exp?.length) return `Nessun prodotto in scadenza entro ${entro} giorni.`;
+            const lines = exp.map(p => `• ${p.name}${p.brand?` (${p.brand})`:''} — scade il ${new Date(p.expiresAt).toLocaleDateString('it-IT')}`).join('\n');
+            return `Prodotti in scadenza entro ${entro} giorni:\n${lines}`;
+          }
+
+          // 7.4 quanti giorni mancano all’esaurimento di X
+          const mDays = text.match(/(quanti|quanto)\s+giorni.*(mancano|all'esaurimento|per\s+finire).*([a-z0-9\sàèéìòù]+)/i);
+          if (mDays) {
+            const prod = (mDays[3] || '').trim();
+            const all = await hub.ask('scorte-giorni-esaurimento');
+            const hit = (all || []).find(p => isSimilar(p.name, prod));
+            if (!hit) return `Non trovo "${prod}" fra le scorte.`;
+            if (hit.daysToDepletion == null) return `Non ho abbastanza dati per stimare i giorni per "${hit.name}".`;
+            return `Per ${hit.name} mancano circa ${hit.daysToDepletion} giorni all’esaurimento.`;
+          }
+
+          // 7.5 imposta scadenze (frasi tipo "il latte scade il 15/01/2025", "scade il 10 giugno 2025")
+          if (/scad/.test(text)) {
+            return hub.run('imposta-scadenze', text);
+          }
+
+          // 7.6 aggiorna scorte (frasi tipo "latte 3 bottiglie, pasta 4 pacchi, ...")
+          if (/\b(pacch|conf|scatol|bottigl|unit|pz|pezzi|uova|vasetti|barrette|merendine|bustine)\b|\d+\s*$/.test(text)) {
+            return hub.run('aggiorna-scorte', text);
+          }
+
+          // default: prova comunque parseExpiryPairs/parseStockUpdateText per intercettare comandi "sotto traccia"
+          const tryExp = parseExpiryPairs(text, GROCERY_LEXICON, (stockRef.current||[]).map(s=>s.name));
+          if (tryExp.length) return hub.run('imposta-scadenze', text);
+          const tryUpd = parseStockUpdateText(text);
+          if (tryUpd.length) return hub.run('aggiorna-scorte', text);
+
+          return 'Non ho capito la richiesta (scorte/lista/scadenze). Riprova con: "cosa devo comprare oggi", "prodotti in esaurimento", "il latte scade il 15/01/2025", "pasta 3 pacchi", ecc.';
+        }
+      });
+
+      if (cancelled) return;
+      if (typeof window !== 'undefined') {
+        // Comodo per debug da console:
+        window.jarvisBrain = getHub();
+      }
+    }
+
+    wireBrain();
+    return () => { cancelled = true; };
+  }, []);
+}
+
 
   /* ---- Hydration iniziale da localStorage ---- */
   useEffect(() => {
