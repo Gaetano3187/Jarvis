@@ -197,6 +197,64 @@ function Entrate() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
+  /* === Bridge Entrate al Brain === */
+if (typeof window !== 'undefined') {
+  window.JARVIS_HUB = window.JARVIS_HUB || {};
+
+  const getEntrate = () => {
+    try {
+      return (incomes || []).map(r => ({
+        source: r.source || '',
+        description: r.description || '',
+        amount: Number(r.amount) || 0,
+        date: r.received_date || r.received_at || ''
+      }));
+    } catch {
+      return [];
+    }
+  };
+
+  const getCarryover = () => {
+    try {
+      return Number(carryover?.amount || 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  const getPocketBalance = () => {
+    try {
+      return pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  const getSaldoDisponibile = () => {
+    try {
+      const entratePeriodo = (incomes || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+      const carryAmount = Number(carryover?.amount || 0);
+      const prelievi = pocketRows.filter(r => r.kind === 'manual' && r.amount > 0)
+        .reduce((t, r) => t + r.amount, 0);
+      return Math.max(0, entratePeriodo + carryAmount - prelievi);
+    } catch {
+      return 0;
+    }
+  };
+
+  const oldGet = window.JARVIS_HUB.getHub;
+  window.JARVIS_HUB.getHub = function () {
+    const base = oldGet ? oldGet() : {};
+    return {
+      ...base,
+      entrate: getEntrate(),
+      carryover: getCarryover(),
+      pocketBalance: getPocketBalance(),
+      saldoDisponibile: getSaldoDisponibile()
+    };
+  };
+}
+
 
   async function loadAll() {
     setLoading(true); setError(null);
