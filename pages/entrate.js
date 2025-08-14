@@ -181,6 +181,8 @@ function Entrate() {
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
+  const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+
 
   // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
   const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
@@ -199,6 +201,7 @@ function Entrate() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
+  
   /* === BRIDGE Entrate → JARVIS_HUB === */
 if (typeof window !== 'undefined') {
   window.JARVIS_HUB = window.JARVIS_HUB || {};
