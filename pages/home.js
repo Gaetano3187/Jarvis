@@ -4,7 +4,8 @@ import Link from 'next/link'; import withAuth from '../hoc/withAuth';
 import VoiceRecorder from '../components/VoiceRecorder';
 
  // —— CERVELLO (solo client wrappers)
- import { handleVoiceTranscript, handleOCR, runQueryFromText } from '@/lib/brainQuery';
+import { runQueryFromTextLocal } from '@/lib/brainHub';
+
 
 /* ---------- Helper formattazione risultato ---------- */
 function formatResult(res) {
