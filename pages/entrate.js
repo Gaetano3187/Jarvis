@@ -1,5 +1,5 @@
 // pages/entrate.js
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
@@ -68,7 +68,6 @@ function parseAmountLoose(v) {
 }
 function formatIT(iso) {
   if (!iso) return '';
-  // Supporta "YYYY-MM-DD" e ISO con orario
   const d = iso.length === 10 ? new Date(iso + 'T00:00:00') : new Date(iso);
   return isNaN(d.getTime()) ? '' : d.toLocaleDateString('it-IT');
 }
@@ -87,7 +86,6 @@ function isIncomeIntent(text) {
   const t = (text || '').toLowerCase();
   return /(stipendio|busta paga|accredito|bonifico|fattura|pagamento|mi hanno pagato|compenso|rimborso)/.test(t);
 }
-/** Estrae importo e data (“oggi/ieri/…”) per frasi contante */
 function quickParseCash(text) {
   const t = (text || '').toLowerCase();
   const m = t.match(/(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)/);
@@ -99,7 +97,7 @@ function quickParseCash(text) {
     const d = new Date(); d.setDate(d.getDate() - 1); date = isoLocal(d);
   }
   const isOut = /(uscita|spes|pagat.*contanti)/.test(t);
-  const delta = isOut ? -Math.abs(amount) : Math.abs(amount); // default in (+)
+  const delta = isOut ? -Math.abs(amount) : Math.abs(amount);
   const note = isOut ? 'Uscita contanti' : (/prelev/.test(t) ? 'Prelievo/ricarica contanti' : 'Ricarica contanti');
   return { amount, date, delta, note };
 }
@@ -116,7 +114,7 @@ function Entrate() {
     source: 'Stipendio',
     description: '',
     amount: '',
-    receivedAt: todayLocal, // default alla data odierna locale
+    receivedAt: todayLocal,
   });
 
   const [carryover, setCarryover] = useState(null);
@@ -141,6 +139,7 @@ function Entrate() {
   const dateStartTS = `${startDate}T00:00:00`;
   const dateEndTS   = `${endDate}T23:59:59`;
 
+  // --- Effect per caricare/ricaricare i dati ---
   useEffect(() => {
     loadAll();
     return () => {
@@ -150,6 +149,7 @@ function Entrate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
 
+  // --- FUNZIONE DI CARICO (no hook qui dentro!) ---
   async function loadAll() {
     setLoading(true); setError(null);
     try {
@@ -159,7 +159,7 @@ function Entrate() {
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // Entrate periodo (supporta sia received_date che received_at)
+      // Entrate periodo
       const { data: inc, error: incErr } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at, received_date')
@@ -203,7 +203,7 @@ function Entrate() {
         };
       });
 
-      // Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
+      // Spese cash dalle altre sezioni
       const ELECTRONIC_TOKENS = [
         'carta', 'carta di credito', 'credito', 'debito', 'pos',
         'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
@@ -229,9 +229,8 @@ function Entrate() {
       }
       function isCashByFields(row) {
         const pm = String(row.payment_method || '').toLowerCase();
-        if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
-        if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
-        // default: contanti se la descrizione NON contiene parole di pagamento elettronico
+        if (pm === 'cash' || pm === 'contanti') return true;
+        if (pm && pm !== 'cash' && pm !== 'contanti') return false;
         return !isElectronicByText(row.description);
       }
 
@@ -252,7 +251,6 @@ function Entrate() {
         };
       });
 
-      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
       if (hideVarieCashAfterClear) {
         cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
       }
@@ -262,35 +260,6 @@ function Entrate() {
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
       setPocketRows(rows);
-
-     // --- BRIDGE PER IL BRAIN: espone i numeri già calcolati ---
-// (incolla questo in fondo al componente, PRIMA del return o comunque dentro il componente)
-useEffect(() => {
-  if (typeof window === 'undefined') return;
-
-  // Assicurati che l’oggetto globale esista
-  window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
-
-  // Scrivi SOLO i valori calcolati dalla pagina Entrate
-  window.__JARVIS_DATA__.entrate = {
-    saldoDisponibile,   // numero
-    soldiInTasca,       // numero
-    entratePeriodo,     // numero
-    spesePeriodo,       // numero
-    carryoverMese,      // numero
-    startDate,          // "YYYY-MM-DD" o ISO
-    endDate             // "YYYY-MM-DD" o ISO
-  };
-}, [
-  saldoDisponibile,
-  soldiInTasca,
-  entratePeriodo,
-  spesePeriodo,
-  carryoverMese,
-  startDate,
-  endDate
-]);
-
     } catch (err) {
       showError(setError, err);
     } finally {
@@ -317,23 +286,21 @@ useEffect(() => {
     return JSON.parse(answer);
   }
 
-  /** Inserisce pocket_cash (ricarica/uscita) — usato per voce/OCR “prelevato / messo in tasca” */
   async function insertPocketQuick({ amount, date, delta, note }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
-    const moved_date = date || isoLocal(new Date()); // data locale del movimento
+    const moved_date = date || isoLocal(new Date());
     const payload = {
       user_id: user.id,
       note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
       delta: (typeof delta === 'number') ? delta : Math.abs(amount),
-      moved_date,                             // <— campo data (YYYY-MM-DD)
-      moved_at: `${moved_date}T12:00:00`,    // <— orario locale (no "Z")
+      moved_date,
+      moved_at: `${moved_date}T12:00:00`,
     };
     const { error } = await supabase.from('pocket_cash').insert(payload);
     if (error) throw error;
   }
 
-  /** Inserisce entrata (stipendio/pagamento) */
   async function insertIncomeAssistant(text) {
     const data = await callAssistant(buildIncomePrompt(text));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
@@ -349,8 +316,8 @@ useEffect(() => {
         source: it.source || 'Entrata',
         description: it.description || it.source || 'Entrata',
         amount,
-        received_date: dataIncasso,            // <— data locale
-        received_at: `${dataIncasso}T12:00:00` // <— orario locale (no "Z")
+        received_date: dataIncasso,
+        received_at: `${dataIncasso}T12:00:00`
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -374,7 +341,6 @@ useEffect(() => {
         const ok = await insertIncomeAssistant(text);
         if (ok) { await loadAll(); return; }
       }
-      // fallback: prova income comunque
       const ok2 = await insertIncomeAssistant(text);
       if (ok2) { await loadAll(); return; }
 
@@ -439,8 +405,8 @@ useEffect(() => {
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
         amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_date: recDate,                // <— data locale
-        received_at: `${recDate}T12:00:00`,    // <— orario locale (no "Z")
+        received_date: recDate,
+        received_at: `${recDate}T12:00:00`,
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -487,14 +453,14 @@ useEffect(() => {
       const delta = parseAmountLoose(pocketTopUp);
       if (!delta) return;
 
-      const moved_date = isoLocal(new Date()); // data locale odierna
+      const moved_date = isoLocal(new Date());
 
       const payload = {
         user_id: user.id,
         note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
         delta,
-        moved_date,                          // <— data locale
-        moved_at: `${moved_date}T12:00:00`,  // <— orario locale (no "Z")
+        moved_date,
+        moved_at: `${moved_date}T12:00:00`,
       };
       const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) throw error;
@@ -520,12 +486,54 @@ useEffect(() => {
     } catch (err) { showError(setError, err); }
   }
 
-  /* --------------------------- calcoli per UI --------------------------- */
-  const entratePeriodo = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
-  const carryAmount = Number(carryover?.amount || 0);
-  const prelievi = pocketRows.filter(r => r.kind === 'manual' && r.amount > 0).reduce((t, r) => t + r.amount, 0);
-  const saldoDisponibile = Math.max(0, entratePeriodo + carryAmount - prelievi);
-  const pocketBalance = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
+  /* --------------------------- calcoli per UI (memo) --------------------------- */
+  const entratePeriodo = useMemo(
+    () => incomes.reduce((t, r) => t + Number(r.amount || 0), 0),
+    [incomes]
+  );
+
+  const carryAmount = useMemo(
+    () => Number(carryover?.amount || 0),
+    [carryover]
+  );
+
+  const prelievi = useMemo(
+    () => pocketRows.filter(r => r.kind === 'manual' && r.amount > 0).reduce((t, r) => t + r.amount, 0),
+    [pocketRows]
+  );
+
+  const saldoDisponibile = useMemo(
+    () => Math.max(0, entratePeriodo + carryAmount - prelievi),
+    [entratePeriodo, carryAmount, prelievi]
+  );
+
+  const pocketBalance = useMemo(
+    () => pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0),
+    [pocketRows]
+  );
+
+  const spesePeriodo = useMemo(
+    () => pocketRows.filter(r => r.kind === 'cash-expense').reduce((t, r) => t + Math.abs(Number(r.amount || 0)), 0),
+    [pocketRows]
+  );
+
+  const carryoverMese = carryAmount;
+  const soldiInTasca = pocketBalance;
+
+  // --- BRIDGE PER IL BRAIN (effect separato, con dipendenze memoizzate) ---
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
+    window.__JARVIS_DATA__.entrate = {
+      saldoDisponibile,
+      soldiInTasca,
+      entratePeriodo,
+      spesePeriodo,
+      carryoverMese,
+      startDate,
+      endDate
+    };
+  }, [saldoDisponibile, soldiInTasca, entratePeriodo, spesePeriodo, carryoverMese, startDate, endDate]);
 
   /* ------------------------------ UI ------------------------------ */
   return (
