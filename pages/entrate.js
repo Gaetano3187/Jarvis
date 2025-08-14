@@ -471,6 +471,8 @@ if (typeof window !== 'undefined') {
       if (isCashIntent(text)) {
         const parsed = quickParseCash(text);
         if (parsed) { await insertPocketQuick(parsed); setRecBusy(false); streamRef.current?.getTracks?.().forEach(t=>t.stop()); await loadAll(); return; }
+    
+      
       }
       if (isIncomeIntent(text)) {
         const ok = await insertIncomeAssistant(text);
@@ -478,6 +480,7 @@ if (typeof window !== 'undefined') {
       }
       const ok2 = await insertIncomeAssistant(text);
       if (ok2) { setRecBusy(false); streamRef.current?.getTracks?.().forEach(t=>t.stop()); await loadAll(); return; }
+      
 
       setError('Nessun dato riconosciuto dalla voce');
     } catch (err) {
