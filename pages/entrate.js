@@ -133,13 +133,21 @@ function Entrate() {
 
 
   // Dopo “Ripulisci”: nascondi in questa pagina anche le spese CASH della categoria VARIE
-  const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
+// --- funzione helper in alto al file (fuori dal componente Entrate)
+function nowInRome() {
+  const fmt = new Intl.DateTimeFormat('it-IT', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+01:00`);
+}
 
-  const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
-  const startDateIT = formatIT(startDate);
-  const endDateIT = formatIT(endDate);
-  const dateStartTS = `${startDate}T00:00:00`;
-  const dateEndTS   = `${endDate}T23:59:59`;
+// --- dentro Entrate(), al posto della tua riga attuale
+const now = nowInRome();
+const { startDate, endDate, monthKey } = computeCurrentPayPeriod(now, PAYDAY_DAY);
+
 
   useEffect(() => {
     loadAll();
