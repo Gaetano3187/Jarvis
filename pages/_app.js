@@ -1,28 +1,31 @@
-import React, { useState, useContext } from 'react';   // se useContext non serve, rimuovilo
+// pages/_app.js
+import React from 'react';
 import '../styles/globals.css';
 
-import { AuthProvider, AuthContext } from '../context/AuthContext';
+import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 
-// 👉 tutto dal nuovo pacchetto unificato
 import { createBrowserClient } from '@supabase/ssr';
 import { SessionContextProvider } from '@supabase/auth-helpers-react';
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+if (!supabaseUrl || !supabaseAnon) {
+  // Evita crash silenziosi
+  // eslint-disable-next-line no-console
+  console.error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+}
+
+const globalForSb = globalThis;
+globalForSb._sbClient = globalForSb._sbClient || createBrowserClient(supabaseUrl, supabaseAnon);
+const supabaseClient = globalForSb._sbClient;
+
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
-
-  // pagine senza NavBar
   const hideNavOn = ['/', '/login'];
   const showNav = !hideNavOn.includes(router.pathname);
-
-  // il client viene creato una sola volta
-  const [supabaseClient] = useState(() =>
-    createBrowserClient(supabaseUrl, supabaseAnon)
-  );
 
   return (
     <SessionContextProvider
@@ -30,7 +33,7 @@ export default function MyApp({ Component, pageProps }) {
       initialSession={pageProps.initialSession ?? null}
     >
       <AuthProvider>
-        {showNav && <NavBar />} {/* Navbar visibile ovunque, tranne login */}
+        {showNav && <NavBar />}
         <Component {...pageProps} />
       </AuthProvider>
     </SessionContextProvider>
