@@ -1,3 +1,4 @@
+
 // pages/entrate.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -196,58 +197,60 @@ function Entrate() {
         };
       });
 
-      // Spese cash rilevate dalle altre sezioni
-      const ELECTRONIC_TOKENS = [
-        'carta', 'carta di credito', 'credito', 'debito', 'pos',
-        'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-        'satispay', 'apple pay', 'google pay'
-      ];
+// Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
+const ELECTRONIC_TOKENS = [
+  'carta', 'carta di credito', 'credito', 'debito', 'pos',
+  'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
+  'satispay', 'apple pay', 'google pay'
+];
 
-      const { data: finAll, error: finAllErr } = await supabase
-        .from('finances')
-        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-        .eq('user_id', user.id)
-        .or(
-          `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-        )
-        .order('spent_at', { ascending: false, nullsFirst: false })
-        .order('spent_date', { ascending: false, nullsFirst: false });
-      if (finAllErr) throw finAllErr;
+const { data: finAll, error: finAllErr } = await supabase
+  .from('finances')
+  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+  .eq('user_id', user.id)
+  .or(
+    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+  )
+  .order('spent_at', { ascending: false, nullsFirst: false })
+  .order('spent_date', { ascending: false, nullsFirst: false });
 
-      function isElectronicByText(desc) {
-        const t = String(desc || '').toLowerCase();
-        return ELECTRONIC_TOKENS.some(k => t.includes(k));
-      }
-      function isCashByFields(row) {
-        const pm = String(row.payment_method || '').toLowerCase();
-        if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
-        if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
-        // default: contanti se la descrizione NON contiene parole di pagamento elettronico
-        return !isElectronicByText(row.description);
-      }
+if (finAllErr) throw finAllErr;
 
-      let finCash = (finAll || []).filter(isCashByFields);
+function isElectronicByText(desc) {
+  const t = String(desc || '').toLowerCase();
+  return ELECTRONIC_TOKENS.some(k => t.includes(k));
+}
+function isCashByFields(row) {
+  const pm = String(row.payment_method || '').toLowerCase();
+  if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
+  if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
+  // default: contanti se la descrizione NON contiene parole di pagamento elettronico
+  return !isElectronicByText(row.description);
+}
 
-      let cashRows = (finCash || []).map((f) => {
-        const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-        const store = m ? m[1] : 'Punto vendita';
-        const dett  = m ? m[2] : (f.description || '');
-        return {
-          id: `fin-${f.id}`,
-          dateISO,
-          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-          amount: -Math.abs(Number(f.amount) || 0),
-          category_id: f.category_id,
-          kind: 'cash-expense',
-        };
-      });
+let finCash = (finAll || []).filter(isCashByFields);
 
-      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE in questa pagina
-      if (hideVarieCashAfterClear) {
-        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-      }
+let cashRows = (finCash || []).map((f) => {
+  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+  const store = m ? m[1] : 'Punto vendita';
+  const dett  = m ? m[2] : (f.description || '');
+  return {
+    id: `fin-${f.id}`,
+    dateISO,
+    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+    amount: -Math.abs(Number(f.amount) || 0),
+    category_id: f.category_id,
+    kind: 'cash-expense',
+  };
+});
+
+// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
+if (hideVarieCashAfterClear) {
+  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+}
+
 
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
@@ -255,7 +258,7 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // Totale spese del periodo (facoltativo: se non usi monthExpenses puoi rimuoverlo)
+      // Totale spese del periodo (facoltativo)
       const { data: exp } = await supabase.from('finances')
         .select('amount, spent_date').eq('user_id', user.id)
         .gte('spent_date', startDate).lte('spent_date', endDate);
@@ -535,7 +538,7 @@ function Entrate() {
                   <tr key={i.id}>
                     <td>{i.source || '-'}</td>
                     <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : (i.received_date ? formatIT(i.received_date) : '-')}</td>
+                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
                     <td>{Number(i.amount).toFixed(2)}</td>
                     <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
                   </tr>
