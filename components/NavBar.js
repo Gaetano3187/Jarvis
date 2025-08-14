@@ -4,20 +4,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 
 const links = [
-  { href: '/home',             label: 'Home',           c1: '#5eead4', c2: '#22d3ee' },
-  { href: '/dashboard',        label: 'Dashboard',      c1: '#f0abfc', c2: '#c084fc' },
-  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#34d399', c2: '#a3e635' },
-  { href: '/finanze',          label: 'Finanze',        c1: '#60a5fa', c2: '#a78bfa' },
-  { href: '/spese-casa',       label: 'Casa',           c1: '#38bdf8', c2: '#60a5fa' },
-  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#f472b6', c2: '#fb7185' },
-  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#fb923c' },
-  { href: '/varie',            label: 'Varie',          c1: '#94a3b8', c2: '#d4d4d8' },
+  { href: '/home',             label: 'Home',           c1: '#a78bfa', c2: '#60a5fa' },
+  { href: '/dashboard',        label: 'Dashboard',      c1: '#c084fc', c2: '#93c5fd' },
+  { href: '/liste-prodotti',   label: 'Liste Prodotti', c1: '#a78bfa', c2: '#93c5fd' },
+  { href: '/finanze',          label: 'Finanze',        c1: '#a78bfa', c2: '#93c5fd' },
+  { href: '/spese-casa',       label: 'Casa',           c1: '#a78bfa', c2: '#93c5fd' },
+  { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#a78bfa', c2: '#93c5fd' },
+  { href: '/cene-aperitivi',   label: 'Cene',           c1: '#a78bfa', c2: '#93c5fd' },
+  { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' },
 ];
 
 export default function NavBar() {
   const { pathname } = useRouter();
-
-  // Filler per completare multipli di 3 su mobile
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
@@ -69,7 +67,8 @@ export default function NavBar() {
         :root{
           --nav-bg: rgba(5, 8, 22, 0.72);
           --nav-brd: rgba(255,255,255,.12);
-          --text: #f8fafc;
+          --violet: #a78bfa;
+          --pastel-blue: #93c5fd;
         }
 
         .nav{
@@ -100,19 +99,17 @@ export default function NavBar() {
           font-weight: 900; letter-spacing: .32rem;
           font-size: clamp(2rem, 4.8vw, 2.6rem);
           text-transform: uppercase;
-          background:
-            conic-gradient(from 0deg at 50% 50%,
-              #ff00ff, #00ffff, #ffff00, #ff0000, #ff00ff);
+          background: conic-gradient(from 0deg at 50% 50%, var(--violet), var(--pastel-blue), var(--violet));
           background-size: 300% 300%;
           -webkit-background-clip: text;
           color: transparent;
           filter: blur(14px) brightness(2) saturate(2);
           animation:
-            kaleido 6s linear infinite,
-            neonPulse 2.5s ease-in-out infinite;
+            kaleido 5s linear infinite,
+            neonPulse 1.5s ease-in-out infinite;
         }
 
-        /* Testo 3D neon */
+        /* Testo 3D neon con pulsazione */
         .logo-text{
           position:relative; z-index:2; display:inline-block;
           font-family: "Orbitron", sans-serif;
@@ -121,20 +118,17 @@ export default function NavBar() {
           text-transform: uppercase;
           -webkit-text-stroke: 1.3px #000;
           text-shadow:
-            0 0 5px #fff,
-            0 0 10px #fff,
-            0 0 20px #ff00de,
-            0 0 30px #ff00de,
-            0 0 40px #ff00de,
-            0 0 55px #ff00de,
-            0 0 75px #ff00de;
-          background:
-            conic-gradient(from 0deg at 50% 50%,
-              #ff00ff, #00ffff, #ffff00, #ff0000, #ff00ff);
+            0 0 5px var(--pastel-blue),
+            0 0 10px var(--pastel-blue),
+            0 0 20px var(--violet),
+            0 0 30px var(--violet);
+          background: conic-gradient(from 0deg at 50% 50%, var(--violet), var(--pastel-blue), var(--violet));
           background-size: 300% 300%;
           -webkit-background-clip: text;
           color: transparent;
-          animation: kaleido 6s linear infinite;
+          animation:
+            kaleido 5s linear infinite,
+            neonPulse 1.5s ease-in-out infinite;
         }
 
         /* ===== MENU ===== */
@@ -143,7 +137,7 @@ export default function NavBar() {
         }
         .item.spacer{ visibility:hidden; }
         .link{
-          --c1:#5eead4; --c2:#22d3ee;
+          --c1:#a78bfa; --c2:#93c5fd;
           display:inline-grid; place-items:center;
           padding: 12px 20px; border-radius: 16px;
           text-decoration:none;
@@ -157,8 +151,12 @@ export default function NavBar() {
           background-size:200% auto;
           -webkit-background-clip:text;
           color:transparent;
-          text-shadow: 0 0 8px currentColor, 0 0 20px currentColor;
-          animation: sweep 6s linear infinite, neonPulse 2.5s ease-in-out infinite;
+          text-shadow:
+            0 0 5px var(--c2),
+            0 0 15px var(--c1);
+          animation:
+            sweep 5s linear infinite,
+            neonPulse 1.5s ease-in-out infinite;
         }
         .link:hover{ transform: scale(1.05); }
 
@@ -166,8 +164,8 @@ export default function NavBar() {
         @keyframes kaleido { to { background-position: 360deg center; } }
         @keyframes sweep { to { background-position: 200% center; } }
         @keyframes neonPulse {
-          0%,100% { filter: brightness(1) saturate(1); }
-          50% { filter: brightness(1.4) saturate(1.8); }
+          0%,100% { filter: brightness(1) saturate(1); text-shadow: 0 0 5px var(--pastel-blue), 0 0 20px var(--violet); }
+          50% { filter: brightness(1.6) saturate(2); text-shadow: 0 0 15px var(--pastel-blue), 0 0 35px var(--violet); }
         }
 
         @media (max-width: 560px){
