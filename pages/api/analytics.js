@@ -1,4 +1,4 @@
-// pages/api/analytics.js
+// pages/api/analytics.js 
 import { classifyQuery } from '../../lib/brainQuery';
 import { createClient } from '@supabase/supabase-js';
 
