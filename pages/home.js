@@ -155,7 +155,7 @@ const Home = () => {
   const handleChatSend = async (text) => {
     try {
       setBusy(true);
-     const res = await runQueryFromText(text, { first: chatMsgs.length === 0 });
+    const res = await runQueryFromTextLocal(text, { first: chatMsgs.length === 0 });
       if (res?.redirect) {
         setChatMsgs((arr) => [
           ...arr,
