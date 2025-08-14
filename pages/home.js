@@ -1,13 +1,10 @@
-// pages/home.js 
 import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
-import withAuth from '../hoc/withAuth';
+import Link from 'next/link'; import withAuth from '../hoc/withAuth';
 import VoiceRecorder from '../components/VoiceRecorder';
 
-// —— CERVELLO: ingest voce + OCR
-import { handleVoiceTranscript, handleOCR, runQueryFromText } from '@/lib/brainQuery';
-
+ // —— CERVELLO (solo client wrappers)
+ import { handleVoiceTranscript, handleOCR, runQueryFromText } from '@/lib/brainQuery';
 
 /* ---------- Helper formattazione risultato ---------- */
 function formatResult(res) {
