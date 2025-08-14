@@ -6,30 +6,20 @@ import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 
-import { createBrowserClient } from '@supabase/ssr';
+// Usa il client singleton definito in lib/supabaseClient.ts
+import { supabase } from '@/lib/supabaseClient';
 import { SessionContextProvider } from '@supabase/auth-helpers-react';
-
-const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnon) {
-  // Evita crash silenziosi
-  // eslint-disable-next-line no-console
-  console.error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
-}
-
-const globalForSb = globalThis;
-globalForSb._sbClient = globalForSb._sbClient || createBrowserClient(supabaseUrl, supabaseAnon);
-const supabaseClient = globalForSb._sbClient;
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
+
+  // Pagine senza NavBar
   const hideNavOn = ['/', '/login'];
   const showNav = !hideNavOn.includes(router.pathname);
 
   return (
     <SessionContextProvider
-      supabaseClient={supabaseClient}
+      supabaseClient={supabase}
       initialSession={pageProps.initialSession ?? null}
     >
       <AuthProvider>
