@@ -141,6 +141,29 @@ function Entrate() {
   const dateStartTS = `${startDate}T00:00:00`;
   const dateEndTS   = `${endDate}T23:59:59`;
 
+  // === BRIDGE per brainQuery.js ===
+useEffect(() => {
+  if (typeof window !== 'undefined') {
+    window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
+    window.__JARVIS_DATA__.entrate = {
+      saldoDisponibile,
+      soldiInTasca: pocketBalance,
+      entratePeriodo,
+      spesePeriodo: monthExpenses,
+      carryoverMese: carryAmount,
+      startDate,
+      endDate
+    };
+  }
+}, [
+  saldoDisponibile,
+  pocketBalance,
+  entratePeriodo,
+  monthExpenses,
+  carryAmount,
+  startDate,
+  endDate
+]);
   useEffect(() => {
     loadAll();
     return () => {
