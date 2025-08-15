@@ -770,6 +770,39 @@ h1, h2, h3, .title {
 
 /* (facoltativo) se in qualche pagina esisteva un vecchio div di sfondo */
 .bg-kaleido{ display:none !important; }
+/* ==========================================================
+   BACKGROUND • Petrolio–Blu tenue (animated, low-saturation)
+   ========================================================== */
+
+/* Tavolozza più morbida (petrolio) */
+:root{
+  --g-teal:   #4aa7a1;   /* teal smorzato (sinistra/basso) */
+  --g-blue:   #2f5f74;   /* blu petrolio centrale          */
+  --g-indigo: #1b2540;   /* navy profondo (destra/alto)     */
+}
+
+/* App + Login: stesso identico sfondo */
+.app-shell, [data-route] .app-shell, .login-shell{
+  min-height: 100svh;
+  background:
+    radial-gradient(1200px 900px at 0% 100%, color-mix(in srgb, var(--g-teal) 26%, transparent) 0%, transparent 60%),
+    radial-gradient(1200px 900px at 100% 0%, color-mix(in srgb, var(--g-indigo) 22%, transparent) 0%, transparent 60%),
+    linear-gradient(125deg, var(--g-teal) 0%, var(--g-blue) 52%, var(--g-indigo) 100%);
+  background-size: 180% 180%, 180% 180%, 140% 140%;
+  background-attachment: fixed;
+  animation: appBgDriftSoft 34s ease-in-out infinite alternate;
+}
+
+/* Animazione molto leggera (niente saturazione extra) */
+@keyframes appBgDriftSoft{
+  0%   { background-position: 0% 0%, 100% 0%, 20% 60%; filter: saturate(1) brightness(1); }
+  100% { background-position: 100% 100%, 0% 100%, 80% 40%; filter: saturate(1.03) brightness(1); }
+}
+
+/* Accessibilità: ferma l’animazione se richiesto dall’utente */
+@media (prefers-reduced-motion: reduce){
+  .app-shell, [data-route] .app-shell, .login-shell{ animation: none; }
+}
 
 
 
