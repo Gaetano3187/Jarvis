@@ -1,25 +1,7 @@
-// lib/brainQuery.js
-// Wrapper minimale per sbloccare il build. Puoi collegarlo a brainHub se vuoi.
-
-import BrainHub, { runBrainQuery, runQuery } from './brainHub';
- * Esegue una query al "cervello" dell'app.
- * @param {{question?: string, context?: any, userId?: string, options?: any}} input
- * @returns {Promise<{ok: boolean, text?: string, data?: any, error?: string}>}
- */
-export async function runBrainQuery(input = {}) {
-  // Se brainHub espone una funzione reale, prova ad usarla
-  if (BrainHub && typeof BrainHub.runBrainQuery === 'function') {
-    return BrainHub.runBrainQuery(input);
-  }
-  if (BrainHub && typeof BrainHub.runQuery === 'function') {
-    return BrainHub.runQuery(input);
-  }
-  // Fallback stub per evitare crash a runtime
-  return {
-    ok: true,
-    text: '',
-    data: { notice: 'brainQuery stub attivo: collega a brainHub.runBrainQuery per logica reale.' }
-  };
+// TEMP: brain disabilitato per il build
+export async function brainQuery() {
+  return { ok: false, error: 'Brain temporaneamente disabilitato' };
 }
-
-export default runBrainQuery;
+export default brainQuery;
+export const runBrainQuery = brainQuery;
+export const runQuery = brainQuery;
