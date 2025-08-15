@@ -986,3 +986,101 @@ h1.title-glass, h2.title-glass, h3.title-glass {
     font-size: clamp(12px, 3.2vw, 14px);
   }
 }
+/* ==========================================================
+   PAGE TITLES — strong relief + pulse + subtle movement
+   (vale per h1, h2, h3, .title, .title-glass, .title-lemon)
+   ========================================================== */
+
+/* Intensità rilievo (puoi aumentare/diminuire qui) */
+:root{
+  --t-emboss-top:    rgba(255,255,255,.58);  /* highlight alto */
+  --t-emboss-bottom: rgba(0,0,0,.50);        /* bordo basso    */
+  --t-emboss-glow:   rgba(0,0,0,.40);        /* profondità     */
+  --t-aura-1:        rgba(255,255,255,.18);  /* aura soft      */
+  --t-aura-2:        rgba(180,200,255,.24);  /* aura fredda    */
+}
+
+/* Target: tutti i titoli di pagina comuni del progetto */
+:where(h1,h2,h3,.title,.title-glass,.title-lemon){
+  position: relative;
+  display: inline-block;                 /* serve per l’aurea */
+  /* forte rilievo */
+  color: var(--text-1);
+  text-shadow:
+    0 1px 0  var(--t-emboss-top),
+    0 2px 0  var(--t-emboss-bottom),
+    0 10px 26px var(--t-emboss-glow);
+
+  line-height: 1.24;
+  letter-spacing: .04em;
+  /* se il titolo ha già un gradiente di testo (es. .title-glass) lo anima;
+     se non ce l’ha, l’animazione non dà problemi */
+  background-size: 200% 100%;
+  will-change: transform, filter, background-position;
+  /* ANIMAZIONI: respiro + micro-float + drift del gradiente */
+  animation:
+    titlePulse 2.2s ease-in-out infinite,
+    titleDrift 7.5s ease-in-out infinite;
+}
+
+/* Aura vetrificata intorno al testo (dietro il titolo) */
+:where(h1,h2,h3,.title,.title-glass,.title-lemon)::after{
+  content:"";
+  position:absolute; inset:-10% -6%; z-index:-1;
+  background:
+    radial-gradient(60% 70% at 50% 50%, var(--t-aura-1), transparent 70%),
+    radial-gradient(55% 65% at 55% 45%, var(--t-aura-2), transparent 70%);
+  filter: blur(12px);
+  opacity:.85;
+  border-radius: 16px;
+  animation: auraBreath 2.2s ease-in-out infinite;
+  pointer-events:none;
+}
+
+/* Pulse + micro-float (usa anche leggero cambio di text-shadow) */
+@keyframes titlePulse{
+  0%{
+    transform: translate3d(0,0,0);
+    text-shadow:
+      0 1px 0 var(--t-emboss-top),
+      0 2px 0 var(--t-emboss-bottom),
+      0 10px 26px var(--t-emboss-glow);
+  }
+  50%{
+    transform: translate3d(0,-1.5px,0);
+    text-shadow:
+      0 1px 0 var(--t-emboss-top),
+      0 3px 0 var(--t-emboss-bottom),
+      0 14px 32px var(--t-emboss-glow);
+  }
+  100%{
+    transform: translate3d(0,0,0);
+    text-shadow:
+      0 1px 0 var(--t-emboss-top),
+      0 2px 0 var(--t-emboss-bottom),
+      0 10px 26px var(--t-emboss-glow);
+  }
+}
+
+/* Drift del gradiente (funziona solo sui titoli con background-clip:text) */
+@keyframes titleDrift{
+  0%   { background-position: 0% 50%;   filter: saturate(1); }
+  100% { background-position: 200% 50%; filter: saturate(1.03); }
+}
+
+/* Respiro dell’aurea */
+@keyframes auraBreath{
+  0%,100% { opacity: .78; transform: scale(1); }
+  50%     { opacity: .95; transform: scale(1.03); }
+}
+
+/* Accessibilità: riduci movimento se richiesto dall’utente */
+@media (prefers-reduced-motion: reduce){
+  :where(h1,h2,h3,.title,.title-glass,.title-lemon){
+    animation: none;
+  }
+  :where(h1,h2,h3,.title,.title-glass,.title-lemon)::after{
+    animation: none;
+  }
+}
+
