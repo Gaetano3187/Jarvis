@@ -803,6 +803,85 @@ h1, h2, h3, .title {
 @media (prefers-reduced-motion: reduce){
   .app-shell, [data-route] .app-shell, .login-shell{ animation: none; }
 }
+/* ==========================================================
+   BLURRED BG (like the image) + subtle animation + Montserrat
+   ========================================================== */
+
+/* Palette ricreata dalla tua immagine */
+:root{
+  --bb-cream:  #f5efe6;  /* angolo alto-sx */
+  --bb-blush:  #f5c2cc;  /* rosa tenue     */
+  --bb-powder: #e6eef6;  /* azzurro latte  */
+  --bb-blue:   #5b79a6;  /* blu/petrolio   */
+  --bb-indigo: #2b2c67;  /* indaco profondo*/
+
+  --hero-font: "Montserrat", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* 1) Sfondo animato per TUTTE le pagine (anche login) */
+.app-shell, .login-shell{
+  min-height: 100svh;
+  /* radiali morbidi + base lineare “petrolio” */
+  background:
+    radial-gradient(1200px 900px at 10% 8%,   color-mix(in srgb, var(--bb-cream) 75%, transparent) 0%, transparent 62%),
+    radial-gradient(1200px 900px at 22% 40%,  color-mix(in srgb, var(--bb-blush) 65%, transparent) 0%, transparent 60%),
+    radial-gradient(1200px 900px at 85% 18%,  color-mix(in srgb, var(--bb-powder) 60%, transparent) 0%, transparent 60%),
+    radial-gradient(1600px 1200px at 80% 85%, color-mix(in srgb, var(--bb-blue) 60%, transparent) 0%, transparent 70%),
+    linear-gradient(135deg, var(--bb-cream) 0%, var(--bb-blue) 50%, var(--bb-indigo) 100%);
+  background-size: 170% 170%, 170% 170%, 170% 170%, 180% 180%, 140% 140%;
+  background-attachment: fixed;
+  position: relative;
+  overflow: hidden;
+  animation: blurredDrift 36s ease-in-out infinite alternate;
+}
+
+/* riflesso diagonale come nella foto */
+.app-shell::before, .login-shell::before{
+  content:""; position:absolute; inset:0;
+  background: linear-gradient(115deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.08) 28%, transparent 55%);
+  mix-blend-mode: screen; pointer-events: none;
+}
+
+/* animazione molto leggera (niente saturazione extra) */
+@keyframes blurredDrift{
+  0%{
+    background-position:
+      0% 0%,
+      100% 10%,
+      60% 0%,
+      0% 100%,
+      20% 60%;
+    filter: saturate(1) brightness(1);
+  }
+  100%{
+    background-position:
+      100% 100%,
+      0% 90%,
+      40% 100%,
+      100% 0%,
+      80% 40%;
+    filter: saturate(1.02) brightness(1);
+  }
+}
+
+/* Rispetto accessibilità */
+@media (prefers-reduced-motion: reduce){
+  .app-shell, .login-shell{ animation: none; }
+}
+
+/* 2) Titoli con il font della scritta dell’immagine */
+h1, h2, h3, .title, .hero-font{
+  font-family: var(--hero-font) !important;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+
+/* (opzionale) Sottotitoli “light” come nell’immagine */
+.subtitle, .hero-sub{
+  font-family: var(--hero-font) !important;
+  font-weight: 300;
+  letter-spacing: .06em;
+}
 
 
 
