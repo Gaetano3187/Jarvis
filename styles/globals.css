@@ -906,6 +906,87 @@ h1, h2, h3, .title, .hero-font{
   --text-aura:        rgba(255,255,255,.14);  /* prima .20 */
   --text-aura-strong: rgba(255,255,255,.32);  /* prima .46 */
 }
+/* ==========================================================
+   TITOLI VETRIFICATI • AUREA + GRADIENTE PASTELLO
+   (vale per: .title-glass, e per header delle tabelle)
+   ========================================================== */
+
+/* Tavolozza ricreata dall'immagine (cream → blush → powder → blue) */
+:root{
+  --tg1: #f4eadd;   /* cream soft   */
+  --tg2: #f2c6d2;   /* blush rose   */
+  --tg3: #d6def1;   /* powder blue  */
+  --tg4: #7196c9;   /* blue/petrol  */
+
+  /* Bordo “vetro” e aurea */
+  --glass-stroke: rgba(255,255,255,.32);
+  --glass-aura-1: rgba(255,255,255,.22);
+  --glass-aura-2: rgba(180,200,255,.28);
+  --glass-depth : rgba(0,0,0,.40);
+}
+
+/* 1) Titoli di pagina vetrificati (usa anche class="title title-glass") */
+.title-glass,
+h1.title-glass, h2.title-glass, h3.title-glass {
+  position: relative;
+  font-weight: 800;
+  letter-spacing: .04em;
+  /* Gradiente pastello dentro il testo */
+  color: transparent;
+  background: linear-gradient(90deg, var(--tg1), var(--tg2), var(--tg3), var(--tg4));
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+
+  /* Effetto vetro: bordo e riflessi */
+  -webkit-text-stroke: .35px var(--glass-stroke);
+
+  /* Aurea attorno (morbida) + profondità */
+  text-shadow:
+    0 0 6px  var(--glass-aura-1),
+    0 0 14px var(--glass-aura-2),
+    0 2px 0  var(--glass-depth),
+    0 8px 22px rgba(0,0,0,.35);
+}
+
+/* 2) Intestazioni delle tabelle (Prodotto, Prezzo, ecc.) */
+.custom-table thead th,
+.table-v thead th{
+  color: transparent;
+  background: linear-gradient(90deg, var(--tg1), var(--tg2), var(--tg3), var(--tg4));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: .3px var(--glass-stroke);
+  font-weight: 800;
+  letter-spacing: .03em;
+  /* Aurea più contenuta per non abbagliare */
+  text-shadow:
+    0 0 4px  var(--glass-aura-1),
+    0 0 10px var(--glass-aura-2),
+    0 1px 0  var(--glass-depth);
+}
+
+/* 3) Fallback: se il browser non supporta background-clip:text,
+      usa colore normale ma mantieni il rilievo/aurea */
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .title-glass,
+  .custom-table thead th, .table-v thead th{
+    color: var(--text-1);
+    -webkit-text-fill-color: initial;
+    background: none;
+  }
+}
+
+/* 4) Densità/leggibilità su schermi piccoli */
+@media (max-width: 820px){
+  .custom-table thead th, .table-v thead th{
+    letter-spacing: .02em;
+    font-size: clamp(12px, 3.2vw, 14px);
+  }
+}
+
 
 
 
