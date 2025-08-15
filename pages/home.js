@@ -4,7 +4,7 @@ import Link from 'next/link'; import withAuth from '../hoc/withAuth';
 import VoiceRecorder from '../components/VoiceRecorder';
 
  // —— CERVELLO (solo client wrappers)
-import { runQueryFromTextLocal } from '@/lib/brainHub';
+import { runQueryFromTextLocal, ingestOCRLocal, ingestSpokenLocal } from '@/lib/brainHub';
 
 
 /* ---------- Helper formattazione risultato ---------- */
@@ -94,6 +94,30 @@ const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
+   // —— Wrapper OCR per la Home (usa il brain) ——
+  async function handleOCR({ base64 }) {
+    const res = await ingestOCRLocal({ base64 });
+    // opzionale: apri chat e mostra risposta
+    setChatOpen(true);
+    setChatMsgs((arr) => [
+      ...arr,
+      { role: 'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }
+    ]);
+    return res;
+  }
+
+ // —— Wrapper VOCE per la Home (usa il brain) ——
+  async function handleVoiceTranscript(spokenText) {
+    const res = await ingestSpokenLocal(spokenText);
+    // opzionale: apri chat e mostra domanda/risposta
+    setChatOpen(true);
+    setChatMsgs((arr) => [
+     ...arr,
+     { role: 'user', text: spokenText },
+     { role: 'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' }
+   ]);
+    return res;
+  }
 
   // Stato chat
   const [chatOpen, setChatOpen] = useState(false);
