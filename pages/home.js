@@ -5,6 +5,11 @@ import VoiceRecorder from '../components/VoiceRecorder';
 
  // —— CERVELLO (solo client wrappers)
 import { runQueryFromTextLocal, ingestOCRLocal, ingestSpokenLocal } from '@/lib/brainHub';
+async function handleOCR(payload) {
+  const res = await ingestOCRLocal(payload);
+  setChatOpen(true);
+  setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
+  return res;
 
 
 /* ---------- Helper formattazione risultato ---------- */
