@@ -1354,4 +1354,106 @@ h1.title-glass, h2.title-glass, h3.title-glass {
     animation: titleShineSweep var(--title-shine-speed) linear infinite;
   }
 }
+/* ==========================================================
+   TITOLI • gradiente + shine + rilievo + animazione (bulletproof)
+   Si attiva perché <Html data-titlefx> è presente.
+   ========================================================== */
+
+/* tavolozza lilla/viola, regolabile */
+:root{
+  --vio-1:#f2e9ff; --vio-2:#e8ccff; --vio-3:#d6a8ff; --vio-4:#b47aff; --vio-5:#9a5be8;
+  --title-shine-speed: 2.4s;
+  --title-shine-core:  rgba(255,255,255,.85);
+  --title-shine-soft:  rgba(255,255,255,.22);
+  --t-emboss-top:      rgba(255,255,255,.58);
+  --t-emboss-bottom:   rgba(0,0,0,.50);
+  --t-emboss-glow:     rgba(0,0,0,.40);
+  --t-aura-1:          rgba(255,255,255,.14);
+  --t-aura-2:          rgba(180,200,255,.22);
+}
+
+/* === Titoli di PAGINA: h1/h2/h3/.title/.title-glass/.title-lemon === */
+html[data-titlefx] .app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon){
+  position: relative;
+  display: inline-block;
+  font-weight: 800;
+  letter-spacing: .04em;
+
+  /* doppio background: 1) bagliore che attraversa 2) gradiente pastello */
+  color: transparent !important;
+  background-image:
+    linear-gradient(120deg,
+      transparent 0%,
+      transparent 42%,
+      var(--title-shine-soft) 47%,
+      var(--title-shine-core) 50%,
+      var(--title-shine-soft) 53%,
+      transparent 58%,
+      transparent 100%
+    ),
+    linear-gradient(90deg,var(--vio-1),var(--vio-2),var(--vio-3),var(--vio-4),var(--vio-5),var(--vio-2));
+  background-size: 220% 100%, 260% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+
+  /* forte rilievo */
+  text-shadow:
+    0 1px 0 var(--t-emboss-top),
+    0 2px 0 var(--t-emboss-bottom),
+    0 10px 26px var(--t-emboss-glow) !important;
+
+  /* animazioni combinate: shine + drift + micro-float */
+  animation:
+    titleShineSweep var(--title-shine-speed) cubic-bezier(.25,.6,.35,1) infinite,
+    titleDrift 7s ease-in-out infinite,
+    titlePulse 2.1s ease-in-out infinite !important;
+
+  will-change: background-position, transform, filter;
+}
+
+/* aurea dietro al titolo */
+html[data-titlefx] .app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon)::after{
+  content:""; position:absolute; inset:-10% -6%; z-index:-1;
+  background:
+    radial-gradient(60% 70% at 50% 50%, var(--t-aura-1), transparent 70%),
+    radial-gradient(55% 65% at 55% 45%, var(--t-aura-2), transparent 70%);
+  filter: blur(12px); opacity:.85; border-radius:16px;
+  animation: auraBreath 2.1s ease-in-out infinite; pointer-events:none;
+}
+
+/* === Intestazioni delle TABELLE (Prodotto, Prezzo, …) === */
+html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
+  color: transparent !important;
+  background: linear-gradient(90deg,var(--vio-1),var(--vio-2),var(--vio-3),var(--vio-4),var(--vio-5)) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  -webkit-text-stroke: .3px rgba(255,255,255,.32) !important;
+  font-weight: 800 !important; letter-spacing: .03em !important;
+  text-shadow:
+    0 1px 0 var(--t-emboss-top),
+    0 1px 0 var(--t-emboss-bottom),
+    0 6px 16px var(--t-emboss-glow) !important;
+  animation: titleDrift 10s ease-in-out infinite !important;
+}
+
+/* Keyframes */
+@keyframes titleShineSweep{ 0%{background-position:-180% 50%, 0% 50%} 100%{background-position:180% 50%, 200% 50%} }
+@keyframes titleDrift{ 0%{filter:saturate(1)} 100%{filter:saturate(1.03)} }
+@keyframes titlePulse{
+  0%{ transform:translateY(0); text-shadow:0 1px 0 var(--t-emboss-top),0 2px 0 var(--t-emboss-bottom),0 10px 26px var(--t-emboss-glow) }
+  50%{ transform:translateY(-1.5px); text-shadow:0 1px 0 var(--t-emboss-top),0 3px 0 var(--t-emboss-bottom),0 14px 32px var(--t-emboss-glow) }
+  100%{ transform:translateY(0); text-shadow:0 1px 0 var(--t-emboss-top),0 2px 0 var(--t-emboss-bottom),0 10px 26px var(--t-emboss-glow) }
+}
+@keyframes auraBreath{ 0%,100%{opacity:.78; transform:scale(1)} 50%{opacity:.95; transform:scale(1.03)} }
+
+/* Accessibilità */
+@media (prefers-reduced-motion: reduce){
+  html[data-titlefx] .app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon),
+  html[data-titlefx] .app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon)::after,
+  html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
+    animation: none !important;
+  }
+}
 
