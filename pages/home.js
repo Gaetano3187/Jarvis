@@ -133,7 +133,7 @@ const Home = () => {
       try {
         const base64 = String(reader.result || '').split(',')[1];
         setBusy(true);
-        await handleOCR({ raw: 'OCR_UPLOADED_IMAGE', base64 });
+       await handleOCR({ base64 });
         alert('✅ Scontrino riconosciuto e registrato');
       } catch (err) {
         console.error(err);
@@ -151,7 +151,7 @@ const Home = () => {
     if (!spoken) return;
     try {
       setBusy(true);
-      await handleVoiceTranscript(spoken);
+     await handleVoiceTranscript(spoken);
       alert('✅ Spesa registrata correttamente');
     } catch (err) {
       console.error(err);
