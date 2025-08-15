@@ -1461,7 +1461,6 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
    (Spese Casa / Vestiti ed Altro / Cene e Aperitivi / Varie)
    ========================================================== */
 
-/* palette viola/lilla (puoi ritoccare) */
 :root{
   --vio-1:#f2e9ff; --vio-2:#e8ccff; --vio-3:#d6a8ff; --vio-4:#b47aff; --vio-5:#9a5be8;
   --title-shine-speed: 2.4s;
@@ -1474,15 +1473,15 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
   --t-aura-2:          rgba(180,200,255,.22);
 }
 
-/* TARGET: tutti i titoli dentro i container legacy */
+/* TITOLI dentro i container legacy */
 :where(.spese-casa-container2,.spese-casa-container1) :is(h1,h2,h3,.title){
   position: relative;
   display:inline-block;
   font-weight: 800;
   letter-spacing: .04em;
-
-  /* doppio background: bagliore che attraversa + gradiente */
   color: transparent !important;
+
+  /* 1) bagliore che attraversa • 2) gradiente pastello */
   background-image:
     linear-gradient(120deg,
       transparent 0%,
@@ -1503,4 +1502,76 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
   /* rilievo forte */
   text-shadow:
     0 1px 0 var(--t-emboss-top),
+    0 2px 0 var(--t-emboss-bottom),
+    0 10px 26px var(--t-emboss-glow) !important;
 
+  /* animazioni */
+  animation:
+    legacyTitleShine var(--title-shine-speed) cubic-bezier(.25,.6,.35,1) infinite,
+    legacyTitleDrift 7s ease-in-out infinite,
+    legacyTitlePulse 2.1s ease-in-out infinite !important;
+
+  will-change: background-position, transform, filter;
+}
+
+/* Aurea dietro al titolo */
+:where(.spese-casa-container2,.spese-casa-container1) :is(h1,h2,h3,.title)::after{
+  content:"";
+  position:absolute; inset:-10% -6%; z-index:-1;
+  background:
+    radial-gradient(60% 70% at 50% 50%, var(--t-aura-1), transparent 70%),
+    radial-gradient(55% 65% at 55% 45%, var(--t-aura-2), transparent 70%);
+  filter: blur(12px);
+  opacity:.85;
+  border-radius:16px;
+  animation: legacyAuraBreath 2.1s ease-in-out infinite;
+  pointer-events:none;
+}
+
+/* Intestazioni tabella nelle stesse pagine */
+:where(.spese-casa-container2,.spese-casa-container1) :is(.custom-table thead th,.table-v thead th){
+  color: transparent !important;
+  background: linear-gradient(90deg,var(--vio-1),var(--vio-2),var(--vio-3),var(--vio-4),var(--vio-5)) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  -webkit-text-stroke: .3px rgba(255,255,255,.32) !important;
+  font-weight: 800 !important;
+  letter-spacing: .03em !important;
+  text-shadow:
+    0 1px 0 var(--t-emboss-top),
+    0 1px 0 var(--t-emboss-bottom),
+    0 6px 16px var(--t-emboss-glow) !important;
+  animation: legacyTitleDrift 10s ease-in-out infinite !important;
+}
+
+/* Keyframes */
+@keyframes legacyTitleShine{
+  0%   { background-position:-180% 50%, 0% 50%; }
+  100% { background-position: 180% 50%, 200% 50%; }
+}
+@keyframes legacyTitleDrift{
+  0%   { filter:saturate(1); }
+  100% { filter:saturate(1.03); }
+}
+@keyframes legacyTitlePulse{
+  0%   { transform:translateY(0);
+         text-shadow:0 1px 0 var(--t-emboss-top),0 2px 0 var(--t-emboss-bottom),0 10px 26px var(--t-emboss-glow); }
+  50%  { transform:translateY(-1.5px);
+         text-shadow:0 1px 0 var(--t-emboss-top),0 3px 0 var(--t-emboss-bottom),0 14px 32px var(--t-emboss-glow); }
+  100% { transform:translateY(0);
+         text-shadow:0 1px 0 var(--t-emboss-top),0 2px 0 var(--t-emboss-bottom),0 10px 26px var(--t-emboss-glow); }
+}
+@keyframes legacyAuraBreath{
+  0%,100% { opacity:.78; transform:scale(1); }
+  50%     { opacity:.95; transform:scale(1.03); }
+}
+
+/* Motion-reduce */
+@media (prefers-reduced-motion: reduce){
+  :where(.spese-casa-container2,.spese-casa-container1) :is(h1,h2,h3,.title),
+  :where(.spese-casa-container2,.spese-casa-container1) :is(h1,h2,h3,.title)::after,
+  :where(.spese-casa-container2,.spese-casa-container1) :is(.custom-table thead th,.table-v thead th){
+    animation: none !important;
+  }
+}
