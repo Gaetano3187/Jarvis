@@ -1105,3 +1105,185 @@ html, body {
 .p-4{ padding: 1rem; }
 .rounded-2xl{ border-radius: var(--radius-2xl); }
 
+/* ===========================================================
+   NEON GLASS – OVERRIDE PAGINE + ANIMAZIONI + TAB STRIPED
+   (incolla questo blocco IN FONDO a globals.css)
+   =========================================================== */
+
+/* 1) Disattiva i grigi locali delle pagine ed applica glass */
+.spese-casa-container1{
+  background: transparent !important;
+  min-height: 100vh;
+  padding: clamp(16px, 3vw, 28px) !important;
+  display:flex; align-items:flex-start; justify-content:center;
+}
+.spese-casa-container2{
+  /* eff. vetro */
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-brd) !important;
+  backdrop-filter: blur(14px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(120%) !important;
+  border-radius: var(--radius-2xl) !important;
+  box-shadow: var(--shadow-1) !important;
+  color: var(--text-1) !important;
+}
+
+/* 2) Titoli “shine” come home/finanze */
+.title, h1, h2, .animated-heading{
+  margin: 0 0 .75rem 0;
+  font-weight: 800;
+  letter-spacing: .2px;
+  background: linear-gradient(90deg, #fff, #c7d2fe, #22d3ee, #fff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  background-size: 200% 100%;
+  text-shadow: 0 10px 26px rgba(0,0,0,.35);
+  animation: textShine 3.6s ease-in-out infinite;
+}
+@keyframes textShine { 0%{background-position:0 50%} 100%{background-position:200% 50%} }
+
+/* 3) Bottoni esistenti -> neon animati */
+.btn-vocale, .btn-ocr, .btn-manuale, .btn-danger, .btn-danger-outline{
+  position: relative; overflow: hidden; isolation: isolate;
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding: 10px 14px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,.22) !important;
+  color:#06101a !important; font-weight: 700; cursor: pointer;
+  transition: transform .18s ease, box-shadow .22s ease, filter .2s ease;
+  text-decoration: none;
+}
+.btn-vocale, .btn-manuale{ background: linear-gradient(90deg, #22c55e, #86efac) !important; }
+.btn-ocr{ background: linear-gradient(90deg, #06b6d4, #67e8f9) !important; }
+.btn-danger{ background: linear-gradient(90deg, #ef4444, #fd8ea0) !important; color:#150b0b !important; }
+.btn-danger-outline{
+  color: #fca5a5 !important;
+  background: rgba(255,255,255,.06) !important;
+  border-color: rgba(239,68,68,.7) !important;
+}
+.btn-vocale::before, .btn-ocr::before, .btn-manuale::before, .btn-danger::before, .btn-danger-outline::before{
+  content:""; position:absolute; inset:-30%;
+  background: conic-gradient(from 0deg, rgba(255,255,255,.25), rgba(255,255,255,.06), rgba(255,255,255,.25));
+  filter: blur(16px); opacity:.5; z-index:-1; animation: glowSpin 7s linear infinite;
+}
+@keyframes glowSpin { to{ transform: rotate(360deg); } }
+.btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover, .btn-danger:hover, .btn-danger-outline:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(0,0,0,.38);
+}
+
+/* 4) Inputs “vetro” */
+.input-section input,
+.input-section textarea,
+.input-section select{
+  border: 1px solid rgba(255,255,255,.22) !important;
+  background: rgba(255,255,255,.08) !important;
+  color: var(--text-1) !important;
+  border-radius: 12px !important;
+  outline: none; backdrop-filter: blur(10px);
+  transition: box-shadow .18s ease, border-color .2s ease, transform .08s ease;
+}
+.input-section input:focus,
+.input-section textarea:focus,
+.input-section select:focus{
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(96,165,250,.25);
+  transform: translateY(-1px);
+}
+
+/* 5) Tabelle: zebrato + contrasto + sticky header */
+.custom-table{
+  width: 100%; border-collapse: separate; border-spacing:0;
+  border-radius: 14px; overflow: hidden;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  display: block; overflow-x:auto; -webkit-overflow-scrolling:touch;
+}
+.custom-table thead{
+  display: table; width:100%; table-layout: fixed;
+  background: linear-gradient(0deg, rgba(255,255,255,.14), rgba(255,255,255,.06));
+  backdrop-filter: blur(8px);
+  position: sticky; top: 0; z-index: 1;
+}
+.custom-table tbody{ display: table; width:100%; table-layout:fixed; }
+.custom-table th, .custom-table td{
+  padding: 10px 12px; white-space: nowrap; 
+  border-bottom: 1px solid rgba(255,255,255,.14);
+}
+.custom-table tbody tr:nth-child(odd){ background: rgba(255,255,255,.06); }
+.custom-table tbody tr:nth-child(even){ background: rgba(0,0,0,.10); }
+.custom-table tbody tr:hover{ filter: brightness(1.08); }
+.text-right{ text-align: right; }
+
+/* 6) Box “totale” più brillante */
+.total-box{
+  margin-top: .9rem !important;
+  background: linear-gradient(180deg, rgba(34,197,94,.28), rgba(34,197,94,.14)) !important;
+  border: 1px solid rgba(34,197,94,.5) !important;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.12) !important;
+  border-radius: 14px !important;
+}
+
+/* 7) Correzione glass-xl (no CSS Modules in global) */
+.glass-xl{
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-1);
+  padding: 28px;
+}
+
+/* 8) Sfondi “vivi” per sezione (richiede data-route in _app.js) */
+[data-route="/entrate"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 20% 10%, rgba(34,197,94,.35) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 80% 15%, rgba(16,185,129,.28) 0%, transparent 55%),
+    linear-gradient(180deg, #06121a 0%, #07111b 70%);
+}
+[data-route="/spese-casa"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 20% 85%, rgba(99,102,241,.35) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 80% 15%, rgba(14,165,233,.28) 0%, transparent 55%),
+    linear-gradient(180deg, #06101e 0%, #07111b 70%);
+}
+[data-route="/vestiti-ed-altro"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 20% 10%, rgba(167,139,250,.35) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 80% 85%, rgba(244,114,182,.22) 0%, transparent 55%),
+    linear-gradient(180deg, #0b0f24 0%, #070d1b 70%);
+}
+[data-route="/cene-aperitivi"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 80% 15%, rgba(245,158,11,.35) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 20% 85%, rgba(239,68,68,.20) 0%, transparent 55%),
+    linear-gradient(180deg, #120e07 0%, #0b0f1a 70%);
+}
+[data-route="/varie"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 50% 15%, rgba(148,163,184,.30) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 10% 90%, rgba(100,116,139,.26) 0%, transparent 55%),
+    linear-gradient(180deg, #0d1117 0%, #0a0f1a 70%);
+}
+[data-route="/spese"] .app-shell,
+[data-route="/stato-scorte"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 15% 60%, rgba(6,182,212,.35) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 85% 20%, rgba(99,102,241,.28) 0%, transparent 55%),
+    linear-gradient(180deg, #06121a 0%, #06101b 70%);
+}
+[data-route="/liste-prodotti"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 85% 40%, rgba(16,185,129,.35) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 15% 15%, rgba(59,130,246,.26) 0%, transparent 55%),
+    linear-gradient(180deg, #07131b 0%, #08121b 70%);
+}
+[data-route="/finanze"] .app-shell{
+  background:
+    radial-gradient(1200px 900px at 50% 10%, rgba(79,70,229,.38) 0%, transparent 55%),
+    radial-gradient(1200px 900px at 15% 80%, rgba(6,182,212,.24) 0%, transparent 55%),
+    linear-gradient(180deg, #070f1d 0%, #070d1a 70%);
+}
+
+
