@@ -5,7 +5,7 @@ export default function Document() {
   return (
     <Html lang="it">
       <Head>
-        {/* Meta di base */}
+            {/* Meta di base */}
         <meta charSet="utf-8" />
         <meta name="theme-color" content="#08131b" />
         <meta property="twitter:card" content="summary_large_image" />
@@ -25,7 +25,7 @@ export default function Document() {
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&display=swap"
         />
-        <link
+                  <link
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap"
         />
@@ -36,7 +36,10 @@ export default function Document() {
           rel="stylesheet"
           href="https://unpkg.com/@teleporthq/teleport-custom-scripts/dist/style.css"
         />
-
+            <link
+  href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800;900&display=swap"
+  rel="stylesheet"
+/>
         {/* Reset leggero + default non invasivo (niente bg/colore sul body) */}
         <style
           // Reset base
