@@ -628,5 +628,6 @@ h1, h2, h3, .title {
 
 /* 5) Micro-fix: evita glifi “schiacciati” con font variabile */
 * { letter-spacing: 0.01em; }   /* piccolo tracking per leggibilità */
-
+/* Disattiva vecchio sfondo di lista prodotti */
+.bg-kaleido{ display:none !important; }
 
