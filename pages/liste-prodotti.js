@@ -2111,12 +2111,11 @@ export default function ListeProdotti() {
     <>
       <Head><title>🛍 Lista Prodotti</title></Head>
 
-      <div style={styles.page}>
-        <div className="bg-kaleido" aria-hidden="true" />
-        <div style={styles.card}>
-          {/* Header */}
-          <div style={styles.headerRow}>
-            <h2 style={{margin:0}}>🛍 Lista Prodotti</h2>
+      <div className="spese-casa-container1">
+  <div className="spese-casa-container2 glass rounded-2xl p-4" /* card globale */>
+    {/* Header */}
+    <div style={styles.headerRow}>
+      <h2 className="title title-lemon pastel-gloss">🛍 Lista Prodotti</h2>
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <button onClick={resetLocalData} style={styles.actionGhost} title="Cancella i dati locali">↺ Reset locale</button>
               <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
