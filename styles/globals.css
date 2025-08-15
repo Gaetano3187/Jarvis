@@ -928,3 +928,180 @@
   font-weight: 700;
   border-bottom: 2px solid var(--dl-color-gray-white);
 }
+/* ====== Palette & base ====== */
+:root{
+  --bg-1: #0b1220;             /* base come il bottone "liste prodotti" */
+  --bg-2: #0f1a33;
+  --bg-3: #152246;
+  --accent-1: #6ee7f9;         /* ciano vivo per contrasti */
+  --accent-2: #a78bfa;         /* viola */
+  --accent-3: #22d3ee;         /* ciano */
+  --text-1: #e6f1ff;
+  --text-2: #a3b3d9;
+  --glass-bg: rgba(255,255,255,0.08);
+  --glass-brd: rgba(255,255,255,0.18);
+  --shadow-1: 0 10px 30px rgba(0,0,0,0.35);
+  --radius-2xl: 16px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-1);
+  color: var(--text-1);
+}
+
+* { box-sizing: border-box; }
+
+/* wrapper globale (impostato in _app.js) */
+.app-shell {
+  min-height: 100vh;
+  font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  /* sfondo: gradiente che cambia leggermente tonalità */
+  background: radial-gradient(1200px 800px at 10% 10%, var(--bg-3), transparent 60%),
+              radial-gradient(1200px 800px at 90% 20%, var(--bg-2), transparent 60%),
+              linear-gradient(180deg, var(--bg-1), #060b13 70%);
+  background-attachment: fixed;
+  animation: hueShift 18s ease-in-out infinite alternate;
+}
+
+@keyframes hueShift {
+  0%   { filter: hue-rotate(0deg) saturate(1); }
+  100% { filter: hue-rotate(8deg) saturate(1.05); }
+}
+
+/* contenitore centrale effetto vetro minimo per tutte le pagine */
+.page-container{
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* ====== Cards / sezioni "vetrificate" ====== */
+.glass{
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-1);
+}
+
+/* Variante hero / grandi contenitori */
+.glass-xl{
+  composes: glass;
+  padding: 28px;
+}
+
+/* ====== Titoli animati in stile home/finanze ====== */
+.animated-heading{
+  background: linear-gradient(90deg, var(--accent-1), var(--accent-2), var(--accent-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-size: 200% 100%;
+  animation: shimmer 4s ease-in-out infinite;
+  letter-spacing: 0.2px;
+}
+@keyframes shimmer{
+  0%{ background-position: 0% 50%; }
+  100%{ background-position: 100% 50%; }
+}
+
+/* ====== Tabelle leggibili (zebra + contrasto) ====== */
+.table-v{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.table-v thead th{
+  text-align: left;
+  padding: 12px 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  background: linear-gradient(0deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
+  position: sticky; top: 0; /* utile se contenitore scrolla */
+  backdrop-filter: blur(10px);
+}
+.table-v tbody td{
+  padding: 10px 14px;
+  color: var(--text-1);
+}
+.table-v tbody tr:nth-child(odd){
+  background: rgba(255,255,255,0.05);
+}
+.table-v tbody tr:nth-child(even){
+  background: rgba(0,0,0,0.08);
+}
+.table-v tbody tr:hover{
+  outline: 1px solid rgba(255,255,255,0.18);
+}
+
+/* ====== Pulsanti animati (tutti) ====== */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: linear-gradient(90deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+  color: var(--text-1);
+  font-weight: 600;
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.btn:hover{
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+  background: linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.10));
+}
+.btn:active{
+  transform: translateY(0) scale(0.99);
+}
+
+/* Variante primaria con gradiente a contrasto */
+.btn-primary{
+  background: linear-gradient(90deg, var(--accent-2), var(--accent-3));
+  color: #07111f;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+.btn-primary:hover{
+  filter: brightness(1.05);
+}
+
+/* Badge/minibutton */
+.badge{
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+/* Inputs "vetro" */
+.input-v{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06);
+  color: var(--text-1);
+  outline: none;
+  backdrop-filter: blur(8px);
+}
+.input-v:focus{
+  border-color: var(--accent-3);
+  box-shadow: 0 0 0 3px rgba(34,211,238,0.18);
+}
+
+/* Utility */
+.mt-2{ margin-top: .5rem; }
+.mt-4{ margin-top: 1rem; }
+.mb-4{ margin-bottom: 1rem; }
+.p-4{ padding: 1rem; }
+.rounded-2xl{ border-radius: var(--radius-2xl); }
+
