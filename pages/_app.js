@@ -1,6 +1,6 @@
 // pages/_app.js
 import '@/styles/globals.css'        // se già presente
-import '@/styles/responsive.css'     // NUOVO: stile vetrificato unico
+import '../styles/responsive.css';
 import { useRouter } from 'next/router'
 
 export default function MyApp({ Component, pageProps }) {
