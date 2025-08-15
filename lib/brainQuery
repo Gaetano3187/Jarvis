@@ -1,9 +1,7 @@
 // lib/brainQuery.js
 // Wrapper minimale per sbloccare il build. Puoi collegarlo a brainHub se vuoi.
 
-import * as BrainHub from './brainHub'; // facoltativo, se presente
 import BrainHub, { runBrainQuery, runQuery } from './brainHub';
-/**
  * Esegue una query al "cervello" dell'app.
  * @param {{question?: string, context?: any, userId?: string, options?: any}} input
  * @returns {Promise<{ok: boolean, text?: string, data?: any, error?: string}>}
