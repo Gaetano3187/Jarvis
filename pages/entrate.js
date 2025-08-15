@@ -8,7 +8,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react';
 const PAYDAY_DAY = 10;
 const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';
 
-/* --------------------------- helpers --------------------------- */
+/* ---------------- helpers ---------------- */
 function isoLocal(date) {
   const y = date.getFullYear();
   const m = date.getMonth() + 1;
@@ -36,11 +36,7 @@ function computeCurrentPayPeriod(today, paydayDay) {
 }
 function parseAmountLoose(v) {
   if (typeof v === 'number') return v;
-  const s = String(v ?? '')
-    .trim()
-    .replace(/\s/g, '')
-    .replace(/\./g, '')
-    .replace(',', '.');
+  const s = String(v ?? '').trim().replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
@@ -51,22 +47,15 @@ function formatIT(iso) {
 }
 function showError(setter, err) {
   const msg =
-    err?.message ||
-    err?.error_description ||
-    err?.hint ||
+    err?.message || err?.error_description || err?.hint ||
     (typeof err === 'string' ? err : JSON.stringify(err));
   setter(msg);
   console.error('[SUPABASE ERROR]', err);
 }
-
-/* -------- carryover auto -------- */
 async function ensureCarryoverAuto(supabase, userId, monthKeyCurrent) {
   const { data: existing } = await supabase
-    .from('carryovers')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('month_key', monthKeyCurrent)
-    .maybeSingle();
+    .from('carryovers').select('id')
+    .eq('user_id', userId).eq('month_key', monthKeyCurrent).maybeSingle();
   if (existing) return;
 
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
@@ -77,25 +66,16 @@ async function ensureCarryoverAuto(supabase, userId, monthKeyCurrent) {
   const prevKey = prevEndISO.slice(0, 7);
 
   const { data: incPrev } = await supabase
-    .from('incomes')
-    .select('amount')
-    .eq('user_id', userId)
-    .gte('received_date', prevStartISO)
-    .lte('received_date', prevEndISO);
+    .from('incomes').select('amount')
+    .eq('user_id', userId).gte('received_date', prevStartISO).lte('received_date', prevEndISO);
 
   const { data: expPrev } = await supabase
-    .from('finances')
-    .select('amount')
-    .eq('user_id', userId)
-    .gte('spent_date', prevStartISO)
-    .lte('spent_date', prevEndISO);
+    .from('finances').select('amount')
+    .eq('user_id', userId).gte('spent_date', prevStartISO).lte('spent_date', prevEndISO);
 
   const { data: coPrev } = await supabase
-    .from('carryovers')
-    .select('amount')
-    .eq('user_id', userId)
-    .eq('month_key', prevKey)
-    .maybeSingle();
+    .from('carryovers').select('amount')
+    .eq('user_id', userId).eq('month_key', prevKey).maybeSingle();
 
   const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
   const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
@@ -110,13 +90,11 @@ async function ensureCarryoverAuto(supabase, userId, monthKeyCurrent) {
   });
 }
 
-/* -------- intent (OCR/voce) -------- */
+/* -------- intent OCR/voce -------- */
 function isCashIntent(text) {
   const t = (text || '').toLowerCase();
-  return (
-    /(prelev|ritirat|bancomat|atm|in tasca|contanti|cash)/.test(t) ||
-    /ho preso\s*\d+([.,]\d{1,2})?\s*€.*(tasca|contanti)/.test(t)
-  );
+  return /(prelev|ritirat|bancomat|atm|in tasca|contanti|cash)/.test(t) ||
+         /ho preso\s*\d+([.,]\d{1,2})?\s*€.*(tasca|contanti)/.test(t);
 }
 function isIncomeIntent(text) {
   const t = (text || '').toLowerCase();
@@ -126,25 +104,16 @@ function quickParseCash(text) {
   const t = (text || '').toLowerCase();
   const m = t.match(/(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)/);
   if (!m) return null;
-  const raw = m[1];
-  const amount = parseAmountLoose(raw);
+  const amount = parseAmountLoose(m[1]);
   let date = isoLocal(new Date());
-  if (/\bieri\b/.test(t)) {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    date = isoLocal(d);
-  }
+  if (/\bieri\b/.test(t)) { const d = new Date(); d.setDate(d.getDate() - 1); date = isoLocal(d); }
   const isOut = /(uscita|spes|pagat.*contanti)/.test(t);
   const delta = isOut ? -Math.abs(amount) : Math.abs(amount);
-  const note = isOut
-    ? 'Uscita contanti'
-    : /prelev/.test(t)
-    ? 'Prelievo/ricarica contanti'
-    : 'Ricarica contanti';
+  const note = isOut ? 'Uscita contanti' : (/prelev/.test(t) ? 'Prelievo/ricarica contanti' : 'Ricarica contanti');
   return { amount, date, delta, note };
 }
 
-/* --------------------------- component --------------------------- */
+/* ---------------- component ---------------- */
 function Entrate() {
   const supabase = useSupabaseClient();
 
@@ -152,14 +121,8 @@ function Entrate() {
   const [error, setError] = useState(null);
 
   const todayLocal = isoLocal(new Date());
-
   const [incomes, setIncomes] = useState([]);
-  const [newIncome, setNewIncome] = useState({
-    source: 'Stipendio',
-    description: '',
-    amount: '',
-    receivedAt: todayLocal,
-  });
+  const [newIncome, setNewIncome] = useState({ source: 'Stipendio', description: '', amount: '', receivedAt: todayLocal });
 
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
@@ -167,7 +130,6 @@ function Entrate() {
   const [pocketRows, setPocketRows] = useState([]);
   const [pocketTopUp, setPocketTopUp] = useState('');
 
-  // OCR / VOCE
   const ocrInputRef = useRef(null);
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
@@ -185,12 +147,8 @@ function Entrate() {
   useEffect(() => {
     loadAll();
     return () => {
-      try {
-        if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop();
-      } catch {}
-      try {
-        streamRef.current?.getTracks?.().forEach((t) => t.stop());
-      } catch {}
+      try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
+      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthKey, hideVarieCashAfterClear]);
@@ -199,30 +157,25 @@ function Entrate() {
     setLoading(true);
     setError(null);
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
 
       await ensureCarryoverAuto(supabase, user.id, monthKey);
 
-      // Entrate periodo
       const { data: inc, error: incErr } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at, received_date')
         .eq('user_id', user.id)
         .or(
           `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
-            `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
+          `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
         )
-        .order('received_at', { ascending: false, nullsFirst: false })
-        .order('received_date', { ascending: false, nullsFirst: false });
+        .order('received_at', { ascending: false })
+        .order('received_date', { ascending: false });
       if (incErr) throw incErr;
       setIncomes(inc || []);
 
-      // Carryover mese
       const { data: co } = await supabase
         .from('carryovers')
         .select('id, month_key, amount, note')
@@ -231,23 +184,21 @@ function Entrate() {
         .maybeSingle();
       setCarryover(co || null);
 
-      // Movimenti contanti manuali
       const { data: pc } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
         .or(
           `and(moved_date.gte.${startDate},moved_date.lte.${endDate}),` +
-            `and(moved_at.gte.${dateStartTS},moved_at.lte.${dateEndTS})`
+          `and(moved_at.gte.${dateStartTS},moved_at.lte.${dateEndTS})`
         )
         .order('moved_at', { ascending: false })
         .order('created_at', { ascending: false });
 
       const manualRows = (pc || []).map((row) => {
-        const eff =
-          row.delta != null
-            ? Number(row.delta || 0)
-            : row.amount != null
+        const eff = row.delta != null
+          ? Number(row.delta || 0)
+          : row.amount != null
             ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0)
             : 0;
         const dateISO = row.moved_date || (row.moved_at || row.created_at || '').slice(0, 10);
@@ -260,25 +211,20 @@ function Entrate() {
         };
       });
 
-      // Spese cash dedotte da finances
-      const ELECTRONIC_TOKENS = [
-        'carta','carta di credito','credito','debito','pos','visa','mastercard','amex',
-        'paypal','iban','bonifico','satispay','apple pay','google pay',
-      ];
+      const ELECTRONIC_TOKENS = ['carta','carta di credito','credito','debito','pos','visa','mastercard','amex','paypal','iban','bonifico','satispay','apple pay','google pay'];
       const { data: finAll, error: finAllErr } = await supabase
         .from('finances')
         .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
         .eq('user_id', user.id)
         .or(
           `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-            `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
         )
-        .order('spent_at', { ascending: false, nullsFirst: false })
-        .order('spent_date', { ascending: false, nullsFirst: false });
+        .order('spent_at', { ascending: false })
+        .order('spent_date', { ascending: false });
       if (finAllErr) throw finAllErr;
 
-      const isElectronicByText = (desc) =>
-        ELECTRONIC_TOKENS.some((k) => String(desc || '').toLowerCase().includes(k));
+      const isElectronicByText = (desc) => ELECTRONIC_TOKENS.some((k) => String(desc || '').toLowerCase().includes(k));
       const isCashByFields = (row) => {
         const pm = String(row.payment_method || '').toLowerCase();
         if (pm === 'cash' || pm === 'contanti') return true;
@@ -287,7 +233,6 @@ function Entrate() {
       };
 
       let finCash = (finAll || []).filter(isCashByFields);
-
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
         const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
@@ -319,76 +264,40 @@ function Entrate() {
     }
   }
 
-  /* ---------------------- Assistant (OCR/voce) ---------------------- */
+  /* ---------- Assistant (OCR/voce) ---------- */
   function buildIncomePrompt(userText) {
     const today = isoLocal(new Date());
-    const example = JSON.stringify({
-      type: 'income',
-      items: [{ source: 'Stipendio', description: 'Stipendio', amount: 1500, receivedAt: today }],
-    });
-    return [
-      'Sei Jarvis. Estrai ENTRATE economiche (stipendio, pagamenti, rimborsi).',
-      'Rispondi SOLO con JSON:',
-      example,
-      '',
-      'Testo:',
-      userText,
-    ].join('\n');
+    const example = JSON.stringify({ type: 'income', items: [{ source: 'Stipendio', description: 'Stipendio', amount: 1500, receivedAt: today }] });
+    return ['Sei Jarvis. Estrai ENTRATE economiche.', 'Rispondi SOLO con JSON:', example, '', 'Testo:', userText].join('\n');
   }
   async function callAssistant(prompt) {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
+    const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
     const { answer, error: apiErr } = await res.json();
     if (!res.ok || apiErr) throw new Error(apiErr || String(res.status));
     return JSON.parse(answer);
   }
-
   async function insertPocketQuick({ amount, date, delta, note }) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
     const moved_date = date || isoLocal(new Date());
-    const payload = {
-      user_id: user.id,
-      note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-      delta: typeof delta === 'number' ? delta : Math.abs(amount),
-      moved_date,
-      moved_at: `${moved_date}T12:00:00`,
-    };
+    const payload = { user_id: user.id, note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'), delta: typeof delta === 'number' ? delta : Math.abs(amount), moved_date, moved_at: `${moved_date}T12:00:00` };
     const { error } = await supabase.from('pocket_cash').insert(payload);
     if (error) throw error;
   }
-
   async function insertIncomeAssistant(text) {
     const data = await callAssistant(buildIncomePrompt(text));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
-
     for (const it of data.items) {
       const dataIncasso = it.receivedAt || isoLocal(new Date());
       const amount = Math.abs(parseAmountLoose(it.amount));
-      const payload = {
-        user_id: user.id,
-        source: it.source || 'Entrata',
-        description: it.description || it.source || 'Entrata',
-        amount,
-        received_date: dataIncasso,
-        received_at: `${dataIncasso}T12:00:00`,
-      };
+      const payload = { user_id: user.id, source: it.source || 'Entrata', description: it.description || it.source || 'Entrata', amount, received_date: dataIncasso, received_at: `${dataIncasso}T12:00:00` };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
     }
     return true;
   }
-
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
@@ -396,117 +305,67 @@ function Entrate() {
       files.forEach((f) => fd.append('images', f));
       const res = await fetch('/api/ocr', { method: 'POST', body: fd });
       const { text } = await res.json();
-
       if (isCashIntent(text)) {
         const parsed = quickParseCash(text);
-        if (parsed) {
-          await insertPocketQuick(parsed);
-          await loadAll();
-          return;
-        }
+        if (parsed) { await insertPocketQuick(parsed); await loadAll(); return; }
       }
       if (isIncomeIntent(text)) {
         const ok = await insertIncomeAssistant(text);
-        if (ok) {
-          await loadAll();
-          return;
-        }
+        if (ok) { await loadAll(); return; }
       }
       const ok2 = await insertIncomeAssistant(text);
-      if (ok2) {
-        await loadAll();
-        return;
-      }
-
+      if (ok2) { await loadAll(); return; }
       setError('Nessun dato riconosciuto da OCR');
-    } catch (err) {
-      showError(setError, err);
-    }
+    } catch (err) { showError(setError, err); }
   }
 
   const toggleRec = async () => {
-    if (recBusy) {
-      try {
-        mediaRecRef.current?.stop();
-      } catch {}
-      return;
-    }
+    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       mediaRecRef.current = new MediaRecorder(stream);
       recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => {
-        if (e.data?.size) recordedChunks.current.push(e.data);
-      };
+      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
       mediaRecRef.current.onstop = processVoice;
       mediaRecRef.current.start();
       setRecBusy(true);
-    } catch {
-      setError('Microfono non disponibile');
-    }
+    } catch { setError('Microfono non disponibile'); }
   };
-
   const processVoice = async () => {
     const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData();
-    fd.append('audio', blob, 'voice.webm');
+    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
     try {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
-
       if (isCashIntent(text)) {
         const parsed = quickParseCash(text);
-        if (parsed) {
-          await insertPocketQuick(parsed);
-          setRecBusy(false);
-          streamRef.current?.getTracks?.().forEach((t) => t.stop());
-          await loadAll();
-          return;
-        }
+        if (parsed) { await insertPocketQuick(parsed); setRecBusy(false); streamRef.current?.getTracks?.().forEach((t) => t.stop()); await loadAll(); return; }
       }
       if (isIncomeIntent(text)) {
         const ok = await insertIncomeAssistant(text);
-        if (ok) {
-          setRecBusy(false);
-          streamRef.current?.getTracks?.().forEach((t) => t.stop());
-          await loadAll();
-          return;
-        }
+        if (ok) { setRecBusy(false); streamRef.current?.getTracks?.().forEach((t) => t.stop()); await loadAll(); return; }
       }
       const ok2 = await insertIncomeAssistant(text);
-      if (ok2) {
-        setRecBusy(false);
-        streamRef.current?.getTracks?.().forEach((t) => t.stop());
-        await loadAll();
-        return;
-      }
-
+      if (ok2) { setRecBusy(false); streamRef.current?.getTracks?.().forEach((t) => t.stop()); await loadAll(); return; }
       setError('Nessun dato riconosciuto dalla voce');
-    } catch (err) {
-      showError(setError, err);
-    } finally {
+    } catch (err) { showError(setError, err); }
+    finally {
       setRecBusy(false);
-      try {
-        streamRef.current?.getTracks?.().forEach((t) => t.stop());
-      } catch {}
+      try { streamRef.current?.getTracks?.().forEach((t) => t.stop()); } catch {}
     }
   };
 
-  /* --------------------------------- CRUD ---------------------------------- */
+  /* ---------------- CRUD ---------------- */
   async function handleAddIncome(e) {
     e.preventDefault();
     setError(null);
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
 
       const recDate = newIncome.receivedAt || isoLocal(new Date());
-
       const payload = {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
@@ -518,44 +377,25 @@ function Entrate() {
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
 
-      setNewIncome({
-        source: 'Stipendio',
-        description: '',
-        amount: '',
-        receivedAt: isoLocal(new Date()),
-      });
+      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: isoLocal(new Date()) });
       await loadAll();
-    } catch (err) {
-      showError(setError, err);
-    }
+    } catch (err) { showError(setError, err); }
   }
-
   async function handleDeleteIncome(id) {
     try {
       const { error: e } = await supabase.from('incomes').delete().eq('id', id);
       if (e) throw e;
       setIncomes(incomes.filter((i) => i.id !== id));
-    } catch (err) {
-      showError(setError, err);
-    }
+    } catch (err) { showError(setError, err); }
   }
-
   async function handleSaveCarryover(e) {
     e.preventDefault();
     setError(null);
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
-      const payload = {
-        user_id: user.id,
-        month_key: monthKey,
-        amount: Number(newCarry.amount) || 0,
-        note: newCarry.note || null,
-      };
+      const payload = { user_id: user.id, month_key: monthKey, amount: Number(newCarry.amount) || 0, note: newCarry.note || null };
       if (carryover?.id) {
         const { error } = await supabase.from('carryovers').update(payload).eq('id', carryover.id);
         if (error) throw error;
@@ -565,327 +405,182 @@ function Entrate() {
       }
       setNewCarry({ amount: '', note: '' });
       await loadAll();
-    } catch (err) {
-      showError(setError, err);
-    }
+    } catch (err) { showError(setError, err); }
   }
-
   async function handleTopUpPocket(e) {
     e.preventDefault();
     setError(null);
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
       const delta = parseAmountLoose(pocketTopUp);
       if (!delta) return;
 
       const moved_date = isoLocal(new Date());
-
-      const payload = {
-        user_id: user.id,
-        note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
-        delta,
-        moved_date,
-        moved_at: `${moved_date}T12:00:00`,
-      };
+      const payload = { user_id: user.id, note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti', delta, moved_date, moved_at: `${moved_date}T12:00:00` };
       const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) throw error;
       setPocketTopUp('');
       await loadAll();
-    } catch (err) {
-      showError(setError, err);
-    }
+    } catch (err) { showError(setError, err); }
   }
-
   async function handleClearPocket() {
     if (!confirm('Ripulisci: rimuove i movimenti manuali e nasconde qui le spese cash di Varie. Confermi?')) return;
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
-
       await supabase.from('pocket_cash').delete().eq('user_id', user.id);
       setHideVarieCashAfterClear(true);
       await loadAll();
-    } catch (err) {
-      showError(setError, err);
-    }
+    } catch (err) { showError(setError, err); }
   }
 
-  /* --------------------------- calcoli per UI --------------------------- */
-  const entratePeriodo = useMemo(
-    () => incomes.reduce((t, r) => t + Number(r.amount || 0), 0),
-    [incomes]
-  );
-  const carryAmount = useMemo(() => Number(carryover?.amount || 0), [carryover]);
-  const prelievi = useMemo(
-    () => pocketRows.filter((r) => r.kind === 'manual' && r.amount > 0)
-                    .reduce((t, r) => t + r.amount, 0),
-    [pocketRows]
-  );
-  const saldoDisponibile = useMemo(
-    () => Math.max(0, entratePeriodo + carryAmount - prelievi),
-    [entratePeriodo, carryAmount, prelievi]
-  );
-  const pocketBalance = useMemo(
-    () => pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0),
-    [pocketRows]
-  );
-  const spesePeriodo = useMemo(
-    () => pocketRows.filter((r) => r.kind === 'cash-expense')
-                    .reduce((t, r) => t + Math.abs(Number(r.amount || 0)), 0),
-    [pocketRows]
-  );
-  const carryoverMese = carryAmount;
-  const soldiInTasca = pocketBalance;
+  /* -------- KPI -------- */
+  const entratePeriodo = useMemo(() => incomes.reduce((t, r) => t + Number(r.amount || 0), 0), [incomes]);
+  const carryAmount     = useMemo(() => Number(carryover?.amount || 0), [carryover]);
+  const prelievi        = useMemo(() => pocketRows.filter((r) => r.kind === 'manual' && r.amount > 0).reduce((t, r) => t + r.amount, 0), [pocketRows]);
+  const saldoDisponibile= useMemo(() => Math.max(0, entratePeriodo + carryAmount - prelievi), [entratePeriodo, carryAmount, prelievi]);
+  const pocketBalance   = useMemo(() => pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0), [pocketRows]);
+  const spesePeriodo    = useMemo(() => pocketRows.filter((r) => r.kind === 'cash-expense').reduce((t, r) => t + Math.abs(Number(r.amount || 0)), 0), [pocketRows]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.__JARVIS_DATA__ = window.__JARVIS_DATA__ || {};
     window.__JARVIS_DATA__.entrate = {
       saldoDisponibile,
-      soldiInTasca,
+      soldiInTasca: pocketBalance,
       entratePeriodo,
       spesePeriodo,
-      carryoverMese,
+      carryoverMese: carryAmount,
       startDate,
       endDate,
     };
     window.dispatchEvent(new CustomEvent('jarvis:data', { detail: { scope: 'entrate' } }));
-  }, [saldoDisponibile, soldiInTasca, entratePeriodo, spesePeriodo, carryoverMese, startDate, endDate]);
+  }, [saldoDisponibile, pocketBalance, entratePeriodo, spesePeriodo, carryAmount, startDate, endDate]);
 
-  /* ------------------------------ UI ------------------------------ */
+  /* ---------------- UI ---------------- */
   return (
     <>
       <Head><title>Entrate &amp; Saldi</title></Head>
 
-      <main className="page">
-        <div className="container">
-          <div className="glass p-xl radius-2xl shadow-lg">
-            {/* Titolo + Voce/OCR */}
-            <div className="row between center mb-sm">
-              <h2 className="animated-heading m-0">Entrate &amp; Saldi</h2>
-              <div className="row gap-xs">
-                <button className="btn" onClick={toggleRec}>
-                  {recBusy ? 'Stop' : 'Voce'}
-                </button>
-                <button className="btn btn-alt" onClick={() => ocrInputRef.current?.click()}>
-                  OCR
-                </button>
-                <input
-                  ref={ocrInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  hidden
-                  onChange={(e) => handleOCR(Array.from(e.target.files || []))}
-                />
-              </div>
-            </div>
-
-            {/* Periodo */}
-            <div className="muted mb-sm">
-              Periodo corrente: <b>{startDateIT}</b> – <b>{endDateIT}</b>
-            </div>
-
-            {/* Box metriche */}
-            <div className="card glass soft mb-md">
-              <div className="card-body">
-                <h3 className="mt-0">Disponibilità</h3>
-                <div className="row between mb-2xs">
-                  <span>Entrate periodo corrente:</span>
-                  <b>€ {entratePeriodo.toFixed(2)}</b>
-                </div>
-                <div className="row between mb-2xs">
-                  <span>Carryover mese precedente:</span>
-                  <b>€ {carryAmount.toFixed(2)}</b>
-                </div>
-                <div className="row between">
-                  <span>Saldo disponibile:</span>
-                  <b className="metric-positive">€ {saldoDisponibile.toFixed(2)}</b>
-                </div>
-                <div className="row between">
-                  <span>Soldi in tasca (restanti):</span>
-                  <b className="metric-info">€ {pocketBalance.toFixed(2)}</b>
-                </div>
-              </div>
-            </div>
-
-            {/* Entrate */}
-            <h3>1) Entrate del periodo</h3>
-            <form className="form-grid mb-sm" onSubmit={handleAddIncome}>
-              <input
-                className="input"
-                value={newIncome.source}
-                onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })}
-                placeholder="Fonte"
-                required
-              />
-              <input
-                className="input"
-                value={newIncome.description}
-                onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
-                placeholder="Descrizione"
-                required
-              />
-              <input
-                className="input"
-                type="date"
-                value={newIncome.receivedAt}
-                onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })}
-                required
-              />
-              <input
-                className="input"
-                type="text"
-                inputMode="decimal"
-                value={newIncome.amount}
-                onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
-                placeholder="Importo €"
-                required
-              />
-              <button className="btn">Aggiungi</button>
-            </form>
-
-            {loading ? (
-              <p>Caricamento…</p>
-            ) : (
-              <table className="table-v">
-                <thead>
-                  <tr>
-                    <th>Fonte</th>
-                    <th>Descrizione</th>
-                    <th>Data</th>
-                    <th>Importo €</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incomes.map((i) => {
-                    const dISO = i.received_date || (i.received_at ? String(i.received_at).slice(0, 10) : '');
-                    return (
-                      <tr key={i.id}>
-                        <td>{i.source || '-'}</td>
-                        <td>{i.description}</td>
-                        <td>{formatIT(dISO)}</td>
-                        <td>{Number(i.amount).toFixed(2)}</td>
-                        <td>
-                          <button className="btn btn-danger-ghost" onClick={() => handleDeleteIncome(i.id)}>
-                            Elimina
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-
-            {/* Carryover */}
-            <h3 className="mt-md">2) Rimanenze / Perdite mesi precedenti</h3>
-            <form className="form-grid mb-sm" onSubmit={handleSaveCarryover}>
-              <input
-                className="input"
-                type="number"
-                step="0.01"
-                value={newCarry.amount}
-                onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-                placeholder={`Importo € per ${monthKey}`}
-                required
-              />
-              <input
-                className="input"
-                value={newCarry.note}
-                onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })}
-                placeholder="Nota (opzionale)"
-              />
-              <button className="btn">{carryover ? 'Aggiorna' : 'Salva'}</button>
-            </form>
-
-            {carryover && (
-              <table className="table-v">
-                <thead>
-                  <tr>
-                    <th>Mese</th>
-                    <th>Importo €</th>
-                    <th>Nota</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>{carryover.month_key}</td>
-                    <td>{Number(carryover.amount).toFixed(2)}</td>
-                    <td>{carryover.note || '-'}</td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-
-            {/* Soldi in tasca */}
-            <h3 className="mt-md">3) Soldi in tasca</h3>
-            <form className="form-grid mb-xs" onSubmit={handleTopUpPocket}>
-              <input
-                className="input"
-                type="text"
-                inputMode="decimal"
-                value={pocketTopUp}
-                onChange={(e) => setPocketTopUp(e.target.value)}
-                placeholder="Ricarica (+) / Uscita (-) €"
-                required
-              />
-              <div className="row gap-xs">
-                <button className="btn">+ Aggiungi</button>
-                <button type="button" className="btn btn-danger" onClick={handleClearPocket}>
-                  Ripulisci
-                </button>
-              </div>
-              {hideVarieCashAfterClear && (
-                <p className="muted">
-                  Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
-                </p>
-              )}
-            </form>
-
-            {loading ? (
-              <p>Caricamento…</p>
-            ) : (
-              <table className="table-v">
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Descrizione</th>
-                    <th className="text-right">Importo €</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pocketRows.map((m) => (
-                    <tr key={m.id}>
-                      <td>{formatIT(m.dateISO)}</td>
-                      <td>{m.label}</td>
-                      <td className="text-right">
-                        {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {error && <p className="error mt-sm">{error}</p>}
-
-            <div className="mt-md">
-              <Link href="/home" className="btn btn-alt">Home</Link>
+      <main className="page-container">
+        <section className="glass rounded-2xl p-4">
+          {/* header */}
+          <div className="thq-flex-row" style={{justifyContent:'space-between', gap:12, flexWrap:'wrap'}}>
+            <h2 className="animated-heading">Entrate &amp; Saldi</h2>
+            <div className="thq-flex-row" style={{gap:8}}>
+              <button className="btn-vocale" onClick={toggleRec}>{recBusy ? 'Stop' : 'Voce'}</button>
+              <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>OCR</button>
+              <input ref={ocrInputRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e)=>handleOCR(Array.from(e.target.files||[]))}/>
             </div>
           </div>
-        </div>
+
+          {/* periodo */}
+          <div className="thq-body-small" style={{opacity:.9, marginBottom:12}}>
+            Periodo corrente: <b>{startDateIT}</b> – <b>{endDateIT}</b>
+          </div>
+
+          {/* KPI */}
+          <div className="total-box">
+            <div className="thq-flex-row" style={{justifyContent:'space-between', marginBottom:4}}>
+              <span>Entrate periodo corrente</span><b>€ {entratePeriodo.toFixed(2)}</b>
+            </div>
+            <div className="thq-flex-row" style={{justifyContent:'space-between', marginBottom:4}}>
+              <span>Carryover mese precedente</span><b>€ {carryAmount.toFixed(2)}</b>
+            </div>
+            <div className="thq-flex-row" style={{justifyContent:'space-between'}}>
+              <span>Saldo disponibile</span><b className="metric-positive">€ {saldoDisponibile.toFixed(2)}</b>
+            </div>
+            <div className="thq-flex-row" style={{justifyContent:'space-between'}}>
+              <span>Soldi in tasca (restanti)</span><b className="metric-info">€ {pocketBalance.toFixed(2)}</b>
+            </div>
+          </div>
+
+          {/* form entrate */}
+          <h3 className="mt-2">1) Entrate del periodo</h3>
+          <form className="input-section" onSubmit={handleAddIncome}>
+            <input className="input-v" value={newIncome.source} onChange={(e)=>setNewIncome({...newIncome, source:e.target.value})} placeholder="Fonte" required />
+            <input className="input-v" value={newIncome.description} onChange={(e)=>setNewIncome({...newIncome, description:e.target.value})} placeholder="Descrizione" required />
+            <input className="input-v" type="date" value={newIncome.receivedAt} onChange={(e)=>setNewIncome({...newIncome, receivedAt:e.target.value})} required />
+            <input className="input-v" type="text" inputMode="decimal" value={newIncome.amount} onChange={(e)=>setNewIncome({...newIncome, amount:e.target.value})} placeholder="Importo €" required />
+            <button className="btn btn-primary">Aggiungi</button>
+          </form>
+
+          {loading ? <p>Caricamento…</p> : (
+            <table className="table-v">
+              <thead>
+                <tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr>
+              </thead>
+              <tbody>
+                {incomes.map(i=>{
+                  const dISO = i.received_date || (i.received_at ? String(i.received_at).slice(0,10) : '');
+                  return (
+                    <tr key={i.id}>
+                      <td>{i.source || '-'}</td>
+                      <td>{i.description}</td>
+                      <td>{formatIT(dISO)}</td>
+                      <td>{Number(i.amount).toFixed(2)}</td>
+                      <td><button className="btn btn-danger" onClick={()=>handleDeleteIncome(i.id)}>Elimina</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {/* carryover */}
+          <h3 className="mt-2">2) Rimanenze / Perdite mesi precedenti</h3>
+          <form className="input-section" onSubmit={handleSaveCarryover}>
+            <input className="input-v" type="number" step="0.01" value={newCarry.amount} onChange={(e)=>setNewCarry({...newCarry, amount:e.target.value})} placeholder={`Importo € per ${monthKey}`} required />
+            <input className="input-v" value={newCarry.note} onChange={(e)=>setNewCarry({...newCarry, note:e.target.value})} placeholder="Nota (opzionale)" />
+            <button className="btn btn-primary">{carryover ? 'Aggiorna' : 'Salva'}</button>
+          </form>
+
+          {carryover && (
+            <table className="table-v">
+              <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
+              <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
+            </table>
+          )}
+
+          {/* pocket */}
+          <h3 className="mt-2">3) Soldi in tasca</h3>
+          <form className="input-section" onSubmit={handleTopUpPocket}>
+            <input className="input-v" type="text" inputMode="decimal" value={pocketTopUp} onChange={(e)=>setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required />
+            <div className="thq-flex-row" style={{gap:8}}>
+              <button className="btn btn-primary">+ Aggiungi</button>
+              <button type="button" className="btn btn-danger" onClick={handleClearPocket}>Ripulisci</button>
+            </div>
+            {hideVarieCashAfterClear && (
+              <p className="thq-body-small" style={{opacity:.85}}>
+                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste qui (restano nelle rispettive sezioni).
+              </p>
+            )}
+          </form>
+
+          {loading ? <p>Caricamento…</p> : (
+            <table className="table-v">
+              <thead><tr><th>Data</th><th>Descrizione</th><th className="text-right">Importo €</th></tr></thead>
+              <tbody>
+                {pocketRows.map(m=>(
+                  <tr key={m.id}>
+                    <td>{formatIT(m.dateISO)}</td>
+                    <td>{m.label}</td>
+                    <td className="text-right">{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {error && <p className="error mt-2">{error}</p>}
+
+          <div className="mt-2">
+            <Link href="/home" className="btn">🏠 Home</Link>
+          </div>
+        </section>
       </main>
     </>
   );
