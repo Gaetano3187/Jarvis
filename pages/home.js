@@ -5,10 +5,10 @@ import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import VoiceRecorder from '../components/VoiceRecorder';
 
-// —— Brain wrappers
+// Brain wrappers
 import { runQueryFromTextLocal, ingestOCRLocal, ingestSpokenLocal } from '@/lib/brainHub';
 
-/* ---------- Helper: format ---------- */
+/* ---------- Helper ---------- */
 function formatResult(res) {
   if (!res) return 'Nessun risultato.';
   if (typeof res === 'string') return res;
@@ -81,6 +81,7 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
   );
 }
 
+/* ---------- Pagina Home ---------- */
 const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
@@ -90,7 +91,7 @@ const Home = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]); // {role:'user'|'assistant', text, mono?}
 
-  // —— OCR wrapper (usa brain)
+  // OCR wrapper (usa brain)
   async function handleOCR(payload) {
     const res = await ingestOCRLocal(payload);
     setChatOpen(true);
@@ -98,7 +99,7 @@ const Home = () => {
     return res;
   }
 
-  // —— Voce wrapper (usa brain)
+  // Voce wrapper (usa brain)
   async function handleVoiceTranscript(spokenText) {
     const res = await ingestSpokenLocal(spokenText);
     setChatOpen(true);
@@ -117,7 +118,7 @@ const Home = () => {
     (async () => {
       try {
         setBusy(true);
-        await handleOCR({ files });  // passa SEMPRE "files"
+        await handleOCR({ files }); // passa SEMPRE "files"
         alert('✅ Scontrino riconosciuto e registrato');
       } catch (err) {
         console.error(err);
