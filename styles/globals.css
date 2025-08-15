@@ -630,3 +630,82 @@ h1, h2, h3, .title {
 * { letter-spacing: 0.01em; }   /* piccolo tracking per leggibilità */
 /* Disattiva vecchio sfondo di lista prodotti */
 .bg-kaleido{ display:none !important; }
+/* ==========================================================
+   VERTICAL RHYTHM BOOST — più spazio tra sezioni & interlinea
+   ========================================================== */
+
+/* 1) Variabili di ritmo verticale */
+:root{
+  --vr-section: clamp(18px, 4.2vw, 36px);   /* gap tra SEZIONI */
+  --vr-block:   clamp(12px, 3.2vw, 20px);   /* gap tra BLOCCHI interni */
+  --lh-body:    1.5;                        /* interlinea testo */
+  --lh-head:    1.28;                       /* interlinea titoli */
+}
+
+/* 2) Interlinea più generosa (testi e titoli) */
+body, p, .thq-body-large, .thq-body-small,
+label, span, a, li, div, td, th {
+  line-height: var(--lh-body) !important;
+}
+h1, h2, h3, .title {
+  line-height: var(--lh-head) !important;
+}
+
+/* 3) Spaziatura AUTOMATICA tra i figli principali della card/pagina */
+.spese-casa-container2 :where(> * + *){
+  margin-top: var(--vr-section);
+}
+
+/* 4) Blocchi ricorrenti: spazio e ritmo interni */
+:where(.total-box, .input-section, .table-container, .custom-table, .table-v){
+  margin-top: var(--vr-block);
+}
+
+/* input-section: padding & gap più comodi */
+.input-section{
+  padding: clamp(12px, 2.8vw, 20px) !important;
+  gap: clamp(10px, 2.6vw, 16px) !important;
+}
+
+/* righe KPI e micro-spazi */
+.flex-line{ margin: 6px 0 !important; gap: 12px !important; }
+
+/* Titoli: più aria sotto, nessun margine sopra */
+:where(h1,h2,h3,.title){
+  margin-top: 0 !important;
+  margin-bottom: calc(var(--vr-block) * .9) !important;
+}
+
+/* Liste & griglie interne: aumenta gap senza toccare JS */
+:where(.cards, .listGrid, .sectionLarge, .sectionXL){
+  gap: var(--vr-block) !important;
+  margin-top: var(--vr-section) !important;
+}
+
+/* Contenitore pagina: più respiro alto/basso */
+.page-container{
+  padding-top: clamp(20px, 5vw, 48px) !important;
+  padding-bottom: clamp(28px, 6vw, 64px) !important;
+}
+
+/* Tabelle: padding celle e line-height già aumentati dal body;
+   aggiungo un filo di spazio al top per non “attaccarsi” ai titoli */
+.custom-table, .table-v{
+  margin-top: var(--vr-block) !important;
+}
+.custom-table th, .custom-table td,
+.table-v th, .table-v td{
+  padding: clamp(10px, 2.8vw, 14px) !important;
+}
+
+/* 5) Mobile: impila e aumenta il respiro dove utile */
+@media (max-width: 900px){
+  .input-section{ flex-direction: column; }
+  .btn, .btn-vocale, .btn-ocr, .btn-manuale, .btn-danger, .btn-danger-outline{ width: 100%; }
+  .spese-casa-container2 :where(> * + *){ margin-top: calc(var(--vr-section) * 1.05); }
+}
+
+/* 6) Utilities per usi mirati (se servono) */
+.v-space-lg{ margin-top: var(--vr-section) !important; }
+.v-space-md{ margin-top: var(--vr-block) !important; }
+
