@@ -2257,7 +2257,7 @@ export default function ListeProdotti() {
             {stock.length === 0 ? (
               <p style={{opacity:.8, marginTop:8}}>Nessun dato scorte</p>
             ) : (
-              <table style={{...styles.table, marginTop:10}}>
+          <table className="custom-table">
                 <thead>
                   <tr>
                     <th style={styles.th}>Prodotto</th>
