@@ -125,24 +125,22 @@ const Home = () => {
 
   /* —— OCR → ingest —— */
   const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+     const file = e.target.files?.[0];
+  if (!file) return;
+ (async () => {
+    try {
+      setBusy(true);
+      await handleOCR({ file }); // ← passa il File, non base64
+      alert('✅ Scontrino riconosciuto e registrato');
+    } catch (err) {
+      console.error(err);
+      alert('❌ Errore OCR: ' + (err?.message || err));
+   } finally {
+     setBusy(false);
+     e.target.value = ''; // reset input
+   }
+ })();
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64 = String(reader.result || '').split(',')[1];
-        setBusy(true);
-       await handleOCR({ base64 });
-        alert('✅ Scontrino riconosciuto e registrato');
-      } catch (err) {
-        console.error(err);
-        alert('❌ Errore OCR');
-      } finally {
-        setBusy(false);
-      }
-    };
-    reader.readAsDataURL(file);
   };
   const handleSelectReceipt = () => fileInputRef.current?.click();
 
