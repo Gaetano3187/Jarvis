@@ -1,21 +1,16 @@
+// pages/home.js (o /home/index.js)
 import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
-import Link from 'next/link'; import withAuth from '../hoc/withAuth';
+import Link from 'next/link';
+import withAuth from '../hoc/withAuth';
 import VoiceRecorder from '../components/VoiceRecorder';
 
- // —— CERVELLO (solo client wrappers)
+// —— CERVELLO (wrappers client)
 import { runQueryFromTextLocal, ingestOCRLocal, ingestSpokenLocal } from '@/lib/brainHub';
-async function handleOCR(payload) {
-  const res = await ingestOCRLocal(payload);
-  setChatOpen(true);
-  setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
-  return res;
-
 
 /* ---------- Helper formattazione risultato ---------- */
 function formatResult(res) {
   if (!res) return 'Nessun risultato.';
-  // Se backend restituisce stringa, usala; altrimenti JSON pretty.
   if (typeof res === 'string') return res;
   try {
     return JSON.stringify(res, null, 2);
@@ -30,7 +25,6 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
   const bodyRef = useRef(null);
 
   useEffect(() => {
-    // scroll in fondo ad ogni nuovo messaggio
     if (bodyRef.current) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
@@ -99,10 +93,15 @@ const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
-   // —— Wrapper OCR per la Home (usa il brain) ——
-  async function handleOCR({ base64 }) {
-    const res = await ingestOCRLocal({ base64 });
-    // opzionale: apri chat e mostra risposta
+
+  // Stato chat
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMsgs, setChatMsgs] = useState([]); // {role:'user'|'assistant', text, mono?}
+
+  // —— Wrapper OCR per la Home (usa il brain) ——
+  async function handleOCR(payload) {
+    const res = await ingestOCRLocal(payload);
+    // Mostra esito in chat (opzionale)
     setChatOpen(true);
     setChatMsgs((arr) => [
       ...arr,
@@ -111,41 +110,36 @@ const Home = () => {
     return res;
   }
 
- // —— Wrapper VOCE per la Home (usa il brain) ——
+  // —— Wrapper VOCE per la Home (usa il brain) ——
   async function handleVoiceTranscript(spokenText) {
     const res = await ingestSpokenLocal(spokenText);
-    // opzionale: apri chat e mostra domanda/risposta
+    // Mostra domanda+risposta in chat
     setChatOpen(true);
     setChatMsgs((arr) => [
-     ...arr,
-     { role: 'user', text: spokenText },
-     { role: 'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' }
-   ]);
+      ...arr,
+      { role: 'user', text: spokenText },
+      { role: 'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' }
+    ]);
     return res;
   }
 
-  // Stato chat
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMsgs, setChatMsgs] = useState([]); // {role:'user'|'assistant', text, mono?}
-
   /* —— OCR → ingest —— */
   const handleFileChange = (e) => {
-     const file = e.target.files?.[0];
-  if (!file) return;
- (async () => {
-    try {
-      setBusy(true);
-      await handleOCR({ file }); // ← passa il File, non base64
-      alert('✅ Scontrino riconosciuto e registrato');
-    } catch (err) {
-      console.error(err);
-      alert('❌ Errore OCR: ' + (err?.message || err));
-   } finally {
-     setBusy(false);
-     e.target.value = ''; // reset input
-   }
- })();
-
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    (async () => {
+      try {
+        setBusy(true);
+        await handleOCR({ files }); // passa SEMPRE "files" al brain
+        alert('✅ Scontrino riconosciuto e registrato');
+      } catch (err) {
+        console.error(err);
+        alert('❌ Errore OCR: ' + (err?.message || err));
+      } finally {
+        setBusy(false);
+        e.target.value = ''; // reset input
+      }
+    })();
   };
   const handleSelectReceipt = () => fileInputRef.current?.click();
 
@@ -154,11 +148,11 @@ const Home = () => {
     if (!spoken) return;
     try {
       setBusy(true);
-     await handleVoiceTranscript(spoken);
-      alert('✅ Spesa registrata correttamente');
+      await handleVoiceTranscript(spoken);
+      alert('✅ Operazione eseguita');
     } catch (err) {
       console.error(err);
-      alert('❌ Errore registrazione spesa');
+      alert('❌ Errore comando vocale: ' + (err?.message || err));
     } finally {
       setBusy(false);
     }
@@ -169,7 +163,6 @@ const Home = () => {
     const q = queryText.trim();
     if (!q) return;
     setQueryText('');
-    // Apri chat e logga messaggio utente
     setChatOpen(true);
     setChatMsgs((arr) => [...arr, { role: 'user', text: q }]);
     await handleChatSend(q);
@@ -182,14 +175,12 @@ const Home = () => {
   const handleChatSend = async (text) => {
     try {
       setBusy(true);
-    const res = await runQueryFromTextLocal(text, { first: chatMsgs.length === 0 });
+      const res = await runQueryFromTextLocal(text, { first: chatMsgs.length === 0 });
       if (res?.redirect) {
         setChatMsgs((arr) => [
           ...arr,
           { role: 'assistant', text: `Apri: ${res.redirect}` },
         ]);
-        // Se preferisci navigare automaticamente:
-        // window.location.href = res.redirect;
         return;
       }
       if (res?.ok && res?.result) {
@@ -198,7 +189,6 @@ const Home = () => {
           { role: 'assistant', text: formatResult(res.result), mono: typeof res.result !== 'string' },
         ]);
       } else {
-        // Fallback debug (azione strutturata)
         const dbg = res?.debug ? JSON.stringify(res.debug, null, 2) : 'Nessuna risposta.';
         setChatMsgs((arr) => [
           ...arr,
@@ -253,7 +243,7 @@ const Home = () => {
             <span className="hint">Crea e gestisci le tue liste</span>
           </Link>
 
-        <Link
+          <Link
             href="/finanze"
             className="card-cta card-finanze animate-card pulse-finanze sheen"
             style={{ animationDelay: '0.15s' }}
@@ -422,7 +412,7 @@ const Home = () => {
               rgba(var(--tint), 0.10) 28%,
               rgba(255,255,255, 0.45) 50%,
               rgba(var(--tint), 0.16) 72%,
-              rgba(var(--tint), 0.00) 100%
+              rgba(255,255,255, 0.00) 100%
             );
           transform: translateX(-130%) skewX(-12deg);
           filter: blur(0.6px);
