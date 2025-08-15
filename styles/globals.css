@@ -1456,4 +1456,51 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
     animation: none !important;
   }
 }
+/* ==========================================================
+   FIX LEGACY PAGES — titoli con gradiente + shine + rilievo
+   (Spese Casa / Vestiti ed Altro / Cene e Aperitivi / Varie)
+   ========================================================== */
+
+/* palette viola/lilla (puoi ritoccare) */
+:root{
+  --vio-1:#f2e9ff; --vio-2:#e8ccff; --vio-3:#d6a8ff; --vio-4:#b47aff; --vio-5:#9a5be8;
+  --title-shine-speed: 2.4s;
+  --title-shine-core:  rgba(255,255,255,.82);
+  --title-shine-soft:  rgba(255,255,255,.20);
+  --t-emboss-top:      rgba(255,255,255,.58);
+  --t-emboss-bottom:   rgba(0,0,0,.50);
+  --t-emboss-glow:     rgba(0,0,0,.40);
+  --t-aura-1:          rgba(255,255,255,.14);
+  --t-aura-2:          rgba(180,200,255,.22);
+}
+
+/* TARGET: tutti i titoli dentro i container legacy */
+:where(.spese-casa-container2,.spese-casa-container1) :is(h1,h2,h3,.title){
+  position: relative;
+  display:inline-block;
+  font-weight: 800;
+  letter-spacing: .04em;
+
+  /* doppio background: bagliore che attraversa + gradiente */
+  color: transparent !important;
+  background-image:
+    linear-gradient(120deg,
+      transparent 0%,
+      transparent 42%,
+      var(--title-shine-soft) 47%,
+      var(--title-shine-core) 50%,
+      var(--title-shine-soft) 53%,
+      transparent 58%,
+      transparent 100%
+    ),
+    linear-gradient(90deg,var(--vio-1),var(--vio-2),var(--vio-3),var(--vio-4),var(--vio-5),var(--vio-2));
+  background-size: 220% 100%, 260% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+
+  /* rilievo forte */
+  text-shadow:
+    0 1px 0 var(--t-emboss-top),
 
