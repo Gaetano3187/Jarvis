@@ -1267,4 +1267,91 @@ h1.title-glass, h2.title-glass, h3.title-glass {
     animation: none !important;
   }
 }
+/* ==========================================================
+   PAGE TITLES — Shine che percorre la scritta (sweep)
+   (funziona su h1/h2/h3/.title/.title-glass/.title-lemon)
+   ========================================================== */
+
+/* palette lilla/viola (fallback se non già definita) */
+:root{
+  --vio-1: #f2e9ff;
+  --vio-2: #e8ccff;
+  --vio-3: #d6a8ff;
+  --vio-4: #b47aff;
+  --vio-5: #9a5be8;
+
+  /* parametri shine */
+  --title-shine-speed: 2.6s;               /* velocità del bagliore */
+  --title-shine-core:  rgba(255,255,255,.85);
+  --title-shine-soft:  rgba(255,255,255,.25);
+}
+
+/* Titoli: gradiente + SHINE che percorre la scritta */
+.app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon){
+  position: relative;
+  display:inline-block;
+  font-weight: 800;
+  letter-spacing: .04em;
+
+  /* testo colorato (no bianco) + doppio layer:
+     1) striscia brillante che scorre
+     2) gradiente pastello di base */
+  color: transparent !important;
+  background-image:
+    linear-gradient(
+      120deg,
+      transparent 0%,
+      transparent 42%,
+      var(--title-shine-soft) 47%,
+      var(--title-shine-core) 50%,
+      var(--title-shine-soft) 53%,
+      transparent 58%,
+      transparent 100%
+    ),
+    linear-gradient(90deg, var(--vio-1), var(--vio-2), var(--vio-3), var(--vio-4), var(--vio-5), var(--vio-2));
+  background-size: 220% 100%, 260% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+
+  /* rilievo forte (puoi tenere il tuo set se già presente) */
+  text-shadow:
+    0 1px 0 rgba(255,255,255,.55),
+    0 2px 0 rgba(0,0,0,.48),
+    0 10px 26px rgba(0,0,0,.40) !important;
+
+  /* animazioni: shine + drift + micro-float */
+  animation:
+    titleShineSweep var(--title-shine-speed) cubic-bezier(.25,.6,.35,1) infinite,
+    titleLilacDrift 7.5s ease-in-out infinite,
+    titlePulseFloat 2.2s ease-in-out infinite !important;
+
+  will-change: background-position, transform, filter;
+}
+
+/* Shine: muove SOLO il primo layer (la striscia brillante) e,
+   in parallelo, fa drift al gradiente di base */
+@keyframes titleShineSweep{
+  0%   { background-position: -180% 50%,   0% 50%; }
+  100% { background-position:  180% 50%, 200% 50%; }
+}
+
+/* Se avevi già queste animazioni, le manteniamo; altrimenti sono innocue */
+@keyframes titleLilacDrift{
+  0%   { filter:saturate(1);    }
+  100% { filter:saturate(1.02); }
+}
+@keyframes titlePulseFloat{
+  0%   { transform: translateY(0);      }
+  50%  { transform: translateY(-1.6px); }
+  100% { transform: translateY(0);      }
+}
+
+/* Accessibilità: riduci il movimento se richiesto */
+@media (prefers-reduced-motion: reduce){
+  .app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon){
+    animation: titleShineSweep var(--title-shine-speed) linear infinite;
+  }
+}
 
