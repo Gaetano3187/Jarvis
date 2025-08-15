@@ -882,6 +882,30 @@ h1, h2, h3, .title, .hero-font{
   font-weight: 300;
   letter-spacing: .06em;
 }
+/* ================================================
+   PATCH: sfondo più veloce + riflesso bianco attenuato
+   ================================================ */
+
+/* 1) Accelera lo sfondo (da ~34–36s a 16s) */
+.app-shell, [data-route] .app-shell, .login-shell{
+  animation-duration: 16s !important;   /* aumenta/min diminuisci a piacere */
+}
+
+/* 2) Riflesso diagonale molto più tenue */
+.app-shell::before, .login-shell::before{
+  background: linear-gradient(
+    115deg,
+    rgba(255,255,255,.08) 0%,   /* prima ~.20 */
+    rgba(255,255,255,.03) 28%,  /* prima ~.08 */
+    transparent 55%
+  ) !important;
+}
+
+/* 3) (Opzionale) Aurea del testo un po’ più soft */
+:root{
+  --text-aura:        rgba(255,255,255,.14);  /* prima .20 */
+  --text-aura-strong: rgba(255,255,255,.32);  /* prima .46 */
+}
 
 
 
