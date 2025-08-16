@@ -3,9 +3,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
+
+// —— Cloud sync (Supabase)
+const CLOUD_TABLE = 'jarvis_liste_state';
+const CLOUD_SYNC = true; // metti a false per disattivare rapidamente
 
 // Endpoints esistenti
 const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
