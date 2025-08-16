@@ -2,7 +2,7 @@
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const links = [
   { href: '/home',             label: 'Home',           c1: '#8b5cf6', c2: '#60a5fa' },
@@ -22,6 +22,88 @@ export default function NavBar() {
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
 
+  /* ===== Stato registrazione + analisi audio ===== */
+  const [recording, setRecording] = useState(false);
+  const [beamSpeedSec, setBeamSpeedSec] = useState(2.2); // più piccolo = più veloce
+  const [glowScale, setGlowScale] = useState(1);         // intensità glow 1..~2
+
+  const mediaStreamRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    const start = async () => {
+      if (audioCtxRef.current) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtxRef.current = ctx;
+
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        analyser.smoothingTimeConstant = 0.85;
+        src.connect(analyser);
+        analyserRef.current = analyser;
+
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const loop = () => {
+          analyser.getByteFrequencyData(data);
+          // volume grezzo: media dei bassi+medi (prime ~1/3 bins)
+          let sum = 0;
+          const len = Math.max(1, Math.floor(data.length / 3));
+          for (let i = 0; i < len; i++) sum += data[i];
+          const avg = sum / len;           // 0..255
+          const norm = Math.min(1, avg / 180); // normalizza e limita
+
+          // mappa il volume a velocità e glow:
+          // idle ~2.2s ; parlato forte ~0.7s
+          const speed = 2.2 - norm * 1.5;
+          setBeamSpeedSec(Math.max(0.65, speed));
+
+          // glow 1..~2
+          setGlowScale(1 + norm * 1.2);
+
+          rafRef.current = requestAnimationFrame(loop);
+        };
+        loop();
+      } catch (err) {
+        console.error('Mic error:', err);
+      }
+    };
+
+    const stop = () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      if (audioCtxRef.current) {
+        try { audioCtxRef.current.close(); } catch {}
+      }
+      audioCtxRef.current = null;
+      analyserRef.current = null;
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      mediaStreamRef.current = null;
+      // torna a valori "idle"
+      setBeamSpeedSec(2.2);
+      setGlowScale(1);
+    };
+
+    const onStart = () => { setRecording(true); start(); };
+    const onStop  = () => { setRecording(false); stop(); };
+
+    window.addEventListener('jarvis:recording:start', onStart);
+    window.addEventListener('jarvis:recording:stop', onStop);
+    return () => {
+      window.removeEventListener('jarvis:recording:start', onStart);
+      window.removeEventListener('jarvis:recording:stop', onStop);
+      onStop();
+    };
+  }, []);
+
   return (
     <>
       <Head>
@@ -32,20 +114,22 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ====== LOGO: JARVIS + KITT ====== */}
+          {/* ====== LOGO: JARVIS + barra KITT dinamica ====== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home" title="JARVIS">
-            <span className="brand-wrap">
+            <span className={`brand-wrap ${recording ? 'is-recording' : ''}`}>
+              {/* Scritta JARVIS rossa con bordo nero */}
               <span className="logo-jarvis" data-text="JARVIS">JARVIS</span>
 
-              {/* Feritoia KITT */}
+              {/* Feritoia KITT: verde idle, rossa quando recording */}
               <span className="kitt-slot" aria-hidden="true">
-                {/* griglia LED segmentata */}
-                <span className="kitt-leds" />
-                {/* fascio principale con scia */}
-                <span className="kitt-beam">
+                <span
+                  className="kitt-beam"
+                  // aggiorna la velocità in base al volume
+                  style={{ '--sweep-sec': `${beamSpeedSec}s`, '--glow-scale': glowScale }}
+                >
                   <span className="kitt-core" />
                 </span>
-                {/* alone rosso diffuso */}
+                <span className="kitt-leds" />
                 <span className="kitt-glow" />
               </span>
             </span>
@@ -70,6 +154,7 @@ export default function NavBar() {
                 </li>
               );
             })}
+            {/* filler per griglia mobile */}
             {mobileFillers.map(key => (
               <li key={key} className="item spacer" aria-hidden="true" />
             ))}
@@ -83,9 +168,11 @@ export default function NavBar() {
           --nav-brd: rgba(255,255,255,.12);
           --pulse: 1.35s;
 
-          /* KITT */
-          --kitt-red: #ff2a2a;
-          --kitt-dark: #0a0b0f;
+          /* colori barra */
+          --beam-green: #2bff88;
+          --beam-green-soft: #b7ffd9;
+          --beam-red: #ff2a2a;
+          --beam-red-soft: #ffb3b3;
         }
 
         .nav{
@@ -105,17 +192,14 @@ export default function NavBar() {
         .brand{ text-decoration:none; display:flex; align-items:center; }
         .brand-wrap{ position: relative; display:grid; place-items:center; }
 
-        /* ===== LOGO JARVIS rosso con bordo nero ===== */
+        /* ===== LOGO JARVIS ===== */
         .logo-jarvis{
           position: relative; z-index: 3; display:inline-block;
           font-family: "Orbitron", system-ui, sans-serif;
           font-weight: 900; letter-spacing: .3rem;
           font-size: clamp(2.2rem, 5vw, 3.1rem);
           text-transform: uppercase;
-
-          -webkit-text-stroke: 1px #000;
-          paint-order: stroke fill;
-
+          -webkit-text-stroke: 1px #000; paint-order: stroke fill;
           color: #ff2626;
           text-shadow:
             0 0 6px rgba(255,46,46,.95),
@@ -140,15 +224,15 @@ export default function NavBar() {
             0 0 56px rgba(255,0,0,1); }
         }
 
-        /* ===== KITT SLOT: feritoia stretta con bezel e riflessi ===== */
+        /* ===== KITT feritoia ===== */
         .kitt-slot{
           position: relative;
           margin-top: 6px;
           width: min(360px, 78vw);
-          height: 12px;                    /* stretto, come in foto */
+          height: 12px;
           border-radius: 12px;
           background: linear-gradient(180deg,#0f1116,#05060a);
-          border: 1px solid #000;          /* bordo nero sottile */
+          border: 1px solid #000;
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.08),
             inset 0 -2px 6px rgba(0,0,0,.9),
@@ -156,7 +240,6 @@ export default function NavBar() {
           overflow: hidden;
           isolation:isolate;
         }
-        /* bevel superiore lucido */
         .kitt-slot::before{
           content:"";
           position:absolute; inset:0;
@@ -164,70 +247,81 @@ export default function NavBar() {
           mix-blend-mode: screen; pointer-events:none;
         }
 
-        /* segmenti LED interni, fermi (la corsa la fa il beam) */
+        /* LED segmentati fissi */
         .kitt-leds{
           position:absolute; inset:1px; border-radius: 10px;
           background:
             repeating-linear-gradient(90deg,
-              rgba(255,255,255,.08) 0 3px,   /* separatore sottile */
-              rgba(255,255,255,0) 3px 18px   /* ampiezza segmenti */
-            );
-          opacity:.25; filter: blur(.2px);
-          pointer-events:none;
+              rgba(255,255,255,.08) 0 3px,
+              rgba(255,255,255,0) 3px 18px);
+          opacity:.25; pointer-events:none;
         }
 
-        /* fascio che scorre con scia calda/blur */
+        /* Fascio che corre; colore e glow si adattano via CSS vars */
         .kitt-beam{
+          --sweep-sec: 2.2s;          /* aggiornato da JS col volume */
+          --glow-scale: 1;            /* 1..~2, aggiornato da JS */
           position:absolute; top:0; left:0;
           width: 86px; height: 100%;
-          animation: kittSweep 1.9s cubic-bezier(.55,.07,.43,.99) infinite alternate;
-          filter: drop-shadow(0 0 10px rgba(255,40,40,1))
-                  drop-shadow(0 0 28px rgba(255,24,24,1))
-                  drop-shadow(0 0 54px rgba(255,0,0,.95));
+          animation: kittSweep var(--sweep-sec) cubic-bezier(.55,.07,.43,.99) infinite alternate;
+          filter:
+            drop-shadow(0 0 calc(10px * var(--glow-scale)) var(--beam-color-strong))
+            drop-shadow(0 0 calc(28px * var(--glow-scale)) var(--beam-color-strong))
+            drop-shadow(0 0 calc(54px * var(--glow-scale)) var(--beam-color-strong));
           mix-blend-mode: screen;
         }
-        /* scia calda */
+        /* Scia + nucleo */
         .kitt-beam::before{
           content:"";
           position:absolute; inset:0;
           background:
             linear-gradient(90deg,
-              rgba(255,30,30,0) 0%,
-              rgba(255,40,40,.45) 20%,
-              rgba(255,60,60,.85) 50%,
-              rgba(255,40,40,.45) 80%,
-              rgba(255,30,30,0) 100%);
+              color-mix(in oklab, var(--beam-color-weak) 0%, transparent) 0%,
+              color-mix(in oklab, var(--beam-color-weak) 70%, transparent) 20%,
+              var(--beam-color) 50%,
+              color-mix(in oklab, var(--beam-color-weak) 70%, transparent) 80%,
+              color-mix(in oklab, var(--beam-color-weak) 0%, transparent) 100%);
           filter: blur(4px);
         }
-        /* nucleo brillante segmentato */
         .kitt-core{
           position:absolute; left:8px; right:8px; top:2px; bottom:2px;
           border-radius: 8px;
           background:
             radial-gradient(60% 130% at 50% 50%, #fff 0%, rgba(255,255,255,.6) 18%, rgba(255,255,255,0) 35%),
-            linear-gradient(90deg,#0000 0 6px,#ff3d3d 6px calc(100% - 6px), #0000 calc(100% - 6px));
+            linear-gradient(90deg,#0000 0 6px,var(--beam-color) 6px calc(100% - 6px), #0000 calc(100% - 6px));
           box-shadow:
-            inset 0 0 10px #ff6b6b,
-            inset 0 0 18px #ff2e2e;
+            inset 0 0 calc(10px * var(--glow-scale)) var(--beam-color),
+            inset 0 0 calc(18px * var(--glow-scale)) var(--beam-color-strong);
         }
 
-        /* alone diffuso ai bordi della feritoia (come la foto) */
         .kitt-glow{
           position:absolute; inset:-10px -14px; pointer-events:none;
-          background: radial-gradient(50% 60% at 50% 50%, rgba(255,40,40,.45), transparent 60%);
+          background: radial-gradient(50% 60% at 50% 50%, var(--beam-color-weak), transparent 60%);
           filter: blur(14px);
           opacity:.75;
           animation: glowFlicker 2.2s ease-in-out infinite;
         }
 
-        @keyframes glowFlicker {
-          0%,100% { opacity:.7; }
-          40%     { opacity:.85; }
-          60%     { opacity:.75; }
+        /* COLORI: verde idle, rosso in registrazione */
+        .brand-wrap{
+          --beam-color: var(--beam-green);
+          --beam-color-weak: color-mix(in oklab, var(--beam-green) 45%, transparent);
+          --beam-color-strong: color-mix(in oklab, var(--beam-green) 100%, #000);
         }
+        .brand-wrap.is-recording{
+          --beam-color: var(--beam-red);
+          --beam-color-weak: color-mix(in oklab, var(--beam-red) 45%, transparent);
+          --beam-color-strong: color-mix(in oklab, var(--beam-red) 100%, #000);
+        }
+
         @keyframes kittSweep {
           0%   { left: 0%; }
           100% { left: calc(100% - 86px); }
+        }
+        @keyframes glowFlicker {
+          0%,100% { opacity:.7; }
+          40%     { opacity:calc(.7 + (.15 * var(--glow-scale))); }
+          60%     { opacity:.78; }
         }
 
         /* ===== MENU ===== */
@@ -262,7 +356,7 @@ export default function NavBar() {
             0 0 6px color-mix(in oklab, var(--c2) 80%, #000),
             0 0 16px color-mix(in oklab, var(--c1) 80%, #000),
             1px 1px 0 rgba(0,0,0,.55);
-          animation: sweepBG 8s linear infinite, pulseLabel var(--pulse) ease-in-out infinite;
+          animation: sweepBG 8s linear infinite, pulseLabel 1.3s ease-in-out infinite;
         }
         .label::after{
           content:""; position:absolute; inset:-8px -10px; pointer-events:none; border-radius: 9999px;
@@ -270,7 +364,7 @@ export default function NavBar() {
             color-mix(in oklab, var(--c1) 42%, transparent),
             color-mix(in oklab, var(--c2) 30%, transparent) 40%,
             transparent 70%);
-          mix-blend-mode: screen; filter: blur(12px); opacity:.55; animation: pulseAura var(--pulse) ease-in-out infinite;
+          mix-blend-mode: screen; filter: blur(12px); opacity:.55; animation: pulseLabel 1.3s ease-in-out infinite;
         }
         .active-glow{
           position:absolute; inset:-10px; border-radius:20px; pointer-events:none;
@@ -290,14 +384,12 @@ export default function NavBar() {
         .link.is-active .active-glow{ opacity:.9; }
 
         @keyframes sweepBG { to { background-position: 200% 50%; } }
-        @keyframes pulseLabel { 0%,100%{ filter:brightness(1) } 50%{ filter:brightness(1.3) } }
-        @keyframes pulseAura  { 0%,100%{ opacity:.48; transform:scale(1) } 50%{ opacity:.8; transform:scale(1.06) } }
+        @keyframes pulseLabel { 0%,100%{ filter:brightness(1) } 50%{ filter:brightness(1.25) } }
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
           .logo-jarvis, .logo-jarvis::after,
-          .kitt-beam, .kitt-glow,
-          .label, .label::after, .link::before { animation: none !important; }
+          .kitt-beam, .kitt-glow, .label, .label::after, .link::before { animation: none !important; }
         }
 
         @media (max-width: 560px){
@@ -306,7 +398,6 @@ export default function NavBar() {
           .track{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; width:100%; }
           .link{ width:100%; padding:10px 12px; text-align:center; border-radius:14px; }
           .kitt-slot{ width: min(320px, 92vw); height: 11px; }
-          .kitt-beam{ width: 78px; }
         }
       `}</style>
     </>
