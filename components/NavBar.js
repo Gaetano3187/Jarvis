@@ -34,7 +34,7 @@ export default function NavBar() {
 
   useEffect(() => {
     const start = async () => {
-      if (audioCtxRef.current) return; // già avviato
+      if (audioCtxRef.current) return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaStreamRef.current = stream;
@@ -56,12 +56,13 @@ export default function NavBar() {
           for (let i = 0; i < n; i++) sum += data[i];
           const avg = sum / n;               // 0..255
           const norm = Math.min(1, avg / 180);
-          setBeamSpeedSec(Math.max(0.65, 2.2 - norm * 1.5)); // 2.2s -> 0.65s
-          setGlowScale(1 + norm * 1.2);                      // 1 -> 2.2 circa
+          setBeamSpeedSec(Math.max(0.65, 2.2 - norm * 1.5));
+          setGlowScale(1 + norm * 1.2);
           rafRef.current = requestAnimationFrame(loop);
         };
         loop();
       } catch (e) {
+        // niente microfono: resta animazione base
         console.warn('Microfono non disponibile:', e);
       }
     };
@@ -106,7 +107,7 @@ export default function NavBar() {
               <span className="logo-jarvis" data-text="JARVIS">JARVIS</span>
 
               <span className="kitt-slot" aria-hidden="true">
-                {/* fascio che corre */}
+                {/* fascio che corre (con fallback colore diretto sul background) */}
                 <span
                   className="kitt-beam"
                   style={{ '--sweep-sec': `${beamSpeedSec}s`, '--glow-scale': glowScale }}
@@ -150,15 +151,10 @@ export default function NavBar() {
           --nav-brd: rgba(255,255,255,.12);
           --pulse: 1.35s;
 
-          /* Verde (idle) */
-          --beam-green: #2bff88;
-          --beam-green-weak: rgba(43,255,136,.55);
-          --beam-green-strong: #00d46e;
-
-          /* Rosso (recording) */
-          --beam-red: #ff2a2a;
-          --beam-red-weak: rgba(255,42,42,.55);
-          --beam-red-strong: #ff0000;
+          /* DEFAULTS (servono anche se gli override non arrivano) */
+          --beam-color: #2bff88;         /* verde acceso */
+          --beam-weak: rgba(43,255,136,.55);
+          --beam-strong: #00d46e;
         }
 
         .nav{ position: sticky; top:0; z-index:60; width:100%;
@@ -225,50 +221,42 @@ export default function NavBar() {
           opacity:.25; pointer-events:none;
         }
 
-        /* Colori default (verde) applicati alla brand-wrap */
-        .brand-wrap{
-          --beam-color: var(--beam-green);
-          --beam-weak: var(--beam-green-weak);
-          --beam-strong: var(--beam-green-strong);
-        }
-        /* Quando si registra, passa al rosso */
+        /* Override colori quando registri (ROSSO) */
         .brand-wrap.is-recording{
-          --beam-color: var(--beam-red);
-          --beam-weak: var(--beam-red-weak);
-          --beam-strong: var(--beam-red-strong);
+          --beam-color: #ff2a2a;
+          --beam-weak: rgba(255,42,42,.55);
+          --beam-strong: #ff0000;
         }
 
         .kitt-beam{
           --sweep-sec: 2.2s; /* fallback se JS non imposta nulla */
           --glow-scale: 1;
           position:absolute; top:0; left:0; width:86px; height:100%;
-          animation: kittSweep var(--sweep-sec) cubic-bezier(.55,.07,.43,.99) infinite alternate;
-          filter:
-            drop-shadow(0 0 calc(10px * var(--glow-scale)) var(--beam-strong))
-            drop-shadow(0 0 calc(28px * var(--glow-scale)) var(--beam-strong))
-            drop-shadow(0 0 calc(54px * var(--glow-scale)) var(--beam-strong));
-          mix-blend-mode: screen;
-        }
-        .kitt-beam::before{
-          content:""; position:absolute; inset:0;
+          /* Colore visibile anche senza ::before */
           background: linear-gradient(90deg,
             rgba(0,0,0,0) 0%,
             var(--beam-weak) 18%,
             var(--beam-color) 50%,
             var(--beam-weak) 82%,
             rgba(0,0,0,0) 100%);
-          filter: blur(4px);
+          animation: kittSweep var(--sweep-sec) cubic-bezier(.55,.07,.43,.99) infinite alternate;
+          /* Glow forte */
+          box-shadow:
+            0 0 calc(10px * var(--glow-scale)) var(--beam-strong),
+            0 0 calc(28px * var(--glow-scale)) var(--beam-strong),
+            0 0 calc(54px * var(--glow-scale)) var(--beam-strong);
         }
-        .kitt-core{
-          position:absolute; left:8px; right:8px; top:2px; bottom:2px;
+        /* extra highlight centrale */
+        .kitt-beam::before{
+          content:""; position:absolute; inset:2px 8px;
           border-radius:8px;
           background:
-            radial-gradient(60% 130% at 50% 50%, #fff 0%, rgba(255,255,255,.6) 18%, rgba(255,255,255,0) 35%),
+            radial-gradient(60% 130% at 50% 50%, #fff 0%, rgba(255,255,255,.6) 20%, rgba(255,255,255,0) 40%),
             linear-gradient(90deg, transparent 0 6px, var(--beam-color) 6px calc(100% - 6px), transparent calc(100% - 6px));
-          box-shadow:
-            inset 0 0 calc(10px * var(--glow-scale)) var(--beam-color),
-            inset 0 0 calc(18px * var(--glow-scale)) var(--beam-strong);
+          filter: blur(1px);
         }
+        .kitt-core{ display:none; } /* non più necessario ma lascio il nodo */
+
         .kitt-glow{
           position:absolute; inset:-10px -14px; pointer-events:none;
           background: radial-gradient(50% 60% at 50% 50%, var(--beam-weak), transparent 60%);
