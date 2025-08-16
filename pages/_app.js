@@ -408,9 +408,18 @@ export default function MyApp({ Component, pageProps }) {
   const hideNavOn = ['/', '/login']; // pagine senza NavBar
   const showNav = !hideNavOn.includes(router.pathname);
 
+  // opzionale: client supabase condiviso
   const [supabaseClient] = useState(() =>
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
+
+  return (
+    <AuthProvider>
+      {showNav && <NavBar />}
+      <Component {...pageProps} />
+    </AuthProvider>
+  );
+}
 
   // bootstrap proxy con supabase per sync cross-device
   useEffect(() => {
