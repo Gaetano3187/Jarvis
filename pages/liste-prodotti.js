@@ -1607,7 +1607,11 @@ export default function ListeProdotti() {
     setCurrentList(LIST_TYPES.SUPERMARKET);
     showToast('Dati locali azzerati', 'ok');
   }
-
+// opzionale: azzera anche il cloud dell’utente
+  if (CLOUD_SYNC && user?.id) {
+    cloudSave(user.id, { lists: { [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] }, stock: [], currentList: LIST_TYPES.SUPERMARKET });
+  }
+   }
   /* ---------------- render ---------------- */
   return (
     <>
