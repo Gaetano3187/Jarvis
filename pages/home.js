@@ -9,10 +9,24 @@ import withAuth from '../hoc/withAuth';
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
 
 /* ---------- Helpers ---------- */
+function safeJSONStringify(obj) {
+  try { return JSON.stringify(obj, null, 2); }
+  catch {
+    // fallback ultra-safe (gestisce referenze circolari)
+    const seen = new WeakSet();
+    return JSON.stringify(obj, (k, v) => {
+      if (typeof v === 'object' && v !== null) {
+        if (seen.has(v)) return '[Circular]';
+        seen.add(v);
+      }
+      return v;
+    }, 2);
+  }
+}
 function formatResult(res) {
-  if (!res) return 'Nessun risultato.';
-  if (typeof res === 'string') return res;
-  try { return JSON.stringify(res, null, 2); } catch { return String(res); }
+  if (!res && res !== 0) return 'Nessun risultato.';
+  if (typeof res === 'string' || typeof res === 'number' || typeof res === 'boolean') return String(res);
+  return safeJSONStringify(res);
 }
 // Import dinamico del brain (solo quando serve, lato client)
 const getBrain = () => import('@/lib/brainHub');
@@ -21,7 +35,9 @@ const getBrain = () => import('@/lib/brainHub');
 function ChatModal({ open, onClose, onSend, messages, busy }) {
   const [input, setInput] = useState('');
   const bodyRef = useRef(null);
+  const inputRef = useRef(null);
 
+  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages, open]);
   useEffect(() => {
     const onKey = (ev) => { if (ev.key === 'Escape') onClose?.(); };
@@ -61,11 +77,12 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
 
         <div style={S.inputRow}>
           <input
+            ref={inputRef}
             type="text"
             placeholder="Scrivi la tua domanda e premi Invio…"
             value={input}
             onChange={(ev) => setInput(ev.target.value)}
-            onKeyDown={(ev) => ev.key === 'Enter' && doSend()}
+            onKeyDown={(ev) => !busy && ev.key === 'Enter' && doSend()}
             disabled={busy}
             style={S.input}
           />
@@ -90,56 +107,73 @@ const Home = () => {
 
   // —— OCR (usa brain importato dinamicamente)
   async function doOCR(payload) {
-    const { ingestOCRLocal } = await getBrain();
-    const res = await ingestOCRLocal(payload);
-    setChatOpen(true);
-    setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
-    return res;
+    try {
+      const { ingestOCRLocal } = await getBrain();
+      const res = await ingestOCRLocal(payload);
+      setChatOpen(true);
+      setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
+      return res;
+    } catch (err) {
+      setChatOpen(true);
+      setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
+      throw err;
+    }
   }
 
   // —— VOCE (usa brain importato dinamicamente)
   async function doVoice(spokenText) {
-    const { ingestSpokenLocal } = await getBrain();
-    const res = await ingestSpokenLocal(spokenText);
-    setChatOpen(true);
-    setChatMsgs(arr => [
-      ...arr,
-      { role:'user', text: spokenText },
-      { role:'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' },
-    ]);
-    return res;
+    try {
+      const { ingestSpokenLocal } = await getBrain();
+      const res = await ingestSpokenLocal(spokenText);
+      setChatOpen(true);
+      setChatMsgs(arr => [
+        ...arr,
+        { role:'user', text: spokenText },
+        { role:'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' },
+      ]);
+      return res;
+    } catch (err) {
+      setChatOpen(true);
+      setChatMsgs(arr => [
+        ...arr,
+        { role:'user', text: spokenText || '(vuoto)' },
+        { role:'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` },
+      ]);
+      throw err;
+    }
   }
 
   /* —— OCR → ingest —— */
   const handleFileChange = (ev) => {
     const files = Array.from(ev.target.files || []);
-    if (!files.length) return;
+    if (!files.length || busy) return;
     (async () => {
       try {
         setBusy(true);
         await doOCR({ files }); // passa SEMPRE "files"
-        alert('✅ Scontrino riconosciuto e registrato');
+        setChatOpen(true);
+        setChatMsgs(arr => [...arr, { role:'assistant', text: '✅ Scontrino riconosciuto e registrato' }]);
       } catch (err) {
-        console.error(err);
-        alert('❌ Errore OCR: ' + (err?.message || err));
+        // già loggato in chat da doOCR
       } finally {
         setBusy(false);
-        ev.target.value = '';
+        // reset controllo file per permettere lo stesso file 2 volte
+        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     })();
   };
-  const handleSelectReceipt = () => fileInputRef.current?.click();
+  const handleSelectReceipt = () => { if (!busy) fileInputRef.current?.click(); };
 
   /* —— VOCE → ingest —— */
   const handleVoiceText = async (spoken) => {
-    if (!spoken) return;
+    if (busy || !spoken?.trim()) return;
     try {
       setBusy(true);
-      await doVoice(spoken);
-      alert('✅ Operazione eseguita');
-    } catch (err) {
-      console.error(err);
-      alert('❌ Errore comando vocale: ' + (err?.message || err));
+      await doVoice(spoken.trim());
+      setChatOpen(true);
+      setChatMsgs(arr => [...arr, { role:'assistant', text: '✅ Operazione eseguita' }]);
+    } catch (_) {
+      // già riportato in chat
     } finally {
       setBusy(false);
     }
@@ -148,7 +182,7 @@ const Home = () => {
   /* —— Query rapida —— */
   const submitQuery = async () => {
     const q = queryText.trim();
-    if (!q) return;
+    if (!q || busy) return;
     setQueryText('');
     setChatOpen(true);
     setChatMsgs(arr => [...arr, { role:'user', text: q }]);
@@ -167,18 +201,18 @@ const Home = () => {
         setChatMsgs(arr => [...arr, { role:'assistant', text: `Apri: ${res.redirect}` }]);
         return;
       }
-      if (res?.ok && res?.result) {
+      if (res?.ok && res?.result !== undefined) {
         setChatMsgs(arr => [
           ...arr,
           { role:'assistant', text: formatResult(res.result), mono: typeof res.result !== 'string' },
         ]);
       } else {
-        const dbg = res?.debug ? JSON.stringify(res.debug, null, 2) : 'Nessuna risposta.';
+        const dbg = res?.debug ? safeJSONStringify(res.debug) : 'Nessuna risposta.';
         setChatMsgs(arr => [...arr, { role:'assistant', text: dbg, mono: true }]);
       }
     } catch (err) {
       console.error(err);
-      setChatMsgs(arr => [...arr, { role:'assistant', text: '❌ Errore interrogazione dati.' }]);
+      setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
     } finally {
       setBusy(false);
     }
@@ -276,6 +310,8 @@ const Home = () => {
       <input
         type="file"
         accept="image/*"
+        capture="environment"
+        multiple
         ref={fileInputRef}
         onChange={handleFileChange}
         style={{ display: 'none' }}
