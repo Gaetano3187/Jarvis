@@ -15,25 +15,12 @@ const links = [
   { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' },
 ];
 
-export default function NavBar({ speaking: speakingProp = false }) {
+export default function NavBar() {
   const { pathname } = useRouter();
 
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
-
-  const [speaking, setSpeaking] = useState(!!speakingProp);
-  useEffect(() => setSpeaking(!!speakingProp), [speakingProp]);
-  useEffect(() => {
-    const onSpeak = () => setSpeaking(true);
-    const onQuiet = () => setSpeaking(false);
-    window.addEventListener('jarvis:speaking', onSpeak);
-    window.addEventListener('jarvis:quiet', onQuiet);
-    return () => {
-      window.removeEventListener('jarvis:speaking', onSpeak);
-      window.removeEventListener('jarvis:quiet', onQuiet);
-    };
-  }, []);
 
   return (
     <>
@@ -45,12 +32,21 @@ export default function NavBar({ speaking: speakingProp = false }) {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ====== LOGO JARVIS rosso + barra KITT ====== */}
+          {/* ====== LOGO: JARVIS + KITT ====== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home" title="JARVIS">
-            <span className={`brand-wrap ${speaking ? 'is-speaking' : ''}`}>
+            <span className="brand-wrap">
               <span className="logo-jarvis" data-text="JARVIS">JARVIS</span>
+
+              {/* Feritoia KITT */}
               <span className="kitt-slot" aria-hidden="true">
-                <span className="kitt-beam" />
+                {/* griglia LED segmentata */}
+                <span className="kitt-leds" />
+                {/* fascio principale con scia */}
+                <span className="kitt-beam">
+                  <span className="kitt-core" />
+                </span>
+                {/* alone rosso diffuso */}
+                <span className="kitt-glow" />
               </span>
             </span>
           </Link>
@@ -85,8 +81,11 @@ export default function NavBar({ speaking: speakingProp = false }) {
         :root{
           --nav-bg: rgba(6, 10, 28, .72);
           --nav-brd: rgba(255,255,255,.12);
-          --pulse: 1.4s;
-          --kitt-red: #ff1a1a;
+          --pulse: 1.35s;
+
+          /* KITT */
+          --kitt-red: #ff2a2a;
+          --kitt-dark: #0a0b0f;
         }
 
         .nav{
@@ -106,80 +105,129 @@ export default function NavBar({ speaking: speakingProp = false }) {
         .brand{ text-decoration:none; display:flex; align-items:center; }
         .brand-wrap{ position: relative; display:grid; place-items:center; }
 
-        /* LOGO JARVIS rosso acceso */
+        /* ===== LOGO JARVIS rosso con bordo nero ===== */
         .logo-jarvis{
-          position: relative;
-          z-index: 3;
-          display: inline-block;
+          position: relative; z-index: 3; display:inline-block;
           font-family: "Orbitron", system-ui, sans-serif;
-          font-weight: 900;
-          letter-spacing: .3rem;
-          font-size: clamp(2.2rem, 5vw, 3.2rem);
+          font-weight: 900; letter-spacing: .3rem;
+          font-size: clamp(2.2rem, 5vw, 3.1rem);
           text-transform: uppercase;
 
-          -webkit-text-stroke: 1px #000; /* bordo nero */
+          -webkit-text-stroke: 1px #000;
           paint-order: stroke fill;
 
-          color: #ff2a2a;
+          color: #ff2626;
           text-shadow:
-            0 0 6px rgba(255,50,50,.9),
-            0 0 14px rgba(255,60,60,.8),
-            0 0 26px rgba(255,0,0,.7);
-
+            0 0 6px rgba(255,46,46,.95),
+            0 0 14px rgba(255,34,34,.9),
+            0 0 28px rgba(255,0,0,.85);
           animation: pulseRed var(--pulse) ease-in-out infinite;
         }
         .logo-jarvis::after{
           content: attr(data-text);
           position:absolute; inset:0; z-index:-1;
-          color: #000;
-          opacity:.85;
-          transform: translate(3px, 5px);
-          filter: blur(1px);
+          color:#000; transform: translate(3px,5px);
+          filter: blur(1px); opacity:.9;
+        }
+        @keyframes pulseRed {
+          0%,100% { text-shadow:
+            0 0 6px rgba(255,46,46,.9),
+            0 0 14px rgba(255,34,34,.85),
+            0 0 28px rgba(255,0,0,.8); }
+          50% { text-shadow:
+            0 0 12px rgba(255,70,70,1),
+            0 0 26px rgba(255,32,32,1),
+            0 0 56px rgba(255,0,0,1); }
         }
 
-        /* Barra KITT sotto la scritta */
+        /* ===== KITT SLOT: feritoia stretta con bezel e riflessi ===== */
         .kitt-slot{
-          margin-top: 6px;
-          width: 100%;
-          max-width: 340px;
-          height: 14px;
-          background: #111;
-          border: 1px solid #000; /* bordo nero */
-          border-radius: 999px;
           position: relative;
+          margin-top: 6px;
+          width: min(360px, 78vw);
+          height: 12px;                    /* stretto, come in foto */
+          border-radius: 12px;
+          background: linear-gradient(180deg,#0f1116,#05060a);
+          border: 1px solid #000;          /* bordo nero sottile */
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.08),
+            inset 0 -2px 6px rgba(0,0,0,.9),
+            0 8px 26px rgba(0,0,0,.45);
           overflow: hidden;
-          box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 0 12px rgba(255,0,0,.5);
+          isolation:isolate;
         }
+        /* bevel superiore lucido */
+        .kitt-slot::before{
+          content:"";
+          position:absolute; inset:0;
+          background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0) 60%);
+          mix-blend-mode: screen; pointer-events:none;
+        }
+
+        /* segmenti LED interni, fermi (la corsa la fa il beam) */
+        .kitt-leds{
+          position:absolute; inset:1px; border-radius: 10px;
+          background:
+            repeating-linear-gradient(90deg,
+              rgba(255,255,255,.08) 0 3px,   /* separatore sottile */
+              rgba(255,255,255,0) 3px 18px   /* ampiezza segmenti */
+            );
+          opacity:.25; filter: blur(.2px);
+          pointer-events:none;
+        }
+
+        /* fascio che scorre con scia calda/blur */
         .kitt-beam{
           position:absolute; top:0; left:0;
-          width: 70px; height: 100%;
-          border-radius: 999px;
-          background: radial-gradient(circle at 50% 50%, #fff 15%, var(--kitt-red) 60%, transparent 100%);
+          width: 86px; height: 100%;
+          animation: kittSweep 1.9s cubic-bezier(.55,.07,.43,.99) infinite alternate;
+          filter: drop-shadow(0 0 10px rgba(255,40,40,1))
+                  drop-shadow(0 0 28px rgba(255,24,24,1))
+                  drop-shadow(0 0 54px rgba(255,0,0,.95));
+          mix-blend-mode: screen;
+        }
+        /* scia calda */
+        .kitt-beam::before{
+          content:"";
+          position:absolute; inset:0;
+          background:
+            linear-gradient(90deg,
+              rgba(255,30,30,0) 0%,
+              rgba(255,40,40,.45) 20%,
+              rgba(255,60,60,.85) 50%,
+              rgba(255,40,40,.45) 80%,
+              rgba(255,30,30,0) 100%);
+          filter: blur(4px);
+        }
+        /* nucleo brillante segmentato */
+        .kitt-core{
+          position:absolute; left:8px; right:8px; top:2px; bottom:2px;
+          border-radius: 8px;
+          background:
+            radial-gradient(60% 130% at 50% 50%, #fff 0%, rgba(255,255,255,.6) 18%, rgba(255,255,255,0) 35%),
+            linear-gradient(90deg,#0000 0 6px,#ff3d3d 6px calc(100% - 6px), #0000 calc(100% - 6px));
           box-shadow:
-            0 0 12px #ff2a2a,
-            0 0 28px #ff0000,
-            0 0 46px rgba(255,0,0,.9);
-          animation: kittSweep 2s ease-in-out infinite alternate;
+            inset 0 0 10px #ff6b6b,
+            inset 0 0 18px #ff2e2e;
         }
 
-        @keyframes pulseRed {
-          0%,100% {
-            text-shadow:
-              0 0 6px rgba(255,50,50,.9),
-              0 0 14px rgba(255,60,60,.8),
-              0 0 26px rgba(255,0,0,.7);
-          }
-          50% {
-            text-shadow:
-              0 0 12px rgba(255,80,80,1),
-              0 0 26px rgba(255,40,40,.95),
-              0 0 50px rgba(255,0,0,1);
-          }
+        /* alone diffuso ai bordi della feritoia (come la foto) */
+        .kitt-glow{
+          position:absolute; inset:-10px -14px; pointer-events:none;
+          background: radial-gradient(50% 60% at 50% 50%, rgba(255,40,40,.45), transparent 60%);
+          filter: blur(14px);
+          opacity:.75;
+          animation: glowFlicker 2.2s ease-in-out infinite;
         }
 
+        @keyframes glowFlicker {
+          0%,100% { opacity:.7; }
+          40%     { opacity:.85; }
+          60%     { opacity:.75; }
+        }
         @keyframes kittSweep {
-          0% { left: 0%; }
-          100% { left: calc(100% - 70px); }
+          0%   { left: 0%; }
+          100% { left: calc(100% - 86px); }
         }
 
         /* ===== MENU ===== */
@@ -247,7 +295,9 @@ export default function NavBar({ speaking: speakingProp = false }) {
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
-          .logo-jarvis, .logo-jarvis::after, .kitt-beam, .label, .label::after, .link::before { animation: none !important; }
+          .logo-jarvis, .logo-jarvis::after,
+          .kitt-beam, .kitt-glow,
+          .label, .label::after, .link::before { animation: none !important; }
         }
 
         @media (max-width: 560px){
@@ -255,6 +305,8 @@ export default function NavBar({ speaking: speakingProp = false }) {
           .brand{ justify-content: center; }
           .track{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; width:100%; }
           .link{ width:100%; padding:10px 12px; text-align:center; border-radius:14px; }
+          .kitt-slot{ width: min(320px, 92vw); height: 11px; }
+          .kitt-beam{ width: 78px; }
         }
       `}</style>
     </>
