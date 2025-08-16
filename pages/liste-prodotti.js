@@ -552,6 +552,8 @@ export default function ListeProdotti() {
   function showToast(msg, type='ok'){ setToast({ msg, type }); setTimeout(() => setToast(null), 1800); }
 
   const persistTimerRef = useRef(null);
+  const lastCloudWriteRef = useRef(0);   // ms epoch dell’ultimo nostro salvataggio
+ const lastCloudSeenRef  = useRef(0);   // ms epoch dell’ultimo documento applicato (locale o cloud)
 
   // Vocale: LISTA
   theMediaWorkaround();
