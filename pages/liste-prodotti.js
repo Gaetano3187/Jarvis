@@ -47,66 +47,34 @@ function persistNow(snapshot) {
     console.warn('[persist] save failed', e);
   }
 }
-// --- Hook per sync cloud realtime + write ---
-import { useEffect, useRef } from 'react';
 
-function useCloudRealtimeSync({ user, lists, stock, currentList, setLists, setStock, setCurrentList }) {
-  const lastCloudWriteRef = useRef(0);
-  const lastCloudSeenRef = useRef(0);
-
-  // 1) Push su cloud ad ogni cambio (debounce lato DB ok, qui semplice)
-  useEffect(() => {
-    if (!CLOUD_SYNC || !user?.id) return;
-    const payload = {
-      v: LS_VER,
-      at: Date.now(),
-      lists,
-      stock,
-      currentList,
+/* ---------------- Helper Cloud (load/save) ---------------- */
+async function cloudLoad(userId) {
+  try {
+    const { data, error } = await supabase
+      .from(CLOUD_TABLE)
+      .select('doc, updated_at')
+      .eq('user_id', userId)
+      .single();
+    if (error) return null;
+    return {
+      doc: data?.doc || null,
+      ts: data?.updated_at ? new Date(data.updated_at).getTime() : 0,
     };
-    lastCloudWriteRef.current = payload.at;
-    // upsert stato utente
-    supabase.from(CLOUD_TABLE)
-      .upsert({ user_id: user.id, doc: payload, at: payload.at }, { onConflict: 'user_id' })
-      .then(() => {})
-      .catch(() => {});
-  }, [user?.id, lists, stock, currentList]);
-
-  // 2) Realtime: ascolta cambi remoti e applica se più recenti
-  useEffect(() => {
-    if (!CLOUD_SYNC || !user?.id) return;
-
-    const channel = supabase
-      .channel('jarvis_liste_state_rt')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: CLOUD_TABLE, filter: `user_id=eq.${user.id}` },
-        async () => {
-          // ignora l’eco immediatamente dopo un nostro write
-          const now = Date.now();
-          if (now - lastCloudWriteRef.current < 800) return;
-
-          const { doc, ts } = (await cloudLoad(user.id)) || {};
-          if (!doc) return;
-
-          const remoteAt = Number(doc.at || ts || 0);
-          if (remoteAt > lastCloudSeenRef.current) {
-            lastCloudSeenRef.current = remoteAt;
-            setLists({
-              [LIST_TYPES.SUPERMARKET]: Array.isArray(doc.lists?.[LIST_TYPES.SUPERMARKET]) ? doc.lists[LIST_TYPES.SUPERMARKET] : [],
-              [LIST_TYPES.ONLINE]: Array.isArray(doc.lists?.[LIST_TYPES.ONLINE]) ? doc.lists[LIST_TYPES.ONLINE] : [],
-            });
-            setStock(Array.isArray(doc.stock) ? doc.stock : []);
-            setCurrentList(doc.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
-            if (DEBUG) console.log('[Realtime] stato applicato da cloud');
-          }
-        }
-      )
-      .subscribe();
-
-    return () => { try { supabase.removeChannel(channel); } catch {} };
-  }, [user?.id]);
+  } catch {
+    return null;
+  }
 }
+async function cloudSave(userId, doc) {
+  const now = Date.now();
+  const payload = {
+    user_id: userId,
+    doc: { ...(doc || {}), at: Number(doc?.at || now) },
+    updated_at: new Date(now).toISOString(),
+  };
+  await supabase.from(CLOUD_TABLE).upsert(payload, { onConflict: 'user_id' });
+}
+
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
   'latte','latte ps','latte parzialmente scremato','latte intero','latte uht','latte zymil',
@@ -359,7 +327,7 @@ function extractPackInfo(str){
   return { packs, unitsPerPack, unitLabel };
 }
 
-/* ------------- Prompt builder OCR/VOCE (immutati) ------------- */
+/* ------------- Prompt builder OCR/VOCE ------------- */
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
   const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
   return [
@@ -591,6 +559,8 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
 
 /* ---------------- component ---------------- */
 export default function ListeProdotti() {
+  const { user } = useAuth() || {};
+
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
   const [lists, setLists] = useState({
     [LIST_TYPES.SUPERMARKET]: [],
@@ -607,12 +577,12 @@ export default function ListeProdotti() {
   // UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
-  const [showManualForm, setShowManualForm] = useState(false); // <— toggle form manuale
+  const [showManualForm, setShowManualForm] = useState(false);
   function showToast(msg, type='ok'){ setToast({ msg, type }); setTimeout(() => setToast(null), 1800); }
 
   const persistTimerRef = useRef(null);
-  const lastCloudWriteRef = useRef(0);   // ms epoch dell’ultimo nostro salvataggio
- const lastCloudSeenRef  = useRef(0);   // ms epoch dell’ultimo documento applicato (locale o cloud)
+  const lastCloudWriteRef = useRef(0);   // anti-eco
+  const lastCloudSeenRef  = useRef(0);   // ultimo doc remoto applicato
 
   // Vocale: LISTA
   theMediaWorkaround();
@@ -748,7 +718,7 @@ export default function ListeProdotti() {
           }
         });
 
-        // Commands (ne conservo la tua logica originale)
+        // Commands
         hub.registerCommand({
           name: 'imposta-scadenze',
           execute: (text) => {
@@ -981,24 +951,35 @@ export default function ListeProdotti() {
     }, []);
   }
 
-  /* ---- Hydration iniziale da localStorage ---- */
+  /* ---- Hydration iniziale: preferisci cloud se più recente ---- */
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const saved = loadPersisted();
-    if (!saved) return;
-    if (saved.lists && typeof saved.lists === 'object') {
-      setLists({
-        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
-      });
-    }
-    if (Array.isArray(saved.stock)) setStock(saved.stock);
-    if (saved.currentList && (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)) {
-      setCurrentList(saved.currentList);
-    }
-  }, []);
+    (async () => {
+      if (!user?.id) return;
+      const local = loadPersisted();
+      const localAt = Number(local?.at || 0);
+      const cloud = await cloudLoad(user.id);
+      const remoteAt = Number(cloud?.doc?.at || cloud?.ts || 0);
+      if (remoteAt > localAt && cloud?.doc) {
+        lastCloudSeenRef.current = remoteAt;
+        const d = cloud.doc;
+        setLists({
+          [LIST_TYPES.SUPERMARKET]: Array.isArray(d.lists?.[LIST_TYPES.SUPERMARKET]) ? d.lists[LIST_TYPES.SUPERMARKET] : [],
+          [LIST_TYPES.ONLINE]: Array.isArray(d.lists?.[LIST_TYPES.ONLINE]) ? d.lists[LIST_TYPES.ONLINE] : [],
+        });
+        setStock(Array.isArray(d.stock) ? d.stock : []);
+        setCurrentList(d.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+      } else if (local) {
+        setLists({
+          [LIST_TYPES.SUPERMARKET]: Array.isArray(local.lists?.[LIST_TYPES.SUPERMARKET]) ? local.lists[LIST_TYPES.SUPERMARKET] : [],
+          [LIST_TYPES.ONLINE]: Array.isArray(local.lists?.[LIST_TYPES.ONLINE]) ? local.lists[LIST_TYPES.ONLINE] : [],
+        });
+        setStock(Array.isArray(local.stock) ? local.stock : []);
+        setCurrentList(local.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+      }
+    })();
+  }, [user?.id]);
 
-  /* ---- Autosave con debounce ---- */
+  /* ---- Autosave con debounce (localStorage) ---- */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
@@ -1006,6 +987,22 @@ export default function ListeProdotti() {
     persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
     return () => clearTimeout(persistTimerRef.current);
   }, [lists, stock, currentList]);
+
+  /* ---- Cloud Save debounce ---- */
+  useEffect(() => {
+    if (!CLOUD_SYNC || !user?.id) return;
+    const t = setTimeout(async () => {
+      const doc = { v: LS_VER, at: Date.now(), lists, stock, currentList };
+      try {
+        await cloudSave(user.id, doc);
+        lastCloudWriteRef.current = doc.at; // anti-eco
+        if (DEBUG) console.log('[Cloud] saved @', doc.at);
+      } catch (e) {
+        if (DEBUG) console.warn('[Cloud] save failed', e);
+      }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [lists, stock, currentList, user?.id]);
 
   /* ---- Sync tra tab ---- */
   useEffect(() => {
@@ -1024,6 +1021,41 @@ export default function ListeProdotti() {
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  /* ---- Realtime: ascolta cambi su jarvis_liste_state dell’utente ---- */
+  useEffect(() => {
+    if (!CLOUD_SYNC || !user?.id) return;
+    const channel = supabase
+      .channel('jarvis_liste_state_rt')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: CLOUD_TABLE, filter: `user_id=eq.${user.id}` },
+        async () => {
+          // Ignora l’eco immediatamente successivo a un nostro save
+          const now = Date.now();
+          if (now - lastCloudWriteRef.current < 800) return;
+
+          const { doc, ts } = (await cloudLoad(user.id)) || {};
+          if (!doc) return;
+          const remoteAt = Number(doc.at || ts || 0);
+          // Applica solo se più recente di quello visto/applicato
+          if (remoteAt > lastCloudSeenRef.current) {
+            lastCloudSeenRef.current = remoteAt;
+            setLists({
+              [LIST_TYPES.SUPERMARKET]: Array.isArray(doc.lists?.[LIST_TYPES.SUPERMARKET]) ? doc.lists[LIST_TYPES.SUPERMARKET] : [],
+              [LIST_TYPES.ONLINE]: Array.isArray(doc.lists?.[LIST_TYPES.ONLINE]) ? doc.lists[LIST_TYPES.ONLINE] : [],
+            });
+            setStock(Array.isArray(doc.stock) ? doc.stock : []);
+            setCurrentList(
+              doc.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET
+            );
+            if (DEBUG) console.log('[Realtime] stato applicato da cloud');
+          }
+        }
+      )
+      .subscribe();
+    return () => { try { supabase.removeChannel(channel); } catch {} };
+  }, [user?.id]);
 
   /* --------------- derivati: prodotti critici --------------- */
   useEffect(() => {
@@ -1088,10 +1120,8 @@ export default function ListeProdotti() {
     });
   }
 
-  // Tap riga: segna 1 comprato e colora verde la riga (se resta qty>0, rimane visibile)
   function tapRowPurchase(id) { markBought(id, 1); }
 
-  // Segna acquistato + aggiorna scorte
   function markBought(id, amount = 1) {
     const item = (lists[currentList] || []).find(i => i.id === id);
     if (!item) return;
@@ -1107,7 +1137,7 @@ export default function ListeProdotti() {
           const newQty = Math.max(0, Number(i.qty || 0) - movePacks);
           return { ...i, qty: newQty, purchased: true };
         })
-        .filter(i => Number(i.qty || 0) > 0 || i.purchased); // se qty 0 ma vogliamo lasciar traccia, togli la seconda condizione
+        .filter(i => Number(i.qty || 0) > 0 || i.purchased);
       return next;
     });
 
@@ -1127,7 +1157,7 @@ export default function ListeProdotti() {
     });
   }
 
-  /* ---------------- Vocale: LISTA (immutato) ---------------- */
+  /* ---------------- Vocale: LISTA ---------------- */
   async function toggleRecList() {
     if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
@@ -1625,19 +1655,23 @@ export default function ListeProdotti() {
     showToast('Scorta aggiunta ✓', 'ok');
   }
 
-  /* ---------------- Reset locale ---------------- */
-  function resetLocalData() {
+  /* ---------------- Reset locale (e cloud opzionale) ---------------- */
+  async function resetLocalData() {
     try { localStorage.removeItem(LS_KEY); } catch {}
     setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
     setStock([]);
     setCurrentList(LIST_TYPES.SUPERMARKET);
     showToast('Dati locali azzerati', 'ok');
+
+    if (CLOUD_SYNC && user?.id) {
+      const doc = { v: LS_VER, at: Date.now(), lists: { [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] }, stock: [], currentList: LIST_TYPES.SUPERMARKET };
+      try {
+        await cloudSave(user.id, doc);
+        lastCloudWriteRef.current = doc.at;
+      } catch {}
+    }
   }
-// opzionale: azzera anche il cloud dell’utente
-  if (CLOUD_SYNC && user?.id) {
-    cloudSave(user.id, { lists: { [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] }, stock: [], currentList: LIST_TYPES.SUPERMARKET });
-  }
-   }
+
   /* ---------------- render ---------------- */
   return (
     <>
@@ -1682,14 +1716,13 @@ export default function ListeProdotti() {
             ) : (
               <div style={styles.listGrid}>
                 {curItems.map((it) => {
-                  const redBtn = styles.itemRowButtonRed;
-                  const greenBtn = styles.itemRowButtonGreen;
+                  const redBtn = styles.rowBtnRed;      // fix chiavi
+                  const greenBtn = styles.rowBtnGreen;  // fix chiavi
                   const rowStyle = it.purchased ? greenBtn : redBtn;
                   return (
                     <div key={it.id} className="rowWrap">
                       {/* Riga-pulsante: tap = compra 1 */}
                       <button
-                        className="rowButton"
                         style={rowStyle}
                         onClick={() => tapRowPurchase(it.id)}
                         title="Tocca per segnare 1 confezione acquistata"
@@ -1889,7 +1922,7 @@ export default function ListeProdotti() {
             <h3 className="h3">➕ Aggiungi scorta manuale</h3>
             <form onSubmit={addManualStock} style={styles.formRow}>
               <input placeholder="Prodotto (es. latte)" value={stockForm.name} onChange={e => setStockForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-                            <input placeholder="Marca (opzionale)" value={stockForm.brand} onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
+              <input placeholder="Marca (opzionale)" value={stockForm.brand} onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
               <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs} onChange={e => setStockForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width:120}} required />
               <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack} onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width:120}} required />
               <input placeholder="Etichetta unità (es. bottiglie)" value={stockForm.unitLabel} onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width:180}} />
@@ -2142,5 +2175,61 @@ const styles = {
     width: '0%',
     transition: 'width .25s ease, background-color .25s ease',
   },
-};
 
+  itemMain: { display:'flex', alignItems:'center', gap:10 },
+  secondaryBtn: {
+    background: 'rgba(255,255,255,.08)',
+    border: '1px solid rgba(255,255,255,.15)',
+    color: 'beige',
+    padding: '10px 14px',
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  actionGhost: {
+    background: 'rgba(255,255,255,.12)',
+    border: '1px solid rgba(255,255,255,.25)',
+    color: 'beige',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    textShadow: '0 1px 0 #000',
+  },
+  voiceBtnSmall: {
+    background: '#6366f1',
+    border: 0,
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  voiceBtnSmallStop: {
+    background: '#ef4444',
+    border: 0,
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  ocrBtnSmall: {
+    background: '#22c55e',
+    border: 0,
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  ocrInlineBtn: {
+    background: '#22c55e',
+    border: 0,
+    color: '#fff',
+    padding: '6px 10px',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+};
