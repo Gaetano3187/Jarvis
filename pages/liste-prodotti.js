@@ -480,7 +480,7 @@ function parseStockUpdateText(text) {
         continue;
       }
       const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
-      const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
+      const value = Number.isFinite(valNum) ? Math.max(0, Number(valNum)) : 0;
       if (!value) continue;
 
       const packsLike = /pacc|conf|scatol/.test(tag);
