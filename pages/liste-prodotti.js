@@ -47,24 +47,49 @@ function persistNow(snapshot) {
     console.warn('[persist] save failed', e);
   }
 }
- // Realtime: ascolta cambi su jarvis_liste_state dell’utente
- useEffect(() => {
-   if (!CLOUD_SYNC || !user?.id) return;
+// --- Hook per sync cloud realtime + write ---
+import { useEffect, useRef } from 'react';
+
+function useCloudRealtimeSync({ user, lists, stock, currentList, setLists, setStock, setCurrentList }) {
+  const lastCloudWriteRef = useRef(0);
+  const lastCloudSeenRef = useRef(0);
+
+  // 1) Push su cloud ad ogni cambio (debounce lato DB ok, qui semplice)
+  useEffect(() => {
+    if (!CLOUD_SYNC || !user?.id) return;
+    const payload = {
+      v: LS_VER,
+      at: Date.now(),
+      lists,
+      stock,
+      currentList,
+    };
+    lastCloudWriteRef.current = payload.at;
+    // upsert stato utente
+    supabase.from(CLOUD_TABLE)
+      .upsert({ user_id: user.id, doc: payload, at: payload.at }, { onConflict: 'user_id' })
+      .then(() => {})
+      .catch(() => {});
+  }, [user?.id, lists, stock, currentList]);
+
+  // 2) Realtime: ascolta cambi remoti e applica se più recenti
+  useEffect(() => {
+    if (!CLOUD_SYNC || !user?.id) return;
+
     const channel = supabase
       .channel('jarvis_liste_state_rt')
       .on(
-       'postgres_changes',
+        'postgres_changes',
         { event: '*', schema: 'public', table: CLOUD_TABLE, filter: `user_id=eq.${user.id}` },
-        async (payload) => {
-          // Ignora l’eco immediatamente successivo a un nostro save
+        async () => {
+          // ignora l’eco immediatamente dopo un nostro write
           const now = Date.now();
-          const mineRecently = now - lastCloudWriteRef.current < 800; // 0.8s di tolleranza
-          if (mineRecently) return;
+          if (now - lastCloudWriteRef.current < 800) return;
 
-          const { doc, ts } = await cloudLoad(user.id) || {};
+          const { doc, ts } = (await cloudLoad(user.id)) || {};
           if (!doc) return;
+
           const remoteAt = Number(doc.at || ts || 0);
-          // Applica solo se più recente di quello visto/applicato
           if (remoteAt > lastCloudSeenRef.current) {
             lastCloudSeenRef.current = remoteAt;
             setLists({
@@ -78,9 +103,10 @@ function persistNow(snapshot) {
         }
       )
       .subscribe();
+
     return () => { try { supabase.removeChannel(channel); } catch {} };
   }, [user?.id]);
-
+}
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
   'latte','latte ps','latte parzialmente scremato','latte intero','latte uht','latte zymil',
