@@ -1646,3 +1646,36 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
 
 /* Disattiva eventuali vecchi sfondi pagina-specifici */
 .bg-kaleido{ display:none !important; }
+/* ===== PULSE BOOST — sfondo blu petrolio ===== */
+
+/* Drift più ampio e un filo più rapido */
+.app-shell, [data-route] .app-shell, .login-shell{
+  animation: petrolDrift 22s ease-in-out infinite alternate !important;
+}
+
+@keyframes petrolDrift{
+  0%{
+    /* su/giù più marcato + zoom minore */
+    background-position: 50% 46%, 50% 50%;
+    background-size: 145% 145%, 100% 100%;
+    filter: saturate(1.02) brightness(1.00);
+  }
+  100%{
+    /* su/giù più marcato + zoom maggiore */
+    background-position: 50% 54%, 50% 50%;
+    background-size: 185% 185%, 100% 100%;
+    filter: saturate(1.10) brightness(1.02);
+  }
+}
+
+/* Pulse dell’alone centrale: più veloce e profondo */
+.app-shell::before, [data-route] .app-shell::before, .login-shell::before{
+  animation: petrolPulse 4.2s ease-in-out infinite alternate !important;
+}
+
+@keyframes petrolPulse{
+  0%   { opacity:.74; transform: scale(0.985); }
+  100% { opacity:1;   transform: scale(1.065); }
+}
+
+/* opzionale: se vuoi ancora più “respiro”, porta scale max a 1.08 */
