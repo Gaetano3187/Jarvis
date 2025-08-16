@@ -22,71 +22,62 @@ export default function NavBar() {
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
 
-  // ===== Stato registrazione + analisi audio (facoltativo) =====
-  const [recording, setRecording] = useState(false);
-  const [beamSpeedSec, setBeamSpeedSec] = useState(2.2); // più piccolo = più veloce
-  const [glowScale, setGlowScale] = useState(1);
-
-  const mediaStreamRef = useRef(null);
-  const audioCtxRef = useRef(null);
-  const analyserRef = useRef(null);
+  // ===== (Facoltativo) “parlato” reale con microfono =====
+  const [speaking, setSpeaking] = useState(false);
+  const ampRef = useRef(1);
+  const ctxRef = useRef(null);
   const rafRef = useRef(null);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     const start = async () => {
-      if (audioCtxRef.current) return;
+      if (ctxRef.current) return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = stream;
+        streamRef.current = stream;
         const Ctx = window.AudioContext || window.webkitAudioContext;
         const ctx = new Ctx();
-        audioCtxRef.current = ctx;
+        ctxRef.current = ctx;
         const src = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 1024;
-        analyser.smoothingTimeConstant = 0.85;
+        analyser.smoothingTimeConstant = 0.82;
         src.connect(analyser);
-        analyserRef.current = analyser;
-
         const data = new Uint8Array(analyser.frequencyBinCount);
+
         const loop = () => {
           analyser.getByteFrequencyData(data);
           let sum = 0;
           const n = Math.max(1, Math.floor(data.length / 3));
           for (let i = 0; i < n; i++) sum += data[i];
-          const avg = sum / n;               // 0..255
-          const norm = Math.min(1, avg / 180);
-          setBeamSpeedSec(Math.max(0.65, 2.2 - norm * 1.5));
-          setGlowScale(1 + norm * 1.2);
+          const avg = sum / n;            // 0..255
+          const norm = Math.min(1, avg / 180); // 0..1
+          ampRef.current = 1 + norm * 0.9;     // 1..1.9
           rafRef.current = requestAnimationFrame(loop);
         };
         loop();
-      } catch (e) {
-        // niente microfono: resta animazione base
-        console.warn('Microfono non disponibile:', e);
+      } catch {
+        // se l'utente non concede il microfono, lasciamo l'animazione finta
       }
     };
-
     const stop = () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
-      try { audioCtxRef.current?.close(); } catch {}
-      audioCtxRef.current = null;
-      analyserRef.current = null;
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-      mediaStreamRef.current = null;
-      setBeamSpeedSec(2.2);
-      setGlowScale(1);
+      try { ctxRef.current?.close(); } catch {}
+      ctxRef.current = null;
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+      ampRef.current = 1;
     };
 
-    const onStart = () => { setRecording(true); start(); };
-    const onStop  = () => { setRecording(false); stop(); };
+    const onStart = () => { setSpeaking(true); start(); };
+    const onStop  = () => { setSpeaking(false); stop(); };
 
-    window.addEventListener('jarvis:recording:start', onStart);
-    window.addEventListener('jarvis:recording:stop', onStop);
+    window.addEventListener('jarvis:speaking', onStart);
+    window.addEventListener('jarvis:quiet', onStop);
     return () => {
-      window.removeEventListener('jarvis:recording:start', onStart);
-      window.removeEventListener('jarvis:recording:stop', onStop);
+      window.removeEventListener('jarvis:speaking', onStart);
+      window.removeEventListener('jarvis:quiet', onStop);
       onStop();
     };
   }, []);
@@ -101,23 +92,97 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ====== LOGO: JARVIS + barra stile KITT ====== */}
-          <Link href="/home" className="brand" aria-label="Jarvis Home" title="JARVIS">
-            <span className={`brand-wrap ${recording ? 'is-recording' : ''}`}>
-              <span className="logo-jarvis" data-text="JARVIS">JARVIS</span>
+          {/* ====== LOGO: curva sonora animata ====== */}
+          <Link href="/home" className="brand" aria-label="Jarvis Home">
+            <span
+              className={`brand-wrap ${speaking ? 'is-speaking' : ''}`}
+              // aggiorna ampiezza via JS quando c'è il mic
+              style={{ '--amp': ampRef.current }}
+              title="JARVIS"
+            >
+              <svg
+                className="logo-wave"
+                viewBox="0 0 520 110"
+                role="img"
+                aria-label="Waveform JARVIS"
+                preserveAspectRatio="xMidYMid meet"
+              >
+                <defs>
+                  {/* Gradiente multicolore */}
+                  <linearGradient id="gJarvis" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%"   stopColor="#16b7ff"/>
+                    <stop offset="45%"  stopColor="#7c4dff"/>
+                    <stop offset="100%" stopColor="#ff3ba7"/>
+                  </linearGradient>
 
-              <span className="kitt-slot" aria-hidden="true">
-                {/* fascio che corre (con fallback colore diretto sul background) */}
-                <span
-                  className="kitt-beam"
-                  style={{ '--sweep-sec': `${beamSpeedSec}s`, '--glow-scale': glowScale }}
-                >
-                  <span className="kitt-core" />
-                </span>
-                {/* segmenti fissi e alone */}
-                <span className="kitt-leds" />
-                <span className="kitt-glow" />
-              </span>
+                  {/* Glow morbido */}
+                  <filter id="softGlow" x="-30%" y="-80%" width="160%" height="240%">
+                    <feGaussianBlur stdDeviation="3" result="blur1"/>
+                    <feGaussianBlur stdDeviation="8" in="SourceGraphic" result="blur2"/>
+                    <feMerge>
+                      <feMergeNode in="blur2"/>
+                      <feMergeNode in="blur1"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+
+                  {/* Pennello arrotondato */}
+                  <style>{`
+                    .wave {
+                      fill: none;
+                      stroke: url(#gJarvis);
+                      stroke-width: 3.2;
+                      stroke-linecap: round;
+                      stroke-linejoin: round;
+                      filter: url(#softGlow);
+                    }
+                  `}</style>
+                </defs>
+
+                {/* traccia 1 (lenta e ampia) */}
+                <path className="wave w1" d="
+                  M 0,55
+                  C 20,55  40,20  60,55
+                  S 100,90 120,55
+                  S 160,20 180,55
+                  S 220,90 240,55
+                  S 280,20 300,55
+                  S 340,90 360,55
+                  S 400,20 420,55
+                  S 460,90 480,55
+                  S 500,20 520,55
+                "/>
+
+                {/* traccia 2 (media, sfasata) */}
+                <path className="wave w2" d="
+                  M 0,55
+                  C 15,55  35,35  55,55
+                  S 95,75 115,55
+                  S 155,35 175,55
+                  S 215,75 235,55
+                  S 275,35 295,55
+                  S 335,75 355,55
+                  S 395,35 415,55
+                  S 455,75 475,55
+                  S 505,35 525,55
+                "/>
+
+                {/* traccia 3 (veloce e sottile, più luminosa) */}
+                <path className="wave w3" d="
+                  M 0,55
+                  C 10,55  30,45  50,55
+                  S 90,65 110,55
+                  S 150,45 170,55
+                  S 210,65 230,55
+                  S 270,45 290,55
+                  S 330,65 350,55
+                  S 390,45 410,55
+                  S 450,65 470,55
+                  S 510,45 530,55
+                "/>
+              </svg>
+              {/* testo piccolo “JARVIS” come caption, rosso con bordo leggero */}
+              <span className="brand-caption">JARVIS</span>
             </span>
           </Link>
 
@@ -140,7 +205,8 @@ export default function NavBar() {
                 </li>
               );
             })}
-            {mobileFillers.map(key => <li key={key} className="item spacer" aria-hidden="true" />)}
+            {Array.from({ length: (links.length % 3 === 0 ? 0 : 3 - (links.length % 3)) })
+              .map((_, i) => <li key={`sp-${i}`} className="item spacer" aria-hidden="true" />)}
           </ul>
         </div>
       </nav>
@@ -149,132 +215,78 @@ export default function NavBar() {
         :root{
           --nav-bg: rgba(6, 10, 28, .72);
           --nav-brd: rgba(255,255,255,.12);
-          --pulse: 1.35s;
-
-          /* DEFAULTS (servono anche se gli override non arrivano) */
-          --beam-color: #2bff88;         /* verde acceso */
-          --beam-weak: rgba(43,255,136,.55);
-          --beam-strong: #00d46e;
+          --pulse: 1.25s;
         }
 
-        .nav{ position: sticky; top:0; z-index:60; width:100%;
+        .nav{
+          position: sticky; top: 0; z-index: 60;
+          width: 100%;
           background: var(--nav-bg);
           backdrop-filter: blur(14px) saturate(1.22);
           -webkit-backdrop-filter: blur(14px) saturate(1.22);
           border-bottom: 1px solid var(--nav-brd);
           box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 18px 40px rgba(0,0,0,.36);
         }
-        .inner{ min-height: 74px; display:flex; align-items:center; gap:22px; padding:10px 16px; }
+        .inner{
+          min-height: 74px; display: flex; align-items: center;
+          gap: 22px; padding: 10px 16px;
+        }
 
+        /* ===== LOGO WAVE ===== */
         .brand{ text-decoration:none; display:flex; align-items:center; }
-        .brand-wrap{ position: relative; display:grid; place-items:center; }
+        .brand-wrap{
+          position:relative; display:flex; flex-direction:column; align-items:center;
+          padding: 4px 6px; isolation:isolate;
+          --amp: 1; /* ampiezza (1..~2) — aggiornata se c'è microfono */
+        }
 
-        /* LOGO JARVIS (rosso, bordo nero) */
-        .logo-jarvis{
-          position: relative; z-index: 3; display:inline-block;
-          font-family: "Orbitron", system-ui, sans-serif;
-          font-weight: 900; letter-spacing: .3rem;
-          font-size: clamp(2.2rem, 5vw, 3.1rem);
-          text-transform: uppercase;
-          -webkit-text-stroke: 1px #000; paint-order: stroke fill;
-          color: #ff2626;
+        .logo-wave{
+          width: min(520px, 56vw);
+          height: auto;
+          transform-origin: center;
+          /* respiro costante + ampiezza variabile (mic) */
+          animation: waveBreath 2.6s ease-in-out infinite;
+        }
+        .brand-wrap.is-speaking .logo-wave{
+          animation-duration: 1.6s;
+        }
+
+        /* scorrimento delle tre tracce */
+        .w1{ stroke-width: 3.2; opacity:.85; animation: dash 7s linear infinite, wobble 3.2s ease-in-out infinite; }
+        .w2{ stroke-width: 2.6; opacity:.75; animation: dash 5.4s linear infinite reverse, wobble 2.8s ease-in-out infinite reverse; }
+        .w3{ stroke-width: 1.8; opacity:.95; animation: dash 3.8s linear infinite, wobble 2.2s ease-in-out infinite; }
+
+        /* lunghezza virtuale per creare il flusso */
+        .wave{ stroke-dasharray: 8 18; stroke-dashoffset: 0; }
+
+        /* sottotitolo piccolo JARVIS */
+        .brand-caption{
+          margin-top: 6px;
+          font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          font-weight: 900; letter-spacing: .28rem;
+          font-size: clamp(.8rem, 2.2vw, .95rem);
+          color: #ff2b2b;
+          -webkit-text-stroke: 0.8px #000;
           text-shadow:
-            0 0 6px rgba(255,46,46,.95),
-            0 0 14px rgba(255,34,34,.9),
-            0 0 28px rgba(255,0,0,.85);
-          animation: pulseRed var(--pulse) ease-in-out infinite;
-        }
-        .logo-jarvis::after{
-          content: attr(data-text);
-          position:absolute; inset:0; z-index:-1;
-          color:#000; transform: translate(3px,5px);
-          filter: blur(1px); opacity:.9;
-        }
-        @keyframes pulseRed {
-          0%,100% { text-shadow:
             0 0 6px rgba(255,46,46,.9),
-            0 0 14px rgba(255,34,34,.85),
-            0 0 28px rgba(255,0,0,.8); }
-          50% { text-shadow:
-            0 0 12px rgba(255,70,70,1),
-            0 0 26px rgba(255,32,32,1),
-            0 0 56px rgba(255,0,0,1); }
+            0 0 16px rgba(255,0,0,.6);
         }
 
-        /* Feritoia stile KITT */
-        .kitt-slot{
-          position: relative; margin-top:6px;
-          width: min(360px, 78vw); height:12px; border-radius:12px;
-          background: linear-gradient(180deg,#0f1116,#05060a);
-          border: 1px solid #000;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 -2px 6px rgba(0,0,0,.9), 0 8px 26px rgba(0,0,0,.45);
-          overflow: hidden; isolation:isolate;
+        /* animazioni */
+        @keyframes dash { to { stroke-dashoffset: -260; } }
+        @keyframes wobble {
+          0%,100% { transform: translateY(0) scaleY(calc(1 * var(--amp))); }
+          50%     { transform: translateY(-1px) scaleY(calc(1.18 * var(--amp))); }
         }
-        .kitt-slot::before{
-          content:""; position:absolute; inset:0;
-          background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0) 60%);
-          mix-blend-mode: screen; pointer-events:none;
-        }
-        .kitt-leds{
-          position:absolute; inset:1px; border-radius:10px;
-          background: repeating-linear-gradient(90deg, rgba(255,255,255,.1) 0 3px, rgba(255,255,255,0) 3px 18px);
-          opacity:.25; pointer-events:none;
-        }
-
-        /* Override colori quando registri (ROSSO) */
-        .brand-wrap.is-recording{
-          --beam-color: #ff2a2a;
-          --beam-weak: rgba(255,42,42,.55);
-          --beam-strong: #ff0000;
-        }
-
-        .kitt-beam{
-          --sweep-sec: 2.2s; /* fallback se JS non imposta nulla */
-          --glow-scale: 1;
-          position:absolute; top:0; left:0; width:86px; height:100%;
-          /* Colore visibile anche senza ::before */
-          background: linear-gradient(90deg,
-            rgba(0,0,0,0) 0%,
-            var(--beam-weak) 18%,
-            var(--beam-color) 50%,
-            var(--beam-weak) 82%,
-            rgba(0,0,0,0) 100%);
-          animation: kittSweep var(--sweep-sec) cubic-bezier(.55,.07,.43,.99) infinite alternate;
-          /* Glow forte */
-          box-shadow:
-            0 0 calc(10px * var(--glow-scale)) var(--beam-strong),
-            0 0 calc(28px * var(--glow-scale)) var(--beam-strong),
-            0 0 calc(54px * var(--glow-scale)) var(--beam-strong);
-        }
-        /* extra highlight centrale */
-        .kitt-beam::before{
-          content:""; position:absolute; inset:2px 8px;
-          border-radius:8px;
-          background:
-            radial-gradient(60% 130% at 50% 50%, #fff 0%, rgba(255,255,255,.6) 20%, rgba(255,255,255,0) 40%),
-            linear-gradient(90deg, transparent 0 6px, var(--beam-color) 6px calc(100% - 6px), transparent calc(100% - 6px));
-          filter: blur(1px);
-        }
-        .kitt-core{ display:none; } /* non più necessario ma lascio il nodo */
-
-        .kitt-glow{
-          position:absolute; inset:-10px -14px; pointer-events:none;
-          background: radial-gradient(50% 60% at 50% 50%, var(--beam-weak), transparent 60%);
-          filter: blur(14px); opacity:.75; animation: glowFlicker 2.2s ease-in-out infinite;
-        }
-
-        @keyframes kittSweep {
-          0%   { left: 0%; }
-          100% { left: calc(100% - 86px); }
-        }
-        @keyframes glowFlicker {
-          0%,100% { opacity:.7; }
-          40%     { opacity: calc(.7 + .15 * var(--glow-scale)); }
-          60%     { opacity:.78; }
+        @keyframes waveBreath {
+          0%,100% { transform: scaleY(calc(1 * var(--amp))); filter: brightness(1) saturate(1); }
+          50%     { transform: scaleY(calc(1.12 * var(--amp))); filter: brightness(1.15) saturate(1.15); }
         }
 
         /* ===== MENU ===== */
-        .track{ display:flex; gap:14px; list-style:none; margin:0; padding:0; }
+        .track{
+          display:flex; gap:14px; list-style:none; margin:0; padding:0;
+        }
         .item{ flex: 0 0 auto; }
         .item.spacer{ visibility:hidden; height:0; padding:0; margin:0; }
 
@@ -303,12 +315,7 @@ export default function NavBar() {
             0 0 6px rgba(0,0,0,.6),
             0 0 16px rgba(0,0,0,.5),
             1px 1px 0 rgba(0,0,0,.55);
-          animation: sweepBG 8s linear infinite, pulseLabel 1.3s ease-in-out infinite;
-        }
-        .label::after{
-          content:""; position:absolute; inset:-8px -10px; pointer-events:none; border-radius: 9999px;
-          background: radial-gradient(60% 55% at 50% 50%, rgba(255,255,255,.08), transparent 70%);
-          filter: blur(12px); opacity:.55; animation: pulseLabel 1.3s ease-in-out infinite;
+          animation: sweepBG 8s linear infinite, pulseLabel var(--pulse) ease-in-out infinite;
         }
         .active-glow{
           position:absolute; inset:-10px; border-radius:20px; pointer-events:none;
@@ -332,16 +339,16 @@ export default function NavBar() {
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
-          .logo-jarvis, .logo-jarvis::after,
-          .kitt-beam, .kitt-glow, .label, .label::after, .link::before { animation: none !important; }
+          .logo-wave, .wave, .label, .label::after, .link::before { animation: none !important; }
         }
 
+        /* ===== RESPONSIVE ===== */
         @media (max-width: 560px){
           .inner{ flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px 12px; }
           .brand{ justify-content: center; }
           .track{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; width:100%; }
           .link{ width:100%; padding:10px 12px; text-align:center; border-radius:14px; }
-          .kitt-slot{ width: min(320px, 92vw); height: 11px; }
+          .logo-wave{ width: min(400px, 88vw); }
         }
       `}</style>
     </>
