@@ -2,6 +2,7 @@
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 
 const links = [
   { href: '/home',             label: 'Home',           c1: '#8b5cf6', c2: '#60a5fa' },
@@ -14,12 +15,25 @@ const links = [
   { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' },
 ];
 
-export default function NavBar() {
+export default function NavBar({ speaking: speakingProp = false }) {
   const { pathname } = useRouter();
-
   const modulo = links.length % 3;
   const fillers = modulo === 0 ? 0 : 3 - modulo;
   const mobileFillers = Array.from({ length: fillers }, (_, i) => `spacer-${i}`);
+
+  // ---- “parla/ascolta” (opzionale): reagisce a eventi globali
+  const [speaking, setSpeaking] = useState(!!speakingProp);
+  useEffect(() => setSpeaking(!!speakingProp), [speakingProp]);
+  useEffect(() => {
+    const onSpeak = () => setSpeaking(true);
+    const onQuiet = () => setSpeaking(false);
+    window.addEventListener('jarvis:speaking', onSpeak);
+    window.addEventListener('jarvis:quiet', onQuiet);
+    return () => {
+      window.removeEventListener('jarvis:speaking', onSpeak);
+      window.removeEventListener('jarvis:quiet', onQuiet);
+    };
+  }, []);
 
   return (
     <>
@@ -31,17 +45,22 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ====== LOGO: AI Agent neon 3D con aurea arcobaleno ====== */}
+          {/* ====== LOGO: JARVIS con effetto KITT ====== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
-            <span className="brand-wrap" title="JARVIS">
-              {/* Aurea arcobaleno tenue (dietro) */}
+            <span className={`brand-wrap ${speaking ? 'is-speaking' : ''}`} data-speaking={speaking ? 'true' : 'false'} title="JARVIS">
+              {/* Aurea arcobaleno */}
               <span className="logo-halo" aria-hidden="true" />
-              {/* Contorno neon morbido (non sbianca il riempimento) */}
+              {/* Contorno neon */}
               <span className="logo-stroke" aria-hidden="true">JARVIS</span>
-              {/* Trama “scan” da AI (righe sottili che scorrono) */}
+              {/* Scan line */}
               <span className="logo-scan" aria-hidden="true">JARVIS</span>
-              {/* Core 3D a gradiente dinamico (mai bianco) */}
+              {/* Core 3D */}
               <span className="logo-core" data-text="JARVIS">JARVIS</span>
+
+              {/* Scanner KITT: feritoia + barra rossa animata */}
+              <span className="kitt-slot" aria-hidden="true">
+                <span className="kitt-beam" />
+              </span>
             </span>
           </Link>
 
@@ -59,6 +78,8 @@ export default function NavBar() {
                     title={label}
                   >
                     <span className="label">{label}</span>
+                    {/* alone light ring when active */}
+                    <span className="active-glow" aria-hidden="true" />
                   </Link>
                 </li>
               );
@@ -75,20 +96,23 @@ export default function NavBar() {
           --nav-bg: rgba(6, 10, 28, .72);
           --nav-brd: rgba(255,255,255,.12);
 
-          /* Palette logo (veri colori, niente bianco) */
-          --c1: #8b5cf6; /* violet */
-          --c2: #60a5fa; /* light blue */
-          --c3: #22d3ee; /* cyan */
-          --c4: #f472b6; /* pink */
-          --c5: #f59e0b; /* amber */
+          /* Palette logo */
+          --c1: #8b5cf6;
+          --c2: #60a5fa;
+          --c3: #22d3ee;
+          --c4: #f472b6;
+          --c5: #f59e0b;
 
-          --deep: #0a0a0e;  /* ombra estrusione */
+          --deep: #0a0a0e;
 
-          --cycle: 7s;   /* giro colori */
-          --pulse: 1.3s; /* pulsazione */
+          --cycle: 7s;
+          --pulse: 1.3s;
+
+          /* KITT */
+          --kitt-red: #ff2727;
+          --kitt-dark: #0b0c10;
         }
 
-        /* Supporto animazione angolo per gradienti rotanti */
         @property --ang {
           syntax: '<angle>';
           inherits: false;
@@ -114,19 +138,23 @@ export default function NavBar() {
         .brand-wrap{
           position: relative; display:grid; place-items:center;
           padding: 6px 6px; isolation:isolate;
+          transition: filter .2s ease;
+        }
+        .brand-wrap.is-speaking{
+          /* quando "parla", aumenta energia generale */
+          filter: saturate(1.25) brightness(1.08);
         }
 
-        /* Aurea arcobaleno tenue dietro */
         .logo-halo{
           position:absolute; inset:-26px -34px; z-index:0; pointer-events:none;
           border-radius: 9999px;
           background:
             conic-gradient(from var(--ang),
-              rgba(139,92,246,.55), /* violet */
-              rgba(96,165,250,.45), /* blue  */
-              rgba(34,211,238,.40), /* cyan  */
-              rgba(244,114,182,.40),/* pink  */
-              rgba(245,158,11,.38), /* amber */
+              rgba(139,92,246,.55),
+              rgba(96,165,250,.45),
+              rgba(34,211,238,.40),
+              rgba(244,114,182,.40),
+              rgba(245,158,11,.38),
               rgba(139,92,246,.55));
           filter: blur(28px) saturate(1.15);
           opacity:.65;
@@ -134,7 +162,6 @@ export default function NavBar() {
           animation: spinAng var(--cycle) linear infinite;
         }
 
-        /* Contorno neon morbido (non riempie il testo) */
         .logo-stroke{
           position:absolute; z-index:1; pointer-events:none;
           font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -142,13 +169,12 @@ export default function NavBar() {
           font-size: clamp(2.1rem, 5vw, 3rem);
           text-transform: uppercase;
           color: transparent; -webkit-text-fill-color: transparent;
-          -webkit-text-stroke: 2px #7c3aed; /* viola pieno come base del neon */
+          -webkit-text-stroke: 2px #7c3aed;
           filter: blur(6px) brightness(1.8) saturate(1.8);
           opacity:.9;
           animation: pulseGlow var(--pulse) ease-in-out infinite;
         }
 
-        /* Trama “AI scan” (righe nel testo) */
         .logo-scan{
           position:absolute; z-index:2; pointer-events:none;
           font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -165,7 +191,6 @@ export default function NavBar() {
           animation: scanX 2.6s linear infinite;
         }
 
-        /* Core 3D con gradiente dinamico (mai bianco) */
         .logo-core{
           position:relative; z-index:3; display:inline-block;
           font-family: "Orbitron", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -173,7 +198,6 @@ export default function NavBar() {
           font-size: clamp(2.1rem, 5vw, 3rem);
           text-transform: uppercase;
 
-          /* riempimento a gradiente in rotazione + sweep */
           --ang: 0deg;
           background:
             conic-gradient(from var(--ang) at 50% 50%, var(--c1), var(--c2), var(--c3), var(--c4), var(--c5), var(--c1));
@@ -182,13 +206,10 @@ export default function NavBar() {
           -webkit-background-clip: text; background-clip: text;
           color: transparent; -webkit-text-fill-color: transparent;
 
-          /* bordo inciso + estrusione (rilievo) */
           -webkit-text-stroke: 1.4px rgba(0,0,0,.85);
           paint-order: stroke fill;
           text-shadow:
-            /* highlights */
             -1px -1px 0 rgba(255,255,255,.80),
-            /* estrusione */
             1px 1px 0 rgba(0,0,0,.64),
             2px 2px 0 rgba(0,0,0,.62),
             3px 3px 1px rgba(0,0,0,.60),
@@ -201,7 +222,14 @@ export default function NavBar() {
             sweepBG calc(var(--cycle) * 1.1) linear infinite,
             pulseCore var(--pulse) ease-in-out infinite;
         }
-        /* estrusione solida retro */
+        .brand-wrap.is-speaking .logo-core{
+          /* quando parla, pulsa più forte/rapido */
+          animation:
+            spinAng var(--cycle) linear infinite,
+            sweepBG calc(var(--cycle) * 0.9) linear infinite,
+            pulseCore calc(var(--pulse) * .75) ease-in-out infinite;
+        }
+
         .logo-core::after{
           content: attr(data-text);
           position:absolute; inset:0; z-index:-1; pointer-events:none;
@@ -211,13 +239,61 @@ export default function NavBar() {
           filter: blur(.7px); opacity:.98;
           animation: extrudeBreath var(--pulse) ease-in-out infinite;
         }
-        /* riflesso vetroso superiore */
         .logo-core::before{
           content:""; position:absolute; left:-4%; right:-4%; top:0; height:58%;
           background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0));
           mix-blend-mode: screen; border-radius: 18px / 62%;
           filter: blur(2px); opacity:.58;
           animation: shineSweep calc(var(--cycle) * 1.1) linear infinite;
+        }
+
+        /* ===== KITT scanner ===== */
+        .kitt-slot{
+          position:absolute;
+          bottom:-2px; /* leggermente sotto il testo */
+          left: 50%;
+          transform: translateX(-50%);
+          width: min(380px, 66vw);
+          height: 12px;
+          background:
+            radial-gradient(100% 120% at 50% 50%, rgba(255,255,255,.06), rgba(255,255,255,0) 70%),
+            linear-gradient(180deg, rgba(255,255,255,.10), rgba(0,0,0,.35));
+          border-radius: 999px;
+          box-shadow:
+            inset 0 2px 5px rgba(0,0,0,.55),
+            inset 0 -2px 4px rgba(0,0,0,.65);
+          overflow: hidden;
+          isolation: isolate;
+        }
+        .kitt-beam{
+          position:absolute; top:50%; left:0;
+          transform: translateY(-50%);
+          width: 80px; height: 100%;
+          border-radius: 999px;
+          background:
+            radial-gradient(50% 120% at 50% 50%, rgba(255,255,255,.65), rgba(255,255,255,0) 70%),
+            linear-gradient(90deg,
+              rgba(0,0,0,0) 0%,
+              var(--kitt-red) 10%,
+              #ff4d4d 50%,
+              var(--kitt-red) 90%,
+              rgba(0,0,0,0) 100%);
+          box-shadow:
+            0 0 10px #ff4d4d,
+            0 0 28px #ff2b2b,
+            0 0 54px rgba(255,40,40,.85);
+          animation: kittSweep 2.2s cubic-bezier(.55,.07,.43,.99) infinite alternate,
+                     kittPulse 1.2s ease-in-out infinite;
+          mix-blend-mode: screen;
+        }
+        .brand-wrap.is-speaking .kitt-beam{
+          /* quando parla, sweep più veloce e pulse marcato */
+          animation: kittSweep 1.2s cubic-bezier(.55,.07,.43,.99) infinite alternate,
+                     kittPulse .6s ease-in-out infinite;
+          box-shadow:
+            0 0 14px #ff6b6b,
+            0 0 36px #ff3b3b,
+            0 0 70px rgba(255,60,60,.95);
         }
 
         /* ===== MENU ===== */
@@ -236,11 +312,10 @@ export default function NavBar() {
           border:1px solid rgba(255,255,255,.14);
           background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
           box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 10px 22px rgba(0,0,0,.28);
-          transition: transform .18s ease, box-shadow .2s ease;
+          transition: transform .18s ease, box-shadow .2s ease, border-color .2s ease;
           overflow: hidden;
         }
         .link::before{
-          /* riflesso scorrevole tipo vetro */
           content:""; position:absolute; left:-60%; top:-160%; width:60%; height:320%;
           background: linear-gradient(130deg, rgba(255,255,255,.16), transparent 40%);
           transform: rotate(12deg);
@@ -253,19 +328,15 @@ export default function NavBar() {
           font-weight:900; letter-spacing:.06rem;
           background: linear-gradient(90deg, var(--c1), var(--c2), var(--c1));
           background-size:220% auto; -webkit-background-clip:text; color:transparent;
-
-          /* neon “americano” colorato (no bianco) */
           text-shadow:
             0 0 6px color-mix(in oklab, var(--c2) 80%, #000),
             0 0 16px color-mix(in oklab, var(--c1) 80%, #000),
             1px 1px 0 rgba(0,0,0,.55);
-
           animation:
             sweepBG var(--cycle) linear infinite,
             pulseLabel var(--pulse) ease-in-out infinite;
         }
         .label::after{
-          /* aurea morbida dietro ogni voce */
           content:""; position:absolute; inset:-8px -10px; pointer-events:none;
           border-radius: 9999px;
           background: radial-gradient(60% 55% at 50% 50%,
@@ -278,12 +349,27 @@ export default function NavBar() {
           animation: pulseAura var(--pulse) ease-in-out infinite;
         }
 
+        .active-glow{
+          position:absolute; inset:-10px; border-radius:20px; pointer-events:none;
+          background:
+            radial-gradient(60% 60% at 50% 50%,
+              color-mix(in oklab, var(--c1) 35%, transparent),
+              transparent 70%);
+          opacity:0; filter: blur(14px);
+          transition: opacity .25s ease;
+        }
+
         .link:hover{ transform: translateY(-1px) scale(1.02); }
         .link.is-active{
           background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.05));
           border-color: rgba(255,255,255,.22);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 18px 36px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.06) inset;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.16),
+            0 18px 36px rgba(0,0,0,.34),
+            0 0 24px color-mix(in oklab, var(--c2) 35%, transparent),
+            0 0 48px color-mix(in oklab, var(--c1) 28%, transparent);
         }
+        .link.is-active .active-glow{ opacity:.9; }
 
         /* ===== KEYFRAMES ===== */
         @keyframes spinAng { to { --ang: 360deg; } }
@@ -312,10 +398,21 @@ export default function NavBar() {
         }
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
+        /* KITT: back-and-forth sweep */
+        @keyframes kittSweep {
+          0%   { left: 0%; transform: translateY(-50%) translateX(0); }
+          100% { left: 100%; transform: translateY(-50%) translateX(-100%); }
+        }
+        @keyframes kittPulse {
+          0%,100% { filter: brightness(1) saturate(1); opacity:.95; }
+          50%     { filter: brightness(1.35) saturate(1.4); opacity:1; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .logo-halo, .logo-stroke, .logo-scan, .logo-core,
           .logo-core::before, .logo-core::after,
-          .label, .label::after, .link::before { animation: none !important; }
+          .label, .label::after, .link::before,
+          .kitt-beam { animation: none !important; }
         }
 
         /* ===== RESPONSIVE ===== */
@@ -324,6 +421,8 @@ export default function NavBar() {
           .brand{ justify-content: center; }
           .track{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; width:100%; }
           .link{ width:100%; padding:10px 12px; text-align:center; border-radius:14px; }
+          .kitt-slot{ width: min(320px, 86vw); height: 10px; }
+          .kitt-beam{ width: 64px; }
         }
         @media (min-width: 561px) and (max-width: 860px){
           .inner{ padding: 8px 12px; }
