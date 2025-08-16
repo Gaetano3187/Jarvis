@@ -23,80 +23,201 @@ const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 /* ------------------------------------------------------------------ */
-/*                       BRIDGE + PROXY SU jarvisBrain                */
+/*                    BRIDGE + PROXY (LS + CLOUD SYNC)                */
 /* ------------------------------------------------------------------ */
-function bootstrapBrainProxy() {
+function bootstrapBrainProxy(supabase) {
   if (typeof window === 'undefined') return;
 
   const log = (...a) => { if (window.__JARVIS_DEBUG__) console.log('[jarvis-proxy]', ...a); };
 
-  // ——— Storage helpers
+  // ——— localStorage
   const KEY_LIST = 'jarvis_list_supermercato';
-  const safeParse = (s, fb = []) => { try { return JSON.parse(s); } catch { return fb; } };
-  const loadList  = () => (typeof localStorage !== 'undefined' ? safeParse(localStorage.getItem(KEY_LIST), []) : []);
+  const safeParse = (s, fb=[]) => { try { return JSON.parse(s); } catch { return fb; } };
+  const loadList  = () => safeParse(localStorage.getItem(KEY_LIST), []);
   const saveList  = (arr) => {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      localStorage.setItem(KEY_LIST, JSON.stringify(arr || []));
-      window.dispatchEvent(new CustomEvent('jarvis:lists-updated', { detail: { key: KEY_LIST } }));
-    } catch {}
+    localStorage.setItem(KEY_LIST, JSON.stringify(arr));
+    window.dispatchEvent(new CustomEvent('jarvis:lists-updated', { detail:{ key: KEY_LIST }}));
   };
 
   const upsertItemLS = (payload) => {
     const {
-      name = '',
-      brand = '',
-      packs = 1,
-      unitsPerPack = 1,
-      unitLabel = 'unità',
-      listType = 'supermercato',
-      category = 'spese-casa',
+      name = '', brand = '', packs = 1, unitsPerPack = 1, unitLabel = 'unità',
+      listType = 'supermercato', category = 'spese-casa',
     } = payload || {};
     if (!name.trim()) return;
 
     const items = loadList();
-    const idx = items.findIndex(it => (it.name || '').toLowerCase() === name.toLowerCase());
-    if (idx >= 0) {
-      items[idx].qty = (items[idx].qty || 0) + (packs || 1);
-      items[idx].unitsPerPack = unitsPerPack || items[idx].unitsPerPack || 1;
-      items[idx].unitLabel    = unitLabel    || items[idx].unitLabel    || 'unità';
-      if (brand)    items[idx].brand    = brand;
-      if (listType) items[idx].listType = listType;
-      if (category) items[idx].category = category;
+    const i = items.findIndex(it => (it.name||'').toLowerCase() === name.toLowerCase());
+    if (i >= 0) {
+      items[i].qty = (items[i].qty||0) + (packs||1);
+      items[i].unitsPerPack = unitsPerPack || items[i].unitsPerPack || 1;
+      items[i].unitLabel    = unitLabel    || items[i].unitLabel    || 'unità';
+      if (brand)    items[i].brand    = brand;
+      if (listType) items[i].listType = listType;
+      if (category) items[i].category = category;
     } else {
       items.push({
-        name,
-        brand,
-        qty: packs || 1,
-        unitsPerPack: unitsPerPack || 1,
-        unitLabel,
-        listType,
-        category,
-        addedAt: Date.now(),
+        name, brand, qty:packs||1, unitsPerPack:unitsPerPack||1, unitLabel,
+        listType, category, addedAt: Date.now()
       });
     }
     saveList(items);
-    // ping immediato per eventuali listener della pagina
-    window.dispatchEvent(new CustomEvent('jarvis:list-add', {
-      detail: { item: { name, brand, qty: packs || 1, unitsPerPack, unitLabel, listType, category } }
-    }));
+    window.dispatchEvent(new CustomEvent('jarvis:list-add', { detail:{ item: { name, brand, qty:packs||1, unitsPerPack, unitLabel, listType, category }}}));
     log('LS upsert:', name, '(qty++), total items:', items.length);
   };
 
-  const decItemLS = (name, amount = 1) => {
+  const decItemLS = (name, amount=1) => {
     if (!name) return;
     const items = loadList();
-    const i = items.findIndex(it => (it.name || '').toLowerCase() === String(name).toLowerCase());
+    const i = items.findIndex(it => (it.name||'').toLowerCase() === String(name).toLowerCase());
     if (i === -1) return;
-    const next = (items[i].qty || 1) - (amount || 1);
+    const next = (items[i].qty||1) - (amount||1);
     if (next > 0) items[i].qty = next;
-    else items.splice(i, 1);
+    else items.splice(i,1);
     saveList(items);
-    window.dispatchEvent(new CustomEvent('jarvis:lists-updated', { detail: { key: KEY_LIST } }));
+    window.dispatchEvent(new CustomEvent('jarvis:lists-updated', { detail:{ key: KEY_LIST }}));
     log('LS dec:', name, 'by', amount);
   };
 
-  // ——— forward robusto per ADD se la pagina usa nomi comando diversi
+  // ——— "Cloud" (Supabase) – opzionale: se manca tabella/permessi, fallback a solo-LS
+  const cloud = (() => {
+    if (!supabase) return null;
+
+    const table = 'shopping_list'; // <- crea questa tabella per sync cross-device
+    const getUserId = async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        return data?.user?.id || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const rowShape = (user_id, it) => ({
+      user_id,
+      name: it.name,
+      brand: it.brand || '',
+      qty: it.qty || it.packs || 1,
+      units_per_pack: it.unitsPerPack || 1,
+      unit_label: it.unitLabel || 'unità',
+      list_type: it.listType || 'supermercato',
+      category: it.category || 'spese-casa',
+      added_at: new Date().toISOString(),
+    });
+
+    const loadAll = async () => {
+      const user_id = await getUserId();
+      if (!user_id) return [];
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .eq('user_id', user_id)
+        .order('added_at', { ascending: true });
+      if (error) {
+        // 42P01 = table not found (Postgres); ma da edge può venire 400.
+        log('[cloud load] fallback only-LS:', error?.message || error);
+        return [];
+      }
+      return (data||[]).map(r => ({
+        name: r.name,
+        brand: r.brand || '',
+        qty: Number(r.qty || 1),
+        unitsPerPack: Number(r.units_per_pack || 1),
+        unitLabel: r.unit_label || 'unità',
+        listType: r.list_type || 'supermercato',
+        category: r.category || 'spese-casa',
+        addedAt: r.added_at ? new Date(r.added_at).getTime() : Date.now()
+      }));
+    };
+
+    // Nota: senza unique constraint (user_id, lower(name)) facciamo "merge manuale"
+    const upsertOne = async (item) => {
+      const user_id = await getUserId();
+      if (!user_id) return;
+
+      // prova update se già esiste
+      const { data: existing, error: selErr } = await supabase
+        .from(table)
+        .select('id, qty')
+        .eq('user_id', user_id)
+        .ilike('name', item.name)
+        .limit(1);
+
+      if (selErr) { log('[cloud select err]', selErr?.message || selErr); return; }
+
+      if (existing && existing.length) {
+        const row = existing[0];
+        const { error: upErr } = await supabase
+          .from(table)
+          .update({ qty: Number(row.qty||0) + Number(item.qty||1), added_at: new Date().toISOString() })
+          .eq('id', row.id);
+        if (upErr) log('[cloud update err]', upErr?.message || upErr);
+        else log('[cloud updated]', item.name);
+      } else {
+        const { error: insErr } = await supabase
+          .from(table)
+          .insert(rowShape(user_id, item));
+        if (insErr) log('[cloud insert err]', insErr?.message || insErr);
+        else log('[cloud inserted]', item.name);
+      }
+    };
+
+    const decreaseOne = async (name, amount=1) => {
+      const user_id = await getUserId();
+      if (!user_id || !name) return;
+      const { data: existing, error: selErr } = await supabase
+        .from(table)
+        .select('id, qty')
+        .eq('user_id', user_id)
+        .ilike('name', name)
+        .limit(1);
+      if (selErr) { log('[cloud select err]', selErr?.message || selErr); return; }
+      if (!existing || !existing.length) return;
+
+      const row = existing[0];
+      const next = Number(row.qty||1) - Number(amount||1);
+      if (next > 0) {
+        const { error: updErr } = await supabase.from(table).update({ qty: next }).eq('id', row.id);
+        if (updErr) log('[cloud dec err]', updErr?.message || updErr);
+      } else {
+        const { error: delErr } = await supabase.from(table).delete().eq('id', row.id);
+        if (delErr) log('[cloud del err]', delErr?.message || delErr);
+      }
+    };
+
+    const mergeRemoteIntoLS = (remote) => {
+      const byKey = (arr) => Object.fromEntries((arr||[]).map(i => [String(i.name||'').toLowerCase(), i]));
+      const ls = loadList();
+      const map = byKey(ls);
+      for (const r of (remote||[])) {
+        const k = String(r.name||'').toLowerCase();
+        if (!map[k]) map[k] = r;
+        else map[k].qty = Math.max(map[k].qty||1, r.qty||1); // tieni il max (o somma se vuoi)
+      }
+      const merged = Object.values(map);
+      saveList(merged);
+      log('[cloud -> LS] merge completato', merged.length);
+    };
+
+    const pushLSIntoRemote = async () => {
+      const user_id = await getUserId();
+      if (!user_id) return;
+      const ls = loadList();
+      for (const it of (ls||[])) await upsertOne(it);
+      log('[LS -> cloud] flush completato', ls.length);
+    };
+
+    return {
+      enabled: true,
+      loadAll,
+      upsertOne,
+      decreaseOne,
+      mergeRemoteIntoLS,
+      pushLSIntoRemote,
+    };
+  })();
+
+  // ——— forward di comandi al brain reale (se presente)
   const tryForwards = async (real, candidateCmds, payload) => {
     if (!real?.run) return null;
     for (const cmd of candidateCmds) {
@@ -111,62 +232,77 @@ function bootstrapBrainProxy() {
     return null;
   };
 
-  // ——— wrapper combinato
-  let __REAL = null;
-
-  const flushLSInto = async (real) => {
-    if (!real?.run) return;
+  // ——— flush: invia LS → cloud e poi cloud → LS → brain
+  const doCloudPullMergeAndFlush = async (real) => {
     try {
-      const items = loadList();
-      let existing = [];
-      try { existing = (await real.ask?.('lista-oggi')) || []; } catch {}
-      const exists = new Set((existing || []).map(i => String(i.name || '').toLowerCase()));
-      for (const it of items) {
-        const k = String(it.name || '').toLowerCase();
-        if (exists.has(k)) continue;
-        await tryForwards(real,
-          ['aggiungi-alla-lista', 'list/add', 'lista/aggiungi', 'add-to-list', 'addToList'],
-          {
-            name: it.name,
-            brand: it.brand || '',
-            packs: it.qty || 1,
-            unitsPerPack: it.unitsPerPack || 1,
-            unitLabel: it.unitLabel || 'unità',
-            listType: it.listType || 'supermercato',
-            category: it.category || 'spese-casa',
-          }
-        );
+      if (cloud?.enabled) {
+        const remote = await cloud.loadAll();
+        if (remote?.length) cloud.mergeRemoteIntoLS(remote);
+        await cloud.pushLSIntoRemote();
       }
-      log('flush completato verso brain reale. Items:', items.length);
+      // dopo la sincronizzazione remota, flush verso brain reale
+      if (real?.ask || real?.run) {
+        try {
+          const items = loadList();
+          // evita doppi inserimenti: prova a leggere già lista dal brain
+          let existing = [];
+          try { existing = (await real.ask?.('lista-oggi')) || []; } catch {}
+          const known = new Set((existing||[]).map(i => String(i.name||'').toLowerCase()));
+          for (const it of items) {
+            if (known.has(String(it.name||'').toLowerCase())) continue;
+            await tryForwards(real,
+              ['aggiungi-alla-lista','list/add','lista/aggiungi','add-to-list','addToList'],
+              {
+                name: it.name,
+                brand: it.brand || '',
+                packs: it.qty || 1,
+                unitsPerPack: it.unitsPerPack || 1,
+                unitLabel: it.unitLabel || 'unità',
+                listType: it.listType || 'supermercato',
+                category: it.category || 'spese-casa',
+              }
+            );
+          }
+        } catch (e) {
+          log('[flush -> brain] errore', e?.message || e);
+        }
+      }
     } catch (e) {
-      log('flush error:', e?.message || e);
+      log('[sync] errore', e?.message || e);
     }
   };
 
+  // ——— wrapper del brain
+  let __REAL = null;
   const makeWrapper = (realBrain) => ({
-    async run(cmd, payload = {}) {
+    async run(cmd, payload={}) {
       if (cmd === 'aggiungi-alla-lista') {
-        upsertItemLS(payload);
-        // tenta anche sul brain reale (varianti comando)
+        const normalized = {
+          name: payload.name || '',
+          brand: payload.brand || '',
+          packs: payload.packs || payload.qty || 1,
+          unitsPerPack: payload.unitsPerPack || 1,
+          unitLabel: payload.unitLabel || 'unità',
+          listType: payload.listType || 'supermercato',
+          category: payload.category || 'spese-casa',
+        };
+        upsertItemLS(normalized);
+        if (cloud?.enabled) cloud.upsertOne({ ...normalized, qty: normalized.packs });
+
+        // prova anche sul brain reale (comandi alias)
         await tryForwards(realBrain,
-          ['aggiungi-alla-lista', 'list/add', 'lista/aggiungi', 'add-to-list', 'addToList'],
-          {
-            name: payload.name || '',
-            brand: payload.brand || '',
-            packs: payload.packs || payload.qty || 1,
-            unitsPerPack: payload.unitsPerPack || 1,
-            unitLabel: payload.unitLabel || 'unità',
-            listType: payload.listType || 'supermercato',
-            category: payload.category || 'spese-casa',
-          }
+          ['aggiungi-alla-lista','list/add','lista/aggiungi','add-to-list','addToList'],
+          normalized
         );
         return { ok: 1 };
       }
+
       if (cmd === 'segna-comprato') {
         const { name = '', amount = 1 } = payload;
         decItemLS(name, amount);
+        if (cloud?.enabled) cloud.decreaseOne(name, amount);
         if (realBrain?.run) {
-          await tryForwards(realBrain, ['segna-comprato', 'list/mark-bought', 'mark-bought'], payload);
+          await tryForwards(realBrain, ['segna-comprato','list/mark-bought','mark-bought'], payload);
         }
         return { ok: 1 };
       }
@@ -179,30 +315,25 @@ function bootstrapBrainProxy() {
       return { ok: 1 };
     },
 
-    async ask(question, payload = {}) {
-      // prima prova il brain reale
+    async ask(question, payload={}) {
+      // 1) prova brain reale
       if (realBrain?.ask) {
         try {
           const res = await realBrain.ask(question, payload);
           if (question === 'lista-oggi') {
+            // merge con LS e con cloud
+            if (cloud?.enabled) {
+              const remote = await cloud.loadAll();
+              if (remote?.length) cloud.mergeRemoteIntoLS(remote);
+            }
             const ls = loadList();
-            // merge by name (locale + remoto)
-            const byName = (arr) => Object.fromEntries((arr || []).map(i => [String(i.name || '').toLowerCase(), i]));
-            const map = byName(res || []);
-            for (const it of (ls || [])) {
-              const k = String(it.name || '').toLowerCase();
-              if (!map[k]) {
-                // adatta shape LS alla shape attesa dalla pagina
-                map[k] = {
-                  name: it.name,
-                  brand: it.brand,
-                  qty: it.qty,
-                  unitsPerPack: it.unitsPerPack,
-                  unitLabel: it.unitLabel,
-                  listType: it.listType,
-                  category: it.category,
-                };
-              }
+
+            const byName = (arr) =>
+              Object.fromEntries((arr||[]).map(i => [String(i.name||'').toLowerCase(), i]));
+            const map = byName(res||[]);
+            for (const it of (ls||[])) {
+              const k = String(it.name||'').toLowerCase();
+              if (!map[k]) map[k] = it;
             }
             return Object.values(map);
           }
@@ -212,26 +343,31 @@ function bootstrapBrainProxy() {
         }
       }
 
-      // fallback solo-LS
-      if (question === 'lista-oggi') return loadList().map(it => ({
-        name: it.name, brand: it.brand, qty: it.qty, unitsPerPack: it.unitsPerPack, unitLabel: it.unitLabel,
-      }));
-      if (['scorte-complete', 'scorte-esaurimento', 'scorte-scadenza', 'scorte-giorni-esaurimento'].includes(question)) return [];
+      // 2) fallback
+      if (question === 'lista-oggi') {
+        if (cloud?.enabled) {
+          const remote = await cloud.loadAll();
+          if (remote?.length) cloud.mergeRemoteIntoLS(remote);
+        }
+        return loadList();
+      }
+      if (['scorte-complete','scorte-esaurimento','scorte-scadenza','scorte-giorni-esaurimento'].includes(question)) return [];
       return null;
-    },
+    }
   });
 
-  // ——— definizione proxy + intercettazione futura
+  // ——— installa il proxy + hooka jarvisBrain quando arriva
   const defineProxy = () => {
     if (window.__JARVIS_BRAIN_PROXY_READY__) return;
     window.__JARVIS_BRAIN_PROXY_READY__ = true;
 
-    // se c'è già un brain → wrappa subito
+    // se c'è già un brain → wrappa
     if (window.jarvisBrain && !window.__jarvisBrainHub) {
       __REAL = window.jarvisBrain;
       window.__jarvisBrainHub = makeWrapper(__REAL);
       window.jarvisBrain = window.__jarvisBrainHub;
-      flushLSInto(__REAL);
+      // prima sync cloud, poi flush in brain
+      doCloudPullMergeAndFlush(__REAL);
       log('wrappato brain pre-esistente');
     }
 
@@ -242,17 +378,24 @@ function bootstrapBrainProxy() {
       set(v) {
         __REAL = v || null;
         window.__jarvisBrainHub = makeWrapper(__REAL);
-        // esponi flush manuale
-        window.__jarvisFlush = () => flushLSInto(__REAL);
-        // flush automatico
-        flushLSInto(__REAL);
+        window.__jarvisFlush = () => doCloudPullMergeAndFlush(__REAL);
+        doCloudPullMergeAndFlush(__REAL);
         log('brain reale collegato, wrapper ricreato', !!__REAL);
-      },
+      }
     });
 
-    // alias stabile
+    // alias utili
     if (!window.__jarvisBrainHub) window.__jarvisBrainHub = makeWrapper(null);
-    if (!window.__jarvisFlush) window.__jarvisFlush = () => flushLSInto(__REAL);
+    if (!window.__jarvisFlush) window.__jarvisFlush = () => doCloudPullMergeAndFlush(__REAL);
+
+    // espone anche una pull cloud manuale
+    if (cloud?.enabled && !window.__jarvisCloudPull) {
+      window.__jarvisCloudPull = async () => {
+        const remote = await cloud.loadAll();
+        cloud.mergeRemoteIntoLS(remote);
+        log('[manual cloud pull] completata');
+      };
+    }
   };
 
   defineProxy();
@@ -269,36 +412,33 @@ export default function MyApp({ Component, pageProps }) {
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
 
-  // Monta il proxy solo lato client
+  // bootstrap proxy con supabase per sync cross-device
   useEffect(() => {
-    bootstrapBrainProxy();
-  }, []);
+    bootstrapBrainProxy(supabaseClient);
+  }, [supabaseClient]);
 
-  // flush aggressivo quando entri su /liste-prodotti + quando torni focus
+  // flush aggressivo su /liste-prodotti + al focus (anche cloud)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
     const doFlush = () => {
-      if (window.__jarvisFlush) {
-        setTimeout(() => window.__jarvisFlush(), 250);
-        setTimeout(() => window.__jarvisFlush(), 1200);
+      if (typeof window !== 'undefined') {
+        // tira giù dal cloud e flush nel brain
+        if (window.__jarvisCloudPull) window.__jarvisCloudPull();
+        if (window.__jarvisFlush) {
+          setTimeout(() => window.__jarvisFlush(), 250);
+          setTimeout(() => window.__jarvisFlush(), 1200);
+        }
       }
     };
-
-    const onRoute = (url) => { if (typeof url === 'string' && url.includes('/liste-prodotti')) doFlush(); };
+    const onRoute = (url) => { if (url.includes('/liste-prodotti')) doFlush(); };
     router.events.on('routeChangeComplete', onRoute);
-
-    // se già sei lì
     onRoute(router.pathname);
-
-    // flush anche al focus (es. torni alla tab)
     window.addEventListener('focus', doFlush);
 
     return () => {
       router.events.off('routeChangeComplete', onRoute);
       window.removeEventListener('focus', doFlush);
     };
-  }, [router]);
+  }, [router.events, router.pathname]);
 
   return (
     <SessionContextProvider
