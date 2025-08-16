@@ -1237,42 +1237,6 @@ export default function ListeProdotti() {
 
     setCritical(crit);
   }, [stock]);
-// In cima al file hai già React importato
-
-import { useEffect } from 'react';
-
-useEffect(() => {
-  const key = 'jarvis:list:pending';
-  const brain = (typeof window !== 'undefined') ? (window.__jarvisBrainHub || window.jarvisBrain) : null;
-  let pending = [];
-  try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
-
-  if (!pending.length || !brain?.run) return;
-
-  (async () => {
-    try {
-      for (const it of pending) {
-        const packs = it.mode === 'units' ? 1 : it.qty;
-        const unitsPerPack = it.mode === 'units' ? it.qty : 1;
-        await brain.run('aggiungi-alla-lista', {
-          name: it.name,
-          brand: '',
-          packs,
-          unitsPerPack,
-          unitLabel: it.unitLabel || 'unità',
-          listType: it.listType || 'supermercato',
-          category: 'spese-casa',
-        });
-      }
-    } finally {
-      // svuota coda anche in caso di errori parziali, così non duplichiamo
-      localStorage.removeItem(key);
-      // se hai un “refresh”/refetch locale, chiamalo qui
-      // es: await reloadList();
-    }
-  })();
-}, []);
-
 
   /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
