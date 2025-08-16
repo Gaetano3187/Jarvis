@@ -45,10 +45,13 @@ export default function NavBar({ speaking: speakingProp = false }) {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ====== LOGO JARVIS rosso acceso ====== */}
+          {/* ====== LOGO JARVIS rosso + barra KITT ====== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home" title="JARVIS">
             <span className={`brand-wrap ${speaking ? 'is-speaking' : ''}`}>
               <span className="logo-jarvis" data-text="JARVIS">JARVIS</span>
+              <span className="kitt-slot" aria-hidden="true">
+                <span className="kitt-beam" />
+              </span>
             </span>
           </Link>
 
@@ -83,6 +86,7 @@ export default function NavBar({ speaking: speakingProp = false }) {
           --nav-bg: rgba(6, 10, 28, .72);
           --nav-brd: rgba(255,255,255,.12);
           --pulse: 1.4s;
+          --kitt-red: #ff1a1a;
         }
 
         .nav{
@@ -113,8 +117,7 @@ export default function NavBar({ speaking: speakingProp = false }) {
           font-size: clamp(2.2rem, 5vw, 3.2rem);
           text-transform: uppercase;
 
-          /* bordo nero sottile */
-          -webkit-text-stroke: 1px #000;
+          -webkit-text-stroke: 1px #000; /* bordo nero */
           paint-order: stroke fill;
 
           color: #ff2a2a;
@@ -134,6 +137,31 @@ export default function NavBar({ speaking: speakingProp = false }) {
           filter: blur(1px);
         }
 
+        /* Barra KITT sotto la scritta */
+        .kitt-slot{
+          margin-top: 6px;
+          width: 100%;
+          max-width: 340px;
+          height: 14px;
+          background: #111;
+          border: 1px solid #000; /* bordo nero */
+          border-radius: 999px;
+          position: relative;
+          overflow: hidden;
+          box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 0 12px rgba(255,0,0,.5);
+        }
+        .kitt-beam{
+          position:absolute; top:0; left:0;
+          width: 70px; height: 100%;
+          border-radius: 999px;
+          background: radial-gradient(circle at 50% 50%, #fff 15%, var(--kitt-red) 60%, transparent 100%);
+          box-shadow:
+            0 0 12px #ff2a2a,
+            0 0 28px #ff0000,
+            0 0 46px rgba(255,0,0,.9);
+          animation: kittSweep 2s ease-in-out infinite alternate;
+        }
+
         @keyframes pulseRed {
           0%,100% {
             text-shadow:
@@ -147,6 +175,11 @@ export default function NavBar({ speaking: speakingProp = false }) {
               0 0 26px rgba(255,40,40,.95),
               0 0 50px rgba(255,0,0,1);
           }
+        }
+
+        @keyframes kittSweep {
+          0% { left: 0%; }
+          100% { left: calc(100% - 70px); }
         }
 
         /* ===== MENU ===== */
@@ -214,7 +247,7 @@ export default function NavBar({ speaking: speakingProp = false }) {
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
-          .logo-jarvis, .logo-jarvis::after, .label, .label::after, .link::before { animation: none !important; }
+          .logo-jarvis, .logo-jarvis::after, .kitt-beam, .label, .label::after, .link::before { animation: none !important; }
         }
 
         @media (max-width: 560px){
