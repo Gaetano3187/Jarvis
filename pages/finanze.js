@@ -1,5 +1,5 @@
 // pages/finanze.js
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import VoiceRecorder from '../components/VoiceRecorder';
@@ -7,6 +7,7 @@ import {
   FaMoneyBillWave, FaHome, FaTshirt, FaUtensils,
   FaFolderOpen, FaChartPie, FaPlus, FaCamera, FaMicrophone
 } from 'react-icons/fa';
+import { prepareImagesForOCR, postOCR } from '@/lib/ocrClient';
 
 // Colori pieni (base) + hover per ogni sezione
 const categories = [
@@ -21,6 +22,8 @@ const categories = [
 const Finanze = () => {
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
+  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const [busy, setBusy] = useState(false);
 
   // Evita media player su mobile (forza inline)
   useEffect(() => {
@@ -36,9 +39,42 @@ const Finanze = () => {
     if (voce) console.log('[ADD]', voce);
   }, []);
 
-  const handleOCR   = useCallback(() => fileInputRef.current?.click(), []);
-  const handleVoice = useCallback((text) => { if (text) console.log('[VOICE]', text); }, []);
-  const onFileChange = (e) => { const f = e.target.files?.[0]; if (f) console.log('[OCR] file:', f.name); e.target.value=''; };
+  const handleOCR = useCallback(() => {
+    if (!busy) fileInputRef.current?.click();
+  }, [busy]);
+
+  const handleVoice = useCallback((text) => {
+    if (!text || busy) return;
+    console.log('[VOICE]', text);
+    // se vuoi, qui puoi inoltrare a /api/assistant per auto-categorizzare come nelle pagine di categoria
+    alert('Comando vocale ricevuto:\n\n' + text);
+  }, [busy]);
+
+  const onFileChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // reset così puoi ricaricare lo stesso file
+    if (!files.length || busy) return;
+
+    try {
+      setBusy(true);
+      // 1) Normalizza immagini (HEIC→JPG, riduci, rispetta EXIF)
+      const ready = await prepareImagesForOCR(files);
+      // 2) Invia a /api/ocr (nessun Content-Type manuale)
+      const ocrRes = await postOCR('/api/ocr', ready, { timeoutMs: 45000 });
+      if (!ocrRes.ok) throw new Error(ocrRes.data?.error || `HTTP ${ocrRes.status}`);
+      const text = String(ocrRes.data?.text || ocrRes.raw || '').trim();
+
+      console.log('[FINANZE OCR] testo:', text);
+      alert(text ? '✅ OCR eseguito. Testo estratto in console.' : 'OCR vuoto.');
+      // Se vuoi, qui puoi chiamare /api/assistant per il parsing e dispatch nelle tabelle,
+      // come già fai in /spese-casa o /assistant-ocr.
+    } catch (err) {
+      console.error('[FINANZE OCR] errore:', err);
+      alert('❌ Errore OCR: ' + (err?.message || err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <>
@@ -91,10 +127,10 @@ const Finanze = () => {
           <div className="tools-sticky">
             <div className="tools-card">
               <div className="icon-bar">
-                <button className="icon-btn glow-strong" onClick={handleAddManual} aria-label="Aggiungi operazione">
+                <button className="icon-btn glow-strong" onClick={handleAddManual} aria-label="Aggiungi operazione" disabled={busy}>
                   <FaPlus />
                 </button>
-                <button className="icon-btn glow-strong" onClick={handleOCR} aria-label="OCR scontrino">
+                <button className="icon-btn glow-strong" onClick={handleOCR} aria-label="OCR scontrino" disabled={busy}>
                   <FaCamera />
                 </button>
                 <VoiceRecorder
@@ -104,6 +140,7 @@ const Finanze = () => {
                   ariaLabelIdle="Comando vocale"
                   ariaLabelRecording="Stop registrazione"
                   onText={handleVoice}
+                  disabled={busy}
                 />
               </div>
             </div>
@@ -112,7 +149,15 @@ const Finanze = () => {
       </main>
 
       {/* Input OCR nascosto */}
-      <input ref={fileInputRef} type="file" accept="image/*" onChange={onFileChange} style={{ display: 'none' }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        {...(isMobile ? { capture: 'environment' } : {})}
+        multiple
+        onChange={onFileChange}
+        style={{ display: 'none' }}
+      />
 
       <style jsx>{`
         :root{
