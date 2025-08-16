@@ -1,40 +1,30 @@
-
 // pages/home.js
 import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
-import VoiceRecorder from '../components/VoiceRecorder';
 
-// —— CERVELLO (wrappers client)
-import { runQueryFromTextLocal, ingestOCRLocal, ingestSpokenLocal } from '@/lib/brainHub';
+// Carico il registratore SOLO lato client (evita SSR)
+const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
 
-/* ---------- Helper formattazione risultato ---------- */
+/* ---------- Helpers ---------- */
 function formatResult(res) {
   if (!res) return 'Nessun risultato.';
   if (typeof res === 'string') return res;
-  try {
-    return JSON.stringify(res, null, 2);
-  } catch {
-    return String(res);
-  }
+  try { return JSON.stringify(res, null, 2); } catch { return String(res); }
 }
+// Import dinamico del brain (solo quando serve, lato client)
+const getBrain = () => import('@/lib/brainHub');
 
-/* ---------- Componente Chat Modal ---------- */
+/* ---------- Chat Modal (inline styles, nessuno styled-jsx qui) ---------- */
 function ChatModal({ open, onClose, onSend, messages, busy }) {
   const [input, setInput] = useState('');
   const bodyRef = useRef(null);
 
+  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages, open]);
   useEffect(() => {
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-    }
-  }, [messages, open]);
-
-  useEffect(() => {
-    const onKey = (ev) => {
-      if (ev.key === 'Escape') onClose?.();
-    };
+    const onKey = (ev) => { if (ev.key === 'Escape') onClose?.(); };
     if (open) window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -48,40 +38,38 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
 
   if (!open) return null;
   return (
-    <div className="chat-overlay" role="dialog" aria-modal="true" aria-label="Chat dati">
-      <div className="chat-modal">
-        <div className="chat-header">
-          <div className="chat-title">💬 Interroga dati</div>
-          <button className="chat-close" onClick={onClose} aria-label="Chiudi">✖</button>
+    <div style={S.overlay} role="dialog" aria-modal="true" aria-label="Chat dati">
+      <div style={S.modal}>
+        <div style={S.header}>
+          <div style={{ fontWeight: 800 }}>💬 Interroga dati</div>
+          <button onClick={onClose} aria-label="Chiudi" style={S.btnGhost}>✖</button>
         </div>
 
-        <div className="chat-body" ref={bodyRef}>
+        <div ref={bodyRef} style={S.body}>
           {messages.length === 0 && (
-            <div className="chat-hint">
+            <div style={{ opacity: .85 }}>
               Inizia chiedendo: “Quanto ho speso questo mese?” oppure
               “Il prosciutto San Daniele dove l’ho pagato di meno?”.
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={`chat-msg ${m.role === 'user' ? 'me' : 'bot'}`}>
-              <div className="bubble">
-                {m.mono ? <pre>{m.text}</pre> : <span>{m.text}</span>}
-              </div>
+            <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
+              <div style={S.bubble}>{m.mono ? <pre style={S.pre}>{m.text}</pre> : <span>{m.text}</span>}</div>
             </div>
           ))}
         </div>
 
-        <div className="chat-inputrow">
+        <div style={S.inputRow}>
           <input
             type="text"
-            className="chat-input"
             placeholder="Scrivi la tua domanda e premi Invio…"
             value={input}
             onChange={(ev) => setInput(ev.target.value)}
             onKeyDown={(ev) => ev.key === 'Enter' && doSend()}
             disabled={busy}
+            style={S.input}
           />
-          <button className="chat-send" onClick={doSend} disabled={busy}>
+          <button onClick={doSend} disabled={busy} style={S.btnPrimary}>
             {busy ? '⏳' : 'Invia'}
           </button>
         </div>
@@ -98,24 +86,26 @@ const Home = () => {
 
   // Stato chat
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMsgs, setChatMsgs] = useState([]); // {role:'user'|'assistant', text, mono?}
+  const [chatMsgs, setChatMsgs] = useState([]);
 
-  // —— Wrapper OCR (usa il brain)
+  // —— OCR (usa brain importato dinamicamente)
   async function doOCR(payload) {
+    const { ingestOCRLocal } = await getBrain();
     const res = await ingestOCRLocal(payload);
     setChatOpen(true);
-    setChatMsgs(arr => [...arr, { role: 'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
+    setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
     return res;
   }
 
-  // —— Wrapper VOCE (usa il brain)
+  // —— VOCE (usa brain importato dinamicamente)
   async function doVoice(spokenText) {
+    const { ingestSpokenLocal } = await getBrain();
     const res = await ingestSpokenLocal(spokenText);
     setChatOpen(true);
     setChatMsgs(arr => [
       ...arr,
-      { role: 'user', text: spokenText },
-      { role: 'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' },
+      { role:'user', text: spokenText },
+      { role:'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' },
     ]);
     return res;
   }
@@ -134,7 +124,7 @@ const Home = () => {
         alert('❌ Errore OCR: ' + (err?.message || err));
       } finally {
         setBusy(false);
-        ev.target.value = ''; // reset input
+        ev.target.value = '';
       }
     })();
   };
@@ -155,40 +145,40 @@ const Home = () => {
     }
   };
 
-  /* —— Invio domanda rapida dalla barra —— */
+  /* —— Query rapida —— */
   const submitQuery = async () => {
     const q = queryText.trim();
     if (!q) return;
     setQueryText('');
     setChatOpen(true);
-    setChatMsgs(arr => [...arr, { role: 'user', text: q }]);
+    setChatMsgs(arr => [...arr, { role:'user', text: q }]);
     await handleChatSend(q);
   };
-  const handleQueryKey = (ev) => {
-    if (ev.key === 'Enter') submitQuery();
-  };
+  const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
 
-  /* —— Invio dalla chat / input —— */
+  /* —— Chat / input —— */
   const handleChatSend = async (text) => {
     try {
       setBusy(true);
+      const { runQueryFromTextLocal } = await getBrain();
       const res = await runQueryFromTextLocal(text, { first: chatMsgs.length === 0 });
+
       if (res?.redirect) {
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: `Apri: ${res.redirect}` }]);
+        setChatMsgs(arr => [...arr, { role:'assistant', text: `Apri: ${res.redirect}` }]);
         return;
       }
       if (res?.ok && res?.result) {
         setChatMsgs(arr => [
           ...arr,
-          { role: 'assistant', text: formatResult(res.result), mono: typeof res.result !== 'string' },
+          { role:'assistant', text: formatResult(res.result), mono: typeof res.result !== 'string' },
         ]);
       } else {
         const dbg = res?.debug ? JSON.stringify(res.debug, null, 2) : 'Nessuna risposta.';
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: dbg, mono: true }]);
+        setChatMsgs(arr => [...arr, { role:'assistant', text: dbg, mono: true }]);
       }
     } catch (err) {
       console.error(err);
-      setChatMsgs(arr => [...arr, { role: 'assistant', text: '❌ Errore interrogazione dati.' }]);
+      setChatMsgs(arr => [...arr, { role:'assistant', text: '❌ Errore interrogazione dati.' }]);
     } finally {
       setBusy(false);
     }
@@ -300,7 +290,7 @@ const Home = () => {
         busy={busy}
       />
 
-      {/* ⚠️ IMPORTANTE: usare i backtick qui sotto! */}
+      {/* ⚠️ ATTENZIONE: il CSS deve essere tra backtick */}
       <style jsx global>{`
         /* —— Video —— */
         .bg-video {
@@ -456,103 +446,6 @@ const Home = () => {
           cursor: pointer;
         }
 
-        /* —— Chat Modal —— */
-        .chat-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,.55);
-          display: grid;
-          place-items: center;
-          z-index: 9999;
-          backdrop-filter: blur(2px);
-        }
-        .chat-modal {
-          width: min(920px, 92vw);
-          max-height: 82vh;
-          background: rgba(0,0,0,.78);
-          border: 1px solid rgba(255,255,255,.18);
-          border-radius: 16px;
-          display: grid;
-          grid-template-rows: auto 1fr auto;
-          overflow: hidden;
-          box-shadow: 0 12px 30px rgba(0,0,0,.45);
-        }
-        .chat-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: .7rem .9rem;
-          background: linear-gradient(145deg, rgba(99,102,241,.28), rgba(6,182,212,.22));
-          border-bottom: 1px solid rgba(255,255,255,.16);
-        }
-        .chat-title { font-weight: 800; color: #fff; }
-        .chat-close {
-          background: transparent;
-          color: #fff;
-          border: 1px solid rgba(255,255,255,.25);
-          border-radius: 10px;
-          padding: .2rem .5rem;
-          cursor: pointer;
-        }
-        .chat-body {
-          padding: .8rem .9rem;
-          overflow: auto;
-          display: grid;
-          gap: .6rem;
-          background:
-            radial-gradient(1200px 500px at 10% 0%, rgba(236,72,153,.05), transparent 60%),
-            radial-gradient(800px 400px at 100% 100%, rgba(59,130,246,.06), transparent 60%),
-            rgba(0,0,0,.15);
-        }
-        .chat-hint {
-          opacity: .85;
-          font-size: .95rem;
-          color: #e5e7eb;
-        }
-        .chat-msg { display: grid; }
-        .chat-msg.me { justify-content: end; }
-        .chat-msg.bot { justify-content: start; }
-        .bubble {
-          max-width: 78ch;
-          white-space: pre-wrap;
-          word-break: break-word;
-          background: rgba(255,255,255,.08);
-          border: 1px solid rgba(255,255,255,.18);
-          padding: .55rem .7rem;
-          border-radius: 12px;
-          color: #fff;
-        }
-        .chat-msg.me .bubble {
-          background: linear-gradient(145deg, rgba(99,102,241,.45), rgba(6,182,212,.38));
-          border-color: rgba(255,255,255,.22);
-        }
-        .chat-inputrow {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: .6rem;
-          padding: .7rem .9rem;
-          border-top: 1px solid rgba(255,255,255,.16);
-          background: rgba(0,0,0,.35);
-        }
-        .chat-input {
-          width: 100%;
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.2);
-          border-radius: .55rem;
-          padding: .55rem .7rem;
-          color: #fff;
-          outline: none;
-        }
-        .chat-input::placeholder { color: rgba(255,255,255,.65); }
-        .chat-send {
-          background: linear-gradient(135deg, #6366f1, #06b6d4);
-          border: 1px solid rgba(255,255,255,0.2);
-          border-radius: .55rem;
-          padding: .45rem .9rem;
-          color: #fff;
-          cursor: pointer;
-        }
-
         /* —— Bottoni —— */
         .btn-vocale, .btn-ocr, .btn-manuale {
           display: inline-flex;
@@ -571,6 +464,20 @@ const Home = () => {
       `}</style>
     </>
   );
+};
+
+/* ---------- Stili inline per la chat ---------- */
+const S = {
+  overlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center', zIndex:9999, backdropFilter:'blur(2px)' },
+  modal:{ width:'min(920px, 92vw)', maxHeight:'82vh', background:'rgba(0,0,0,.85)', border:'1px solid rgba(255,255,255,.18)', borderRadius:12, display:'grid', gridTemplateRows:'auto 1fr auto', overflow:'hidden', boxShadow:'0 12px 30px rgba(0,0,0,.45)' },
+  header:{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', background:'linear-gradient(145deg, rgba(99,102,241,.28), rgba(6,182,212,.22))', borderBottom:'1px solid rgba(255,255,255,.16)' },
+  btnGhost:{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,.25)', borderRadius:10, padding:'4px 8px', cursor:'pointer' },
+  body:{ padding:'10px 12px', overflow:'auto', display:'grid', gap:8, background:'radial-gradient(1200px 500px at 10% 0%, rgba(236,72,153,.05), transparent 60%), radial-gradient(800px 400px at 100% 100%, rgba(59,130,246,.06), transparent 60%), rgba(0,0,0,.15)' },
+  bubble:{ maxWidth:'78ch', whiteSpace:'pre-wrap', wordBreak:'break-word', background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.18)', padding:'8px 10px', borderRadius:12, color:'#fff' },
+  pre:{ margin:0, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' },
+  inputRow:{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,.16)', background:'rgba(0,0,0,.35)' },
+  input:{ width:'100%', background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.2)', borderRadius:10, padding:'10px 12px', color:'#fff', outline:'none' },
+  btnPrimary:{ background:'#6366f1', border:0, borderRadius:10, padding:'10px 12px', color:'#fff', cursor:'pointer' },
 };
 
 export default withAuth(Home);
