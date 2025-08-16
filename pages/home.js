@@ -1,3 +1,4 @@
+
 // pages/home.js
 import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
