@@ -988,21 +988,33 @@ export default function ListeProdotti() {
     return () => clearTimeout(persistTimerRef.current);
   }, [lists, stock, currentList]);
 
-  /* ---- Cloud Save debounce ---- */
-  useEffect(() => {
-    if (!CLOUD_SYNC || !user?.id) return;
-    const t = setTimeout(async () => {
-      const doc = { v: LS_VER, at: Date.now(), lists, stock, currentList };
-      try {
-        await cloudSave(user.id, doc);
-        lastCloudWriteRef.current = doc.at; // anti-eco
+ /* ---- Cloud Save debounce (Supabase) ---- */
+useEffect(() => {
+  if (!CLOUD_SYNC || !user?.id) return;
+
+  let cancelled = false;
+  const timer = setTimeout(async () => {
+    const doc = {
+      v: LS_VER,
+      at: Date.now(),           // timestamp usato anche per l’anti-eco
+      lists,
+      stock,
+      currentList,
+    };
+
+    try {
+      await cloudSave(user.id, doc);
+      if (!cancelled) {
+        lastCloudWriteRef.current = doc.at; // anti-eco per il listener realtime
         if (DEBUG) console.log('[Cloud] saved @', doc.at);
-      } catch (e) {
-        if (DEBUG) console.warn('[Cloud] save failed', e);
       }
-    }, 450);
-    return () => clearTimeout(t);
-  }, [lists, stock, currentList, user?.id]);
+    } catch (e) {
+      if (DEBUG) console.warn('[Cloud] save failed', e);
+    }
+  }, 500); // un filo più lento del localStorage (che salvi a 300ms)
+
+  return () => { cancelled = true; clearTimeout(timer); };
+}, [lists, stock, currentList, user?.id]);
 
   /* ---- Sync tra tab ---- */
   useEffect(() => {
