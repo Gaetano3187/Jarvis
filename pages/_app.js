@@ -22,102 +22,193 @@ const poppins = Poppins({
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-/** Bridge globale per liste/scorte — persiste su localStorage */
-function bootstrapBrain() {
+/* ------------------------------------------------------------------ */
+/*                       BRIDGE + PROXY SU jarvisBrain                */
+/* ------------------------------------------------------------------ */
+function bootstrapBrainProxy() {
   if (typeof window === 'undefined') return;
 
+  // ——— Storage helpers
   const KEY_LIST = 'jarvis_list_supermercato';
-
-  const safeJSON = {
-    parse: (v, fb) => { try { return JSON.parse(v); } catch { return fb; } },
-    stringify: (v) => { try { return JSON.stringify(v); } catch { return '[]'; } }
+  const safeParse = (s, fb=[]) => { try { return JSON.parse(s); } catch { return fb; } };
+  const loadList  = () => safeParse(localStorage.getItem(KEY_LIST), []);
+  const saveList  = (arr) => {
+    localStorage.setItem(KEY_LIST, JSON.stringify(arr));
+    // ping opzionale per eventuali listener
+    window.dispatchEvent(new CustomEvent('jarvis:lists-updated', { detail:{ key: KEY_LIST }}));
   };
 
-  const loadList = () => {
-    try { return safeJSON.parse(localStorage.getItem(KEY_LIST), []) || []; }
-    catch { return []; }
+  const upsertItemLS = (payload) => {
+    const {
+      name = '',
+      brand = '',
+      packs = 1,
+      unitsPerPack = 1,
+      unitLabel = 'unità',
+      listType = 'supermercato',
+      category = 'spese-casa',
+    } = payload || {};
+    if (!name.trim()) return;
+
+    const items = loadList();
+    const i = items.findIndex(it => (it.name||'').toLowerCase() === name.toLowerCase());
+    if (i >= 0) {
+      items[i].qty = (items[i].qty||0) + (packs||1);
+      items[i].unitsPerPack = unitsPerPack || items[i].unitsPerPack || 1;
+      items[i].unitLabel    = unitLabel    || items[i].unitLabel    || 'unità';
+      if (brand)    items[i].brand    = brand;
+      if (listType) items[i].listType = listType;
+      if (category) items[i].category = category;
+    } else {
+      items.push({ name, brand, qty:packs||1, unitsPerPack:unitsPerPack||1, unitLabel, listType, category, addedAt:Date.now() });
+    }
+    saveList(items);
   };
 
-  const saveList = (arr) => {
-    try {
-      localStorage.setItem(KEY_LIST, safeJSON.stringify(arr));
-      window.dispatchEvent(new CustomEvent('jarvis:lists-updated', { detail: { key: KEY_LIST } }));
-    } catch { /* noop */ }
+  const decItemLS = (name, amount=1) => {
+    if (!name) return;
+    const items = loadList();
+    const i = items.findIndex(it => (it.name||'').toLowerCase() === String(name).toLowerCase());
+    if (i === -1) return;
+    const next = (items[i].qty||1) - (amount||1);
+    if (next > 0) items[i].qty = next;
+    else items.splice(i,1);
+    saveList(items);
   };
 
-  if (!window.__jarvisBrainHub) {
-    window.__jarvisBrainHub = {
-      /** Esegue comandi mutanti */
-      async run(cmd, payload = {}) {
+  // ——— Wrapper che chiama sia LS sia il “vero” brain (se/ quando esiste)
+  const makeWrapper = (realBrain) => {
+    const wrapper = {
+      async run(cmd, payload={}) {
+        // Aggiorna sempre LS (così chat/Home vedono la lista)
         if (cmd === 'aggiungi-alla-lista') {
-          const {
-            name = '',
-            packs = 1,
-            unitsPerPack = 1,
-            unitLabel = 'unità',
-            brand = '',
-            listType = 'supermercato',
-            category = 'spese-casa',
-          } = payload;
-
-          if (!name.trim()) return { ok: 0, error: 'invalid_name' };
-
-          const items = loadList();
-          const i = items.findIndex(it => (it.name || '').toLowerCase() === name.toLowerCase());
-          if (i >= 0) {
-            items[i].qty = (items[i].qty || 0) + (packs || 1);
-            items[i].unitsPerPack = unitsPerPack || items[i].unitsPerPack || 1;
-            items[i].unitLabel = unitLabel || items[i].unitLabel || 'unità';
-            if (brand) items[i].brand = brand;
-            if (listType) items[i].listType = listType;
-            if (category) items[i].category = category;
-          } else {
-            items.push({
-              name, brand, qty: packs, unitsPerPack, unitLabel,
-              listType, category, addedAt: Date.now(),
-            });
-          }
-          saveList(items);
-          return { ok: 1, count: 1 };
+          upsertItemLS(payload);
         }
-
         if (cmd === 'segna-comprato') {
           const { name = '', amount = 1 } = payload;
-          const items = loadList();
-          const i = items.findIndex(it => (it.name || '').toLowerCase() === name.toLowerCase());
-          if (i === -1) return { ok: 0, error: 'not_found' };
-
-          const next = (items[i].qty || 1) - (amount || 1);
-          if (next > 0) items[i].qty = next;
-          else items.splice(i, 1);
-
-          saveList(items);
-          return { ok: 1 };
+          decItemLS(name, amount);
         }
 
-        // Comandi placeholder per compatibilità
-        if (cmd === 'aggiorna-scorte' || cmd === 'imposta-scadenze') {
-          return { ok: 1 };
+        // Forward al brain reale se disponibile (per aggiornare la UI della pagina)
+        if (realBrain?.run) {
+          try {
+            // Normalizzo payload per massima compatibilità
+            if (cmd === 'aggiungi-alla-lista') {
+              const p = {
+                name: payload.name || '',
+                brand: payload.brand || '',
+                packs: payload.packs || payload.qty || 1,
+                unitsPerPack: payload.unitsPerPack || 1,
+                unitLabel: payload.unitLabel || 'unità',
+                listType: payload.listType || 'supermercato',
+                category: payload.category || 'spese-casa',
+              };
+              return await realBrain.run('aggiungi-alla-lista', p);
+            }
+            return await realBrain.run(cmd, payload);
+          } catch (e) {
+            console.warn('[jarvisBrain proxy] forward run error:', e);
+          }
         }
-
-        return { ok: 0, error: 'cmd_unknown' };
+        return { ok: 1 };
       },
 
-      /** Q&A per letture */
-      async ask(question/*, payload */) {
+      async ask(question, payload={}) {
+        // Se la pagina ha un brain, prova prima quello
+        if (realBrain?.ask) {
+          try {
+            const res = await realBrain.ask(question, payload);
+            if (question === 'lista-oggi') {
+              // Merge con LS (evita duplicati; priorità alla pagina)
+              const ls = loadList();
+              const byName = (arr) =>
+                Object.fromEntries((arr||[]).map(i => [String(i.name||'').toLowerCase(), i]));
+              const map = byName(res||[]);
+              for (const it of (ls||[])) {
+                const k = String(it.name||'').toLowerCase();
+                if (!map[k]) map[k] = it;
+              }
+              return Object.values(map);
+            }
+            return res;
+          } catch (e) {
+            console.warn('[jarvisBrain proxy] forward ask error:', e);
+          }
+        }
+
+        // Fallback: senza brain pagina, leggi LS
         if (question === 'lista-oggi') return loadList();
-        if (question === 'scorte-complete') return []; // estendibile
-        if (question === 'scorte-esaurimento') return [];
-        if (question === 'scorte-scadenza') return [];
-        if (question === 'scorte-giorni-esaurimento') return [];
+        if (['scorte-complete','scorte-esaurimento','scorte-scadenza','scorte-giorni-esaurimento'].includes(question)) return [];
         return null;
       }
     };
-  }
+    return wrapper;
+  };
 
-  // Alias di compatibilità
-  if (!window.jarvisBrain) window.jarvisBrain = window.__jarvisBrainHub;
+  // ——— Se c’è già un brain, wrappalo; altrimenti intercetta la futura assegnazione
+  const defineProxy = () => {
+    // Evita doppi setup
+    if (window.__JARVIS_BRAIN_PROXY_READY__) return;
+    window.__JARVIS_BRAIN_PROXY_READY__ = true;
+
+    // Se esiste già, wrappalo subito
+    if (window.jarvisBrain && !window.__jarvisBrainHub) {
+      window.__jarvisBrainHub = makeWrapper(window.jarvisBrain);
+      window.jarvisBrain = window.__jarvisBrainHub;
+    }
+
+    // Intercetta future assegnazioni: quando /liste-prodotti monta il suo brain, lo wrappiamo
+    let _real = null;
+    Object.defineProperty(window, 'jarvisBrain', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return window.__jarvisBrainHub || null;
+      },
+      set(v) {
+        _real = v || null;
+
+        // Flush degli item già in LS verso il brain reale (così la UI si aggiorna)
+        (async () => {
+          try {
+            if (_real?.run) {
+              const items = loadList();
+              // Dedup su base della lista attuale della pagina (se disponibile)
+              let existing = [];
+              try { existing = (await _real.ask?.('lista-oggi')) || []; } catch {}
+              const exists = new Set((existing||[]).map(i => String(i.name||'').toLowerCase()));
+              for (const it of items) {
+                if (!exists.has(String(it.name||'').toLowerCase())) {
+                  await _real.run('aggiungi-alla-lista', {
+                    name: it.name, brand: it.brand||'',
+                    packs: it.qty||1, unitsPerPack: it.unitsPerPack||1,
+                    unitLabel: it.unitLabel||'unità',
+                    listType: it.listType||'supermercato',
+                    category: it.category||'spese-casa',
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[jarvisBrain proxy] flush-to-real error:', e);
+          }
+        })();
+
+        // (Re)crea il wrapper combinato
+        window.__jarvisBrainHub = makeWrapper(_real);
+      }
+    });
+
+    // Espone anche un alias stabile (se qualche codice usa __jarvisBrainHub)
+    if (!window.__jarvisBrainHub) {
+      window.__jarvisBrainHub = makeWrapper(null);
+    }
+  };
+
+  defineProxy();
 }
+
+/* ------------------------------------------------------------------ */
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
@@ -129,7 +220,7 @@ export default function MyApp({ Component, pageProps }) {
   );
 
   useEffect(() => {
-    bootstrapBrain();
+    bootstrapBrainProxy();
   }, []);
 
   return (
