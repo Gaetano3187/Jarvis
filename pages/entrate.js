@@ -1,4 +1,3 @@
-
 // pages/entrate.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
