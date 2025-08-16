@@ -1,157 +1,259 @@
 // pages/api/assistant-ocr.js
-import { IncomingForm } from 'formidable'
-import fs from 'fs'
-import OpenAI from 'openai'
+import { IncomingForm } from 'formidable';
+import fs from 'fs';
+import path from 'path';
+import OpenAI from 'openai';
 
 export const config = {
   api: { bodyParser: false },
   runtime: 'nodejs', // evitare Edge
-}
+};
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? '',
-})
+});
+
+const OCR_ENDPOINT = 'https://api.ocr.space/parse/image';
+
+/* ============ helpers ============ */
 
 function pick(a, b) {
-  return a !== undefined && a !== null ? a : b
+  return a !== undefined && a !== null ? a : b;
 }
 
+function parseForm(req) {
+  return new Promise((resolve, reject) => {
+    const form = new IncomingForm({
+      multiples: true,
+      keepExtensions: true,
+      maxFileSize: 15 * 1024 * 1024, // 15MB/file
+      maxTotalFileSize: 60 * 1024 * 1024,
+    });
+    form.parse(req, (err, fields, files) => {
+      if (err) return reject(err);
+      resolve({ fields, files });
+    });
+  });
+}
+
+async function fetchWithTimeout(url, opts = {}, ms = 45000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** opzionale: HEIC → JPEG (solo se 'sharp' è disponibile) */
+async function maybeConvertHeic(filepath, mimetype, originalFilename) {
+  const isHeic =
+    /heic|heif/i.test(mimetype || '') || /\.hei[cf]$/i.test(originalFilename || '');
+  if (!isHeic) return { filepath, mimetype, originalFilename };
+
+  try {
+    const sharp = (await import('sharp')).default;
+    const buf = await fs.promises.readFile(filepath);
+    const out = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
+
+    const outPath = filepath + '.jpg';
+    await fs.promises.writeFile(outPath, out);
+
+    // elimina l'originale HEIC
+    try { await fs.promises.unlink(filepath); } catch {}
+
+    const outName =
+      (originalFilename ? path.parse(originalFilename).name : 'upload') + '.jpg';
+
+    return { filepath: outPath, mimetype: 'image/jpeg', originalFilename: outName };
+  } catch {
+    // se fallisce, continuiamo col file originale
+    return { filepath, mimetype, originalFilename };
+  }
+}
+
+/** OCR.space upload via stream */
 async function doOcrSpaceUpload(file) {
-  const buf = await fs.promises.readFile(file.filepath)
-  const blob = new Blob([buf], { type: file.mimetype || 'application/octet-stream' })
+  const stream = fs.createReadStream(file.filepath);
+  const fd = new FormData();
 
-  const fd = new FormData()
-  fd.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld')
-  fd.append('language', 'ita')
-  fd.append('isOverlayRequired', 'false')
-  // engine 2 è spesso più robusto sugli scontrini
-  fd.append('OCREngine', '2')
-  fd.append('file', blob, file.originalFilename || 'upload.jpg')
+  fd.append('apikey', process.env.OCRSPACE_API_KEY ?? 'helloworld'); // chiave demo molto limitata
+  fd.append('language', 'ita');
+  fd.append('isOverlayRequired', 'false');
+  fd.append('OCREngine', '2');
+  fd.append('file', stream, file.originalFilename || 'upload.jpg');
 
-  const resp = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: fd })
-  const json = await resp.json()
+  const resp = await fetchWithTimeout(OCR_ENDPOINT, { method: 'POST', body: fd }, 45000);
+  const raw = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status} ${resp.statusText} — ${raw?.slice(0, 200) || ''}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(raw?.slice(0, 200) || 'Risposta non JSON dal servizio OCR');
+  }
 
   if (json?.IsErroredOnProcessing) {
-    const msg = Array.isArray(json.ErrorMessage) ? json.ErrorMessage.join(' | ') : (json.ErrorMessage || 'OCR error')
-    throw new Error(msg)
+    const msg = Array.isArray(json.ErrorMessage)
+      ? json.ErrorMessage.join(' | ')
+      : json.ErrorMessage || 'Errore OCR';
+    throw new Error(msg);
   }
 
   const text = (json?.ParsedResults || [])
-    .map(r => r?.ParsedText || '')
+    .map((r) => r?.ParsedText || '')
     .join('\n')
-    .trim()
+    .trim();
 
-  return { name: file.originalFilename || 'upload.jpg', text }
+  return { name: file.originalFilename || 'upload.jpg', text };
 }
 
 function toDataUrl(buf, mime = 'image/jpeg') {
-  return `data:${mime};base64,${Buffer.from(buf).toString('base64')}`
+  return `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
 }
+
+/* ============ handler ============ */
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST'])
-    return res.status(405).json({ error: `Metodo ${req.method} non consentito (usa POST)` })
+    res.setHeader('Allow', ['POST']);
+    return res
+      .status(405)
+      .json({ error: `Metodo ${req.method} non consentito (usa POST)` });
   }
 
-  // ---- parse multipart (immagini + campi opzionali) ----
-  let files, fields
+  let files, fields;
   try {
-    ({ files, fields } = await new Promise((resolve, reject) => {
-      const form = new IncomingForm({ multiples: true, keepExtensions: true })
-      form.parse(req, (err, flds, fls) => {
-        if (err) return reject(err)
-        resolve({ files: fls, fields: flds })
-      })
-    }))
+    ({ files, fields } = await parseForm(req));
   } catch (err) {
-    console.error('[assistant-ocr] parse error:', err)
-    return res.status(500).json({ error: String(err.message || err) })
+    console.error('[assistant-ocr] parse error:', err);
+    return res.status(500).json({ error: String(err?.message || err) });
   }
 
-  // normalizza input immagini
-  const uploads = []
-  const input = files?.images
-  if (Array.isArray(input)) uploads.push(...input)
-  else if (input) uploads.push(input)
+  // normalizza input immagini: supporta "images" e "file"
+  const uploads = [];
+  const inImages = files?.images;
+  const inFile = files?.file;
+  if (Array.isArray(inImages)) uploads.push(...inImages);
+  else if (inImages) uploads.push(inImages);
+  if (Array.isArray(inFile)) uploads.push(...inFile);
+  else if (inFile) uploads.push(inFile);
 
   if (uploads.length === 0) {
-    return res.status(400).json({ error: 'Nessun file nel campo "images"' })
+    return res.status(400).json({ error: 'Nessun file nel campo "images" (o "file")' });
   }
 
-  // context opzionale passato dal frontend
-  let ctx = { listaProdotti: [], scorte: [] }
+  // context opzionale
+  let ctx = { listaProdotti: [], scorte: [] };
   if (fields?.context) {
     try {
-      ctx = JSON.parse(Array.isArray(fields.context) ? fields.context[0] : fields.context)
-    } catch (_) {
+      const raw = Array.isArray(fields.context) ? fields.context[0] : fields.context;
+      ctx = JSON.parse(raw);
+    } catch {
       // ignora context malformato
     }
   }
 
-  // ---- OCR principale (OCR.space) ----
-  const ocrResults = []
+  // prepara file (HEIC→JPEG se possibile)
+  const prepared = [];
   for (const f of uploads) {
+    const base = {
+      filepath: f.filepath,
+      mimetype: f.mimetype || 'application/octet-stream',
+      originalFilename: f.originalFilename || 'upload',
+    };
+    prepared.push(await maybeConvertHeic(base.filepath, base.mimetype, base.originalFilename));
+  }
+
+  // ---- OCR principale (OCR.space) ----
+  const ocrResults = [];
+  for (const f of prepared) {
     try {
-      const r = await doOcrSpaceUpload(f)
-      ocrResults.push({ ...r, ok: true })
+      const r = await doOcrSpaceUpload(f);
+      ocrResults.push({ ...r, ok: true });
     } catch (e) {
-      console.error('[assistant-ocr] ocr error for', f?.originalFilename, e)
-      ocrResults.push({ name: f?.originalFilename || 'upload.jpg', text: '', ok: false, error: String(e.message || e) })
+      console.error('[assistant-ocr] OCR error for', f?.originalFilename, e);
+      ocrResults.push({
+        name: f?.originalFilename || 'upload.jpg',
+        text: '',
+        ok: false,
+        error: String(e?.message || e),
+      });
+    } finally {
+      // pulizia file locali (anche quelli convertiti)
+      if (f?.filepath) fs.unlink(f.filepath, () => {});
     }
   }
 
   let rawText = ocrResults
-    .map(r => (r.text ? `### ${r.name}\n${r.text}` : ''))
+    .map((r) => (r.text ? `### ${r.name}\n${r.text}` : ''))
     .filter(Boolean)
     .join('\n\n')
-    .trim()
+    .trim();
 
   // ---- Fallback Vision se OCR vuoto ----
   if (!rawText) {
     try {
-      const visionContents = [{ type: 'text', text: 'Estrarre TUTTO il testo leggibile degli scontrini. Restituisci SOLO testo grezzo.' }]
+      const visionContents = [
+        {
+          type: 'text',
+          text:
+            'Estrai TUTTO il testo leggibile degli scontrini. Restituisci SOLO testo grezzo.',
+        },
+      ];
+
+      // rileggiamo i file originali (non convertiti: li abbiamo rimossi; usiamo quelli uploadati)
       for (const f of uploads) {
-        let b = null
-        try { b = await fs.promises.readFile(f.filepath) } catch {}
-        if (b) {
+        try {
+          const b = await fs.promises.readFile(f.filepath);
           visionContents.push({
             type: 'input_image',
             image_url: { url: toDataUrl(b, f.mimetype || 'image/jpeg') },
-          })
+          });
+        } catch {
+          // se non più disponibile, saltiamo
         }
       }
 
-      const vis = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        temperature: 0,
-        messages: [{ role: 'user', content: visionContents }],
-      })
+      const vis = await Promise.race([
+        openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          temperature: 0,
+          messages: [{ role: 'user', content: visionContents }],
+        }),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error('OpenAI Vision timeout')), 45000)
+        ),
+      ]);
 
-      const visText = vis?.choices?.[0]?.message?.content?.trim() || ''
+      const visText = vis?.choices?.[0]?.message?.content?.trim() || '';
       if (!visText) {
         return res.status(502).json({
           error: 'Risposta vuota dal servizio OCR',
           ocr: ocrResults,
           vision: 'empty',
-        })
+        });
       }
 
       rawText = uploads
         .map((u, i) => `### ${u.originalFilename || `img_${i + 1}.jpg`}\n${visText}`)
-        .join('\n\n')
+        .join('\n\n');
     } catch (e) {
-      console.error('[assistant-ocr] Vision fallback error:', e)
+      console.error('[assistant-ocr] Vision fallback error:', e);
       return res.status(502).json({
         error: 'Risposta vuota dal servizio OCR',
         detail: 'Fallback Vision fallito',
         ocr: ocrResults,
-      })
+      });
     }
   }
 
   // ---- Prompt: calcolo azioni su lista/scorte ----
-  const today = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10);
   const system = `
 Sei Jarvis, l’assistente per la spesa domestica.
 
@@ -190,7 +292,7 @@ SCHEMA DI OUTPUT
     ]
   }
 }
-`
+`.trim();
 
   const userMsg = `
 === TESTO SCONTRINO ===
@@ -201,27 +303,37 @@ ${JSON.stringify(pick(ctx.listaProdotti, []), null, 2)}
 
 === SCORTE ATTUALI (solo contesto, non obbligatorio) ===
 ${JSON.stringify(pick(ctx.scorte, []), null, 2)}
-`
+`.trim();
 
-  let actionsJson = null
+  let actionsJson = null;
   try {
-    const comp = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: userMsg },
-      ],
-    })
-    const text = comp?.choices?.[0]?.message?.content?.trim() || ''
-    actionsJson = JSON.parse(text)
+    const comp = await Promise.race([
+      openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userMsg },
+        ],
+      }),
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('OpenAI completion timeout')), 45000)
+      ),
+    ]);
+
+    const text = comp?.choices?.[0]?.message?.content?.trim() || '';
+    actionsJson = JSON.parse(text);
   } catch (e) {
-    console.error('[assistant-ocr] parsing actions error:', e)
-    return res.status(500).json({ error: 'Errore nel parsing delle azioni dal modello', detail: String(e.message || e) })
+    console.error('[assistant-ocr] parsing actions error:', e);
+    return res.status(500).json({
+      error: 'Errore nel parsing delle azioni dal modello',
+      detail: String(e?.message || e),
+      ocrText: rawText,
+    });
   } finally {
-    // pulizia tmp
+    // pulizia tmp originale (se ancora presenti)
     for (const u of uploads) {
-      if (u?.filepath) fs.unlink(u.filepath, () => {})
+      if (u?.filepath) fs.unlink(u.filepath, () => {});
     }
   }
 
@@ -230,5 +342,5 @@ ${JSON.stringify(pick(ctx.scorte, []), null, 2)}
     ocrText: rawText,
     receipt: actionsJson?.receipt || null,
     actions: actionsJson?.actions || { removeFromList: [], addToInventory: [] },
-  })
+  });
 }
