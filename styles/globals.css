@@ -1575,3 +1575,74 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
     animation: none !important;
   }
 }
+/* ==========================================================
+   GLOBAL BG • Blu Petrolio (centrato, animato, full app)
+   (incolla questo blocco IN FONDO al file per override)
+   ========================================================== */
+
+/* Tavolozza blu-petrolio */
+:root{
+  --p-top:   #74c7f5;   /* luce alta (azzurro) */
+  --p-mid:   #2c7ea6;   /* blu medio            */
+  --p-deep:  #0f354a;   /* petrolio profondo    */
+  --p-night: #05080e;   /* quasi nero in basso  */
+}
+
+/* App + Login: stesso sfondo */
+.app-shell, [data-route] .app-shell, .login-shell{
+  position: relative;
+  min-height: 100svh;
+
+  /* Base: fascia azzurra che sfuma verso il petrolio e il nero */
+  background:
+    /* alone centrale morbido (centrato) */
+    radial-gradient(1200px 900px at 50% 45%,
+      color-mix(in srgb, var(--p-top) 70%, transparent) 0%,
+      color-mix(in srgb, var(--p-top) 35%, transparent) 40%,
+      transparent 65%),
+    /* gradiente verticale tipo foto: azzurro -> petrolio -> nero */
+    linear-gradient(180deg,
+      var(--p-top) 0%,
+      var(--p-mid) 36%,
+      var(--p-deep) 62%,
+      var(--p-night) 100%);
+  background-attachment: fixed !important;
+  background-size: 160% 160%, 100% 100%;
+  background-position: 50% 50%, 50% 50%;
+  animation: petrolDrift 24s ease-in-out infinite alternate !important;
+  will-change: background-position, background-size, filter;
+}
+
+/* Vignettatura soffice e riflesso leggero (come la foto) */
+.app-shell::before, [data-route] .app-shell::before, .login-shell::before{
+  content:"";
+  position:absolute; inset:0;
+  pointer-events:none;
+  background:
+    radial-gradient(1200px 900px at 50% 46%,
+      rgba(255,255,255,.10) 0%,
+      rgba(255,255,255,.04) 40%,
+      transparent 65%),
+    linear-gradient(180deg, transparent 0%, rgba(0,0,0,.18) 90%, rgba(0,0,0,.35) 100%);
+  mix-blend-mode: screen;
+  animation: petrolPulse 6.5s ease-in-out infinite alternate;
+}
+
+/* Animazioni (centrate, leggere) */
+@keyframes petrolDrift{
+  0%   { background-position: 50% 48%, 50% 50%; background-size: 150% 150%, 100% 100%; filter: saturate(1.02) }
+  100% { background-position: 50% 52%, 50% 50%; background-size: 170% 170%, 100% 100%; filter: saturate(1.06) }
+}
+@keyframes petrolPulse{
+  0%   { opacity:.85; transform: scale(1); }
+  100% { opacity:.95; transform: scale(1.02); }
+}
+
+/* Rispetto preferenza riduzione movimento */
+@media (prefers-reduced-motion: reduce){
+  .app-shell, [data-route] .app-shell, .login-shell{ animation: none !important; }
+  .app-shell::before, [data-route] .app-shell::before, .login-shell::before{ animation: none !important; }
+}
+
+/* Disattiva eventuali vecchi sfondi pagina-specifici */
+.bg-kaleido{ display:none !important; }
