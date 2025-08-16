@@ -47,6 +47,39 @@ function persistNow(snapshot) {
     console.warn('[persist] save failed', e);
   }
 }
+ // Realtime: ascolta cambi su jarvis_liste_state dell’utente
+ useEffect(() => {
+   if (!CLOUD_SYNC || !user?.id) return;
+    const channel = supabase
+      .channel('jarvis_liste_state_rt')
+      .on(
+       'postgres_changes',
+        { event: '*', schema: 'public', table: CLOUD_TABLE, filter: `user_id=eq.${user.id}` },
+        async (payload) => {
+          // Ignora l’eco immediatamente successivo a un nostro save
+          const now = Date.now();
+          const mineRecently = now - lastCloudWriteRef.current < 800; // 0.8s di tolleranza
+          if (mineRecently) return;
+
+          const { doc, ts } = await cloudLoad(user.id) || {};
+          if (!doc) return;
+          const remoteAt = Number(doc.at || ts || 0);
+          // Applica solo se più recente di quello visto/applicato
+          if (remoteAt > lastCloudSeenRef.current) {
+            lastCloudSeenRef.current = remoteAt;
+            setLists({
+              [LIST_TYPES.SUPERMARKET]: Array.isArray(doc.lists?.[LIST_TYPES.SUPERMARKET]) ? doc.lists[LIST_TYPES.SUPERMARKET] : [],
+              [LIST_TYPES.ONLINE]: Array.isArray(doc.lists?.[LIST_TYPES.ONLINE]) ? doc.lists[LIST_TYPES.ONLINE] : [],
+            });
+            setStock(Array.isArray(doc.stock) ? doc.stock : []);
+            setCurrentList(doc.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+            if (DEBUG) console.log('[Realtime] stato applicato da cloud');
+          }
+        }
+      )
+      .subscribe();
+    return () => { try { supabase.removeChannel(channel); } catch {} };
+  }, [user?.id]);
 
 /* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
