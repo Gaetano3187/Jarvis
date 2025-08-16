@@ -98,8 +98,7 @@ function quickParseCash(text) {
     const d = new Date(); d.setDate(d.getDate() - 1); date = isoLocal(d);
   }
   const isOut = /(uscita|spes|pagat.*contanti)/.test(t);
-  const isIn  = /(prelev|messo in tasca|ritirat|bancomat|atm)/.test(t);
-  const delta = isOut ? -Math.abs(amount) : Math.abs(amount); // default in (+)
+  const delta = isOut ? -Math.abs(amount) : Math.abs(amount);
   const note =
     isOut ? 'Uscita contanti'
          : (/prelev/.test(t) ? 'Prelievo/ricarica contanti' : 'Ricarica contanti');
@@ -108,18 +107,21 @@ function quickParseCash(text) {
 
 /* --------------------------- component --------------------------- */
 function Entrate() {
+  const todayLocal = isoLocal(new Date());
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const [incomes, setIncomes] = useState([]);
-  const [newIncome, setNewIncome] = useState({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
+  const [newIncome, setNewIncome] = useState({
+    source: 'Stipendio', description: '', amount: '', receivedAt: todayLocal, // FIX: default a oggi
+  });
 
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
   const [pocketRows, setPocketRows] = useState([]);
   const [pocketTopUp, setPocketTopUp] = useState('');
-  const [monthExpenses, setMonthExpenses] = useState(0);
 
   // OCR / VOCE
   const ocrInputRef = useRef(null);
@@ -179,7 +181,10 @@ function Entrate() {
       const { data: pc } = await supabase.from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
-        .gte('moved_date', startDate).lte('moved_date', endDate)
+        .or(
+          `and(moved_date.gte.${startDate},moved_date.lte.${endDate}),` +
+          `and(moved_at.gte.${dateStartTS},moved_at.lte.${dateEndTS})`
+        )
         .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
 
       const manualRows = (pc || []).map((row) => {
@@ -196,73 +201,61 @@ function Entrate() {
         };
       });
 
-// Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
-const ELECTRONIC_TOKENS = [
-  'carta', 'carta di credito', 'credito', 'debito', 'pos',
-  'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-  'satispay', 'apple pay', 'google pay'
-];
+      // Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
+      const ELECTRONIC_TOKENS = [
+        'carta','carta di credito','credito','debito','pos','visa','mastercard','amex','paypal','iban','bonifico','satispay','apple pay','google pay',
+      ];
 
-const { data: finAll, error: finAllErr } = await supabase
-  .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-  .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  )
-  .order('spent_at', { ascending: false, nullsFirst: false })
-  .order('spent_date', { ascending: false, nullsFirst: false });
+      const { data: finAll, error: finAllErr } = await supabase
+        .from('finances')
+        .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
+        .eq('user_id', user.id)
+        .or(
+          `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
+          `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
+        )
+        .order('spent_at', { ascending: false, nullsFirst: false })
+        .order('spent_date', { ascending: false, nullsFirst: false });
 
-if (finAllErr) throw finAllErr;
+      if (finAllErr) throw finAllErr;
 
-function isElectronicByText(desc) {
-  const t = String(desc || '').toLowerCase();
-  return ELECTRONIC_TOKENS.some(k => t.includes(k));
-}
-function isCashByFields(row) {
-  const pm = String(row.payment_method || '').toLowerCase();
-  if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
-  if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
-  // default: contanti se la descrizione NON contiene parole di pagamento elettronico
-  return !isElectronicByText(row.description);
-}
+      function isElectronicByText(desc) {
+        const t = String(desc || '').toLowerCase();
+        return ELECTRONIC_TOKENS.some((k) => t.includes(k));
+      }
+      function isCashByFields(row) {
+        const pm = String(row.payment_method || '').toLowerCase();
+        if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
+        if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
+        return !isElectronicByText(row.description);                // default: contanti
+      }
 
-let finCash = (finAll || []).filter(isCashByFields);
+      let finCash = (finAll || []).filter(isCashByFields);
 
-let cashRows = (finCash || []).map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-  const store = m ? m[1] : 'Punto vendita';
-  const dett  = m ? m[2] : (f.description || '');
-  return {
-    id: `fin-${f.id}`,
-    dateISO,
-    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    amount: -Math.abs(Number(f.amount) || 0),
-    category_id: f.category_id,
-    kind: 'cash-expense',
-  };
-});
+      let cashRows = (finCash || []).map((f) => {
+        const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
+        const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
+        const store = m ? m[1] : 'Punto vendita';
+        const dett  = m ? m[2] : (f.description || '');
+        return {
+          id: `fin-${f.id}`,
+          dateISO,
+          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+          amount: -Math.abs(Number(f.amount) || 0),
+          category_id: f.category_id,
+          kind: 'cash-expense',
+        };
+      });
 
-// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
-
+      if (hideVarieCashAfterClear) {
+        cashRows = cashRows.filter((r) => r.category_id !== CATEGORY_ID_VARIE);
+      }
 
       const rows = [...manualRows, ...cashRows]
-        .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
+        .filter((r) => Number.isFinite(r.amount) && r.amount !== 0)
         .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
       setPocketRows(rows);
-
-      // Totale spese del periodo (facoltativo)
-      const { data: exp } = await supabase.from('finances')
-        .select('amount, spent_date').eq('user_id', user.id)
-        .gte('spent_date', startDate).lte('spent_date', endDate);
-      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-      setMonthExpenses(totalExp);
     } catch (err) {
       showError(setError, err);
     } finally {
@@ -293,11 +286,13 @@ if (hideVarieCashAfterClear) {
   async function insertPocketQuick({ amount, date, delta, note }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
+    const moved_date = date || isoLocal(new Date()); // FIX: valorizza moved_date
     const payload = {
       user_id: user.id,
       note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
       delta: (typeof delta === 'number') ? delta : Math.abs(amount),
-      moved_at: `${(date || isoLocal(new Date()))}T12:00:00Z`,
+      moved_date,
+      moved_at: `${moved_date}T12:00:00`, // FIX: niente Z
     };
     const { error } = await supabase.from('pocket_cash').insert(payload);
     if (error) throw error;
@@ -319,7 +314,8 @@ if (hideVarieCashAfterClear) {
         source: it.source || 'Entrata',
         description: it.description || it.source || 'Entrata',
         amount,
-        received_at: `${dataIncasso}T12:00:00Z`,
+        received_date: dataIncasso,                // FIX: anche la data
+        received_at: `${dataIncasso}T12:00:00`,    // FIX: niente Z
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
@@ -343,7 +339,6 @@ if (hideVarieCashAfterClear) {
         const ok = await insertIncomeAssistant(text);
         if (ok) { await loadAll(); return; }
       }
-      // fallback: prova income comunque
       const ok2 = await insertIncomeAssistant(text);
       if (ok2) { await loadAll(); return; }
 
@@ -353,12 +348,31 @@ if (hideVarieCashAfterClear) {
     }
   }
 
+  // Seleziona MIME compatibile anche su iOS
+  function pickBestAudioMime() {
+    if (typeof window === 'undefined' || !window.MediaRecorder) return '';
+    const prefs = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',            // iOS
+      'audio/mpeg',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/wav',
+    ];
+    for (const t of prefs) {
+      if (MediaRecorder.isTypeSupported?.(t)) return t;
+    }
+    return '';
+  }
+
   const toggleRec = async () => {
     if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      mediaRecRef.current = new MediaRecorder(stream);
+      const mimeType = pickBestAudioMime();
+      mediaRecRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recordedChunks.current = [];
       mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
       mediaRecRef.current.onstop = processVoice;
@@ -368,8 +382,11 @@ if (hideVarieCashAfterClear) {
   };
 
   const processVoice = async () => {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
+    // nome file coerente con tipo
+    const mime = mediaRecRef.current?.mimeType || 'audio/webm';
+    const ext  = mime.includes('mp4') ? 'm4a' : mime.includes('mpeg') ? 'mp3' : mime.includes('ogg') ? 'ogg' : mime.includes('wav') ? 'wav' : 'webm';
+    const blob = new Blob(recordedChunks.current, { type: mime });
+    const fd = new FormData(); fd.append('audio', blob, `voice.${ext}`);
     try {
       const res = await fetch('/api/stt', { method: 'POST', body: fd });
       const { text } = await res.json();
@@ -400,16 +417,19 @@ if (hideVarieCashAfterClear) {
     try {
       const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
+
+      const recDate = newIncome.receivedAt || isoLocal(new Date()); // FIX
       const payload = {
         user_id: user.id,
         source: newIncome.source || 'Entrata',
         description: newIncome.description || newIncome.source || 'Entrata',
         amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: (newIncome.receivedAt ? `${newIncome.receivedAt}T12:00:00Z` : new Date().toISOString()),
+        received_date: recDate,                  // FIX: salva anche la data
+        received_at: `${recDate}T12:00:00`,      // FIX: niente Z
       };
       const { error } = await supabase.from('incomes').insert(payload);
       if (error) throw error;
-      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
+      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: isoLocal(new Date()) });
       await loadAll();
     } catch (err) { showError(setError, err); }
   }
@@ -450,11 +470,13 @@ if (hideVarieCashAfterClear) {
       if (userErr) throw userErr; if (!user) throw new Error('Sessione scaduta');
       const delta = parseAmountLoose(pocketTopUp);
       if (!delta) return;
+      const moved_date = isoLocal(new Date()); // FIX: valorizza moved_date
       const payload = {
         user_id: user.id,
         note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
         delta,
-        moved_at: new Date().toISOString(),
+        moved_date,
+        moved_at: `${moved_date}T12:00:00`, // FIX: niente Z
       };
       const { error } = await supabase.from('pocket_cash').insert(payload);
       if (error) throw error;
@@ -533,15 +555,18 @@ if (hideVarieCashAfterClear) {
             <table className="custom-table">
               <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
               <tbody>
-                {incomes.map((i) => (
-                  <tr key={i.id}>
-                    <td>{i.source || '-'}</td>
-                    <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
-                    <td>{Number(i.amount).toFixed(2)}</td>
-                    <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
-                  </tr>
-                ))}
+                {incomes.map((i) => {
+                  const dISO = i.received_date || (i.received_at ? String(i.received_at).slice(0,10) : '');
+                  return (
+                    <tr key={i.id}>
+                      <td>{i.source || '-'}</td>
+                      <td>{i.description}</td>
+                      <td>{formatIT(dISO)}</td>
+                      <td>{Number(i.amount).toFixed(2)}</td>
+                      <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -583,7 +608,7 @@ if (hideVarieCashAfterClear) {
               <tbody>
                 {pocketRows.map((m) => (
                   <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                    <td>{formatIT(m.dateISO)}</td>
                     <td>{m.label}</td>
                     <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
                   </tr>
