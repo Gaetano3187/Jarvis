@@ -132,18 +132,23 @@ const Home = () => {
 
   /* —— VOCE → ingest —— */
   const handleVoiceText = async (spoken) => {
-    if (!spoken) return;
-    try {
-      setBusy(true);
-      await doVoice(spoken);
-      alert('✅ Operazione eseguita');
-    } catch (err) {
-      console.error(err);
-      alert('❌ Errore comando vocale: ' + (err?.message || err));
-    } finally {
-      setBusy(false);
+  if (!spoken) return;
+  try {
+    setBusy(true);
+    const res = await doVoice(spoken);
+    if (!res?.ok) {
+      const msg = res?.result || 'Errore comando vocale.';
+      alert('❌ ' + msg);
+    } else {
+      alert('✅ ' + (res?.result || 'Operazione eseguita'));
     }
-  };
+  } catch (err) {
+    console.error(err);
+    alert('❌ Errore comando vocale: ' + (err?.message || err));
+  } finally {
+    setBusy(false);
+  }
+};
 
   /* —— Query rapida —— */
   const submitQuery = async () => {
