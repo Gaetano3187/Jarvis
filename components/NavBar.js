@@ -45,10 +45,10 @@ export default function NavBar({ speaking: speakingProp = false }) {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ====== LOGO JARVIS stile equalizzatore ====== */}
+          {/* ====== LOGO JARVIS rosso acceso ====== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home" title="JARVIS">
-            <span className={`brand-wrap ${speaking ? 'is-speaking' : ''}`} data-speaking={speaking ? 'true' : 'false'}>
-              <span className="logo-equalizer" data-text="JARVIS">JARVIS</span>
+            <span className={`brand-wrap ${speaking ? 'is-speaking' : ''}`}>
+              <span className="logo-jarvis" data-text="JARVIS">JARVIS</span>
             </span>
           </Link>
 
@@ -82,7 +82,7 @@ export default function NavBar({ speaking: speakingProp = false }) {
         :root{
           --nav-bg: rgba(6, 10, 28, .72);
           --nav-brd: rgba(255,255,255,.12);
-          --pulse: 1.3s;
+          --pulse: 1.4s;
         }
 
         .nav{
@@ -102,70 +102,51 @@ export default function NavBar({ speaking: speakingProp = false }) {
         .brand{ text-decoration:none; display:flex; align-items:center; }
         .brand-wrap{ position: relative; display:grid; place-items:center; }
 
-        /* LOGO JARVIS stile equalizzatore */
-        .logo-equalizer{
+        /* LOGO JARVIS rosso acceso */
+        .logo-jarvis{
           position: relative;
           z-index: 3;
           display: inline-block;
           font-family: "Orbitron", system-ui, sans-serif;
           font-weight: 900;
-          letter-spacing: .32rem;
-          font-size: clamp(2rem, 5vw, 3rem); /* più piccolo */
+          letter-spacing: .3rem;
+          font-size: clamp(2.2rem, 5vw, 3.2rem);
           text-transform: uppercase;
 
-          /* bordo nero leggero */
+          /* bordo nero sottile */
           -webkit-text-stroke: 1px #000;
           paint-order: stroke fill;
 
-          /* effetto equalizer: righe verticali animate */
-          background: repeating-linear-gradient(
-            90deg,
-            #ff3131 0 4px,
-            #ff9900 4px 8px,
-            #00ff5a 8px 12px,
-            #1e90ff 12px 16px,
-            #ff00ff 16px 20px
-          );
-          background-size: 200% 100%;
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-          -webkit-text-fill-color: transparent;
-
+          color: #ff2a2a;
           text-shadow:
-            0 0 4px rgba(255,70,70,.6),
-            0 0 10px rgba(255,160,0,.5),
-            0 0 18px rgba(0,255,100,.5),
-            0 0 26px rgba(30,144,255,.4);
+            0 0 6px rgba(255,50,50,.9),
+            0 0 14px rgba(255,60,60,.8),
+            0 0 26px rgba(255,0,0,.7);
 
-          animation:
-            eqShift 6s linear infinite,
-            eqPulse 1.5s ease-in-out infinite;
+          animation: pulseRed var(--pulse) ease-in-out infinite;
         }
-        .logo-equalizer::after{
+        .logo-jarvis::after{
           content: attr(data-text);
           position:absolute; inset:0; z-index:-1;
           color: #000;
-          filter: blur(.8px);
-          opacity:.9;
+          opacity:.85;
           transform: translate(3px, 5px);
+          filter: blur(1px);
         }
 
-        @keyframes eqShift {
-          0% { background-position: 0% 50%; }
-          100% { background-position: 200% 50%; }
-        }
-        @keyframes eqPulse {
-          0%,100% { text-shadow:
-            0 0 4px rgba(255,70,70,.6),
-            0 0 10px rgba(255,160,0,.5),
-            0 0 18px rgba(0,255,100,.5),
-            0 0 26px rgba(30,144,255,.4);}
-          50% { text-shadow:
-            0 0 8px rgba(255,100,100,.8),
-            0 0 18px rgba(255,180,0,.7),
-            0 0 28px rgba(0,255,130,.7),
-            0 0 40px rgba(30,144,255,.7);}
+        @keyframes pulseRed {
+          0%,100% {
+            text-shadow:
+              0 0 6px rgba(255,50,50,.9),
+              0 0 14px rgba(255,60,60,.8),
+              0 0 26px rgba(255,0,0,.7);
+          }
+          50% {
+            text-shadow:
+              0 0 12px rgba(255,80,80,1),
+              0 0 26px rgba(255,40,40,.95),
+              0 0 50px rgba(255,0,0,1);
+          }
         }
 
         /* ===== MENU ===== */
@@ -233,7 +214,7 @@ export default function NavBar({ speaking: speakingProp = false }) {
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
-          .logo-equalizer, .logo-equalizer::after, .label, .label::after, .link::before { animation: none !important; }
+          .logo-jarvis, .logo-jarvis::after, .label, .label::after, .link::before { animation: none !important; }
         }
 
         @media (max-width: 560px){
