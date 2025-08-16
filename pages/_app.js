@@ -413,14 +413,6 @@ export default function MyApp({ Component, pageProps }) {
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
 
-  return (
-    <AuthProvider>
-      {showNav && <NavBar />}
-      <Component {...pageProps} />
-    </AuthProvider>
-  );
-}
-
   // bootstrap proxy con supabase per sync cross-device
   useEffect(() => {
     bootstrapBrainProxy(supabaseClient);
