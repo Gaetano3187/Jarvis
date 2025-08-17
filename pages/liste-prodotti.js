@@ -2097,36 +2097,47 @@ async function handleStockImagePick(idx, file){
   <h4 style={styles.h4}>Tutte le scorte</h4>
 
   {stock.length === 0 ? (
-    <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
+    <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
   ) : (
     <div style={styles.stockTableWrap}>
       <div style={styles.stockTableHeader}>
-        <div style={{gridColumn:'img'}}>Foto</div>
-        <div style={{gridColumn:'name'}}>Prodotto · Consumo</div>
-        <div style={{gridColumn:'packs'}}>Confezioni acquistate</div>
-        <div style={{gridColumn:'upp'}}>Unità per confezione</div>
-        <div style={{gridColumn:'actions'}}>Azioni</div>
+        <div style={{ gridColumn: 'img' }}>Foto</div>
+        <div style={{ gridColumn: 'name' }}>Prodotto · Consumo</div>
+        <div style={{ gridColumn: 'packs' }}>Confezioni acquistate</div>
+        <div style={{ gridColumn: 'upp' }}>Unità per confezione</div>
+        <div style={{ gridColumn: 'actions' }}>Azioni</div>
       </div>
 
       {stock.map((s, idx) => {
         const { current, baseline, pct } = residueInfo(s);
-        const w = Math.round(pct*100);
+        const w = Math.round(pct * 100);
         const zebra = idx % 2 === 0;
 
         return (
-          <div key={idx} style={{ ...(zebra ? styles.stockTableRowZ1 : styles.stockTableRowZ2) }}>
+          <div
+            key={idx}
+            style={{ ...(zebra ? styles.stockTableRowZ1 : styles.stockTableRowZ2) }}
+          >
             {/* IMG */}
-            <div style={{gridColumn:'img'}}>
+            <div style={{ gridColumn: 'img' }}>
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => { setImgRowIndex(idx); stockImgInputRef.current?.click(); }}
-                onKeyDown={(e)=>{ if(e.key==='Enter'||e.key===' ') { setImgRowIndex(idx); stockImgInputRef.current?.click(); }}}
+                onClick={() => {
+                  setImgRowIndex(idx);
+                  stockImgInputRef.current?.click();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    setImgRowIndex(idx);
+                    stockImgInputRef.current?.click();
+                  }
+                }}
                 style={{
                   ...styles.imgSquare,
                   backgroundImage: s.img ? `url(${s.img})` : 'none',
                   backgroundSize: 'cover',
-                  backgroundPosition: 'center'
+                  backgroundPosition: 'center',
                 }}
                 title={s.img ? 'Cambia immagine' : 'Aggiungi immagine'}
               >
@@ -2135,82 +2146,139 @@ async function handleStockImagePick(idx, file){
             </div>
 
             {/* NOME + BARRA */}
-            <div style={{gridColumn:'name'}}>
+            <div style={{ gridColumn: 'name' }}>
               <div style={styles.stockTitle}>
-                {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                {s.name}
+                {s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
               </div>
               <div style={styles.progressOuter}>
-                <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                <div
+                  style={{
+                    ...styles.progressInner,
+                    width: `${w}%`,
+                    background: colorForPct(pct),
+                  }}
+                />
               </div>
               <div style={styles.stockLineSmall}>
-                {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                {Math.round(current)}/{Math.max(1, Math.round(baseline))}{' '}
+                {s.unitLabel || 'unità'}
+                {s.expiresAt ? (
+                  <span style={styles.expiryChip}>
+                    scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
+                  </span>
+                ) : null}
               </div>
             </div>
 
             {/* PACKS */}
-            <div style={{gridColumn:'packs'}}>
+            <div style={{ gridColumn: 'packs' }}>
               {editingRow === idx ? (
                 <input
-                  style={{...styles.input, width:120}}
+                  style={{ ...styles.input, width: 120 }}
                   inputMode="decimal"
                   value={editDraft.packs}
-                  onChange={e=>handleEditDraftChange('packs', e.target.value)}
+                  onChange={(e) =>
+                    handleEditDraftChange('packs', e.target.value)
+                  }
                 />
               ) : (
-                <div style={styles.cellValue}>{Number(s.packs||0)}</div>
+                <div style={styles.cellValue}>{Number(s.packs || 0)}</div>
               )}
             </div>
 
             {/* UPP */}
-            <div style={{gridColumn:'upp'}}>
+            <div style={{ gridColumn: 'upp' }}>
               {editingRow === idx ? (
-                <div style={{display:'flex', gap:6}}>
+                <div style={{ display: 'flex', gap: 6 }}>
                   <input
-                    style={{...styles.input, width:120}}
+                    style={{ ...styles.input, width: 120 }}
                     inputMode="decimal"
                     value={editDraft.unitsPerPack}
-                    onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)}
+                    onChange={(e) =>
+                      handleEditDraftChange('unitsPerPack', e.target.value)
+                    }
                   />
                   <input
-                    style={{...styles.input, width:140}}
+                    style={{ ...styles.input, width: 140 }}
                     placeholder="Etichetta (es. bottiglie)"
                     value={editDraft.unitLabel}
-                    onChange={e=>handleEditDraftChange('unitLabel', e.target.value)}
+                    onChange={(e) =>
+                      handleEditDraftChange('unitLabel', e.target.value)
+                    }
                   />
                 </div>
               ) : (
                 <div style={styles.cellValue}>
-                  {Number(s.unitsPerPack||1)} <span style={{opacity:.85}}>{s.unitLabel||'unità'}</span>
+                  {Number(s.unitsPerPack || 1)}{' '}
+                  <span style={{ opacity: .85 }}>
+                    {s.unitLabel || 'unità'}
+                  </span>
                 </div>
               )}
             </div>
 
             {/* ACTIONS */}
-            <div style={{gridColumn:'actions', display:'flex', gap:6, flexWrap:'wrap'}}>
+            <div
+              style={{
+                gridColumn: 'actions',
+                display: 'flex',
+                gap: 6,
+                flexWrap: 'wrap',
+              }}
+            >
               {editingRow === idx ? (
                 <>
-                  <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                  <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                  <button
+                    onClick={() => saveRowEdit(idx)}
+                    style={styles.smallOkBtn}
+                  >
+                    Salva
+                  </button>
+                  <button
+                    onClick={cancelRowEdit}
+                    style={styles.smallGhostBtn}
+                  >
+                    Annulla
+                  </button>
                 </>
               ) : (
                 <>
-                  <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
+                  <button
+                    onClick={() => startRowEdit(idx, s)}
+                    style={styles.smallGhostBtn}
+                  >
+                    Modifica
+                  </button>
                   <button
                     onClick={() => applyDeltaToStock(idx, { setUnits: 0 })}
                     style={styles.smallDangerBtn}
                     title="Imposta residuo a 0"
-                  >Svuota</button>
+                  >
+                    Svuota
+                  </button>
                   <button
-                    onClick={()=>{ setOcrRowIndex(idx); setOcrMode('label'); stockOcrInputRef.current?.click(); }}
+                    onClick={() => {
+                      setOcrRowIndex(idx);
+                      setOcrMode('label');
+                      stockOcrInputRef.current?.click();
+                    }}
                     style={styles.smallGhostBtn}
                     title="OCR etichetta (scadenza / UPP)"
-                  >OCR etichetta</button>
+                  >
+                    OCR etichetta
+                  </button>
                   <button
-                    onClick={()=>{ setOcrRowIndex(idx); setOcrMode('qty'); stockOcrInputRef.current?.click(); }}
+                    onClick={() => {
+                      setOcrRowIndex(idx);
+                      setOcrMode('qty');
+                      stockOcrInputRef.current?.click();
+                    }}
                     style={styles.smallGhostBtn}
                     title="OCR quantità acquistata"
-                  >OCR quantità</button>
+                  >
+                    OCR quantità
+                  </button>
                 </>
               )}
             </div>
@@ -2220,7 +2288,6 @@ async function handleStockImagePick(idx, file){
     </div>
   )}
 </div>
-
           {/* TOAST */}
           {toast && (
             <div style={{
