@@ -2137,212 +2137,431 @@ export default function ListeProdotti() {
             </div>
           </div>
 
-          {/* TOAST */}
-          {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10,
-              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999, fontWeight:600, letterSpacing:.2
-            }}>
-              {toast.msg}
-            </div>
-          )}
-        </div>
-      </div>
+        {/* TOAST */}
+{toast && (
+  <div
+    style={{
+      position: 'fixed',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background:
+        toast.type === 'ok'
+          ? 'linear-gradient(180deg,#16a34a,#15803d)'
+          : toast.type === 'err'
+          ? 'linear-gradient(180deg,#ef4444,#b91c1c)'
+          : 'linear-gradient(180deg,#334155,#1f2937)',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: 12,
+      boxShadow: '0 10px 26px rgba(0,0,0,.35)',
+      zIndex: 9999,
+      fontWeight: 700,
+      letterSpacing: 0.3,
+      border: '1px solid rgba(255,255,255,.18)',
+      backdropFilter: 'blur(4px)'
+    }}
+  >
+    {toast.msg}
+  </div>
+)}
+</div>
+</div>
 
-      {/* INPUT NASCOSTI */}
-      <input
-        ref={ocrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        multiple
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          if (!files.length) return;
-          handleOCR(files);
-          e.target.value = '';
-        }}
-      />
+{/* INPUT NASCOSTI */}
+<input
+  ref={ocrInputRef}
+  type="file"
+  accept="image/*,application/pdf"
+  multiple
+  hidden
+  onChange={(e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    handleOCR(files);
+    e.target.value = '';
+  }}
+/>
 
-      {/* input file unico per OCR scadenza di riga */}
-      <input
-        ref={rowOcrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        capture="environment"
-        hidden
-        onChange={async (e) => {
-          const file = (e.target.files || [])[0];
-          e.target.value = '';
-          if (!file) return;
+{/* input file unico per OCR scadenza di riga */}
+<input
+  ref={rowOcrInputRef}
+  type="file"
+  accept="image/*,application/pdf"
+  capture="environment"
+  hidden
+  onChange={async (e) => {
+    const file = (e.target.files || [])[0];
+    e.target.value = '';
+    if (!file) return;
 
-          // Determina prodotto target: se targetRowIdx è un id di lista, prendi da lista; se è indice scorte, prendi da stock
-          let itemName = '';
-          let brand = '';
-          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
-          if (byId) {
-            itemName = byId.name;
-            brand = byId.brand || '';
-          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
-            itemName = stock[targetRowIdx].name;
-            brand = stock[targetRowIdx].brand || '';
-          } else {
-            showToast('Elemento non trovato per OCR scadenza', 'err');
-            return;
-          }
+    // Determina prodotto target
+    let itemName = '';
+    let brand = '';
+    const byId = (lists[currentList] || []).find((i) => i.id === targetRowIdx);
+    if (byId) {
+      itemName = byId.name;
+      brand = byId.brand || '';
+    } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
+      itemName = stock[targetRowIdx].name;
+      brand = stock[targetRowIdx].brand || '';
+    } else {
+      showToast('Elemento non trovato per OCR scadenza', 'err');
+      return;
+    }
 
-          try {
-            setBusy(true);
-            const fd = new FormData();
-            fd.append('images', file);
-            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
-            const o = await readJsonSafe(ocrRes);
-            if (!o.ok) throw new Error(o.error || 'Errore OCR');
-            const ocrText = String(o.text || '').trim();
-            if (!ocrText) throw new Error('Nessun testo letto');
+    try {
+      setBusy(true);
+      const fd = new FormData();
+      fd.append('images', file);
+      const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fd }, 30000);
+      const o = await readJsonSafe(ocrRes);
+      if (!o.ok) throw new Error(o.error || 'Errore OCR');
+      const ocrText = String(o.text || '').trim();
+      if (!ocrText) throw new Error('Nessun testo letto');
 
-            // Chiedi solo la scadenza del prodotto target
-            const prompt = buildExpiryPrompt(itemName, brand, ocrText);
-            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-              method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
-            }, 25000);
-            const safe = await readJsonSafe(r);
-            const answer = safe?.answer || safe?.data || safe;
-            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })() : answer;
-            const ex = ensureArray(parsed?.expiries).map(e => toISODate(e.expiresAt)).filter(Boolean)[0];
-
-            if (!ex) { showToast('Nessuna data trovata', 'err'); return; }
-
-            setStock(prev => {
-              const arr = [...prev];
-              // prova a colpire prima per nome+brand
-              let hit = arr.findIndex(s => isSimilar(s.name, itemName) && (!brand || isSimilar(s.brand||'', brand)));
-              if (hit < 0) hit = arr.findIndex(s => isSimilar(s.name, itemName));
-              if (hit >= 0) {
-                arr[hit] = { ...arr[hit], expiresAt: ex };
-                return arr;
+      // Chiedi solo la scadenza del prodotto target
+      const prompt = buildExpiryPrompt(itemName, brand, ocrText);
+      const r = await timeoutFetch(
+        API_ASSISTANT_TEXT,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        },
+        25000
+      );
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      const parsed =
+        typeof answer === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(answer);
+              } catch {
+                return null;
               }
-              // se non c'è scorta, crea segnaposto con la scadenza
-              arr.unshift({
-                name: itemName, brand: brand || '',
-                packs: 0, unitsPerPack: 1, unitLabel: 'unità',
-                expiresAt: ex, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0
-              });
-              return arr;
-            });
-            showToast('Scadenza aggiornata ✓', 'ok');
-          } catch (err) {
-            console.error('[Row OCR expiry]', err);
-            showToast(`Errore OCR scadenza: ${err?.message || err}`, 'err');
-          } finally {
-            setBusy(false);
-            setTargetRowIdx(null);
-          }
-        }}
-      />
-    </>
-  );
+            })()
+          : answer;
+      const ex = ensureArray(parsed?.expiries)
+        .map((e) => toISODate(e.expiresAt))
+        .filter(Boolean)[0];
+
+      if (!ex) {
+        showToast('Nessuna data trovata', 'err');
+        return;
+      }
+
+      setStock((prev) => {
+        const arr = [...prev];
+        // prova a colpire prima per nome+brand
+        let hit = arr.findIndex(
+          (s) => isSimilar(s.name, itemName) && (!brand || isSimilar(s.brand || '', brand))
+        );
+        if (hit < 0) hit = arr.findIndex((s) => isSimilar(s.name, itemName));
+        if (hit >= 0) {
+          arr[hit] = { ...arr[hit], expiresAt: ex };
+          return arr;
+        }
+        // se non c'è scorta, crea segnaposto con la scadenza
+        arr.unshift({
+          name: itemName,
+          brand: brand || '',
+          packs: 0,
+          unitsPerPack: 1,
+          unitLabel: 'unità',
+          expiresAt: ex,
+          baselinePacks: 0,
+          lastRestockAt: '',
+          avgDailyUnits: 0,
+          residueUnits: 0,
+          imageUrl: ''
+        });
+        return arr;
+      });
+      showToast('Scadenza aggiornata ✓', 'ok');
+    } catch (err) {
+      console.error('[Row OCR expiry]', err);
+      showToast(`Errore OCR scadenza: ${err?.message || err}`, 'err');
+    } finally {
+      setBusy(false);
+      setTargetRowIdx(null);
+    }
+  }}
+/>
+
+{/* ——— NUOVI INPUT: immagine prodotto + OCR etichetta + OCR quantità ——— */}
+<input
+  ref={stockImgInputRef}
+  type="file"
+  accept="image/*"
+  hidden
+  onChange={async (e) => {
+    const f = (e.target.files || [])[0];
+    e.target.value = '';
+    if (!f) return;
+    await handleStockImage(f);
+  }}
+/>
+
+<input
+  ref={stockLabelOcrInputRef}
+  type="file"
+  accept="image/*,application/pdf"
+  capture="environment"
+  hidden
+  onChange={async (e) => {
+    const f = (e.target.files || [])[0];
+    e.target.value = '';
+    if (!f) return;
+    await handleLabelOCR(f);
+  }}
+/>
+
+<input
+  ref={stockQtyOcrInputRef}
+  type="file"
+  accept="image/*,application/pdf"
+  capture="environment"
+  hidden
+  onChange={async (e) => {
+    const f = (e.target.files || [])[0];
+    e.target.value = '';
+    if (!f) return;
+    await handleQtyOCR(f);
+  }}
+/>
+</>
+);
 }
 
 /* =================== Styles =================== */
 const styles = {
   page: {
-    minHeight:'100vh',
-    background:'radial-gradient(1200px 1200px at 10% -10%, rgba(90,130,160,.25), transparent), radial-gradient(1200px 1200px at 110% 10%, rgba(60,110,140,.25), transparent), linear-gradient(180deg, #0b1520, #0e1b27 60%, #0b1520)',
-    padding:'24px 16px',
-    color:'#f8f1dc' /* beige chiaro con un filo di giallo */,
-    textShadow:'0 0 6px rgba(255,245,200,.15)'
+    minHeight: '100vh',
+    background:
+      'radial-gradient(1200px 1200px at 10% -10%, rgba(90,130,160,.25), transparent), radial-gradient(1200px 1200px at 110% 10%, rgba(60,110,140,.25), transparent), linear-gradient(180deg, #0b1520, #0e1b27 60%, #0b1520)',
+    padding: '24px 16px',
+    color: '#f8f1dc',
+    textShadow: '0 0 6px rgba(255,245,200,.15)'
   },
   card: {
-  maxWidth:1000, margin:'0 auto',
-  background:'transparent',                   // <— TRASPARENTE
-  backdropFilter:'none',
-  border:'1px solid rgba(255,255,255,.06)',
-  borderRadius:18, padding:16,
-  boxShadow:'0 12px 40px rgba(0,0,0,.0)'      // <— via l’ombra scura
-},
-  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
-  title3d:{
-    margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
-    textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
+    maxWidth: 1000,
+    margin: '0 auto',
+    background: 'transparent',
+    backdropFilter: 'none',
+    border: '1px solid rgba(255,255,255,.06)',
+    borderRadius: 18,
+    padding: 16,
+    boxShadow: '0 12px 40px rgba(0,0,0,0)'
   },
-  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
-  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
-  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
-  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
-  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
-
-  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
-  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
-
-sectionLarge:{
-  marginTop:10, padding:12, borderRadius:14,
-  background:'rgba(18,26,38,.28)',            // <— più trasparente
-  border:'1px solid rgba(255,255,255,.06)' },
- },
-sectionLifted:{
-  marginTop:14, padding:12, borderRadius:16,
-  background:'rgba(28,36,50,.28)',            // <— più trasparente
-  border:'1px solid rgba(255,255,255,.08)',
-  boxShadow:'0 12px 32px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.03)'
-},
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
-
-  h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
-  h4:{ margin:'2px 0 6px', fontSize:'1rem', fontWeight:800, opacity:.95 },
-
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
-  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', marginTop:6 },
-  input:{
-    flex:'1 1 180px', minWidth:170, padding:'10px 12px', borderRadius:12,
-    background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
+  headerRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 8 },
+  title3d: {
+    margin: 0,
+    fontSize: '1.6rem',
+    letterSpacing: 0.6,
+    fontWeight: 800,
+    textShadow: '0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
+  },
+  homeBtn: {
+    padding: '8px 12px',
+    borderRadius: 10,
+    background: 'linear-gradient(180deg,#1f2937,#111827)',
+    color: '#e5e7eb',
+    border: '1px solid #334155'
+  },
+  actionGhost: { padding: '8px 12px', borderRadius: 10, background: 'transparent', color: '#cbd5e1', border: '1px solid #334155' },
+  switchRow: { display: 'flex', gap: 8, marginTop: 4, marginBottom: 10, flexWrap: 'wrap' },
+  switchBtn: { padding: '10px 14px', borderRadius: 999, border: '1px solid #334155', background: 'rgba(17,24,39,.6)', color: '#e5e7eb' },
+  switchBtnActive: {
+    padding: '10px 14px',
+    borderRadius: 999,
+    border: '1px solid #65a30d',
+    background: 'linear-gradient(180deg,#166534,#14532d)',
+    color: '#ecfccb',
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)'
   },
 
-  listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
-  rowButton:{
-    display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
-    borderRadius:14, cursor:'pointer', userSelect:'none', boxShadow:'0 8px 18px rgba(0,0,0,.35)'
+  toolsRow: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0 2px' },
+  voiceBtn: {
+    padding: '10px 14px',
+    borderRadius: 12,
+    border: '1px solid #334155',
+    background: 'linear-gradient(180deg,#0ea5e9,#0284c7)',
+    color: '#05243a',
+    fontWeight: 800
   },
-  rowButtonToBuy:{
-    background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea'
+  primaryBtn: {
+    padding: '10px 14px',
+    borderRadius: 12,
+    border: '1px solid #3f6212',
+    background: 'linear-gradient(180deg,#4d7c0f,#3f6212)',
+    color: '#eff6ff',
+    fontWeight: 700
   },
-  rowButtonBought:{
-    background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
-  },
-  rowLeft:{ display:'flex', flexDirection:'column' },
-  rowName:{ fontWeight:800, letterSpacing:.4, marginBottom:2 },
-  rowBrand:{ opacity:.85, fontWeight:600 },
-  rowMeta:{ opacity:.9, fontSize:'.92rem' },
-  rowActions:{ display:'flex', gap:6, alignItems:'center' },
 
-  smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.75)', color:'#e5e7eb', fontWeight:800 },
-  smallOkBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #166534', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13', fontWeight:900 },
-  smallGhostBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'transparent', color:'#e5e7eb' },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #7f1d1d', background:'linear-gradient(180deg,#991b1b,#7f1d1d)', color:'#fff0ea' },
+  sectionLarge: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    background: 'rgba(18,26,38,.28)',
+    border: '1px solid rgba(255,255,255,.06)'
+  },
+  sectionLifted: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 16,
+    background: 'rgba(28,36,50,.28)',
+    border: '1px solid rgba(255,255,255,.08)',
+    boxShadow: '0 12px 32px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.03)'
+  },
+  sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 8 },
 
-  badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
-  badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
+  h3: { margin: '0 0 6px', fontSize: '1.2rem', fontWeight: 800, letterSpacing: 0.5, textShadow: '0 0 10px rgba(160,225,255,.25)' },
+  h4: { margin: '2px 0 6px', fontSize: '1rem', fontWeight: 800, opacity: 0.95 },
 
-  stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
-  stockCardCritical:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
-    border:'1px solid rgba(255,120,120,.25)', boxShadow:'0 10px 22px rgba(0,0,0,.38)'
+  formRow: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  formRowWrap: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 6 },
+  input: {
+    flex: '1 1 180px',
+    minWidth: 170,
+    padding: '10px 12px',
+    borderRadius: 12,
+    background: 'rgba(8,14,22,.75)',
+    color: '#f8f1dc',
+    border: '1px solid #334155',
+    outline: 'none'
   },
-  stockCardZ1:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(22,30,44,.9),rgba(16,22,34,.9))',
-    border:'1px solid rgba(255,255,255,.06)'
+
+  listGrid: { display: 'grid', gridTemplateColumns: '1fr', gap: 8 },
+  rowButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    padding: '10px 12px',
+    borderRadius: 14,
+    cursor: 'pointer',
+    userSelect: 'none',
+    boxShadow: '0 8px 18px rgba(0,0,0,.35)'
   },
-  stockCardZ2:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(18,26,40,.9),rgba(14,20,30,.9))',
-    border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
+  rowButtonToBuy: {
+    background: 'linear-gradient(180deg,#7f1d1d,#450a0a)',
+    border: '1px solid #7f1d1d',
+    color: '#fff4ea'
   },
-  stockTitle:{ fontWeight:800, marginBottom:6 },
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
-  progressInner:{ height:'100%', borderRadius:999, transition:'width .25s ease' },
-  stockLineSmall:{ marginTop:6, opacity:.92, fontSize:'.92rem', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' },
-  expiryChip:{ padding:'2px 8px', borderRadius:999, background:'rgba(250,204,21,.18)', border:'1px solid rgba(250,204,21,.35)', fontWeight:700 }
+  rowButtonBought: {
+    background: 'linear-gradient(180deg,#166534,#064e3b)',
+    border: '1px solid #166534',
+    color: '#ecfeff'
+  },
+  rowLeft: { display: 'flex', flexDirection: 'column' },
+  rowName: { fontWeight: 800, letterSpacing: 0.4, marginBottom: 2 },
+  rowBrand: { opacity: 0.85, fontWeight: 600 },
+  rowMeta: { opacity: 0.9, fontSize: '.92rem' },
+  rowActions: { display: 'flex', gap: 6, alignItems: 'center' },
+
+  smallQtyBtn: {
+    padding: '6px 10px',
+    borderRadius: 10,
+    border: '1px solid #334155',
+    background: 'rgba(17,24,39,.75)',
+    color: '#e5e7eb',
+    fontWeight: 800
+  },
+  smallOkBtn: {
+    padding: '6px 10px',
+    borderRadius: 10,
+    border: '1px solid #166534',
+    background: 'linear-gradient(180deg,#16a34a,#15803d)',
+    color: '#052e13',
+    fontWeight: 900
+  },
+  smallGhostBtn: { padding: '6px 10px', borderRadius: 10, border: '1px solid #334155', background: 'transparent', color: '#e5e7eb' },
+  smallDangerBtn: {
+    padding: '6px 10px',
+    borderRadius: 10,
+    border: '1px solid #7f1d1d',
+    background: 'linear-gradient(180deg,#991b1b,#7f1d1d)',
+    color: '#fff0ea'
+  },
+
+  badgeBought: {
+    marginLeft: 8,
+    padding: '2px 8px',
+    borderRadius: 999,
+    background: 'rgba(16,185,129,.2)',
+    border: '1px solid rgba(16,185,129,.35)',
+    fontSize: '.78rem',
+    fontWeight: 800
+  },
+  badgeToBuy: {
+    marginLeft: 8,
+    padding: '2px 8px',
+    borderRadius: 999,
+    background: 'rgba(239,68,68,.22)',
+    border: '1px solid rgba(239,68,68,.4)',
+    fontSize: '.78rem',
+    fontWeight: 800
+  },
+
+  stockGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 10 },
+  stockCardCritical: {
+    padding: 10,
+    borderRadius: 14,
+    background: 'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
+    border: '1px solid rgba(255,120,120,.25)',
+    boxShadow: '0 10px 22px rgba(0,0,0,.38)'
+  },
+  stockCardZ1: {
+    padding: 10,
+    borderRadius: 14,
+    background: 'linear-gradient(180deg,rgba(22,30,44,.9),rgba(16,22,34,.9))',
+    border: '1px solid rgba(255,255,255,.06)'
+  },
+  stockCardZ2: {
+    padding: 10,
+    borderRadius: 14,
+    background: 'linear-gradient(180deg,rgba(18,26,40,.9),rgba(14,20,30,.9))',
+    border: '1px solid rgba(255,255,255,.07)',
+    filter: 'saturate(1.08)'
+  },
+  stockTitle: { fontWeight: 800, marginBottom: 6 },
+  progressOuter: { height: 8, borderRadius: 999, background: 'rgba(255,255,255,.08)', overflow: 'hidden', border: '1px solid rgba(255,255,255,.1)' },
+  progressInner: { height: '100%', borderRadius: 999, transition: 'width .25s ease' },
+  stockLineSmall: { marginTop: 6, opacity: 0.92, fontSize: '.92rem', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  expiryChip: { padding: '2px 8px', borderRadius: 999, background: 'rgba(250,204,21,.18)', border: '1px solid rgba(250,204,21,.35)', fontWeight: 700 },
+
+  /* tabella scorte a colonne */
+  table: { display: 'grid', gap: 8 },
+  thead: {
+    display: 'grid',
+    gridTemplateColumns: '80px 1fr 140px 170px 200px',
+    alignItems: 'center',
+    padding: '10px 12px',
+    borderRadius: 12,
+    background: 'rgba(255,255,255,.06)'
+  },
+  th: { fontWeight: 800, opacity: 0.95 },
+  trZ1: {
+    display: 'grid',
+    gridTemplateColumns: '80px 1fr 140px 170px 200px',
+    gap: 0,
+    alignItems: 'center',
+    padding: '10px 12px',
+    borderRadius: 12,
+    background: 'rgba(255,255,255,.03)',
+    border: '1px solid rgba(255,255,255,.06)'
+  },
+  trZ2: {
+    display: 'grid',
+    gridTemplateColumns: '80px 1fr 140px 170px 200px',
+    gap: 0,
+    alignItems: 'center',
+    padding: '10px 12px',
+    borderRadius: 12,
+    background: 'rgba(255,255,255,.045)',
+    border: '1px solid rgba(255,255,255,.06)'
+  },
+  td: { display: 'flex', alignItems: 'center', gap: 8 }
 };
-
