@@ -1552,6 +1552,24 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       arr[index] = { ...row, residueUnits: clamped };
       return arr;
     });
+    /* =================== Gestione immagine riga scorte =================== */
+async function handleRowImage(files, idx) {
+  const file = (files && files[0]) || null;
+  if (!file) return;
+  // Salvo in dataURL (poi eventualmente su Supabase Storage)
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result || '');
+    setStock(prev => {
+      const arr = [...prev];
+      if (!arr[idx]) return prev;
+      arr[idx] = { ...arr[idx], image: dataUrl };
+      return arr;
+    });
+    showToast('Immagine prodotto aggiornata ✓', 'ok');
+  };
+  reader.readAsDataURL(file);
+}
   }
 
   /* =================== Scorte aggiunta manuale (dietro pulsante) =================== */
