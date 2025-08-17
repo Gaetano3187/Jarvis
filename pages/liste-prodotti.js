@@ -1414,114 +1414,113 @@ export default function ListeProdotti() {
           )}
 
           {/* Lista corrente */}
-          <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>
-              Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
-            </h3>
+<div style={styles.sectionLarge}>
+  <h3 style={styles.h3}>
+    Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+  </h3>
 
-            {(lists[currentList] || []).length === 0 ? (
-              <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
-            ) : (
-              <div style={styles.listGrid}>
-                {(lists[currentList] || []).map((it) => {
-                  const isBought = !!it.purchased;
-                  return (
-                    <div
-                      key={it.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setLists(prev => {
-                          const next = { ...prev };
-                          next[currentList] = (prev[currentList] || []).map(i =>
-                            i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                          );
-                          return next;
-                        });
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setLists(prev => {
-                            const next = { ...prev };
-                            next[currentList] = (prev[currentList] || []).map(i =>
-                              i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                            );
-                            return next;
-                          });
-                        }
-                      }}
-                      style={{
-                        ...styles.rowButton,
-                        ...(isBought ? styles.rowButtonBought : styles.rowButtonToBuy)
-                      }}
-                    >
-                      <div style={styles.rowLeft}>
-                        <div style={styles.rowName}>
-                          {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
-                        </div>
-                        <div style={styles.rowMeta}>
-                          {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
-                          {isBought ? <span style={styles.badgeBought}>preso</span> : <span style={styles.badgeToBuy}>da prendere</span>}
-                        </div>
-                      </div>
-
-                      <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
-                        <button title="Segna come comprato (–1 conf. e aggiorna scorte)"
-                                onClick={() => {
-                                  // scala di 1 e sposta a scorte
-                                  const item = it;
-                                  const movePacks = 1;
-                                  setLists(prev => {
-                                    const next = { ...prev };
-                                    next[currentList] = (prev[currentList] || [])
-                                      .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
-                                      .filter(r => Number(r.qty || 0) > 0);
-                                    return next;
-                                  });
-                                  setStock(prev => {
-                                    const arr = [...prev];
-                                    const todayISO = new Date().toISOString().slice(0, 10);
-                                    const idx = arr.findIndex(
-                                      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-                                    );
-                                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-                                    const moveLabel = item.unitLabel || 'unità';
-                                    if (idx >= 0) {
-                                      const old = arr[idx];
-                                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                                      arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
-                                    } else {
-                                      arr.unshift({
-                                        name: item.name, brand: item.brand || '',
-                                        packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                                        expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
-                                      });
-                                    }
-                                    return arr;
-                                  });
-                                }}
-                                style={styles.smallOkBtn}>✓</button>
-
-                        <button title="–1" onClick={() => incQty(it.id, -1)} style={styles.smallQtyBtn}>−</button>
-                        <button title="+1" onClick={() => incQty(it.id, +1)} style={styles.smallQtyBtn}>+</button>
-
-                        <button
-                          title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
-                          onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
-                          style={styles.smallGhostBtn}
-                        >OCR riga</button>
-
-                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.smallDangerBtn}>🗑</button>
-                      </div>
-                    </div>
+  {(lists[currentList] || []).length === 0 ? (
+    <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
+  ) : (
+    <div style={styles.listGrid}>
+      {(lists[currentList] || []).map((it) => {
+        const isBought = !!it.purchased;
+        return (
+          <div
+            key={it.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setLists(prev => {
+                const next = { ...prev };
+                next[currentList] = (prev[currentList] || []).map(i =>
+                  i.id === it.id ? { ...i, purchased: !i.purchased } : i
+                );
+                return next;
+              });
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setLists(prev => {
+                  const next = { ...prev };
+                  next[currentList] = (prev[currentList] || []).map(i =>
+                    i.id === it.id ? { ...i, purchased: !i.purchased } : i
                   );
-                })}
+                  return next;
+                });
+              }
+            }}
+            style={{
+              ...styles.rowButton,
+              ...(isBought ? styles.rowButtonBought : styles.rowButtonToBuy)
+            }}
+          >
+            <div style={styles.rowLeft}>
+              <div style={styles.rowName}>
+                {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
               </div>
-            )}
-          </div>
+              <div style={styles.rowMeta}>
+                {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
+              </div>
+            </div>
 
+            <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
+              {/* OK → sposta subito in scorte */}
+              <button
+                title="Aggiungi 1 conf. alle scorte"
+                onClick={() => {
+                  const item = it;
+                  const movePacks = 1;
+
+                  // riduci qty in lista
+                  setLists(prev => {
+                    const next = { ...prev };
+                    next[currentList] = (prev[currentList] || [])
+                      .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks) } : r)
+                      .filter(r => Number(r.qty || 0) > 0);
+                    return next;
+                  });
+
+                  // aggiorna scorte
+                  setStock(prev => {
+                    const arr = [...prev];
+                    const todayISO = new Date().toISOString().slice(0, 10);
+                    const idx = arr.findIndex(
+                      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+                    );
+                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
+                    const moveLabel = item.unitLabel || 'unità';
+                    if (idx >= 0) {
+                      const old = arr[idx];
+                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
+                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
+                      arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
+                    } else {
+                      arr.unshift({
+                        name: item.name, brand: item.brand || '',
+                        packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
+                        expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
+                      });
+                    }
+                    return arr;
+                  });
+                }}
+                style={styles.smallOkBtn}
+              >
+                ✓
+              </button>
+
+              <button title="–1" onClick={() => incQty(it.id, -1)} style={styles.smallQtyBtn}>−</button>
+              <button title="+1" onClick={() => incQty(it.id, +1)} style={styles.smallQtyBtn}>+</button>
+              <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.smallDangerBtn}>🗑</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
           {/* OCR Scontrino globale */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>📸 OCR Scontrino</h3>
