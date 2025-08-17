@@ -1891,7 +1891,7 @@ export default function ListeProdotti() {
         }}
       />
 
-   {/* 5) Input nascosto per immagine prodotto */}
+ {/* 5) Input nascosto per immagine prodotto */}
 <input
   ref={rowImageInputRef}
   type="file"
@@ -1932,9 +1932,6 @@ export default function ListeProdotti() {
   .hint { opacity:.75; font-size:.9rem; margin-top:6px; }
 `}</style>
 
-    </>
-  );
-}
 
 /* =================== Styles (completo con fix) =================== */
 const styles = {
