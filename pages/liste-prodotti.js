@@ -2052,8 +2052,8 @@ const styles = {
   },
     toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
   toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
-  toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
-    /* ====== Nuove chiavi per layout a righe ====== */
+  toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)'
+  },
   stockTable: {
     width: '100%',
     display: 'block',
