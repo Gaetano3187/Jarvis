@@ -2541,7 +2541,7 @@ export default function ListeProdotti() {
     role="status"
     aria-live="polite"
   >
-    <span className="toast__icon" aria-hidden="true">
+    <span className="toast__icon" aria-hidden={true}>
       {toast.type === 'err' ? '⚠️' : toast.type === 'ok' ? '✅' : 'ℹ️'}
     </span>
     <span className="toast__msg">{toast.msg}</span>
@@ -2597,45 +2597,49 @@ export default function ListeProdotti() {
   }
   .toast__close:hover { background: rgba(255,255,255,.25); }
 
-  /* === Righe lista === */
-  .itemRow.pending { background: rgba(220,38,38,0.7); color: #fff; border:2px solid #dc2626; }
-  .itemRow.pending:hover { background: rgba(220,38,38,0.85); }
-  .itemRow.bought  { background: rgba(22,163,74,0.7); color: #fff; border:2px solid #16a34a; }
-  .itemRow.bought:hover  { background: rgba(22,163,74,0.85); }
+  /* === Righe lista (rosso -> verde) === */
+  .itemRow { user-select: none; will-change: transform, filter; }
+  .itemRow.pending {
+    background: #ef4444;
+    color: #fff;
+    border: 2px solid #dc2626;
+  }
+  .itemRow.pending:hover { filter: brightness(1.05); }
+  .itemRow.bought {
+    background: #16a34a;
+    color: #fff;
+    border: 2px solid #16a34a;
+  }
+  .itemRow.bought:hover { filter: brightness(1.05); }
 
   /* Animazioni click/press */
-  .itemRow.tap, .qtyBadge.tap {
+  .tap {
     transform: scale(0.94) translateY(2px);
-    filter: brightness(0.82);
+    filter: brightness(0.9);
     transition: transform .06s ease, filter .06s ease;
   }
-  .itemRow.rebound {
-    transform: scale(1.03);
-    filter: brightness(1.1);
+  .rebound {
+    transform: scale(1.02);
+    filter: brightness(1.08);
     transition: transform .1s ease, filter .1s ease;
   }
-  .qtyBadge.rebound {
-    transform: scale(1.12);
-    filter: brightness(1.25);
-    box-shadow: 0 0 0 8px rgba(245,158,11,0.35);
+
+  /* Badge quantità: glow al tap */
+  .qtyBadgeTap {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 10px rgba(245,158,11,0.28);
     background: rgba(245,158,11,0.18);
     border-radius: 9999px;
-    transition: all .12s ease;
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
   }
 
-  /* Utility */
+  /* Utility già usate */
   .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
   @keyframes titlePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
   .muted { opacity:.8; }
-  .hint { opacity:.7; font-size: .9rem; margin-top:6px; }
+  .hint { opacity:.7; font-size: 0.9rem; margin-top:6px; }
   .rowWrap { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 `}</style>
-
-<script dangerouslySetInnerHTML={{ __html: `
-  window.tap = (el) => { el?.classList.add('tap'); setTimeout(() => el?.classList.remove('tap'), 120); };
-  window.rebound = (el) => { el?.classList.add('rebound'); setTimeout(() => el?.classList.remove('rebound'), 120); };
-`}} />
-
 
 /* workaround MediaRecorder multipli */
 function theMediaWorkaround(){}
@@ -2723,14 +2727,14 @@ const styles = {
   h3: { margin: '6px 0 12px', color: 'beige', textShadow: '0 1px 0 #000' },
 
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
-  rowBtnRed: {
+
+  /* il “bottone riga” lo gestiamo con classi .itemRow pending/bought nel CSS sopra,
+     qui lasciamo struttura/padding/borderRadius comuni */
+  rowBtnBase: {
     flex: 1,
     display: 'flex',
     alignItems: 'center',
     gap: 10,
-    background: '#ef4444',
-    color: 'beige',
-    textShadow: '0 1px 0 #000',
     border: 'none',
     borderRadius: 12,
     padding: '10px 12px',
@@ -2738,21 +2742,7 @@ const styles = {
     fontWeight: 800,
     minHeight: 44,
   },
-  rowBtnGreen: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    background: '#16a34a',
-    color: 'beige',
-    textShadow: '0 1px 0 #000',
-    border: 'none',
-    borderRadius: 12,
-    padding: '10px 12px',
-    cursor: 'pointer',
-    fontWeight: 800,
-    minHeight: 44,
-  },
+
   qtyBadge: {
     minWidth: 34,
     height: 34,
@@ -2767,7 +2757,13 @@ const styles = {
   },
   itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1, color: 'beige' },
   itemBrand: { fontSize: 12, opacity: 0.9, color: 'beige' },
-  itemActions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  itemActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
 
   actionTiny: {
     background: 'rgba(255,255,255,.12)',
@@ -2798,6 +2794,7 @@ const styles = {
     fontWeight: 700,
     textShadow: '0 1px 0 #000',
   },
+
   primaryBtn: {
     background: '#16a34a',
     border: 0,
