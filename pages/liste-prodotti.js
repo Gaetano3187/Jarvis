@@ -1253,11 +1253,11 @@ export default function ListeProdotti() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       invStreamRef.current = stream;
-      invMediaRecRef = new MediaRecorder(stream);
+      invMediaRef.current = new MediaRecorder(stream);
       invChunksRef.current = [];
-      invMediaRecRef.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
-      invMediaRecRef.onstop = processVoiceInventory;
-      invMediaRecRef.start();
+      invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
+      invMediaRef.current.onstop = processVoiceInventory;
+      invMediaRef.current.start();
       setInvRecBusy(true);
     } catch {
       alert('Microfono non disponibile');
@@ -1344,8 +1344,8 @@ export default function ListeProdotti() {
       setInvRecBusy(false);
       setBusy(false);
       try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-      invMediaRecRef = null;
-      invStreamRef = null;
+      invMediaRef.current = null;
+      invStreamRef.current = null;
       invChunksRef.current = [];
     }
   }
@@ -1768,9 +1768,7 @@ export default function ListeProdotti() {
                               <div style={styles.rowActionsRight}>
                                 <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
                                 <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                                <button title="OCR (etichetta+scontrino) per questa riga"
-                                        onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                        style={styles.smallGhostBtn}>OCR riga</button>
+                                <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
                               </div>
                             </div>
                           </>
@@ -1782,20 +1780,37 @@ export default function ListeProdotti() {
               )}
             </div>
           </div>
+
+          {/* TOAST */}
+          {toast && (
+            <div style={{
+              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
+              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
+              color:'#fff', padding:'10px 14px', borderRadius:10,
+              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999, fontWeight:600, letterSpacing:.2
+            }}>
+              {toast.msg}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Input nascosti OCR / immagini */}
+      {/* INPUT NASCOSTI */}
       <input
         ref={ocrInputRef}
         type="file"
         accept="image/*,application/pdf"
-        capture="environment"
         multiple
         hidden
-        onChange={e => { const files = Array.from(e.target.files||[]); e.target.value=''; if (files.length) handleOCR(files); }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          if (!files.length) return;
+          handleOCR(files);
+          e.target.value = '';
+        }}
       />
 
+      {/* OCR UNICO di riga */}
       <input
         ref={rowOcrInputRef}
         type="file"
@@ -1807,31 +1822,39 @@ export default function ListeProdotti() {
           const files = Array.from(e.target.files || []);
           e.target.value = '';
           if (!files.length) return;
-          if (targetRowIdx == null) return;
+
+          // Chi è la riga target? (lista o scorte)
+          let itemName = '';
+          let brand = '';
+          let stockIndex = -1;
+
+          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
+          if (byId) {
+            itemName = byId.name;
+            brand = byId.brand || '';
+          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
+            stockIndex = targetRowIdx;
+            itemName = stock[stockIndex].name;
+            brand = stock[stockIndex].brand || '';
+          } else {
+            showToast('Elemento non trovato per OCR riga', 'err');
+            return;
+          }
 
           try {
             setBusy(true);
+
+            // 1) OCR di tutte le immagini caricate
             const fd = new FormData();
             files.forEach(f => fd.append('images', f));
-            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 40000);
-            const ocrJson = await readJsonSafe(ocrRes);
-            if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
-            const ocrText = String(ocrJson?.text || '').trim();
-            if (!ocrText) throw new Error('OCR vuoto');
+            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 35000);
+            const ocr = await readJsonSafe(ocrRes);
+            if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
+            const ocrText = String(ocr.text || '').trim();
+            if (!ocrText) throw new Error('Nessun testo letto');
 
-            // Trova riga target
-            let row = null;
-            let idx = -1;
-            if (typeof targetRowIdx === 'number') {
-              idx = targetRowIdx;
-              row = stock[idx];
-            } else {
-              const arr = lists[currentList] || [];
-              row = arr.find(i => i.id === targetRowIdx);
-            }
-            if (!row) return;
-
-            const prompt = buildUnifiedRowPrompt(ocrText, row);
+            // 2) Chiedi il pacchetto unificato
+            const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
             const r = await timeoutFetch(API_ASSISTANT_TEXT, {
               method:'POST',
               headers:{'Content-Type':'application/json'},
@@ -1839,33 +1862,85 @@ export default function ListeProdotti() {
             }, 30000);
             const safe = await readJsonSafe(r);
             const answer = safe?.answer || safe?.data || safe;
-            const parsed = typeof answer === 'string' ? (()=>{ try{return JSON.parse(answer);}catch{return null;}})() : answer;
-            if (!parsed) throw new Error('JSON non valido dal modello');
+            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
-            // Aggiorna scorta
-            if (typeof targetRowIdx === 'number') {
-              setStock(prev => {
-                const arr = [...prev];
-                if (!arr[idx]) return prev;
-                const upp = Math.max(1, Number(parsed.unitsPerPack || arr[idx].unitsPerPack || 1));
-                const packs = Math.max(0, Number(parsed.packs || arr[idx].packs || 0));
-                arr[idx] = {
-                  ...arr[idx],
-                  name: parsed.name || arr[idx].name,
-                  brand: parsed.brand || arr[idx].brand,
-                  packs,
-                  unitsPerPack: upp,
-                  unitLabel: parsed.unitLabel || arr[idx].unitLabel,
-                  expiresAt: parsed.expiresAt || arr[idx].expiresAt,
-                  ...restockTouch(packs, new Date().toISOString().slice(0,10), upp)
+            // 3) Applica ai dati di scorta
+            const upd = {
+              name: String(parsed?.name || itemName || '').trim(),
+              brand: String(parsed?.brand || brand || '').trim(),
+              packs: Math.max(0, Number(parsed?.packs || 0)),
+              unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
+              unitLabel: String(parsed?.unitLabel || 'unità').trim() || 'unità',
+              expiresAt: toISODate(parsed?.expiresAt || '')
+            };
+
+            const todayISO = new Date().toISOString().slice(0,10);
+
+            setStock(prev => {
+              const arr = [...prev];
+
+              if (stockIndex >= 0 && arr[stockIndex]) {
+                const old = arr[stockIndex];
+                const nowUnits = upd.packs * upd.unitsPerPack;
+                const wasUnits = Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
+                const restock = nowUnits > wasUnits;
+
+                let next = {
+                  ...old,
+                  name: upd.name || old.name,
+                  brand: upd.brand || old.brand,
+                  packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
+                  unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
+                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
+                  expiresAt: upd.expiresAt || old.expiresAt || ''
                 };
+                if (restock) {
+                  next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
+                }
+                arr[stockIndex] = next;
                 return arr;
-              });
-            }
-            showToast('OCR riga applicato ✓','ok');
+              }
+
+              // Se partiva da lista: crea/aggiorna scorta corrispondente
+              const j = arr.findIndex(s => isSimilar(s.name, upd.name) && (!upd.brand || isSimilar(s.brand || '', upd.brand)));
+              if (j >= 0) {
+                const old = arr[j];
+                const newPacks = Math.max(0, Number(upd.packs || 0));
+                const newUPP = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
+                arr[j] = {
+                  ...old,
+                  name: upd.name || old.name,
+                  brand: upd.brand || old.brand,
+                  packs: newPacks || old.packs || 0,
+                  unitsPerPack: newUPP,
+                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
+                  expiresAt: upd.expiresAt || old.expiresAt || '',
+                  ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP)
+                };
+              } else {
+                const p = Math.max(0, Number(upd.packs || 0));
+                const u = Math.max(1, Number(upd.unitsPerPack || 1));
+                arr.unshift({
+                  name: upd.name || itemName,
+                  brand: upd.brand || brand || '',
+                  packs: p,
+                  unitsPerPack: u,
+                  unitLabel: upd.unitLabel || 'unità',
+                  expiresAt: upd.expiresAt || '',
+                  baselinePacks: p,
+                  lastRestockAt: todayISO,
+                  avgDailyUnits: 0,
+                  residueUnits: p * u,
+                  image: ''
+                });
+              }
+              return arr;
+            });
+
+            showToast('Riga aggiornata da OCR ✓', 'ok');
           } catch (err) {
-            console.error('[row OCR]', err);
-            showToast('Errore OCR riga','err');
+            console.error('[Row OCR unified]', err);
+            showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
           } finally {
             setBusy(false);
             setTargetRowIdx(null);
@@ -1873,32 +1948,27 @@ export default function ListeProdotti() {
         }}
       />
 
+      {/* Input immagine prodotto */}
       <input
         ref={rowImageInputRef}
         type="file"
         accept="image/*"
         capture="environment"
         hidden
-        onChange={e => {
+        onChange={(e) => {
           const files = Array.from(e.target.files || []);
           e.target.value = '';
-          if (!files.length || targetImageIdx==null) return;
-          handleRowImage(files, targetImageIdx);
-          setTargetImageIdx(null);
+          if (files.length && typeof targetImageIdx === 'number') {
+            handleRowImage(files, targetImageIdx);
+            setTargetImageIdx(null);
+          }
         }}
       />
-
-      {/* Toast */}
-      {toast && (
-        <div style={toast.type==='ok'?styles.toastOk:styles.toastErr}>
-          {toast.msg}
-        </div>
-      )}
     </>
   );
 }
 
-/* =================== Styles =================== */
+/* =================== Styles (completo con fix) =================== */
 const styles = {
   page: {
     minHeight:'100vh',
@@ -1907,56 +1977,86 @@ const styles = {
     color:'#f8f1dc',
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
-  card:{ maxWidth:1000, margin:'0 auto', background:'transparent', border:'1px solid rgba(255,255,255,.06)', borderRadius:18, padding:16 },
-  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 },
-  title3d:{ margin:0, fontSize:'1.6rem', fontWeight:800, textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)' },
-  homeBtn:{ padding:'6px 12px', borderRadius:8, background:'#1f2937', color:'#e5e7eb', border:'1px solid #374151' },
-  switchRow:{ display:'flex', gap:8, margin:'12px 0' },
-  switchBtn:{ flex:1, padding:'8px 12px', borderRadius:8, background:'#111827', color:'#eee', border:'1px solid #333' },
-  switchBtnActive:{ flex:1, padding:'8px 12px', borderRadius:8, background:'#2563eb', color:'#fff', border:'1px solid #2563eb' },
-  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', margin:'12px 0' },
-  primaryBtn:{ padding:'6px 12px', borderRadius:8, background:'#2563eb', color:'#fff', border:'none' },
-  voiceBtn:{ padding:'6px 12px', borderRadius:8, background:'#9333ea', color:'#fff', border:'none' },
-  sectionLarge:{ marginTop:16, padding:12, border:'1px solid rgba(255,255,255,.06)', borderRadius:12 },
-  h3:{ margin:'4px 0 8px 0', fontSize:'1.2rem' },
-  listGrid:{ display:'flex', flexDirection:'column', gap:6 },
-  rowButton:{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', borderRadius:8, cursor:'pointer' },
-  rowButtonToBuy:{ background:'rgba(37,99,235,.15)', border:'1px solid #2563eb' },
-  rowButtonBought:{ background:'rgba(22,163,74,.15)', border:'1px solid #16a34a' },
+
+  // Card trasparente
+  card: {
+    maxWidth:1000, margin:'0 auto',
+    background:'transparent',
+    backdropFilter:'none',
+    border:'1px solid rgba(255,255,255,.06)',
+    borderRadius:18, padding:16,
+    boxShadow:'none'
+  },
+
+  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
+  title3d:{
+    margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
+    textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
+  },
+  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
+  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
+
+  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
+  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
+  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
+
+  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
+  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
+    primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
+
+  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
+  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
+  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
+
+  h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
+  h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
+
+  listGrid:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
+  rowButton:{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', borderRadius:12, cursor:'pointer', userSelect:'none' },
+  rowButtonToBuy:{ background:'rgba(17,24,39,.6)', border:'1px solid #334155' },
+  rowButtonBought:{ background:'rgba(21,128,61,.4)', border:'1px solid #166534', textDecoration:'line-through', opacity:.75 },
   rowLeft:{ flex:1, minWidth:0 },
-  rowName:{ fontWeight:600 },
-  rowBrand:{ opacity:.8, fontWeight:400 },
-  rowMeta:{ fontSize:'.85rem', opacity:.9 },
-  rowActions:{ display:'flex', gap:4, marginLeft:8 },
-  smallOkBtn:{ padding:'2px 6px', background:'#16a34a', color:'#fff', borderRadius:6, border:'none' },
-  smallQtyBtn:{ padding:'2px 6px', background:'#374151', color:'#fff', borderRadius:6, border:'none' },
-  smallGhostBtn:{ padding:'2px 6px', background:'transparent', color:'#ccc', border:'1px solid #444', borderRadius:6 },
-  smallDangerBtn:{ padding:'2px 6px', background:'#dc2626', color:'#fff', border:'none', borderRadius:6 },
-  sectionLifted:{ marginTop:16, padding:12, border:'1px solid rgba(255,255,255,.1)', borderRadius:12, background:'rgba(0,0,0,.25)' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 },
-  h4:{ margin:'4px 0 6px 0', fontSize:'1rem' },
-  formRow:{ display:'flex', gap:8, flexWrap:'wrap', margin:'8px 0' },
-  input:{ padding:'6px 8px', borderRadius:6, border:'1px solid #444', background:'#111827', color:'#eee' },
-  critListWrap:{ display:'flex', flexDirection:'column', gap:4 },
-  critRow:{ display:'flex', alignItems:'center', gap:8, padding:'4px 0' },
-  critName:{ flex:1 },
-  progressOuterCrit:{ flex:1, height:8, background:'#222', borderRadius:6, overflow:'hidden' },
-  progressOuterBig:{ height:14, background:'#222', borderRadius:6, overflow:'hidden' },
+  rowName:{ fontWeight:600, fontSize:'1.05rem' },
+  rowBrand:{ fontWeight:400, fontSize:'.95rem', opacity:.75 },
+  rowMeta:{ fontSize:'.9rem', opacity:.85, marginTop:2 },
+  rowActions:{ display:'flex', gap:6, marginLeft:12 },
+  rowActionsRight:{ display:'flex', gap:6, marginLeft:'auto' },
+
+  badgeToBuy:{ marginLeft:8, background:'#1e40af', color:'#bfdbfe', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
+  badgeBought:{ marginLeft:8, background:'#14532d', color:'#bbf7d0', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
+
+  smallOkBtn:{ padding:'2px 6px', borderRadius:6, background:'#16a34a', color:'#fff', border:'none', fontWeight:600 },
+  smallDangerBtn:{ padding:'2px 6px', borderRadius:6, background:'#dc2626', color:'#fff', border:'none', fontWeight:600 },
+  smallGhostBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.1)', color:'#e5e7eb', border:'1px solid #334155', fontWeight:500 },
+  smallQtyBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.08)', color:'#f8fafc', border:'1px solid #334155', fontWeight:700 },
+
+  formRow:{ display:'flex', flexWrap:'wrap', gap:8, margin:'6px 0' },
+  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
+  input:{ flex:1, minWidth:120, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.6)', color:'#f1f5f9' },
+
+  critListWrap:{ display:'flex', flexDirection:'column', gap:6, marginTop:4 },
+  critRow:{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:10, background:'rgba(255,255,255,.05)' },
+  critName:{ flex:1, fontWeight:600 },
+  critMeta:{ fontSize:'.85rem', opacity:.85 },
+  progressOuterCrit:{ flex:1, height:6, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
+  progressOuterBig:{ marginTop:4, height:12, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
   progressInner:{ height:'100%' },
-  expiryChip:{ marginLeft:6, fontSize:'.8rem', color:'#f59e0b' },
-  stockList:{ display:'flex', flexDirection:'column', gap:6 },
-  stockLineZ1:{ display:'flex', alignItems:'center', gap:12, padding:8, borderRadius:8, background:'rgba(255,255,255,.02)' },
-  stockLineZ2:{ display:'flex', alignItems:'center', gap:12, padding:8, borderRadius:8, background:'rgba(255,255,255,.05)' },
-  stockRow:{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' },
-  imageBox:{ width:60, height:60, border:'1px dashed #555', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', overflow:'hidden' },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.4rem', opacity:.5 },
-  stockTitle:{ fontWeight:600 },
-  stockLineSmall:{ fontSize:'.85rem', opacity:.9 },
+
+  expiryChip:{ marginLeft:6, background:'#7e22ce', color:'#f3e8ff', padding:'0 6px', borderRadius:6, fontSize:'.75rem' },
+
+  stockList:{ display:'flex', flexDirection:'column', marginTop:6 },
+  stockLineZ1:{ padding:'8px 10px', borderRadius:12, background:'rgba(255,255,255,.04)', marginBottom:4 },
+  stockLineZ2:{ padding:'8px 10px', borderRadius:12, background:'rgba(0,0,0,.25)', marginBottom:4 },
+
+  stockRow:{ display:'flex', alignItems:'center', gap:12 },
+  stockTitle:{ fontWeight:600, fontSize:'1.05rem' },
+  stockLineSmall:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
+
   kvCol:{ minWidth:80, textAlign:'center' },
   kvLabel:{ fontSize:'.75rem', opacity:.7 },
-  kvValue:{ fontWeight:600 },
-  rowActionsRight:{ display:'flex', gap:4, marginLeft:'auto' },
-  toastOk:{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#16a34a', color:'#fff', padding:'6px 12px', borderRadius:8 },
-  toastErr:{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#dc2626', color:'#fff', padding:'6px 12px', borderRadius:8 }
+  kvValue:{ fontWeight:700, fontSize:'1rem' },
+
+  imageBox:{ width:64, height:64, borderRadius:12, background:'rgba(255,255,255,.08)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer' },
+  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
+  imagePlaceholder:{ fontSize:'1.4rem', opacity:.5 }
 };
