@@ -1891,22 +1891,24 @@ export default function ListeProdotti() {
         }}
       />
 
-      {/* 5) Input nascosto per immagine prodotto */}
-      <input
-        ref={rowImageInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (files.length && typeof targetImageIdx === 'number') {
-            handleRowImage(files, targetImageIdx);
-            setTargetImageIdx(null);
-          }
-        }}
-          <style jsx>{`
+   {/* 5) Input nascosto per immagine prodotto */}
+<input
+  ref={rowImageInputRef}
+  type="file"
+  accept="image/*"
+  capture="environment"
+  hidden
+  onChange={(e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length && typeof targetImageIdx === 'number') {
+      handleRowImage(files, targetImageIdx);
+      setTargetImageIdx(null);
+    }
+  }}
+/>
+
+<style jsx>{`
   @media (max-width: 600px){
     .stockRow {
       grid-template-columns: 64px 1fr;
@@ -1930,10 +1932,10 @@ export default function ListeProdotti() {
   .hint { opacity:.75; font-size:.9rem; margin-top:6px; }
 `}</style>
 
-      />
     </>
   );
 }
+
 /* =================== Styles (completo con fix) =================== */
 const styles = {
   page: {
