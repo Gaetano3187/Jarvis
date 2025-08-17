@@ -1768,7 +1768,6 @@ export default function ListeProdotti() {
                               <div style={styles.rowActionsRight}>
                                 <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
                                 <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                                <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.small
                                 <button title="OCR (etichetta+scontrino) per questa riga"
                                         onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
                                         style={styles.smallGhostBtn}>OCR riga</button>
