@@ -609,62 +609,92 @@ export default function ListeProdotti() {
 
   const curItems = lists[currentList] || [];
 
-  /* =================== Cloud Sync (Supabase) — opzionale =================== */
-  const userIdRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC) return;
-    let mounted = true;
-    (async () => {
-     try {
-  const { data: rows, error } = await __supabase
-    .from(CLOUD_TABLE)
-    .select('state')
-    .eq('user_id', uid)
-    .maybeSingle();
+ /* =================== Cloud Sync (Supabase) — opzionale =================== */
+const userIdRef = useRef(null);
 
-  if (error) {
-    // Se la colonna non esiste ancora, ignora il cloud sync (niente crash)
-    if ((error.code === '42703') || /column .* does not exist/i.test(error.message || '')) {
-      if (DEBUG) console.warn('[cloud] column missing, skip cloud load');
-    } else {
-      if (DEBUG) console.warn('[cloud] load error', error);
-    }
-  } else if (rows?.state) {
-    const st = rows.state;
-    setLists({
-      [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-      [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-    });
-    if (Array.isArray(st.stock)) setStock(st.stock);
-    if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
-      setCurrentList(st.currentList);
-    }
-  }
-} catch (e) {
-  if (DEBUG) console.warn('[cloud init] skipped', e);
-}
-    })();
-    return () => { mounted = false; };
-  }, []);
+useEffect(() => {
+  if (!CLOUD_SYNC) return;
+  let mounted = true;
 
-  // Upsert cloud a ogni modifica, con debounce leggero
-  const cloudTimerRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC || !__supabase) return;
-    if (!userIdRef.current) return;
-    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
-    const snapshot = { lists, stock, currentList };
-    cloudTimerRef.current = setTimeout(async () => {
-      try {
-        await __supabase
-          .from(CLOUD_TABLE)
-          .upsert({ user_id: userIdRef.current, state: snapshot }, { onConflict: 'user_id' });
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud upsert] fail', e);
+  (async () => {
+    try {
+      // Importa solo se il client esiste; altrimenti non sincronizzare (no crash)
+      const mod = await import('@/lib/supabaseClient').catch(() => null);
+      if (!mod?.supabase) return;
+
+      __supabase = mod.supabase;
+
+      // Prende l'utente loggato (se non loggato → esci silenziosamente)
+      const { data: userData, error: authErr } = await __supabase.auth.getUser();
+      if (authErr) return;
+      const uid = userData?.user?.id || null;
+      if (mounted) userIdRef.current = uid;
+      if (!uid) return;
+
+      // Carica stato dal cloud (se esiste). Se manca la colonna `state`, ignora.
+      const { data: row, error } = await __supabase
+        .from(CLOUD_TABLE)
+        .select('state')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (error) {
+        // Gestione "column does not exist" (42703) o messaggio equivalente
+        const msg = (error.message || '').toLowerCase();
+        if (error.code === '42703' || msg.includes('column') && msg.includes('does not exist')) {
+          if (DEBUG) console.warn('[cloud] colonna state assente: skip load');
+        } else if (DEBUG) {
+          console.warn('[cloud] load error', error);
+        }
+        return;
       }
-    }, 400);
-    return () => clearTimeout(cloudTimerRef.current);
-  }, [lists, stock, currentList]);
+
+      const st = row?.state;
+      if (!st) return;
+
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
+      });
+      if (Array.isArray(st.stock)) setStock(st.stock);
+      if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
+        setCurrentList(st.currentList);
+      }
+    } catch (e) {
+      if (DEBUG) console.warn('[cloud init] skipped', e);
+    }
+  })();
+
+  return () => { mounted = false; };
+}, []);
+
+const cloudTimerRef = useRef(null);
+useEffect(() => {
+  if (!CLOUD_SYNC || !__supabase) return;
+  if (!userIdRef.current) return;
+
+  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+  const snapshot = { lists, stock, currentList };
+
+  cloudTimerRef.current = setTimeout(async () => {
+    try {
+      await __supabase
+        .from(CLOUD_TABLE)
+        .upsert(
+          { user_id: userIdRef.current, state: snapshot },
+          { onConflict: 'user_id' }
+        );
+    } catch (e) {
+      // Se la colonna non esiste, ignora senza interrompere l’app
+      const msg = (e?.message || '').toLowerCase?.() || '';
+      if (DEBUG && !(msg.includes('column') && msg.includes('does not exist'))) {
+        console.warn('[cloud upsert] fail', e);
+      }
+    }
+  }, 400);
+
+  return () => clearTimeout(cloudTimerRef.current);
+}, [lists, stock, currentList]);
 
   /* =================== Brain Hub (no-op se non usi) =================== */
   {
