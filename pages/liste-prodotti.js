@@ -615,37 +615,34 @@ export default function ListeProdotti() {
     if (!CLOUD_SYNC) return;
     let mounted = true;
     (async () => {
-      try {
-        const mod = await import('@/lib/supabaseClient').catch(()=>null);
-        if (!mod?.supabase) return;
-        __supabase = mod.supabase;
-        const { data } = await __supabase.auth.getUser();
-        const uid = data?.user?.id || null;
-        if (mounted) userIdRef.current = uid;
+     try {
+  const { data: rows, error } = await __supabase
+    .from(CLOUD_TABLE)
+    .select('state')
+    .eq('user_id', uid)
+    .maybeSingle();
 
-        if (!uid) return; // non loggato → nessuna cloud load
-        // Carica stato cloud (se esiste)
-        const { data: rows, error } = await __supabase
-          .from(CLOUD_TABLE)
-          .select('state')
-          .eq('user_id', uid)
-          .maybeSingle();
-        if (!error && rows?.state) {
-          const st = rows.state;
-          if (st?.lists) {
-            setLists({
-              [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-              [LIST_TYPES.ONLINE]: Array.isArray(st.lists[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-            });
-          }
-          if (Array.isArray(st.stock)) setStock(st.stock);
-          if (st.currentList && (st.currentList === LIST_TYPES.SUPERMARKET || st.currentList === LIST_TYPES.ONLINE)) {
-            setCurrentList(st.currentList);
-          }
-        }
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud init] skipped', e);
-      }
+  if (error) {
+    // Se la colonna non esiste ancora, ignora il cloud sync (niente crash)
+    if ((error.code === '42703') || /column .* does not exist/i.test(error.message || '')) {
+      if (DEBUG) console.warn('[cloud] column missing, skip cloud load');
+    } else {
+      if (DEBUG) console.warn('[cloud] load error', error);
+    }
+  } else if (rows?.state) {
+    const st = rows.state;
+    setLists({
+      [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
+      [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
+    });
+    if (Array.isArray(st.stock)) setStock(st.stock);
+    if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
+      setCurrentList(st.currentList);
+    }
+  }
+} catch (e) {
+  if (DEBUG) console.warn('[cloud init] skipped', e);
+}
     })();
     return () => { mounted = false; };
   }, []);
