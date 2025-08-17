@@ -2092,7 +2092,7 @@ async function handleStockImagePick(idx, file){
               )}
             </div>
 
-            {/* Elenco scorte completo (TABELLARE con colonna immagine) */}
+          {/* Elenco scorte completo (TABELLARE con colonna immagine) */}
 <div style={{ marginTop: 12 }}>
   <h4 style={styles.h4}>Tutte le scorte</h4>
 
@@ -2220,6 +2220,7 @@ async function handleStockImagePick(idx, file){
     </div>
   )}
 </div>
+
           {/* TOAST */}
           {toast && (
             <div style={{
