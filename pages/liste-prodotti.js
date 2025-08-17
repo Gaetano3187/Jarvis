@@ -2329,7 +2329,7 @@ async function handleRowImage(files, idx) {
     }
   }}
 />
-
+}
     /* =================== Styles =================== */
 const styles = {
   page: {
