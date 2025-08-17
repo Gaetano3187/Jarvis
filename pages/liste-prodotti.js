@@ -447,62 +447,72 @@ function looksLikeSetResidue(text) {
 function parseStockUpdateText(text) {
   const t = normKey(text);
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
-
-  const res = [];
   const absolute = wantsAbsoluteSet(text);
+
+  const NUM_WORD = { uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10, undici:11, dodici:12 };
+  const res = [];
+
+  const hasExplicitPackStructure = (s) => /(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:di\s+)?(?:da|x)\s*\d+/.test(s);
 
   for (let rawChunk of parts) {
     if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
     if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
     if (/\b20\d{2}\b/.test(rawChunk)) continue;
 
+    // spezza "latte sono 4 bottiglie e yogurt 2"
     const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
 
-    for (const chunk of chunks) {
+    for (const chunk0 of chunks) {
+      const chunk = chunk0.replace(/\s{2,}/g,' ').trim();
       const name = guessProductName(chunk);
       if (!name) continue;
 
-      const explicit = hasExplicitPackStructure(chunk);
-      const pack = extractPackInfo(chunk);
+      // numeri in cifre o parole
+      let valNum = NaN;
+      const numWord = chunk.match(/\b(uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici)\b/);
+      if (numWord) valNum = NUM_WORD[numWord[1]];
 
-      let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
-      if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
-        const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
-        const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
-        m = w ? [null, String(map[w[1].toLowerCase()]), ''] : null;
-      }
+      const numDigit = chunk.match(/(\d+(?:[.,]\d+)?)(?=\s|$)/);
+      if (numDigit) valNum = Number(String(numDigit[1]).replace(',','.'));
 
-      const valNum = m ? Number(String(m[1]).replace(',','.')) : NaN;
-      const tag = (m && m[2] ? m[2].toLowerCase() : '');
+      // tag unità/pacchi
+      const tagMatch = chunk.match(/\b(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)\b/);
+      const tag = tagMatch ? tagMatch[1].toLowerCase() : '';
 
-      if (!/\d/.test(chunk)) {
-        res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
-        continue;
-      }
-
-      if (explicit) {
+      // forma esplicita "1 confezione da 6 bottiglie"
+      if (hasExplicitPackStructure(chunk)) {
+        const pack = extractPackInfo(chunk);
         const packs = Math.max(1, Number(pack.packs || 1));
         const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
-        res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp });
+        res.push({ name, mode:'packs', value: packs, op:'restockExplicit', _packs:packs, _upp:upp });
         continue;
       }
 
-      const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
+      // forma con "x" (4x125 ecc.) – già gestita in extractPackInfo se serve per futuro
+
+      // Se cita bottiglie/pezzi/… lo tratto come UNITS, altrimenti provo packs
+      const asUnits = /\b(unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso)\b/.test(tag);
+      const packsLike = /\b(pacc|conf|scatol)\b/.test(tag);
+
+      // se non c'è alcun numero, interpreto come "+1 unità" (cliccare microfono e dire solo il nome)
+      if (!/\d/.test(chunk) && !numWord) {
+        res.push({ name, mode:'units', value: 1, op: absolute ? 'set' : 'maybeResidue', _packs:1, _upp:1 });
+        continue;
+      }
+
       const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
       if (!value) continue;
 
-      const packsLike = /pacc|conf|scatol/.test(tag);
-      const hintPacks = packsLike ? value : 1;
-      const hintUpp   = packsLike ? 1 : value;
-
-      res.push({
-        name,
-        mode: asUnits ? 'units' : 'packs',
-        value,
-        op: absolute ? 'set' : 'maybeResidue',
-        _packs: Math.max(1, hintPacks),
-        _upp: Math.max(1, hintUpp),
-      });
+      if (packsLike && !asUnits) {
+        // "2 confezioni", senza 'da': come hint packs
+        res.push({ name, mode:'packs', value, op: absolute ? 'set' : 'inc', _packs:value, _upp:1 });
+      } else if (asUnits) {
+        // "4 bottiglie" -> units
+        res.push({ name, mode:'units', value, op: absolute ? 'set' : 'maybeResidue', _packs:1, _upp:value });
+      } else {
+        // fallback: se non specifica, consideralo units (es. "latte sono 4")
+        res.push({ name, mode:'units', value, op: absolute ? 'set' : 'maybeResidue', _packs:1, _upp:value });
+      }
     }
   }
   return res;
