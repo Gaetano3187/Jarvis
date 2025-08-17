@@ -696,126 +696,155 @@ useEffect(() => {
   return () => clearTimeout(cloudTimerRef.current);
 }, [lists, stock, currentList]);
 
-  /* =================== Brain Hub (no-op se non usi) =================== */
-  {
-    const stockRef = useRef(stock);
-    const listsRef = useRef(lists);
-    const currentListRef = useRef(currentList);
-    useEffect(()=>{ stockRef.current = stock; }, [stock]);
-    useEffect(()=>{ listsRef.current = lists; }, [lists]);
-    useEffect(()=>{ currentListRef.current = currentList; }, [currentList]);
+/* === Brain Hub – versione robusta (evita forme incompatibili) === */
+const HUB_KEY = '__jarvisBrainHub_v2';
 
-    function getHub() {
-      if (typeof window === 'undefined') return null;
-      window.__jarvisBrainHub = window.__jarvisBrainHub || {
-        _datasources: new Map(),
-        _commands: new Map(),
-        registerDataSource(def){ this._datasources.set(def.name, def); },
-        registerCommand(def){ this._commands.set(def.name, def); },
-        async ask(name, payload){ const ds=this._datasources.get(name); return ds?.fetch(payload); },
-        async run(name, payload){ const cmd=this._commands.get(name); return cmd?.execute(payload); },
-        list(){ return { datasources:[...this._datasources.keys()], commands:[...this._commands.keys()]}; }
+function getHub() {
+  if (typeof window === 'undefined') return null;
+  const h = window[HUB_KEY];
+
+  const isValid =
+    h &&
+    typeof h === 'object' &&
+    typeof h.registerDataSource === 'function' &&
+    typeof h.registerCommand === 'function' &&
+    h._datasources instanceof Map &&
+    h._commands instanceof Map;
+
+  if (isValid) return h;
+
+  // Crea (o sostituisce) un hub valido se quello esistente è corrotto/incompatibile
+  const hub = {
+    _datasources: new Map(),
+    _commands: new Map(),
+    registerDataSource(def) {
+      if (!def?.name) return;
+      this._datasources.set(def.name, def);
+    },
+    registerCommand(def) {
+      if (!def?.name) return;
+      this._commands.set(def.name, def);
+    },
+    async ask(name, payload) {
+      const ds = this._datasources.get(name);
+      return ds?.fetch(payload);
+    },
+    async run(name, payload) {
+      const cmd = this._commands.get(name);
+      return cmd?.execute(payload);
+    },
+    list() {
+      return {
+        datasources: [...this._datasources.keys()],
+        commands: [...this._commands.keys()],
       };
-      return window.__jarvisBrainHub;
-    }
+    },
+  };
 
-    useEffect(() => {
-      const hub = getHub();
-      if (!hub) return;
+  window[HUB_KEY] = hub;
+  return hub;
+}
 
-      hub.registerDataSource({
-        name: 'scorte-complete',
-        fetch: () => {
-          return (stock || []).map(s => {
-            const upp = Math.max(1, Number(s.unitsPerPack || 1));
-            const residueUnits = Number.isFinite(Number(s.residueUnits))
-              ? Math.max(0, Number(s.residueUnits))
-              : Math.max(0, Number(s.packs || 0) * upp);
-            const baselineUnits = Math.max(
-              upp,
-              (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp)
-            );
-            const avgDailyUnits = Number(s.avgDailyUnits || 0);
-            return {
-              name: String(s.name || '').trim(),
-              brand: String(s.brand || '').trim(),
-              packs: Number(s.packs || 0),
-              unitsPerPack: upp,
-              unitLabel: s.unitLabel || 'unità',
-              residueUnits,
-              baselineUnits,
-              avgDailyUnits,
-              expiresAt: s.expiresAt || ''
-            };
-          });
-        }
+useEffect(() => {
+  const hub = getHub();
+  if (!hub) return;
+
+  // Usa registrazioni idempotenti per evitare duplicati se la pagina si rimonta
+  const safeRegDS = (def) => {
+    if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
+  };
+
+  safeRegDS({
+    name: 'scorte-complete',
+    fetch: () => {
+      return (stock || []).map((s) => {
+        const upp = Math.max(1, Number(s.unitsPerPack || 1));
+        const residueUnits = Number.isFinite(Number(s.residueUnits))
+          ? Math.max(0, Number(s.residueUnits))
+          : Math.max(0, Number(s.packs || 0) * upp);
+        const baselineUnits = Math.max(
+          upp,
+          Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp
+        );
+        const avgDailyUnits = Number(s.avgDailyUnits || 0);
+        return {
+          name: String(s.name || '').trim(),
+          brand: String(s.brand || '').trim(),
+          packs: Number(s.packs || 0),
+          unitsPerPack: upp,
+          unitLabel: s.unitLabel || 'unità',
+          residueUnits,
+          baselineUnits,
+          avgDailyUnits,
+          expiresAt: s.expiresAt || '',
+        };
       });
-      hub.registerDataSource({
-        name: 'scorte-esaurimento',
-        fetch: () => {
-          return (stock || []).filter(s => {
-            const { current, baseline } = residueInfo(s);
-            return baseline > 0 && current / baseline < 0.20;
-          });
-        }
+    },
+  });
+
+  safeRegDS({
+    name: 'scorte-esaurimento',
+    fetch: () => {
+      return (stock || []).filter((s) => {
+        const upp = Math.max(1, Number(s.unitsPerPack || 1));
+        const ru = Number(s.residueUnits);
+        const currentUnits = Number.isFinite(ru) ? Math.max(0, ru) : Math.max(0, Number(s.packs || 0) * upp);
+        const bp = Number(s.baselinePacks);
+        const baselineUnits = Math.max(upp, (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp));
+        return baselineUnits > 0 && currentUnits / baselineUnits < 0.2;
       });
-      hub.registerDataSource({
-        name: 'scorte-scadenza',
-        fetch: ({ entroGiorni = 10 } = {}) => {
-          return (stock || []).filter(s => isExpiringSoon(s, entroGiorni));
-        }
-      });
-      hub.registerDataSource({
-        name: 'scorte-giorni-esaurimento',
-        fetch: () => {
-          const out = [];
-          for (const s of (stock || [])) {
-            const upp = Math.max(1, Number(s.unitsPerPack || 1));
-            const currentUnits = Number.isFinite(Number(s.residueUnits))
-              ? Math.max(0, Number(s.residueUnits))
-              : Math.max(0, Number(s.packs || 0) * upp);
-            const day = Number(s.avgDailyUnits || 0);
-            const days = day > 0 ? Math.ceil(currentUnits / day) : null;
-            out.push({
-              name: s.name, brand: s.brand || '', unitLabel: s.unitLabel || 'unità',
-              residueUnits: currentUnits, avgDailyUnits: day, daysToDepletion: days
-            });
-          }
-          return out;
-        }
-      });
-      hub.registerDataSource({
-        name: 'liste-spesa',
-        fetch: () => {
-          const data = lists || {};
-          return Object.entries(data).flatMap(([type, items]) =>
-            (items || [])
-              .filter(it => !it.purchased && it.qty > 0)
-              .map(it => ({
-                listType: type,
-                name: String(it.name || '').trim(),
-                brand: String(it.brand || '').trim(),
-                qty: Number(it.qty || 0),
-                unitsPerPack: Number(it.unitsPerPack || 1),
-                unitLabel: String(it.unitLabel || 'unità').trim()
-              }))
-          );
-        }
-      });
-      hub.registerDataSource({
-        name: 'lista-oggi',
-        fetch: () => {
-          const cur = currentListRef.current;
-          const items = (lists?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
-          return items.map(i => ({
-            listType: cur,
-            name: i.name, brand: i.brand || '', qty: i.qty,
-            unitsPerPack: i.unitsPerPack || 1, unitLabel: i.unitLabel || 'unità'
-          }));
-        }
-      });
-    }, []);
-  }
+    },
+  });
+
+  safeRegDS({
+    name: 'scorte-scadenza',
+    fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => isExpiringSoon(s, entroGiorni)),
+  });
+
+  safeRegDS({
+    name: 'scorte-giorni-esaurimento',
+    fetch: () => {
+      const out = [];
+      for (const s of stock || []) {
+        const upp = Math.max(1, Number(s.unitsPerPack || 1));
+        const currentUnits = Number.isFinite(Number(s.residueUnits))
+          ? Math.max(0, Number(s.residueUnits))
+          : Math.max(0, Number(s.packs || 0) * upp);
+        const day = Number(s.avgDailyUnits || 0);
+        const days = day > 0 ? Math.ceil(currentUnits / day) : null;
+        out.push({
+          name: s.name,
+          brand: s.brand || '',
+          unitLabel: s.unitLabel || 'unità',
+          residueUnits: currentUnits,
+          avgDailyUnits: day,
+          daysToDepletion: days,
+        });
+      }
+      return out;
+    },
+  });
+
+  safeRegDS({
+    name: 'liste-spesa',
+    fetch: () => {
+      const data = lists || {};
+      return Object.entries(data).flatMap(([type, items]) =>
+        (items || [])
+          .filter((it) => !it.purchased && it.qty > 0)
+          .map((it) => ({
+            listType: type,
+            name: String(it.name || '').trim(),
+            brand: String(it.brand || '').trim(),
+            qty: Number(it.qty || 0),
+            unitsPerPack: Number(it.unitsPerPack || 1),
+            unitLabel: String(it.unitLabel || 'unità').trim(),
+          }))
+      );
+    },
+  });
+}, [stock, lists]);
+
 
   /* =================== Hydration iniziale (locale) =================== */
   useEffect(() => {
