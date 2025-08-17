@@ -410,6 +410,7 @@ function buildInventoryIntentPrompt(text) {
     'Testo utente:',
     text
   ].join('\n');
+  
 }
 
 /* ====================== Parser fallback OCR ====================== */
