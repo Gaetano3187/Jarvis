@@ -1906,6 +1906,30 @@ export default function ListeProdotti() {
             setTargetImageIdx(null);
           }
         }}
+          <style jsx>{`
+  @media (max-width: 600px){
+    .stockRow {
+      grid-template-columns: 64px 1fr;
+      grid-row-gap: 6px;
+    }
+    .stockRow .kvCol { 
+      grid-column: 1 / -1;
+      align-items: flex-start;
+    }
+  }
+
+  @keyframes toastPop {
+    0% { transform: translate(-50%, 10px) scale(.98); opacity: 0; }
+    100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+  }
+  @keyframes toastFade { to { opacity: 0; } }
+
+  .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
+  @keyframes titlePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  .muted { opacity:.85; }
+  .hint { opacity:.75; font-size:.9rem; margin-top:6px; }
+`}</style>
+
       />
     </>
   );
@@ -1920,7 +1944,6 @@ const styles = {
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
 
-  // Card trasparente
   card: {
     maxWidth:1000, margin:'0 auto',
     background:'transparent',
@@ -1946,7 +1969,6 @@ const styles = {
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
   primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
 
-  // Sezioni trasparenti
   sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'transparent', border:'1px solid rgba(255,255,255,.06)' },
   sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'transparent', border:'1px solid rgba(255,255,255,.08)', boxShadow:'none' },
   sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
@@ -1954,7 +1976,6 @@ const styles = {
   h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
   h4:{ margin:'2px 0 6px', fontSize:'1rem', fontWeight:800, opacity:.95 },
 
-  // Form
   formRow:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
   formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', marginTop:6 },
   input:{
@@ -1962,7 +1983,6 @@ const styles = {
     background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
   },
 
-  // Liste prodotti
   listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
   rowButton:{
     display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
@@ -1976,7 +1996,7 @@ const styles = {
   },
   rowLeft:{ display:'flex', flexDirection:'column' },
 
-  // ✅ FIX: testo orizzontale + ellissi
+  // testo orizzontale + ellissi
   rowName:{
     fontWeight:800,
     letterSpacing:.4,
@@ -2011,7 +2031,6 @@ const styles = {
   badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
   badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
 
-  // Griglia scorte
   stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
   stockCardCritical:{
     padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
@@ -2026,7 +2045,7 @@ const styles = {
     border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
   },
 
-  // ✅ FIX: layout riga scorte adattivo
+  // layout riga scorte adattivo
   stockRow:{
     display:'grid',
     gridTemplateColumns:'72px 1fr 90px 90px',
@@ -2035,7 +2054,6 @@ const styles = {
     minWidth:0
   },
 
-  // Immagine prodotto
   imageBox:{
     width:64, height:64, borderRadius:12,
     border:'1px solid rgba(255,255,255,.1)',
@@ -2046,7 +2064,6 @@ const styles = {
   imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
   imagePlaceholder:{ fontSize:'1.6rem', opacity:.7 },
 
-  // Colonne quantità
   kvCol:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:0 },
   kvLabel:{ fontSize:'.78rem', opacity:.75 },
   kvValue:{ fontSize:'1.1rem', fontWeight:800 },
