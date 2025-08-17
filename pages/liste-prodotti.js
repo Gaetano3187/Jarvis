@@ -2511,32 +2511,80 @@ export default function ListeProdotti() {
               Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
             </p>
           </div>
-          {/* Toast */}
-          {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10,
-              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
-            }}>
-              {toast.msg}
-            </div>
-          )}
-        </div>
-      </div>
+        {/* Toast */}
+{toast && (
+  <div
+    className={`jarvis-toast ${toast.type || 'ok'} show`}
+    role="status"
+    aria-live="polite"
+  >
+    <span className="toast__icon" aria-hidden>
+      {toast.type === 'err' ? '⚠️' : toast.type === 'ok' ? '✅' : 'ℹ️'}
+    </span>
+    <span className="toast__msg">{toast.msg}</span>
+    <button
+      className="toast__close"
+      onClick={() => setToast(null)}
+      aria-label="Chiudi notifica"
+      title="Chiudi"
+    >
+      ×
+    </button>
+  </div>
+)}
+</div>
+</div>
 
-      <style jsx>{`
-        .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
-        @keyframes titlePulse {
-          0%,100% { transform: scale(1); }
-          50% { transform: scale(1.05); }
-        }
-        .muted { opacity:.8; }
-        .hint { opacity:.7; font-size: 0.9rem; margin-top:6px; }
-        .rowWrap { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-      `}</style>
-    </>
-  );
+<style jsx>{`
+  /* === Toast === */
+  .jarvis-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%) translateY(12px);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(0,0,0,.35);
+    z-index: 9999;
+    backdrop-filter: saturate(1.1) blur(4px);
+    border: 1px solid rgba(255,255,255,.15);
+    opacity: 0;
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .jarvis-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .jarvis-toast.ok   { background: #16a34a; }
+  .jarvis-toast.err  { background: #ef4444; }
+  .jarvis-toast.info { background: #334155; }
+
+  .toast__icon { font-size: 1rem; line-height: 1; }
+  .toast__msg  { font-weight: 700; }
+  .toast__close {
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.35);
+    color: #fff;
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    font-weight: 800;
+    line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .toast__close:hover { background: rgba(255,255,255,.25); }
+
+  /* === Tuoi stili aggiuntivi già presenti (mantenuti) === */
+  .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
+  @keyframes titlePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  .muted { opacity:.8; }
+  .hint { opacity:.7; font-size: 0.9rem; margin-top:6px; }
+  .rowWrap { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+`}</style>
+</>
+);
 }
 
 /* workaround MediaRecorder multipli */
@@ -2755,4 +2803,3 @@ const styles = {
     transition: 'width .25s ease, background-color .25s ease',
   },
 };
-
