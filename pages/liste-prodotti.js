@@ -2220,41 +2220,6 @@ async function handleStockImagePick(idx, file){
     </div>
   )}
 </div>
-                       ) : (
-                          <>
-                            <div style={styles.stockTitle}>
-                              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                            </div>
-                            <div style={styles.progressOuter}>
-                              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                            </div>
-                            <div style={styles.stockLineSmall}>
-                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                            </div>
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
-                              <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                              <button
-                                onClick={() => applyDeltaToStock(idx, { setUnits: 0 })}
-                                style={styles.smallDangerBtn}
-                                title="Imposta residuo a 0"
-                              >Svuota</button>
-                              <button
-                                title="OCR scadenza per questo prodotto"
-                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                style={styles.smallGhostBtn}
-                              >OCR scad.</button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* TOAST */}
           {toast && (
             <div style={{
