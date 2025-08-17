@@ -47,17 +47,6 @@ function persistNow(snapshot) {
     console.warn('[persist] save failed', e);
   }
 }
-function storageAvailable() {
-  try {
-    if (typeof window === 'undefined') return false;
-    const k = '__ls_test__';
-    localStorage.setItem(k, '1');
-    localStorage.removeItem(k);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /* ====================== Lessico supermercato ====================== */
 const GROCERY_LEXICON = [
@@ -546,28 +535,6 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
 /* ====================== Piccola utility media (no-op sicura) ====================== */
 function theMediaWorkaround(){ return; }
 
-/* ====================== Audio helpers (smart) ====================== */
-function getBestAudioMimeType() {
-  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return '';
-  const types = [
-    'audio/webm;codecs=opus',
-    'audio/ogg;codecs=opus',
-    'audio/mp4',
-    'audio/webm',
-    'audio/ogg',
-  ];
-  for (const t of types) {
-    try {
-      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
-    } catch {}
-  }
-  return '';
-}
-function hasWebSpeech() {
-  if (typeof window === 'undefined') return false;
-  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-}
-
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
@@ -600,7 +567,6 @@ export default function ListeProdotti() {
   // UI / Toast / Busy
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
-  const [lsOk, setLsOk] = useState(true);
   function showToast(msg, type='ok'){
     setToast({ msg, type });
     setTimeout(() => setToast(null), 1800);
@@ -615,14 +581,12 @@ export default function ListeProdotti() {
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
-  const recSpeechRef = useRef(null);
 
   // Vocale inventario unificato
   const invMediaRef = useRef(null);
   const invChunksRef = useRef([]);
   const invStreamRef = useRef(null);
   const [invRecBusy, setInvRecBusy] = useState(false);
-  const invSpeechRef = useRef(null);
 
   // OCR input (scontrini)
   const ocrInputRef = useRef(null);
@@ -677,7 +641,7 @@ useEffect(() => {
       if (error) {
         // Gestione "column does not exist" (42703) o messaggio equivalente
         const msg = (error.message || '').toLowerCase();
-        if (error.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))) {
+        if (error.code === '42703' || msg.includes('column') && msg.includes('does not exist')) {
           if (DEBUG) console.warn('[cloud] colonna state assente: skip load');
         } else if (DEBUG) {
           console.warn('[cloud] load error', error);
@@ -885,12 +849,6 @@ useEffect(() => {
   /* =================== Hydration iniziale (locale) =================== */
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const ok = storageAvailable();
-    setLsOk(ok);
-    if (!ok) {
-      showToast('⚠️ Dati non salvati: storage non disponibile', 'err');
-      return;
-    }
     const saved = loadPersisted();
     if (!saved) return;
 
@@ -908,16 +866,16 @@ useEffect(() => {
 
   /* =================== Autosave debounce (locale) =================== */
   useEffect(() => {
-    if (typeof window === 'undefined' || !lsOk) return;
+    if (typeof window === 'undefined') return;
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     const snapshot = { lists, stock, currentList };
     persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
     return () => clearTimeout(persistTimerRef.current);
-  }, [lists, stock, currentList, lsOk]);
+  }, [lists, stock, currentList]);
 
   /* =================== Sync tra tab =================== */
   useEffect(() => {
-    if (typeof window === 'undefined' || !lsOk) return;
+    if (typeof window === 'undefined') return;
     const onStorage = (e) => {
       if (e.key !== LS_KEY) return;
       const saved = loadPersisted();
@@ -932,7 +890,7 @@ useEffect(() => {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [lsOk]);
+  }, []);
 
   /* =================== Derivati: critici =================== */
   useEffect(() => {
@@ -1235,312 +1193,212 @@ useEffect(() => {
 
   /* =================== Vocale LISTA =================== */
   async function toggleRecList() {
-    // Se già in corso → stop (sia WebSpeech che MediaRecorder)
-    if (recBusy) {
-      try { recSpeechRef.current?.stop?.(); } catch {}
-      try { mediaRecRef.current?.stop(); } catch {}
-      return;
-    }
-
-    // 1) Preferisci Web Speech (inserimento live, migliore su smartphone)
-    if (hasWebSpeech()) {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new SR();
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.lang = 'it-IT';
-      let finalText = '';
-      rec.onresult = (e) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const t = e.results[i][0].transcript;
-          if (e.results[i].isFinal) finalText += t + ' ';
-        }
-      };
-      rec.onerror = () => { /* fallback automatico sotto */ };
-      rec.onend = async () => {
-        recSpeechRef.current = null;
-        setRecBusy(false);
-        if (finalText.trim()) {
-          await processVoiceListFromText(finalText.trim());
-        } else {
-          // Se nulla: tenta fallback MediaRecorder
-          await recordListWithMediaRecorder();
-        }
-      };
-      try {
-        recSpeechRef.current = rec;
-        setRecBusy(true);
-        rec.start();
-        return;
-      } catch {
-        recSpeechRef.current = null;
-      }
-    }
-
-    // 2) Fallback MediaRecorder
-    await recordListWithMediaRecorder();
-  }
-  async function recordListWithMediaRecorder() {
+    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const mime = getBestAudioMimeType();
-      mediaRecRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      mediaRecRef.current = new MediaRecorder(stream);
       recordedChunks.current = [];
       mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
-      mediaRecRef.current.onstop = processVoiceListBlob;
+      mediaRecRef.current.onstop = processVoiceList;
       mediaRecRef.current.start();
       setRecBusy(true);
     } catch {
       alert('Microfono non disponibile');
     }
   }
-  async function processVoiceListBlob() {
-    const type = recordedChunks.current?.[0]?.type || 'audio/webm';
-    const blob = new Blob(recordedChunks.current, { type });
-    await processVoiceListFromBlob(blob, type);
-    setRecBusy(false);
-    try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-    mediaRecRef.current = null;
-    streamRef.current = null;
-    recordedChunks.current = [];
-  }
-  async function processVoiceListFromBlob(blob, mime) {
-    const fd = new FormData(); fd.append('audio', blob, `voice.${mime.includes('ogg')?'ogg':mime.includes('mp4')?'m4a':'webm'}`);
+  async function processVoiceList() {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
     try {
       setBusy(true);
       const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
-      await processVoiceListFromText(text);
+
+      let appended = false;
+      try {
+        const payload = {
+          prompt: [
+            'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
+            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
+            'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
+            'Voci comuni: ' + GROCERY_LEXICON.join(', '),
+            'Testo:', text
+          ].join('\n'),
+        };
+        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        }, 25000);
+        const safe = await readJsonSafe(r);
+        const answer = safe?.answer || safe?.data || safe;
+        const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
+        const arr = Array.isArray(parsed?.items) ? parsed.items : [];
+        if (arr.length) {
+          setLists(prev => {
+            const next = { ...prev };
+            const target = currentList;
+            const existing = [...(prev[target] || [])];
+            for (const raw of arr) {
+              const it = {
+                id: 'tmp-' + Math.random().toString(36).slice(2),
+                name: String(raw.name||'').trim(),
+                brand: String(raw.brand||'').trim(),
+                qty: Math.max(1, Number(raw.packs||raw.qty||1)),
+                unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
+                unitLabel: String(raw.unitLabel||'unità'),
+                purchased: false,
+              };
+              if (!it.name) continue;
+              const idx = existing.findIndex(i =>
+                i.name.toLowerCase() === it.name.toLowerCase() &&
+                (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
+                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+              );
+              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
+              else existing.push(it);
+            }
+            next[target] = existing;
+            return next;
+          });
+          appended = true;
+        }
+      } catch {}
+      if (!appended) {
+        const local = parseLinesToItems(text);
+        if (local.length) {
+          setLists(prev => {
+            const next = { ...prev };
+            const target = currentList;
+            const existing = [...(prev[target] || [])];
+            for (const it of local) {
+              const idx = existing.findIndex(i =>
+                i.name.toLowerCase() === it.name.toLowerCase() &&
+                (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
+                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+              );
+              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
+              else existing.push(it);
+            }
+            next[target] = existing;
+            return next;
+          });
+          appended = true;
+        }
+      }
+      showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
     } catch {
       alert('Errore nel riconoscimento vocale');
     } finally {
+      setRecBusy(false);
       setBusy(false);
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      mediaRecRef.current = null;
+      streamRef.current = null;
+      recordedChunks.current = [];
     }
-  }
-  async function processVoiceListFromText(text) {
-    let appended = false;
-    try {
-      const payload = {
-        prompt: [
-          'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
-          '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
-          'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
-          'Voci comuni: ' + GROCERY_LEXICON.join(', '),
-          'Testo:', text
-        ].join('\n'),
-      };
-      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-      }, 25000);
-      const safe = await readJsonSafe(r);
-      const answer = safe?.answer || safe?.data || safe;
-      const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
-      const arr = Array.isArray(parsed?.items) ? parsed.items : [];
-      if (arr.length) {
-        setLists(prev => {
-          const next = { ...prev };
-          const target = currentList;
-          const existing = [...(prev[target] || [])];
-          for (const raw of arr) {
-            const it = {
-              id: 'tmp-' + Math.random().toString(36).slice(2),
-              name: String(raw.name||'').trim(),
-              brand: String(raw.brand||'').trim(),
-              qty: Math.max(1, Number(raw.packs||raw.qty||1)),
-              unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
-              unitLabel: String(raw.unitLabel||'unità'),
-              purchased: false,
-            };
-            if (!it.name) continue;
-            const idx = existing.findIndex(i =>
-              i.name.toLowerCase() === it.name.toLowerCase() &&
-              (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
-              Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-            );
-            if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
-            else existing.push(it);
-          }
-          next[target] = existing;
-          return next;
-        });
-        appended = true;
-      }
-    } catch {}
-    if (!appended) {
-      const local = parseLinesToItems(text);
-      if (local.length) {
-        setLists(prev => {
-          const next = { ...prev };
-          const target = currentList;
-          const existing = [...(prev[target] || [])];
-          for (const it of local) {
-            const idx = existing.findIndex(i =>
-              i.name.toLowerCase() === it.name.toLowerCase() &&
-              (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
-              Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-            );
-            if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
-            else existing.push(it);
-          }
-          next[target] = existing;
-          return next;
-        });
-        appended = true;
-      }
-    }
-    showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
   }
 
   /* =================== Vocale UNIFICATO INVENTARIO =================== */
   async function toggleVoiceInventory() {
-    if (invRecBusy) {
-      try { invSpeechRef.current?.stop?.(); } catch {}
-      try { invMediaRef.current?.stop(); } catch {}
-      return;
-    }
-
-    if (hasWebSpeech()) {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new SR();
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.lang = 'it-IT';
-      let finalText = '';
-      rec.onresult = (e) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const t = e.results[i][0].transcript;
-          if (e.results[i].isFinal) finalText += t + ' ';
-        }
-      };
-      rec.onerror = () => {};
-      rec.onend = async () => {
-        invSpeechRef.current = null;
-        setInvRecBusy(false);
-        if (finalText.trim()) {
-          await processVoiceInventoryFromText(finalText.trim());
-        } else {
-          await recordInventoryWithMediaRecorder();
-        }
-      };
-      try {
-        invSpeechRef.current = rec;
-        setInvRecBusy(true);
-        rec.start();
-        return;
-      } catch {
-        invSpeechRef.current = null;
-      }
-    }
-
-    await recordInventoryWithMediaRecorder();
-  }
-  async function recordInventoryWithMediaRecorder() {
+    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       invStreamRef.current = stream;
-      const mime = getBestAudioMimeType();
-      invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      invMediaRef.current = new MediaRecorder(stream);
       invChunksRef.current = [];
       invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
-      invMediaRef.current.onstop = processVoiceInventoryBlob;
+      invMediaRef.current.onstop = processVoiceInventory;
       invMediaRef.current.start();
       setInvRecBusy(true);
     } catch {
       alert('Microfono non disponibile');
     }
   }
-  async function processVoiceInventoryBlob() {
-    const type = invChunksRef.current?.[0]?.type || 'audio/webm';
-    const blob = new Blob(invChunksRef.current, { type });
-    await processVoiceInventoryFromBlob(blob, type);
-    setInvRecBusy(false);
-    try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-    invMediaRef.current = null;
-    invStreamRef.current = null;
-    invChunksRef.current = [];
-  }
-  async function processVoiceInventoryFromBlob(blob, mime) {
-    const fd = new FormData(); fd.append('audio', blob, `inventory.${mime.includes('ogg')?'ogg':mime.includes('mp4')?'m4a':'webm'}`);
+  async function processVoiceInventory() {
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
     try {
       setBusy(true);
       const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
       const { text } = await res.json();
       if (!text) throw new Error('Testo non riconosciuto');
-      await processVoiceInventoryFromText(text);
+
+      // 1) Scadenze dal parlato (se presenti)
+      const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+
+      // 2) Aggiornamenti quantità / set residuo
+      const updates = parseStockUpdateText(text);
+
+      // Applica scadenze
+      if (expPairs.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          for (const ex of expPairs) {
+            const i = arr.findIndex(s => isSimilar(s.name, ex.name));
+            if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+            else arr.unshift({
+              name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
+              expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
+            });
+          }
+          return arr;
+        });
+      }
+
+      // Applica quantità
+      if (updates.length) {
+        const todayISO = new Date().toISOString().slice(0,10);
+        const absolute = wantsAbsoluteSet(text);
+        setStock(prev => {
+          const arr = [...prev];
+          for (const u of updates) {
+            const j = arr.findIndex(s => isSimilar(s.name, u.name));
+            if (j < 0) {
+              // crea con hint
+              const packs = u.mode === 'packs' ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(u._packs||1));
+              const upp   = u.mode === 'packs' ? Math.max(1, Number(u._upp||1)) : Math.max(1, Number(u.value||1));
+              arr.unshift({
+                name: u.name, brand:'', packs, unitsPerPack: upp, unitLabel:'unità',
+                expiresAt: '', ...restockTouch(packs, todayISO, upp), avgDailyUnits: 0, image:''
+              });
+              continue;
+            }
+            const old = arr[j];
+            if (u.op === 'restockExplicit' || u.mode === 'packs') {
+              // incremento o set a pacchi?
+              const newPacks = absolute ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(old.packs||0) + Number(u.value||0));
+              const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
+            } else {
+              // units → residueUnits (impostazione residuo o incremento residuo)
+              const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              const baseline = baselineUnitsOf(old) || upp;
+              const targetUnits = absolute
+                ? Math.max(0, Math.min(Number(u.value||0), baseline))
+                : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
+              arr[j] = { ...old, residueUnits: targetUnits };
+            }
+          }
+          return arr;
+        });
+      }
+
+      if (!expPairs.length && !updates.length) {
+        showToast('Nessun dato inventario riconosciuto', 'err');
+      } else {
+        showToast('Inventario aggiornato da Vocale ✓', 'ok');
+      }
     } catch (e) {
       console.error('[voice inventory] error', e);
       showToast('Errore vocale inventario', 'err');
     } finally {
+      setInvRecBusy(false);
       setBusy(false);
-    }
-  }
-  async function processVoiceInventoryFromText(text) {
-    // 1) Scadenze dal parlato (se presenti)
-    const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
-
-    // 2) Aggiornamenti quantità / set residuo
-    const updates = parseStockUpdateText(text);
-
-    // Applica scadenze
-    if (expPairs.length) {
-      setStock(prev => {
-        const arr = [...prev];
-        for (const ex of expPairs) {
-          const i = arr.findIndex(s => isSimilar(s.name, ex.name));
-          if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
-          else arr.unshift({
-            name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-            expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
-          });
-        }
-        return arr;
-      });
-    }
-
-    // Applica quantità
-    if (updates.length) {
-      const todayISO = new Date().toISOString().slice(0,10);
-      const absolute = wantsAbsoluteSet(text);
-      setStock(prev => {
-        const arr = [...prev];
-        for (const u of updates) {
-          const j = arr.findIndex(s => isSimilar(s.name, u.name));
-          if (j < 0) {
-            // crea con hint
-            const packs = u.mode === 'packs' ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(u._packs||1));
-            const upp   = u.mode === 'packs' ? Math.max(1, Number(u._upp||1)) : Math.max(1, Number(u.value||1));
-            arr.unshift({
-              name: u.name, brand:'', packs, unitsPerPack: upp, unitLabel:'unità',
-              expiresAt: '', ...restockTouch(packs, todayISO, upp), avgDailyUnits: 0, image:''
-            });
-            continue;
-          }
-          const old = arr[j];
-          if (u.op === 'restockExplicit' || u.mode === 'packs') {
-            // incremento o set a pacchi?
-            const newPacks = absolute ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(old.packs||0) + Number(u.value||0));
-            const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-            arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
-          } else {
-            // units → residueUnits (impostazione residuo o incremento residuo)
-            const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-            const baseline = baselineUnitsOf(old) || upp;
-            const targetUnits = absolute
-              ? Math.max(0, Math.min(Number(u.value||0), baseline))
-              : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
-            arr[j] = { ...old, residueUnits: targetUnits };
-          }
-        }
-        return arr;
-      });
-    }
-
-    if (!expPairs.length && !updates.length) {
-      showToast('Nessun dato inventario riconosciuto', 'err');
-    } else {
-      showToast('Inventario aggiornato da Vocale ✓', 'ok');
+      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      invMediaRef.current = null;
+      invStreamRef.current = null;
+      invChunksRef.current = [];
     }
   }
 
@@ -1549,12 +1407,12 @@ useEffect(() => {
     <>
       <Head><title>🛍 Lista Prodotti</title></Head>
 
-      <div style={styles.page} className="lp-page">
-        <div style={styles.card} className="lp-card">
+      <div style={styles.page}>
+        <div style={styles.card}>
           {/* Header */}
-          <div style={styles.headerRow} className="lp-header">
+          <div style={styles.headerRow}>
             <h2 style={styles.title3d}>🛍 Lista Prodotti</h2>
-            <div style={{display:'flex', gap:8, alignItems:'center'}} className="lp-header-actions">
+            <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <button onClick={()=>{
                 try { localStorage.removeItem(LS_KEY); } catch {}
                 setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
@@ -1567,7 +1425,7 @@ useEffect(() => {
           </div>
 
           {/* Switch lista */}
-          <div style={styles.switchRow} className="lp-switch">
+          <div style={styles.switchRow}>
             <button onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
                     style={currentList === LIST_TYPES.SUPERMARKET ? styles.switchBtnActive : styles.switchBtn}>
               Lista Supermercato
@@ -1579,7 +1437,7 @@ useEffect(() => {
           </div>
 
           {/* Comandi Lista */}
-          <div style={styles.toolsRow} className="lp-tools">
+          <div style={styles.toolsRow}>
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
@@ -1590,14 +1448,12 @@ useEffect(() => {
 
           {/* Form aggiunta manuale Lista */}
           {showListForm && (
-            <div style={styles.sectionLarge} className="lp-section">
-              <form onSubmit={addManualItem} style={styles.formRow} className="lp-form-row">
+            <div style={styles.sectionLarge}>
+              <form onSubmit={addManualItem} style={styles.formRow}>
                 <input placeholder="Prodotto (es. latte)" value={form.name}
-                      onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required
-                      autoCapitalize="off" autoCorrect="off" />
+                      onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
                 <input placeholder="Marca (es. Parmalat)" value={form.brand}
-                      onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input}
-                      autoCapitalize="none" autoCorrect="off" />
+                      onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
                 <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
                       onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
                 <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
@@ -1610,7 +1466,7 @@ useEffect(() => {
           )}
 
           {/* Lista corrente */}
-          <div style={styles.sectionLarge} className="lp-section">
+          <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>
               Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
             </h3>
@@ -1626,7 +1482,6 @@ useEffect(() => {
                       key={it.id}
                       role="button"
                       tabIndex={0}
-                      className="lp-list-card"
                       onClick={() => {
                         setLists(prev => {
                           const next = { ...prev };
@@ -1663,7 +1518,7 @@ useEffect(() => {
                         </div>
                       </div>
 
-                      <div style={styles.rowActions} onClick={e => e.stopPropagation()} className="lp-row-actions">
+                      <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
                         {/* ✓ conferma: scala 1 conf. e aggiorna scorte */}
                         <button
                           title="Segna come comprato (–1 conf. e aggiorna scorte)"
@@ -1722,9 +1577,9 @@ useEffect(() => {
           </div>
 
           {/* OCR Scontrino globale */}
-          <div style={styles.sectionLarge} className="lp-section">
+          <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>📸 OCR Scontrino</h3>
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }} className="lp-ocr-tools">
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
               <button onClick={() => ocrInputRef.current?.click()} style={styles.primaryBtn} disabled={busy}>
                 Carica foto scontrino
               </button>
@@ -1733,10 +1588,10 @@ useEffect(() => {
           </div>
 
           {/* Stato Scorte */}
-          <div style={styles.sectionLifted} className="lp-section">
-            <div style={styles.sectionHeaderRow} className="lp-section-header">
+          <div style={styles.sectionLifted}>
+            <div style={styles.sectionHeaderRow}>
               <h3 style={styles.h3}>🏠 Stato Scorte</h3>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }} className="lp-inventory-tools">
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
                   {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
                 </button>
@@ -1791,11 +1646,11 @@ useEffect(() => {
                 setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
                 setShowStockForm(false);
                 showToast('Scorta aggiunta ✓', 'ok');
-              }} style={styles.formRow} className="lp-form-row">
+              }} style={styles.formRow}>
                 <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
-                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required autoCapitalize="off" autoCorrect="off" />
+                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
                 <input style={styles.input} placeholder="Marca" value={stockForm.brand}
-                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} autoCapitalize="none" autoCorrect="off" />
+                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
                 <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
                        onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
                 <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
@@ -1837,9 +1692,9 @@ useEffect(() => {
                 } else {
                   showToast('Scadenza non aggiornata', 'err');
                 }
-              }} style={styles.formRow} className="lp-form-row">
+              }} style={styles.formRow}>
                 <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
-                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required autoCapitalize="off" autoCorrect="off" />
+                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
                 <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
                        onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
                 <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
@@ -1857,7 +1712,7 @@ useEffect(() => {
                     const { current, baseline, pct } = residueInfo(s);
                     const w = Math.round(pct*100);
                     return (
-                      <div key={i} style={styles.critRow} className="lp-crit-row">
+                      <div key={i} style={styles.critRow}>
                         <div style={styles.critName}>
                           {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
                         </div>
@@ -1923,7 +1778,7 @@ useEffect(() => {
                         ) : (
                           <>
                             {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
-                            <div style={styles.stockRow} className="lp-stock-row">
+                            <div style={styles.stockRow}>
                               {/* Colonna immagine (clic per caricare/scattare) */}
                               <div
                                 style={styles.imageBox}
@@ -1953,25 +1808,25 @@ useEffect(() => {
                               </div>
 
                               {/* Confezioni */}
-                              <div style={styles.kvCol} className="lp-kv">
+                              <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Confezioni</div>
                                 <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
                               </div>
 
                               {/* Unità/conf. */}
-                              <div style={styles.kvCol} className="lp-kv">
+                              <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Unità/conf.</div>
                                 <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
                               </div>
 
                               {/* NUOVA COLONNA → Residuo unità */}
-                              <div style={styles.kvCol} className="lp-kv">
+                              <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Residuo unità</div>
                                 <div style={styles.kvValue}>{Math.round(residueUnitsOf(s))}</div>
                               </div>
 
                               {/* Azioni riga */}
-                              <div style={styles.rowActionsRight} className="lp-row-actions-right">
+                              <div style={styles.rowActionsRight}>
                                 <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
                                 <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
                                 <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
@@ -2074,90 +1929,87 @@ useEffect(() => {
             const upd = {
               name: String(parsed?.name || itemName || '').trim(),
               brand: String(parsed?.brand || brand || '').trim(),
-                            unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
+              packs: Math.max(0, Number(parsed?.packs || 0)),
+              unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
               unitLabel: String(parsed?.unitLabel || 'unità').trim() || 'unità',
               expiresAt: toISODate(parsed?.expiresAt || '')
             };
 
-            // Se stavi facendo OCR da LISTA (byId) → aggiorna la riga lista (qty/upp/etichetta) e, se presente scadenza, prova ad allineare scorte
-            if (byId) {
-              setLists(prev => {
-                const next = { ...prev };
-                next[currentList] = (prev[currentList] || []).map(i => {
-                  if (i.id !== byId.id) return i;
-                  return {
-                    ...i,
-                    name: upd.name || i.name,
-                    brand: upd.brand || i.brand || '',
-                    // Se l'OCR ha riconosciuto le confezioni, le imposto (senza forzare a 0 se non rilevate)
-                    qty: upd.packs > 0 ? upd.packs : i.qty,
-                    unitsPerPack: upd.unitsPerPack || i.unitsPerPack || 1,
-                    unitLabel: upd.unitLabel || i.unitLabel || 'unità',
-                  };
-                });
-                return next;
-              });
+            const todayISO = new Date().toISOString().slice(0,10);
 
-              if (upd.expiresAt) {
-                setStock(prev => {
-                  const arr = [...prev];
-                  const j = arr.findIndex(s => isSimilar(s.name, upd.name || itemName));
-                  if (j >= 0) arr[j] = { ...arr[j], expiresAt: upd.expiresAt };
-                  return arr;
-                });
-              }
-            }
-            // Se OCR da SCORTE → aggiorna la riga scorte corrispondente
-            else if (stockIndex >= 0) {
-              setStock(prev => {
-                const arr = [...prev];
+            setStock(prev => {
+              const arr = [...prev];
+
+              if (stockIndex >= 0 && arr[stockIndex]) {
                 const old = arr[stockIndex];
-                if (!old) return prev;
-
-                const todayISO = new Date().toISOString().slice(0,10);
-
-                // Se packs>0 consideralo come "informazione aggiornata" sui pacchi attuali (no somma: è unimput OCR della riga)
-                const newPacks = Math.max(0, Number(upd.packs || old.packs || 0));
-                const newUPP   = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
-                const wasUnits = Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1));
-                const nowUnits = newPacks * newUPP;
-                const restock  = nowUnits > wasUnits;
+                const nowUnits = upd.packs * upd.unitsPerPack;
+                const wasUnits = Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
+                const restock = nowUnits > wasUnits;
 
                 let next = {
                   ...old,
                   name: upd.name || old.name,
-                  brand: upd.brand || old.brand || '',
-                  packs: newPacks,
+                  brand: upd.brand || old.brand,
+                  packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
+                  unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
+                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
+                  expiresAt: upd.expiresAt || old.expiresAt || ''
+                };
+                if (restock) {
+                  next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
+                }
+                arr[stockIndex] = next;
+                return arr;
+              }
+
+              // Se partiva da lista: crea/aggiorna scorta corrispondente
+              const j = arr.findIndex(s => isSimilar(s.name, upd.name) && (!upd.brand || isSimilar(s.brand || '', upd.brand)));
+              if (j >= 0) {
+                const old = arr[j];
+                const newPacks = Math.max(0, Number(upd.packs || 0));
+                const newUPP = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
+                arr[j] = {
+                  ...old,
+                  name: upd.name || old.name,
+                  brand: upd.brand || old.brand,
+                  packs: newPacks || old.packs || 0,
                   unitsPerPack: newUPP,
                   unitLabel: upd.unitLabel || old.unitLabel || 'unità',
                   expiresAt: upd.expiresAt || old.expiresAt || '',
+                  ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP)
                 };
-
-                if (restock) {
-                  next = { ...next, ...restockTouch(newPacks, todayISO, newUPP) };
-                } else {
-                  // Se non è un restock, non azzero il residuo; lo limito al baseline
-                  const baseline = baselineUnitsOf(next);
-                  const safeRU = Math.min(Math.max(0, residueUnitsOf(next)), baseline || newUPP);
-                  next.residueUnits = safeRU;
-                }
-
-                arr[stockIndex] = next;
-                return arr;
-              });
-            }
+              } else {
+                const p = Math.max(0, Number(upd.packs || 0));
+                const u = Math.max(1, Number(upd.unitsPerPack || 1));
+                arr.unshift({
+                  name: upd.name || itemName,
+                  brand: upd.brand || brand || '',
+                  packs: p,
+                  unitsPerPack: u,
+                  unitLabel: upd.unitLabel || 'unità',
+                  expiresAt: upd.expiresAt || '',
+                  baselinePacks: p,
+                  lastRestockAt: todayISO,
+                  avgDailyUnits: 0,
+                  residueUnits: p * u,
+                  image: ''
+                });
+              }
+              return arr;
+            });
 
             showToast('Riga aggiornata da OCR ✓', 'ok');
-          } catch (e) {
-            console.error('[OCR riga] error', e);
-            showToast(`Errore OCR riga: ${e?.message || e}`, 'err');
+          } catch (err) {
+            console.error('[Row OCR unified]', err);
+            showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
           } finally {
             setBusy(false);
+            setTargetRowIdx(null);
           }
         }}
       />
 
-      {/* Upload immagine riga scorte */}
+      {/* Input immagine prodotto */}
       <input
         ref={rowImageInputRef}
         type="file"
@@ -2167,27 +2019,17 @@ useEffect(() => {
         onChange={(e) => {
           const files = Array.from(e.target.files || []);
           e.target.value = '';
-          if (!files.length) return;
-          if (typeof targetImageIdx !== 'number') { showToast('Riga non trovata', 'err'); return; }
-          handleRowImage(files, targetImageIdx);
+          if (files.length && typeof targetImageIdx === 'number') {
+            handleRowImage(files, targetImageIdx);
+            setTargetImageIdx(null);
+          }
         }}
       />
-
-      {/* STYLES */}
-      <style jsx global>{`
-        .lp-list-card:hover { transform: translateY(-1px); }
-        .lp-row-actions button,
-        .lp-row-actions-right button { cursor: pointer; }
-        @media (max-width: 860px) {
-          .lp-stock-row { flex-wrap: wrap; gap: 10px !important; }
-          .lp-row-actions-right { width: 100%; justify-content: flex-end; }
-        }
-      `}</style>
     </>
   );
 }
 
-/* =================== Styles (compatti e coerenti) =================== */
+/* =================== Styles (completo con fix) =================== */
 const styles = {
   page: {
     minHeight:'100vh',
@@ -2196,89 +2038,155 @@ const styles = {
     color:'#f8f1dc',
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
+
+  // Card trasparente
   card: {
-    maxWidth:1100, margin:'0 auto',
+    maxWidth:1000, margin:'0 auto',
     background:'transparent',
+    backdropFilter:'none',
     border:'1px solid rgba(255,255,255,.06)',
-    borderRadius:18, padding:16
+    borderRadius:18, padding:16,
+    boxShadow:'none'
   },
+
   headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
   title3d:{
     margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
     textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
   },
-  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid rgba(255,255,255,.12)', textDecoration:'none', fontWeight:600 },
-  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#e5e7eb', border:'1px solid rgba(255,255,255,.12)', fontWeight:600 },
-  switchRow:{ display:'flex', gap:8, margin:'10px 0 14px', flexWrap:'wrap' },
-  switchBtn:{ padding:'8px 12px', borderRadius:10, background:'#0f172a', color:'#cbd5e1', border:'1px solid #1f2937' },
-  switchBtnActive:{ padding:'8px 12px', borderRadius:10, background:'#1d4ed8', color:'#fff', border:'1px solid #1e40af', boxShadow:'0 0 12px rgba(29,78,216,.35)' },
-  toolsRow:{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom:10 },
-  voiceBtn:{ padding:'8px 12px', borderRadius:10, background:'#334155', color:'#fff', border:'1px solid #475569', fontWeight:700 },
-  primaryBtn:{ padding:'8px 12px', borderRadius:10, background:'#2563eb', color:'#fff', border:'1px solid #1d4ed8', fontWeight:700 },
-  sectionLarge:{ marginTop:12 },
-  sectionLifted:{ marginTop:12, paddingTop:8, borderTop:'1px dashed rgba(255,255,255,.12)' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'center', marginBottom:8 },
-  h3:{ margin:'6px 0 8px', fontSize:'1.2rem' },
-  h4:{ margin:'6px 0 6px', fontSize:'1rem', opacity:.95 },
+  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
+  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
 
-  formRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' },
-  formRowWrap:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginTop:6 },
-  input:{
-    background:'rgba(15,23,42,.55)', color:'#e5e7eb', border:'1px solid #334155',
-    padding:'8px 10px', borderRadius:10, outline:'none', minWidth:160
+  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
+  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
+  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
+
+  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
+  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
+  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
+
+  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
+  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
+  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
+
+  h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
+  h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
+
+  // LISTA PRODOTTI: card rosse a pillola + bottoni icona
+  listCardRed: {
+    display:'flex',
+    justifyContent:'space-between',
+    alignItems:'center',
+    gap:10,
+    padding:'12px 14px',
+    borderRadius:16,
+    cursor:'pointer',
+    userSelect:'none',
+    background:'linear-gradient(180deg, #7f1d1d, #991b1b)',
+    border:'1px solid #450a0a',
+    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.35)',
+  },
+  listCardRedBought: {
+    background:'linear-gradient(180deg, #166534, #14532d)',
+    border:'1px solid #0f5132',
+    textDecoration:'line-through',
+    opacity:.9
+  },
+  iconBtnBase:{
+    width:36, height:36, minWidth:36,
+    display:'grid', placeItems:'center',
+    borderRadius:999,
+    border:'1px solid rgba(255,255,255,.15)',
+    background:'rgba(15,23,42,.55)',
+    color:'#f8fafc',
+    fontWeight:800,
+    boxShadow:'0 2px 8px rgba(0,0,0,.35)'
+  },
+  iconBtnGreen:{
+    background:'linear-gradient(180deg, #16a34a, #15803d)',
+    border:'1px solid #166534',
+    color:'#ffffff'
+  },
+  iconBtnDark:{
+    background:'linear-gradient(180deg, #0f172a, #111827)',
+    border:'1px solid #334155',
+    color:'#e5e7eb'
+  },
+  ocrPillBtn:{
+    padding:'8px 12px',
+    borderRadius:12,
+    border:'1px solid #7f1d1d',
+    background:'linear-gradient(180deg, #991b1b, #7f1d1d)',
+    color:'#fde68a',
+    fontWeight:700
+  },
+    trashBtn:{
+    padding:'8px 10px',
+    borderRadius:12,
+    border:'1px solid #4b5563',
+    background:'linear-gradient(180deg,#1f2937,#111827)',
+    color:'#f87171',
+    fontWeight:700
   },
 
-  listCardRed:{
-    display:'flex', alignItems:'center', justifyContent:'space-between', gap:10,
-    padding:10, borderRadius:12,
-    background:'linear-gradient(180deg, rgba(30,30,40,.45), rgba(10,14,22,.35))',
-    border:'1px solid rgba(255,255,255,.06)'
-  },
-  listCardRedBought:{ opacity:.7, filter:'saturate(.8)' },
-  rowLeft:{ display:'flex', flexDirection:'column', gap:4, minWidth:0 },
-  rowName:{ fontWeight:800, fontSize:'1rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  rowBrand:{ opacity:.85, fontWeight:600 },
-  rowMeta:{ fontSize:'.9rem', opacity:.85, display:'flex', alignItems:'center', gap:8 },
-  badgeBought:{ marginLeft:8, background:'#16a34a', color:'#fff', padding:'2px 8px', borderRadius:999, fontSize:'.75rem', fontWeight:800 },
-  badgeToBuy:{ marginLeft:8, background:'#f59e0b', color:'#111', padding:'2px 8px', borderRadius:999, fontSize:'.75rem', fontWeight:800 },
-
+  // LISTA — testo
+  rowLeft:{ flex:1, minWidth:0 },
+  rowName:{ fontSize:'1.05rem', fontWeight:600, color:'#fff' },
+  rowBrand:{ opacity:.8, fontWeight:400, marginLeft:4 },
+  rowMeta:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
+  badgeBought:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#166534', color:'#dcfce7', fontSize:'.75rem' },
+  badgeToBuy:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#7f1d1d', color:'#fee2e2', fontSize:'.75rem' },
   rowActions:{ display:'flex', gap:6, alignItems:'center' },
-  iconBtnBase:{ width:34, height:34, borderRadius:8, border:'1px solid #1f2937', background:'#0b1220', color:'#e5e7eb', fontWeight:800 },
-  iconBtnGreen:{ background:'#065f46', border:'1px solid #064e3b' },
-  iconBtnDark:{},
-  ocrPillBtn:{ padding:'7px 10px', borderRadius:999, border:'1px solid #1f2937', background:'#0f172a', color:'#cbd5e1', fontWeight:700 },
-  trashBtn:{ padding:'7px 10px', borderRadius:8, border:'1px solid #7f1d1d', background:'#450a0a', color:'#fecaca', fontWeight:800 },
+  rowActionsRight:{ display:'flex', gap:6, alignItems:'center', marginLeft:10 },
 
-  // Critici
-  critListWrap:{ display:'flex', flexDirection:'column', gap:8 },
-  critRow:{ display:'flex', alignItems:'center', gap:10, padding:8, borderRadius:10, background:'rgba(15,23,42,.45)', border:'1px solid rgba(255,255,255,.06)' },
-  critName:{ fontWeight:800, minWidth:160 },
-  progressOuterCrit:{ position:'relative', height:10, flex:1, background:'#0b1220', borderRadius:999, overflow:'hidden', border:'1px solid #1f2937' },
-  progressOuterBig:{ position:'relative', height:14, marginTop:6, background:'#0b1220', borderRadius:999, overflow:'hidden', border:'1px solid #1f2937' },
-  progressInner:{ position:'absolute', left:0, top:0, bottom:0 },
-  critMeta:{ fontSize:'.85rem', opacity:.9, minWidth:170, textAlign:'right' },
-  expiryChip:{ marginLeft:8, background:'#1e3a8a', color:'#e0e7ff', padding:'2px 8px', borderRadius:999, fontSize:'.7rem', fontWeight:800 },
+  // STOCK / SCORTE
+  stockList:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
+  stockLineZ1:{ background:'rgba(255,255,255,.02)', padding:10, borderRadius:10 },
+  stockLineZ2:{ background:'rgba(0,0,0,.15)', padding:10, borderRadius:10 },
+  stockRow:{ display:'flex', alignItems:'center', gap:10 },
+  stockTitle:{ fontSize:'1rem', fontWeight:600, marginBottom:4 },
+  stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:2 },
 
-  // Scorte (layout a righe)
-  stockList:{ display:'flex', flexDirection:'column', gap:6 },
-  stockLineZ1:{ background:'rgba(15,23,42,.45)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, padding:10 },
-  stockLineZ2:{ background:'rgba(10,18,30,.45)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, padding:10 },
-  stockRow:{ display:'flex', alignItems:'center', gap:12 },
+  imageBox:{
+    width:56, height:56, borderRadius:10,
+    border:'1px dashed #64748b',
+    display:'grid', placeItems:'center',
+    overflow:'hidden',
+    cursor:'pointer',
+    background:'rgba(255,255,255,.04)'
+  },
+  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
+  imagePlaceholder:{ fontSize:'1.5rem', color:'#94a3b8' },
 
-  imageBox:{ width:64, height:64, borderRadius:10, border:'1px dashed #334155', display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(2,6,23,.4)' },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover', borderRadius:10 },
-  imagePlaceholder:{ fontSize:'1.4rem', opacity:.7 },
+  kvCol:{ minWidth:90, textAlign:'center' },
+  kvLabel:{ fontSize:'.75rem', opacity:.75 },
+  kvValue:{ fontSize:'1rem', fontWeight:600 },
 
-  stockTitle:{ fontWeight:900, fontSize:'1rem' },
-  stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:4 },
+  progressOuterBig:{ height:10, background:'rgba(255,255,255,.1)', borderRadius:6, overflow:'hidden', marginTop:2 },
+  progressOuterCrit:{ height:8, background:'rgba(255,255,255,.08)', borderRadius:6, overflow:'hidden', flex:1 },
+  progressInner:{ height:'100%' },
 
-  kvCol:{ minWidth:110, textAlign:'center' },
-  kvLabel:{ fontSize:'.75rem', opacity:.8 },
-  kvValue:{ fontWeight:900, letterSpacing:.3 },
+  critListWrap:{ display:'flex', flexDirection:'column', gap:6 },
+  critRow:{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, background:'rgba(255,255,255,.04)' },
+  critName:{ flex:1, fontWeight:600 },
+  critMeta:{ fontSize:'.8rem', opacity:.9 },
+  expiryChip:{ marginLeft:6, padding:'1px 5px', borderRadius:6, background:'#7f1d1d', color:'#fee2e2', fontSize:'.7rem' },
 
-  rowActionsRight:{ display:'flex', gap:6, alignItems:'center', marginLeft:'auto' },
-  smallOkBtn:{ padding:'6px 10px', borderRadius:8, background:'#15803d', color:'#fff', border:'1px solid #166534', fontWeight:800 },
-  smallGhostBtn:{ padding:'6px 10px', borderRadius:8, background:'transparent', color:'#e5e7eb', border:'1px solid #334155', fontWeight:800 },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:8, background:'#7f1d1d', color:'#fecaca', border:'1px solid #7f1d1d', fontWeight:800 },
+  // Bottoni piccoli
+  smallOkBtn:{ padding:'6px 10px', borderRadius:8, background:'#16a34a', color:'#fff', fontWeight:700, border:'none' },
+  smallGhostBtn:{ padding:'6px 10px', borderRadius:8, background:'transparent', border:'1px solid #475569', color:'#e2e8f0' },
+  smallDangerBtn:{ padding:'6px 10px', borderRadius:8, background:'#991b1b', border:'1px solid #7f1d1d', color:'#fee2e2' },
+
+  formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
+  formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
+  input:{
+    flex:1,
+    minWidth:120,
+    padding:'8px 10px',
+    borderRadius:8,
+    border:'1px solid #475569',
+    background:'rgba(15,23,42,.65)',
+    color:'#f1f5f9'
+  }
+
 };
-
