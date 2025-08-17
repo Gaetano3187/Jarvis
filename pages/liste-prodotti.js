@@ -1646,8 +1646,7 @@ export default function ListeProdotti() {
                         ) : (
                           <>
                             {/* Layout a 4 colonne: immagine | nome+barra | confezioni | unità/conf */}
-                          <div style={styles.stockRow} className="stockRow">
-
+                            <div style={styles.stockRow}>
                               {/* Colonna immagine */}
                               <div
                                 style={styles.imageBox}
@@ -1677,15 +1676,13 @@ export default function ListeProdotti() {
                               </div>
 
                               {/* Confezioni */}
-                             <div style={styles.kvCol} className="kvCol">
-
+                              <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Confezioni</div>
                                 <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
                               </div>
 
                               {/* Unità/conf. */}
-                             <div style={styles.kvCol} className="kvCol">
-
+                              <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Unità/conf.</div>
                                 <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
                               </div>
@@ -1718,25 +1715,8 @@ export default function ListeProdotti() {
               {toast.msg}
             </div>
           )}
-{/* Toast */}
-{toast && (
-  <div style={styles.toastWrap}>
-    <div
-      style={{
-        ...styles.toastBase,
-        ...(toast.type === 'ok'
-          ? styles.toastOk
-          : toast.type === 'err'
-          ? styles.toastErr
-          : styles.toastInfo),
-      }}
-      role="status"
-      aria-live="polite"
-    >
-      {toast.msg}
-    </div>
-  </div>
-)}
+        </div>
+      </div>
 
       {/* INPUT NASCOSTI */}
       <input
@@ -1880,7 +1860,7 @@ export default function ListeProdotti() {
               return arr;
             });
 
-          showToast('Riga aggiornata da OCR ✓', 'ok');
+            showToast('Riga aggiornata da OCR ✓', 'ok');
           } catch (err) {
             console.error('[Row OCR unified]', err);
             showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
@@ -1890,55 +1870,27 @@ export default function ListeProdotti() {
           }
         }}
       />
-<>
-  {/* ...altri elementi del componente... */}
 
-  {/* 5) Input nascosto per immagine prodotto */}
-  <input
-    ref={rowImageInputRef}
-    type="file"
-    accept="image/*"
-    capture="environment"
-    hidden
-    onChange={(e) => {
-      const files = Array.from(e.target.files || []);
-      e.target.value = '';
-      if (files.length && typeof targetImageIdx === 'number') {
-        handleRowImage(files, targetImageIdx);
-        setTargetImageIdx(null);
-      }
-    }}
-  />
-
-  <style jsx>{`
-    @media (max-width: 600px){
-      .stockRow {
-        grid-template-columns: 64px 1fr;
-        grid-row-gap: 6px;
-      }
-      .stockRow .kvCol { 
-        grid-column: 1 / -1;
-        align-items: flex-start;
-      }
-    }
-
-    @keyframes toastPop {
-      0% { transform: translate(-50%, 10px) scale(.98); opacity: 0; }
-      100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
-    }
-    @keyframes toastFade { to { opacity: 0; } }
-
-    .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
-    @keyframes titlePulse { 
-      0%,100% { transform: scale(1); } 
-      50% { transform: scale(1.05); } 
-    }
-    .muted { opacity:.85; }
-    .hint { opacity:.75; font-size:.9rem; margin-top:6px; }
-  `}</style>
-</>
-
-/* =================== Styles (completo con fix) =================== */
+      {/* 5) Input nascosto per immagine prodotto */}
+      <input
+        ref={rowImageInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          e.target.value = '';
+          if (files.length && typeof targetImageIdx === 'number') {
+            handleRowImage(files, targetImageIdx);
+            setTargetImageIdx(null);
+          }
+        }}
+      />
+    </>
+  );
+}
+/* =================== Styles =================== */
 const styles = {
   page: {
     minHeight:'100vh',
@@ -1947,7 +1899,7 @@ const styles = {
     color:'#f8f1dc',
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
-
+  // 7) SFONDO TRASPARENTE
   card: {
     maxWidth:1000, margin:'0 auto',
     background:'transparent',
@@ -1956,7 +1908,6 @@ const styles = {
     borderRadius:18, padding:16,
     boxShadow:'none'
   },
-
   headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
   title3d:{
     margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
@@ -1964,7 +1915,6 @@ const styles = {
   },
   homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
   actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
-
   switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
   switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
   switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
@@ -1973,6 +1923,7 @@ const styles = {
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
   primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
 
+  // 7) TRASPARENTE
   sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'transparent', border:'1px solid rgba(255,255,255,.06)' },
   sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'transparent', border:'1px solid rgba(255,255,255,.08)', boxShadow:'none' },
   sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
@@ -1999,32 +1950,9 @@ const styles = {
     background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
   },
   rowLeft:{ display:'flex', flexDirection:'column' },
-
-  // testo orizzontale + ellissi
-  rowName:{
-    fontWeight:800,
-    letterSpacing:.4,
-    marginBottom:2,
-    whiteSpace:'nowrap',
-    overflow:'hidden',
-    textOverflow:'ellipsis',
-    wordBreak:'normal'
-  },
-  rowBrand:{
-    opacity:.85,
-    fontWeight:600,
-    whiteSpace:'nowrap',
-    overflow:'hidden',
-    textOverflow:'ellipsis',
-    wordBreak:'normal'
-  },
-  rowMeta:{
-    opacity:.9,
-    fontSize:'.92rem',
-    whiteSpace:'nowrap',
-    overflow:'hidden',
-    textOverflow:'ellipsis'
-  },
+  rowName:{ fontWeight:800, letterSpacing:.4, marginBottom:2 },
+  rowBrand:{ opacity:.85, fontWeight:600 },
+  rowMeta:{ opacity:.9, fontSize:'.92rem' },
   rowActions:{ display:'flex', gap:6, alignItems:'center' },
 
   smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.75)', color:'#e5e7eb', fontWeight:800 },
@@ -2049,15 +1977,8 @@ const styles = {
     border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
   },
 
-  // layout riga scorte adattivo
-  stockRow:{
-    display:'grid',
-    gridTemplateColumns:'72px 1fr 90px 90px',
-    gap:10,
-    alignItems:'center',
-    minWidth:0
-  },
-
+  // 6) Nuovo layout card a 4 colonne
+  stockRow:{ display:'grid', gridTemplateColumns:'72px 1fr 120px 120px', gap:10, alignItems:'center' },
   imageBox:{
     width:64, height:64, borderRadius:12,
     border:'1px solid rgba(255,255,255,.1)',
@@ -2075,23 +1996,5 @@ const styles = {
   stockTitle:{ fontWeight:800, marginBottom:6 },
   progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
   progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
-  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
-
-  /* Toast */
-  toastWrap:{
-    position:'fixed', left:'50%', bottom:24, transform:'translateX(-50%)',
-    zIndex:9999, pointerEvents:'none'
-  },
-  toastBase:{
-    minWidth:260, maxWidth:520,
-    padding:'10px 14px', borderRadius:12,
-    boxShadow:'0 8px 20px rgba(0,0,0,.35)',
-    border:'1px solid rgba(255,255,255,.10)',
-    color:'#fff', textAlign:'center',
-    backdropFilter:'blur(2px)',
-    animation:'toastPop .24s ease-out, toastFade .2s ease-in 3s forwards'
-  },
-  toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
-  toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
-  toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
+  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 }
 };
