@@ -2512,139 +2512,7 @@ export default function ListeProdotti() {
             </p>
           </div>
 
-          {/* Aggiungi SCORTA manuale */}
-          <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
-            <form onSubmit={addManualStock} style={styles.formRow}>
-              <input placeholder="Prodotto (es. latte)" value={stockForm.name}
-                     onChange={e => setStockForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-              <input placeholder="Marca (opzionale)" value={stockForm.brand}
-                     onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-              <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs}
-                     onChange={e => setStockForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width:120}} required />
-              <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
-                     onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width:120}} required />
-              <input placeholder="Etichetta unità (es. bottiglie)" value={stockForm.unitLabel}
-                     onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width:180}} />
-              <input placeholder="Scadenza YYYY-MM-DD (opz.)" value={stockForm.expiresAt}
-                     onChange={e => setStockForm(f => ({...f, expiresAt: e.target.value}))} style={{...styles.input, width:200}} />
-              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alle scorte</button>
-            </form>
-            <p style={{opacity:.8, marginTop:6}}>
-              Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
-            </p>
-          </div>
-{/* Toast */}
-{toast && (
-  <div
-    className={`jarvis-toast ${toast.type ?? 'ok'} show`}
-    role="status"
-    aria-live="polite"
-  >
-    <span className="toast__icon" aria-hidden={true}>
-      {toast.type === 'err' ? '⚠️' : toast.type === 'ok' ? '✅' : 'ℹ️'}
-    </span>
-    <span className="toast__msg">{toast.msg}</span>
-    <button
-      type="button"
-      className="toast__close"
-      onClick={() => setToast(null)}
-      aria-label="Chiudi notifica"
-      title="Chiudi"
-    >
-      ×
-    </button>
-  </div>
-)}
-
-<style jsx>{`
-  /* === Toast === */
-  .jarvis-toast {
-    position: fixed;
-    left: 50%;
-    bottom: 20px;
-    transform: translateX(-50%) translateY(12px);
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border-radius: 10px;
-    color: #fff;
-    box-shadow: 0 6px 16px rgba(0,0,0,.35);
-    z-index: 9999;
-    backdrop-filter: saturate(1.1) blur(4px);
-    border: 1px solid rgba(255,255,255,.15);
-    opacity: 0;
-    transition: opacity .22s ease, transform .22s ease;
-  }
-  .jarvis-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .jarvis-toast.ok   { background: #16a34a; }
-  .jarvis-toast.err  { background: #ef4444; }
-  .jarvis-toast.info { background: #334155; }
-
-  .toast__icon { font-size: 1rem; line-height: 1; }
-  .toast__msg  { font-weight: 700; }
-  .toast__close {
-    background: rgba(255,255,255,.15);
-    border: 1px solid rgba(255,255,255,.35);
-    color: #fff;
-    width: 26px; height: 26px;
-    border-radius: 6px;
-    font-weight: 800;
-    line-height: 1;
-    display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer;
-  }
-  .toast__close:hover { background: rgba(255,255,255,.25); }
-
-  /* === Righe lista (rosso -> verde) === */
-  .itemRow { user-select: none; will-change: transform, filter; }
-  .itemRow.pending {
-    background: #ef4444;
-    color: #fff;
-    border: 2px solid #dc2626;
-  }
-  .itemRow.pending:hover { filter: brightness(1.05); }
-  .itemRow.bought {
-    background: #16a34a;
-    color: #fff;
-    border: 2px solid #16a34a;
-  }
-  .itemRow.bought:hover { filter: brightness(1.05); }
-
-  /* Animazioni click/press */
-  .tap {
-    transform: scale(0.94) translateY(2px);
-    filter: brightness(0.9);
-    transition: transform .06s ease, filter .06s ease;
-  }
-  .rebound {
-    transform: scale(1.02);
-    filter: brightness(1.08);
-    transition: transform .1s ease, filter .1s ease;
-  }
-
-  /* Badge quantità: glow al tap */
-  .qtyBadgeTap {
-    transform: scale(1.1);
-    box-shadow: 0 0 0 10px rgba(245,158,11,0.28);
-    background: rgba(245,158,11,0.18);
-    border-radius: 9999px;
-    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
-  }
-
-  /* Utility già usate */
-  .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
-  @keyframes titlePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-  .muted { opacity:.8; }
-  .hint { opacity:.7; font-size: 0.9rem; margin-top:6px; }
-  .rowWrap { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-`}</style>
-
-/* workaround MediaRecorder multipli */
-function theMediaWorkaround(){}
-
-/* ---------------- styles completi ---------------- */
+       /* ---------------- styles completi ---------------- */
 const styles = {
   page: {
     width: '100%',
@@ -2728,8 +2596,7 @@ const styles = {
 
   listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
 
-  /* il “bottone riga” lo gestiamo con classi .itemRow pending/bought nel CSS sopra,
-     qui lasciamo struttura/padding/borderRadius comuni */
+  /* struttura comune per riga/bottone */
   rowBtnBase: {
     flex: 1,
     display: 'flex',
@@ -2741,6 +2608,14 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 800,
     minHeight: 44,
+  },
+
+  /* riga form */
+  formRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
   },
 
   qtyBadge: {
@@ -2804,6 +2679,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 800,
     whiteSpace: 'nowrap',
+    transition: 'transform .06s ease, filter .06s ease, box-shadow .12s ease',
   },
   input: {
     padding: '10px 12px',
