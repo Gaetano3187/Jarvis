@@ -2154,12 +2154,24 @@ export default function ListeProdotti() {
       {curItems.map((it) => (
         <div
           key={it.id}
+          role="button"
+          tabIndex={0}
+          title="Click: +1 · Doppio click: tutti · Tasto destro: annulla"
+          onClick={() => markBought(it.id, 1)}
+          onDoubleClick={() => markBought(it.id, Number(it.qty))}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            unmarkBought(it.id);
+          }}
           style={{
             ...styles.itemRow,
+            cursor: 'pointer',
+            userSelect: 'none',
             borderColor: it.purchased ? '#16a34a' : '#dc2626',
             background: it.purchased
-              ? 'rgba(22,163,74,.06)'
-              : 'rgba(220,38,38,.06)',
+              ? 'rgba(22,163,74,0.12)'
+              : 'rgba(220,38,38,0.12)',
+            transition: 'all 0.2s ease',
           }}
         >
           {/* Info prodotto */}
@@ -2168,40 +2180,19 @@ export default function ListeProdotti() {
             <div>
               <div style={styles.itemName}>{it.name}</div>
               <div style={styles.itemBrand}>
-                {it.brand || '—'} · {it.unitsPerPack}{' '}
-                {it.unitLabel || 'unità'}/conf.
+                {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
               </div>
             </div>
           </div>
 
-          {/* Azioni */}
-          <div style={styles.itemActions}>
+          {/* Solo tasto elimina */}
+          <div style={styles.itemActions} onClick={(e) => e.stopPropagation()}>
             <button
-              title="Segna 1 acquistato"
-              onClick={() => markBought(it.id, 1)}
-              style={
-                it.purchased ? styles.actionSuccess : styles.actionDanger
-              }
+              title="Elimina"
+              onClick={() => removeItem(it.id)}
+              style={styles.actionGhostDanger}
             >
-              {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
-            </button>
-
-            {Number(it.qty) > 1 && (
-              <button
-                title="Segna tutta la quantità come acquistata"
-                onClick={() => markBought(it.id, Number(it.qty))}
-                style={styles.actionSuccess}
-              >
-                ✔ Comprati tutti
-              </button>
-            )}
-
-            <button
-              title="Annulla acquisto"
-              onClick={() => unmarkBought(it.id)}
-              style={styles.actionGhost}
-            >
-              Annulla
+              🗑 Elimina
             </button>
           </div>
         </div>
@@ -2209,39 +2200,6 @@ export default function ListeProdotti() {
     </div>
   )}
 </div>
-
-              ✔ Comprati tutti
-            </button>
-          )}
-
-          <button
-            title="Annulla acquisto"
-            onClick={() => unmarkBought(it.id)}
-            style={styles.actionGhost}
-          >
-            Annulla
-          </button>
-        </div>
-      </div>
-    ))}
-  </div>
-)}
-                         ✅ Comprato tutto
-                        </button>
-                      )}
-
-                      <div style={{display:'flex', gap:6}}>
-                        <button title="Diminuisci confezioni" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
-                        <button title="Aumenta confezioni" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
-                      </div>
-                      <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionGhostDanger}>🗑 Elimina</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Form aggiunta manuale (Lista) */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
