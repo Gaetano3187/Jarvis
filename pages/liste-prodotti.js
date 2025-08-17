@@ -674,6 +674,57 @@ export default function ListeProdotti() {
     const stockRef = useRef(stock);
     const listsRef = useRef(lists);
     const currentListRef = useRef(currentList);
+    // In cima al file (fuori dal componente): cambia l'ID se vuoi forzare reset tra deploy
+const BUILD_ID = 'liste-prodotti@v2';
+
+// …
+
+function getHub() {
+  if (typeof window === 'undefined') return null;
+
+  // Invalida il global se proviene da una build precedente o è corrotto
+  const w = window;
+  const needReset =
+    w.__jarvisBuildId !== BUILD_ID ||
+    !w.__jarvisBrainHub ||
+    typeof w.__jarvisBrainHub !== 'object';
+
+  if (needReset) {
+    try { delete w.__jarvisBrainHub; } catch {}
+    w.__jarvisBuildId = BUILD_ID;
+  }
+
+  // (Re)inizializza se mancano metodi/shape
+  const hub = w.__jarvisBrainHub || {};
+  if (!(hub._datasources instanceof Map)) hub._datasources = new Map();
+  if (!(hub._commands instanceof Map)) hub._commands = new Map();
+
+  if (typeof hub.registerDataSource !== 'function') {
+    hub.registerDataSource = function(def){
+      if (!def?.name || typeof def.fetch !== 'function') return;
+      this._datasources.set(def.name, def);
+    };
+  }
+  if (typeof hub.registerCommand !== 'function') {
+    hub.registerCommand = function(def){
+      if (!def?.name || typeof def.execute !== 'function') return;
+      this._commands.set(def.name, def);
+    };
+  }
+  if (typeof hub.ask !== 'function') {
+    hub.ask = async function(name, payload){ const ds=this._datasources.get(name); return ds?.fetch(payload); };
+  }
+  if (typeof hub.run !== 'function') {
+    hub.run = async function(name, payload){ const cmd=this._commands.get(name); return cmd?.execute(payload); };
+  }
+  if (typeof hub.list !== 'function') {
+    hub.list = function(){ return { datasources:[...this._datasources.keys()], commands:[...this._commands.keys()]}; };
+  }
+
+  w.__jarvisBrainHub = hub;
+  return hub;
+}
+
     useEffect(()=>{ stockRef.current = stock; }, [stock]);
     useEffect(()=>{ listsRef.current = lists; }, [lists]);
     useEffect(()=>{ currentListRef.current = currentList; }, [currentList]);
