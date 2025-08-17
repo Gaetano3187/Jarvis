@@ -587,40 +587,6 @@ export default function ListeProdotti() {
   // Scorte & critici
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
-  // ——— immagini riga scorte
-const stockImgInputRef = useRef(null);
-const [imgRowIndex, setImgRowIndex] = useState(null);
-
-// ——— OCR etichetta / quantità
-const stockOcrInputRef = useRef(null);
-const [ocrRowIndex, setOcrRowIndex] = useState(null);
-const [ocrMode, setOcrMode] = useState('label'); // 'label' | 'qty'
-
-// DataURL per persistenza in localStorage
-async function fileToDataURL(file){
-  return new Promise((resolve,reject)=>{
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
-// Applica immagine alla riga scorte
-async function handleStockImagePick(idx, file){
-  try{
-    const dataUrl = await fileToDataURL(file);
-    setStock(prev=>{
-      const arr = [...prev];
-      if(!arr[idx]) return prev;
-      arr[idx] = { ...arr[idx], img: dataUrl };
-      return arr;
-    });
-    showToast('Immagine salvata ✓','ok');
-  }catch(e){
-    showToast('Impossibile leggere immagine','err');
-  }
-}
 
   // Edit riga scorte
   const [editingRow, setEditingRow] = useState(null);
@@ -2033,332 +1999,336 @@ async function handleStockImagePick(idx, file){
               </div>
             </div>
 
-       {/* Form scorte manuali */}
-{showStockForm && (
-  <form onSubmit={addManualStock} style={styles.formRow}>
-    <input
-      style={styles.input}
-      placeholder="Prodotto"
-      value={stockForm.name}
-      onChange={e => setStockForm(s => ({ ...s, name: e.target.value }))}
-      required
-    />
-    <input
-      style={styles.input}
-      placeholder="Marca"
-      value={stockForm.brand}
-      onChange={e => setStockForm(s => ({ ...s, brand: e.target.value }))}
-    />
-    <input
-      style={{ ...styles.input, width: 120 }}
-      inputMode="decimal"
-      placeholder="Confezioni"
-      value={stockForm.packs}
-      onChange={e => setStockForm(s => ({ ...s, packs: e.target.value }))}
-    />
-    <input
-      style={{ ...styles.input, width: 140 }}
-      inputMode="decimal"
-      placeholder="Unità/conf."
-      value={stockForm.unitsPerPack}
-      onChange={e => setStockForm(s => ({ ...s, unitsPerPack: e.target.value }))}
-    />
-    <input
-      style={{ ...styles.input, width: 160 }}
-      placeholder="Etichetta (es. bottiglie)"
-      value={stockForm.unitLabel}
-      onChange={e => setStockForm(s => ({ ...s, unitLabel: e.target.value }))}
-    />
-    <input
-      style={{ ...styles.input, width: 170 }}
-      placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)"
-      value={stockForm.expiresAt}
-      onChange={e => setStockForm(s => ({ ...s, expiresAt: e.target.value }))}
-    />
-    <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
-  </form>
-)}
+            {/* Form scorte manuali */}
+            {showStockForm && (
+              <form onSubmit={addManualStock} style={styles.formRow}>
+                <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
+                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
+                <input style={styles.input} placeholder="Marca" value={stockForm.brand}
+                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
+                <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
+                       onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
+                <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
+                       onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
+                <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
+                       onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
+                <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
+                       onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
+                <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
+              </form>
+            )}
 
-{/* Form scadenze manuali */}
-{showExpiryForm && (
-  <form onSubmit={addManualExpiry} style={styles.formRow}>
-    <input
-      style={styles.input}
-      placeholder="Prodotto"
-      value={expiryForm.name}
-      onChange={e => setExpiryForm(f => ({ ...f, name: e.target.value }))}
-      required
-    />
-    <input
-      style={{ ...styles.input, width: 220 }}
-      placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)"
-      value={expiryForm.expiresAt}
-      onChange={e => setExpiryForm(f => ({ ...f, expiresAt: e.target.value }))}
-      required
-    />
-    <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
-  </form>
-)}
+            {/* Form scadenze manuali */}
+            {showExpiryForm && (
+              <form onSubmit={addManualExpiry} style={styles.formRow}>
+                <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
+                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
+                <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
+                       onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
+                <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
+              </form>
+            )}
 
-{/* Critici in evidenza */}
-<div style={{ marginTop: 8 }}>
-  <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-  {critical.length === 0 ? (
-    <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
-  ) : (
-    <div style={styles.stockGrid}>
-      {critical.map((s, i) => {
-        const { current, baseline, pct } = residueInfo(s);
-        const w = Math.round(pct * 100);
-        return (
-          <div key={i} style={styles.stockCardCritical}>
-            <div style={styles.stockTitle}>
-              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+            {/* Critici in evidenza */}
+            <div style={{ marginTop: 8 }}>
+              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
+              {critical.length === 0 ? (
+                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
+              ) : (
+                <div style={styles.stockGrid}>
+                  {critical.map((s, i) => {
+                    const { current, baseline, pct } = residueInfo(s);
+                    const w = Math.round(pct*100);
+                    return (
+                      <div key={i} style={styles.stockCardCritical}>
+                        <div style={styles.stockTitle}>
+                          {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                        </div>
+                        <div style={styles.progressOuter}>
+                          <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                        </div>
+                        <div style={styles.stockLineSmall}>
+                          {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                          {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-            <div style={styles.progressOuter}>
-              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-            </div>
-            <div style={styles.stockLineSmall}>
-              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-              {s.expiresAt && (
-                <span style={styles.expiryChip}>
-                  scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
-                </span>
+
+            {/* Elenco scorte completo */}
+            <div style={{ marginTop: 12 }}>
+              <h4 style={styles.h4}>Tutte le scorte</h4>
+              {stock.length === 0 ? (
+                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
+              ) : (
+                <div style={styles.stockGrid}>
+                  {stock.map((s, idx) => {
+                    const { current, baseline, pct } = residueInfo(s);
+                    const w = Math.round(pct*100);
+                    const zebra = idx % 2 === 0;
+                    return (
+                      <div key={idx} style={{ ...(zebra ? styles.stockCardZ1 : styles.stockCardZ2) }}>
+                        {editingRow === idx ? (
+                          <div>
+                            <div style={styles.formRowWrap}>
+                              <input style={styles.input} value={editDraft.name}
+                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
+                              <input style={styles.input} value={editDraft.brand}
+                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
+                            </div>
+                            <div style={styles.formRowWrap}>
+                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
+                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
+                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
+                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
+                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
+                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
+                            </div>
+                            <div style={styles.formRowWrap}>
+                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
+                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
+                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
+                            </div>
+                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                              <button
+                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                style={styles.smallGhostBtn}
+                              >OCR scad.</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={styles.stockTitle}>
+                              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                            </div>
+                            <div style={styles.progressOuter}>
+                              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                            </div>
+                            <div style={styles.stockLineSmall}>
+                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                            </div>
+                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                              <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
+                              <button
+                                onClick={() => applyDeltaToStock(idx, { setUnits: 0 })}
+                                style={styles.smallDangerBtn}
+                                title="Imposta residuo a 0"
+                              >Svuota</button>
+                              <button
+                                title="OCR scadenza per questo prodotto"
+                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                style={styles.smallGhostBtn}
+                              >OCR scad.</button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
-        );
-      })}
-    </div>
-  )}
-</div>
 
-{/* Elenco scorte completo (TABELLARE con colonna immagine) */}
-<div style={{ marginTop: 12 }}>
-  <h4 style={styles.h4}>Tutte le scorte</h4>
-
-  {stock.length === 0 ? (
-    <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
-  ) : (
-    <div style={styles.stockTableWrap}>
-      <div style={styles.stockTableHeader}>
-        <div style={{ gridColumn: 'img' }}>Foto</div>
-        <div style={{ gridColumn: 'name' }}>Prodotto · Consumo</div>
-        <div style={{ gridColumn: 'packs' }}>Confezioni acquistate</div>
-        <div style={{ gridColumn: 'upp' }}>Unità per confezione</div>
-        <div style={{ gridColumn: 'actions' }}>Azioni</div>
+          {/* TOAST */}
+          {toast && (
+            <div style={{
+              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
+              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
+              color:'#fff', padding:'10px 14px', borderRadius:10,
+              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999, fontWeight:600, letterSpacing:.2
+            }}>
+              {toast.msg}
+            </div>
+          )}
+        </div>
       </div>
 
-      {stock.map((s, idx) => {
-        const { current, baseline, pct } = residueInfo(s);
-        const w = Math.round(pct * 100);
-        const zebra = idx % 2 === 0;
+      {/* INPUT NASCOSTI */}
+      <input
+        ref={ocrInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          if (!files.length) return;
+          handleOCR(files);
+          e.target.value = '';
+        }}
+      />
 
-        return (
-          <div key={idx} style={{ ...(zebra ? styles.stockTableRowZ1 : styles.stockTableRowZ2) }}>
-            {/* IMG */}
-            <div style={{ gridColumn: 'img' }}>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => { setImgRowIndex(idx); stockImgInputRef.current?.click(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setImgRowIndex(idx); stockImgInputRef.current?.click(); } }}
-                style={{
-                  ...styles.imgSquare,
-                  backgroundImage: s.img ? `url(${s.img})` : 'none',
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }}
-                title={s.img ? 'Cambia immagine' : 'Aggiungi immagine'}
-              >
-                {!s.img && <span style={styles.imgPlus}>＋</span>}
-              </div>
-            </div>
+      {/* input file unico per OCR scadenza di riga */}
+      <input
+        ref={rowOcrInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        hidden
+        onChange={async (e) => {
+          const file = (e.target.files || [])[0];
+          e.target.value = '';
+          if (!file) return;
 
-            {/* NOME + BARRA */}
-            <div style={{ gridColumn: 'name' }}>
-              <div style={styles.stockTitle}>
-                {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-              </div>
-              <div style={styles.progressOuter}>
-                <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-              </div>
-              <div style={styles.stockLineSmall}>
-                {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                {s.expiresAt && (
-                  <span style={styles.expiryChip}>
-                    scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
-                  </span>
-                )}
-              </div>
-            </div>
+          // Determina prodotto target: se targetRowIdx è un id di lista, prendi da lista; se è indice scorte, prendi da stock
+          let itemName = '';
+          let brand = '';
+          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
+          if (byId) {
+            itemName = byId.name;
+            brand = byId.brand || '';
+          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
+            itemName = stock[targetRowIdx].name;
+            brand = stock[targetRowIdx].brand || '';
+          } else {
+            showToast('Elemento non trovato per OCR scadenza', 'err');
+            return;
+          }
 
-            {/* PACKS */}
-            <div style={{ gridColumn: 'packs' }}>
-              {editingRow === idx ? (
-                <input
-                  style={{ ...styles.input, width: 120 }}
-                  inputMode="decimal"
-                  value={editDraft.packs}
-                  onChange={(e) => handleEditDraftChange('packs', e.target.value)}
-                />
-              ) : (
-                <div style={styles.cellValue}>{Number(s.packs || 0)}</div>
-              )}
-            </div>
+          try {
+            setBusy(true);
+            const fd = new FormData();
+            fd.append('images', file);
+            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
+            const o = await readJsonSafe(ocrRes);
+            if (!o.ok) throw new Error(o.error || 'Errore OCR');
+            const ocrText = String(o.text || '').trim();
+            if (!ocrText) throw new Error('Nessun testo letto');
 
-            {/* UPP */}
-            <div style={{ gridColumn: 'upp' }}>
-              {editingRow === idx ? (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    style={{ ...styles.input, width: 120 }}
-                    inputMode="decimal"
-                    value={editDraft.unitsPerPack}
-                    onChange={(e) => handleEditDraftChange('unitsPerPack', e.target.value)}
-                  />
-                  <input
-                    style={{ ...styles.input, width: 140 }}
-                    placeholder="Etichetta (es. bottiglie)"
-                    value={editDraft.unitLabel}
-                    onChange={(e) => handleEditDraftChange('unitLabel', e.target.value)}
-                  />
-                </div>
-              ) : (
-                <div style={styles.cellValue}>
-                  {Number(s.unitsPerPack || 1)} <span style={{ opacity: .85 }}>{s.unitLabel || 'unità'}</span>
-                </div>
-              )}
-            </div>
+            // Chiedi solo la scadenza del prodotto target
+            const prompt = buildExpiryPrompt(itemName, brand, ocrText);
+            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+              method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+            }, 25000);
+            const safe = await readJsonSafe(r);
+            const answer = safe?.answer || safe?.data || safe;
+            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })() : answer;
+            const ex = ensureArray(parsed?.expiries).map(e => toISODate(e.expiresAt)).filter(Boolean)[0];
 
-            {/* ACTIONS */}
-            <div style={{ gridColumn: 'actions', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {editingRow === idx ? (
-                <>
-                  <button onClick={() => saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                  <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                </>
-              ) : (
-                <>
-                  <button onClick={() => startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                  <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                  <button onClick={() => { setOcrRowIndex(idx); setOcrMode('label'); stockOcrInputRef.current?.click(); }} style={styles.smallGhostBtn} title="OCR etichetta (scadenza / UPP)">OCR etichetta</button>
-                  <button onClick={() => { setOcrRowIndex(idx); setOcrMode('qty'); stockOcrInputRef.current?.click(); }} style={styles.smallGhostBtn} title="OCR quantità acquistata">OCR quantità</button>
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  )}
-</div>
+            if (!ex) { showToast('Nessuna data trovata', 'err'); return; }
 
-{/* TOAST */}
-{toast && (
-  <div style={{
-    position: 'fixed',
-    bottom: 20,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    background: toast.type === 'ok' ? '#16a34a' : (toast.type === 'err' ? '#ef4444' : '#334155'),
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: 10,
-    boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-    zIndex: 9999,
-    fontWeight: 600,
-    letterSpacing: .2,
-  }}>
-    {toast.msg}
-  </div>
-)}
+            setStock(prev => {
+              const arr = [...prev];
+              // prova a colpire prima per nome+brand
+              let hit = arr.findIndex(s => isSimilar(s.name, itemName) && (!brand || isSimilar(s.brand||'', brand)));
+              if (hit < 0) hit = arr.findIndex(s => isSimilar(s.name, itemName));
+              if (hit >= 0) {
+                arr[hit] = { ...arr[hit], expiresAt: ex };
+                return arr;
+              }
+              // se non c'è scorta, crea segnaposto con la scadenza
+              arr.unshift({
+                name: itemName, brand: brand || '',
+                packs: 0, unitsPerPack: 1, unitLabel: 'unità',
+                expiresAt: ex, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0
+              });
+              return arr;
+            });
+            showToast('Scadenza aggiornata ✓', 'ok');
+          } catch (err) {
+            console.error('[Row OCR expiry]', err);
+            showToast(`Errore OCR scadenza: ${err?.message || err}`, 'err');
+          } finally {
+            setBusy(false);
+            setTargetRowIdx(null);
+          }
+        }}
+      />
+    </>
+  );
+}
 
-{/* INPUT NASCOSTI */}
-<input
-  ref={ocrInputRef}
-  type="file"
-  accept="image/*,application/pdf"
-  multiple
-  hidden
-  onChange={(e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    handleOCR(files);
-    e.target.value = '';
-  }}
-/>
+/* =================== Styles =================== */
+const styles = {
+  page: {
+    minHeight:'100vh',
+    background:'radial-gradient(1200px 1200px at 10% -10%, rgba(90,130,160,.25), transparent), radial-gradient(1200px 1200px at 110% 10%, rgba(60,110,140,.25), transparent), linear-gradient(180deg, #0b1520, #0e1b27 60%, #0b1520)',
+    padding:'24px 16px',
+    color:'#f8f1dc' /* beige chiaro con un filo di giallo */,
+    textShadow:'0 0 6px rgba(255,245,200,.15)'
+  },
+  card: {
+    maxWidth:1000, margin:'0 auto', background:'rgba(8,14,22,.55)', backdropFilter:'blur(8px)',
+    border:'1px solid rgba(255,255,255,.06)', borderRadius:18, padding:16, boxShadow:'0 12px 40px rgba(0,0,0,.35)'
+  },
+  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
+  title3d:{
+    margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
+    textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
+  },
+  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
+  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
+  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
+  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
+  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
 
-<input
-  ref={rowOcrInputRef}
-  type="file"
-  accept="image/*,application/pdf"
-  capture="environment"
-  hidden
-  onChange={async (e) => {
-    const file = (e.target.files || [])[0];
-    e.target.value = '';
-    if (!file) return;
+  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
+  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
+  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
 
-    // Determina prodotto target
-    let itemName = '';
-    let brand = '';
-    const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
-    if (byId) {
-      itemName = byId.name;
-      brand = byId.brand || '';
-    } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
-      itemName = stock[targetRowIdx].name;
-      brand = stock[targetRowIdx].brand || '';
-    } else {
-      showToast('Elemento non trovato per OCR scadenza', 'err');
-      return;
-    }
+  sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'rgba(18,26,38,.55)', border:'1px solid rgba(255,255,255,.06)' },
+  sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'rgba(28,36,50,.62)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 12px 32px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.03)' },
+  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
 
-    try {
-      setBusy(true);
-      const fd = new FormData();
-      fd.append('images', file);
-      const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fd }, 30000);
-      const o = await readJsonSafe(ocrRes);
-      if (!o.ok) throw new Error(o.error || 'Errore OCR');
-      const ocrText = String(o.text || '').trim();
-      if (!ocrText) throw new Error('Nessun testo letto');
+  h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
+  h4:{ margin:'2px 0 6px', fontSize:'1rem', fontWeight:800, opacity:.95 },
 
-      // Chiedi solo la scadenza del prodotto target
-      const prompt = buildExpiryPrompt(itemName, brand, ocrText);
-      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt })
-      }, 25000);
-      const safe = await readJsonSafe(r);
-      const answer = safe?.answer || safe?.data || safe;
-      const parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
-      const ex = ensureArray(parsed?.expiries).map(e => toISODate(e.expiresAt)).filter(Boolean)[0];
+  formRow:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
+  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', marginTop:6 },
+  input:{
+    flex:'1 1 180px', minWidth:170, padding:'10px 12px', borderRadius:12,
+    background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
+  },
 
-      if (!ex) { showToast('Nessuna data trovata', 'err'); return; }
+  listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
+  rowButton:{
+    display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
+    borderRadius:14, cursor:'pointer', userSelect:'none', boxShadow:'0 8px 18px rgba(0,0,0,.35)'
+  },
+  rowButtonToBuy:{
+    background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea'
+  },
+  rowButtonBought:{
+    background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
+  },
+  rowLeft:{ display:'flex', flexDirection:'column' },
+  rowName:{ fontWeight:800, letterSpacing:.4, marginBottom:2 },
+  rowBrand:{ opacity:.85, fontWeight:600 },
+  rowMeta:{ opacity:.9, fontSize:'.92rem' },
+  rowActions:{ display:'flex', gap:6, alignItems:'center' },
 
-      setStock(prev => {
-        const arr = [...prev];
-        let hit = arr.findIndex(s => isSimilar(s.name, itemName) && (!brand || isSimilar(s.brand || '', brand)));
-        if (hit < 0) hit = arr.findIndex(s => isSimilar(s.name, itemName));
-        if (hit >= 0) {
-          arr[hit] = { ...arr[hit], expiresAt: ex };
-          return arr;
-        }
-        arr.unshift({
-          name: itemName, brand: brand || '',
-          packs: 0, unitsPerPack: 1, unitLabel: 'unità',
-          expiresAt: ex, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0
-        });
-        return arr;
-      });
-      showToast('Scadenza aggiornata ✓', 'ok');
-    } catch (err) {
-      console.error('[Row OCR expiry]', err);
-      showToast(`Errore OCR scadenza: ${err?.message || err}`, 'err');
-    } finally {
-      setBusy(false);
-      setTargetRowIdx(null);
-    }
-  }}
-/>
+  smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.75)', color:'#e5e7eb', fontWeight:800 },
+  smallOkBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #166534', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13', fontWeight:900 },
+  smallGhostBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'transparent', color:'#e5e7eb' },
+  smallDangerBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #7f1d1d', background:'linear-gradient(180deg,#991b1b,#7f1d1d)', color:'#fff0ea' },
+
+  badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
+  badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
+
+  stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
+  stockCardCritical:{
+    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
+    border:'1px solid rgba(255,120,120,.25)', boxShadow:'0 10px 22px rgba(0,0,0,.38)'
+  },
+  stockCardZ1:{
+    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(22,30,44,.9),rgba(16,22,34,.9))',
+    border:'1px solid rgba(255,255,255,.06)'
+  },
+  stockCardZ2:{
+    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(18,26,40,.9),rgba(14,20,30,.9))',
+    border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
+  },
+  stockTitle:{ fontWeight:800, marginBottom:6 },
+  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
+  progressInner:{ height:'100%', borderRadius:999, transition:'width .25s ease' },
+  stockLineSmall:{ marginTop:6, opacity:.92, fontSize:'.92rem', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' },
+  expiryChip:{ padding:'2px 8px', borderRadius:999, background:'rgba(250,204,21,.18)', border:'1px solid rgba(250,204,21,.35)', fontWeight:700 }
+};
