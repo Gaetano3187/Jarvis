@@ -631,6 +631,11 @@ export default function ListeProdotti() {
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
+  // Upload immagine per riga scorte
+const rowImageInputRef = useRef(null);
+const [targetImageIdx, setTargetImageIdx] = useState(null);
+
+
   // Form Aggiunta Scorta manuale (opzionale, lo teniamo dietro a bottone)
   const [stockForm, setStockForm] = useState({
     name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
