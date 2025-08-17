@@ -2534,18 +2534,19 @@ export default function ListeProdotti() {
               Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
             </p>
           </div>
-        {/* Toast */}
+{/* Toast */}
 {toast && (
   <div
-    className={`jarvis-toast ${toast.type || 'ok'} show`}
+    className={`jarvis-toast ${toast.type ?? 'ok'} show`}
     role="status"
     aria-live="polite"
   >
-    <span className="toast__icon" aria-hidden>
+    <span className="toast__icon" aria-hidden="true">
       {toast.type === 'err' ? '⚠️' : toast.type === 'ok' ? '✅' : 'ℹ️'}
     </span>
     <span className="toast__msg">{toast.msg}</span>
     <button
+      type="button"
       className="toast__close"
       onClick={() => setToast(null)}
       aria-label="Chiudi notifica"
@@ -2555,8 +2556,6 @@ export default function ListeProdotti() {
     </button>
   </div>
 )}
-</div>
-</div>
 
 <style jsx>{`
   /* === Toast === */
@@ -2579,7 +2578,6 @@ export default function ListeProdotti() {
     transition: opacity .22s ease, transform .22s ease;
   }
   .jarvis-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
   .jarvis-toast.ok   { background: #16a34a; }
   .jarvis-toast.err  { background: #ef4444; }
   .jarvis-toast.info { background: #334155; }
@@ -2599,16 +2597,45 @@ export default function ListeProdotti() {
   }
   .toast__close:hover { background: rgba(255,255,255,.25); }
 
-  /* === Tuoi stili aggiuntivi già presenti (mantenuti) === */
+  /* === Righe lista === */
+  .itemRow.pending { background: rgba(220,38,38,0.7); color: #fff; border:2px solid #dc2626; }
+  .itemRow.pending:hover { background: rgba(220,38,38,0.85); }
+  .itemRow.bought  { background: rgba(22,163,74,0.7); color: #fff; border:2px solid #16a34a; }
+  .itemRow.bought:hover  { background: rgba(22,163,74,0.85); }
+
+  /* Animazioni click/press */
+  .itemRow.tap, .qtyBadge.tap {
+    transform: scale(0.94) translateY(2px);
+    filter: brightness(0.82);
+    transition: transform .06s ease, filter .06s ease;
+  }
+  .itemRow.rebound {
+    transform: scale(1.03);
+    filter: brightness(1.1);
+    transition: transform .1s ease, filter .1s ease;
+  }
+  .qtyBadge.rebound {
+    transform: scale(1.12);
+    filter: brightness(1.25);
+    box-shadow: 0 0 0 8px rgba(245,158,11,0.35);
+    background: rgba(245,158,11,0.18);
+    border-radius: 9999px;
+    transition: all .12s ease;
+  }
+
+  /* Utility */
   .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
   @keyframes titlePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
   .muted { opacity:.8; }
-  .hint { opacity:.7; font-size: 0.9rem; margin-top:6px; }
+  .hint { opacity:.7; font-size: .9rem; margin-top:6px; }
   .rowWrap { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 `}</style>
-</>
-);
-}
+
+<script dangerouslySetInnerHTML={{ __html: `
+  window.tap = (el) => { el?.classList.add('tap'); setTimeout(() => el?.classList.remove('tap'), 120); };
+  window.rebound = (el) => { el?.classList.add('rebound'); setTimeout(() => el?.classList.remove('rebound'), 120); };
+`}} />
+
 
 /* workaround MediaRecorder multipli */
 function theMediaWorkaround(){}
