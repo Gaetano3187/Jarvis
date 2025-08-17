@@ -3871,23 +3871,34 @@ const styles = {
   badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
 
   /* ---------------- Scorte A RIGHE ---------------- */
-  // Contenitore come lista verticale
+  // Elenco scorte a righe
   stockGrid:{
     display:'flex',
     flexDirection:'column',
-    gap:8
+    gap:8,
+    width:'100%'
   },
 
-  // Ogni riga scorte (non più card)
-  stockRow:{
+  stockCardZ1:{
     display:'flex',
     alignItems:'center',
     justifyContent:'space-between',
     gap:12,
-    padding:'10px 12px',
+    padding:'10px 14px',
+    borderRadius:14,
+    background:'linear-gradient(180deg,rgba(22,30,44,.65),rgba(16,22,34,.65))',
+    border:'1px solid rgba(255,255,255,.06)',
+    minWidth:0
+  },
+  stockCardZ2:{
+    display:'flex',
+    alignItems:'center',
+    justifyContent:'space-between',
+    gap:12,
+    padding:'10px 14px',
     borderRadius:14,
     background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
-    border:'1px solid rgba(255,255,255,.08)',
+    border:'1px solid rgba(255,255,255,.07)',
     minWidth:0
   },
 
