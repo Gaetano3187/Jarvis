@@ -2278,8 +2278,17 @@ const styles = {
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
   primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
 
-  sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'rgba(18,26,38,.55)', border:'1px solid rgba(255,255,255,.06)' },
-  sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'rgba(28,36,50,.62)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 12px 32px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.03)' },
+sectionLarge:{
+  marginTop:10, padding:12, borderRadius:14,
+  background:'rgba(18,26,38,.28)',            // <— più trasparente
+  border:'1px solid rgba(255,255,255,.06)' },
+ },
+sectionLifted:{
+  marginTop:14, padding:12, borderRadius:16,
+  background:'rgba(28,36,50,.28)',            // <— più trasparente
+  border:'1px solid rgba(255,255,255,.08)',
+  boxShadow:'0 12px 32px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.03)'
+},
   sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
 
   h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
