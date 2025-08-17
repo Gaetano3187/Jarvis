@@ -2151,55 +2151,68 @@ export default function ListeProdotti() {
     <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
   ) : (
     <div style={styles.listGrid}>
-      {curItems.map((it) => (
-        <div
-          key={it.id}
-          role="button"
-          tabIndex={0}
-          title="Click: +1 · Doppio click: tutti · Tasto destro: annulla"
-          onClick={() => markBought(it.id, 1)}
-          onDoubleClick={() => markBought(it.id, Number(it.qty))}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            unmarkBought(it.id);
-          }}
-          style={{
-            ...styles.itemRow,
-            cursor: 'pointer',
-            userSelect: 'none',
-            borderColor: it.purchased ? '#16a34a' : '#dc2626',
-            background: it.purchased
-              ? 'rgba(22,163,74,0.12)'
-              : 'rgba(220,38,38,0.12)',
-            transition: 'all 0.2s ease',
-          }}
-        >
-          {/* Info prodotto */}
-          <div style={styles.itemMain}>
-            <div style={styles.qtyBadge}>{it.qty}</div>
-            <div>
-              <div style={styles.itemName}>{it.name}</div>
-              <div style={styles.itemBrand}>
-                {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
+      {curItems.map((it) => {
+        const isBought = !!it.purchased;
+        return (
+          <div
+            key={it.id}
+            role="button"
+            tabIndex={0}
+            title="Click: +1 · Doppio click: tutti · Tasto destro: annulla"
+            onClick={() => markBought(it.id, 1)}
+            onDoubleClick={() => markBought(it.id, Number(it.qty))}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              unmarkBought(it.id);
+            }}
+            style={{
+              ...styles.itemRow,
+              cursor: 'pointer',
+              userSelect: 'none',
+              // tutta la riga rossa o verde
+              background: isBought ? '#16a34a' : '#dc2626',
+              color: 'beige',
+              borderRadius: 12,
+              transition: 'background .2s ease',
+            }}
+          >
+            {/* Info prodotto */}
+            <div style={styles.itemMain}>
+              <div style={styles.qtyBadge}>{it.qty}</div>
+              <div>
+                <div style={styles.itemName}>{it.name}</div>
+                <div style={styles.itemBrand}>
+                  {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Solo tasto elimina */}
-          <div style={styles.itemActions} onClick={(e) => e.stopPropagation()}>
-            <button
-              title="Elimina"
-              onClick={() => removeItem(it.id)}
-              style={styles.actionGhostDanger}
+            {/* Solo tasto elimina */}
+            <div
+              style={styles.itemActions}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
             >
-              🗑 Elimina
-            </button>
+              <button
+                title="Elimina"
+                onClick={() => removeItem(it.id)}
+                style={styles.actionGhostDanger}
+              >
+                🗑 Elimina
+              </button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   )}
 </div>
+
           {/* Form aggiunta manuale (Lista) */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
