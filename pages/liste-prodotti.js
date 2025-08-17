@@ -2191,145 +2191,84 @@ async function handleRowImage(files, idx) {
       />
 
       {/* input file unico per OCR scadenza di riga */}
-    <input
-  ref={rowOcrInputRef}
-  type="file"
-  accept="image/*,application/pdf"
-  capture="environment"
-  multiple
-  hidden
-  onChange={async (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
+      <input
+        ref={rowOcrInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        hidden
+        onChange={async (e) => {
+          const file = (e.target.files || [])[0];
+          e.target.value = '';
+          if (!file) return;
 
-    // Chi è la riga target? (lista o scorte)
-    let itemName = '';
-    let brand = '';
-    let stockIndex = -1;
-
-    const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
-    if (byId) {
-      itemName = byId.name;
-      brand = byId.brand || '';
-    } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
-      stockIndex = targetRowIdx;
-      itemName = stock[stockIndex].name;
-      brand = stock[stockIndex].brand || '';
-    } else {
-      showToast('Elemento non trovato per OCR riga', 'err');
-      return;
-    }
-
-    try {
-      setBusy(true);
-
-      // 1) OCR di tutte le immagini caricate (una o due)
-      const fd = new FormData();
-      files.forEach(f => fd.append('images', f));
-      const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 35000);
-      const ocr = await readJsonSafe(ocrRes);
-      if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
-      const ocrText = String(ocr.text || '').trim();
-      if (!ocrText) throw new Error('Nessun testo letto');
-
-      // 2) Chiedi il pacchetto unificato
-      const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
-      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ prompt })
-      }, 30000);
-      const safe = await readJsonSafe(r);
-      const answer = safe?.answer || safe?.data || safe;
-      const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
-
-      // 3) Applica ai dati di scorta
-      const upd = {
-        name: String(parsed?.name || itemName || '').trim(),
-        brand: String(parsed?.brand || brand || '').trim(),
-        packs: Math.max(0, Number(parsed?.packs || 0)),
-        unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
-        unitLabel: String(parsed?.unitLabel || 'unità').trim() || 'unità',
-        expiresAt: toISODate(parsed?.expiresAt || '')
-      };
-
-      const todayISO = new Date().toISOString().slice(0,10);
-
-      setStock(prev => {
-        const arr = [...prev];
-
-        // Se la riga target è nelle scorte, aggiorna quella.
-        if (stockIndex >= 0 && arr[stockIndex]) {
-          const old = arr[stockIndex];
-          const nowUnits = upd.packs * upd.unitsPerPack;
-          const wasUnits = Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
-          const restock = nowUnits > wasUnits;
-
-          let next = {
-            ...old,
-            name: upd.name || old.name,
-            brand: upd.brand || old.brand,
-            packs: upd.packs || old.packs || 0,
-            unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
-            unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-            expiresAt: upd.expiresAt || old.expiresAt || ''
-          };
-
-          if (restock) {
-            next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
+          // Determina prodotto target: se targetRowIdx è un id di lista, prendi da lista; se è indice scorte, prendi da stock
+          let itemName = '';
+          let brand = '';
+          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
+          if (byId) {
+            itemName = byId.name;
+            brand = byId.brand || '';
+          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
+            itemName = stock[targetRowIdx].name;
+            brand = stock[targetRowIdx].brand || '';
+          } else {
+            showToast('Elemento non trovato per OCR scadenza', 'err');
+            return;
           }
 
-          arr[stockIndex] = next;
-          return arr;
-        }
+          try {
+            setBusy(true);
+            const fd = new FormData();
+            fd.append('images', file);
+            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
+            const o = await readJsonSafe(ocrRes);
+            if (!o.ok) throw new Error(o.error || 'Errore OCR');
+            const ocrText = String(o.text || '').trim();
+            if (!ocrText) throw new Error('Nessun testo letto');
 
-        // Se la riga parte dalla lista: crea/aggiorna scorta corrispondente
-        const j = arr.findIndex(s => isSimilar(s.name, upd.name) && (!upd.brand || isSimilar(s.brand || '', upd.brand)));
-        if (j >= 0) {
-          const old = arr[j];
-          const newPacks = Math.max(0, Number(upd.packs || 0));
-          const newUPP = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
-          arr[j] = {
-            ...old,
-            name: upd.name || old.name,
-            brand: upd.brand || old.brand,
-            packs: newPacks || old.packs || 0,
-            unitsPerPack: newUPP,
-            unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-            expiresAt: upd.expiresAt || old.expiresAt || '',
-            ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP)
-          };
-        } else {
-          const p = Math.max(0, Number(upd.packs || 0));
-          const u = Math.max(1, Number(upd.unitsPerPack || 1));
-          arr.unshift({
-            name: upd.name || itemName,
-            brand: upd.brand || brand || '',
-            packs: p,
-            unitsPerPack: u,
-            unitLabel: upd.unitLabel || 'unità',
-            expiresAt: upd.expiresAt || '',
-            baselinePacks: p,
-            lastRestockAt: todayISO,
-            avgDailyUnits: 0,
-            residueUnits: p * u
-          });
-        }
-        return arr;
-      });
+            // Chiedi solo la scadenza del prodotto target
+            const prompt = buildExpiryPrompt(itemName, brand, ocrText);
+            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+              method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+            }, 25000);
+            const safe = await readJsonSafe(r);
+            const answer = safe?.answer || safe?.data || safe;
+            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })() : answer;
+            const ex = ensureArray(parsed?.expiries).map(e => toISODate(e.expiresAt)).filter(Boolean)[0];
 
-      showToast('Riga aggiornata da OCR ✓', 'ok');
-    } catch (err) {
-      console.error('[Row OCR unified]', err);
-      showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
-    } finally {
-      setBusy(false);
-      setTargetRowIdx(null);
-    }
-  }}
-/>
+            if (!ex) { showToast('Nessuna data trovata', 'err'); return; }
 
+            setStock(prev => {
+              const arr = [...prev];
+              // prova a colpire prima per nome+brand
+              let hit = arr.findIndex(s => isSimilar(s.name, itemName) && (!brand || isSimilar(s.brand||'', brand)));
+              if (hit < 0) hit = arr.findIndex(s => isSimilar(s.name, itemName));
+              if (hit >= 0) {
+                arr[hit] = { ...arr[hit], expiresAt: ex };
+                return arr;
+              }
+              // se non c'è scorta, crea segnaposto con la scadenza
+              arr.unshift({
+                name: itemName, brand: brand || '',
+                packs: 0, unitsPerPack: 1, unitLabel: 'unità',
+                expiresAt: ex, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0
+              });
+              return arr;
+            });
+            showToast('Scadenza aggiornata ✓', 'ok');
+          } catch (err) {
+            console.error('[Row OCR expiry]', err);
+            showToast(`Errore OCR scadenza: ${err?.message || err}`, 'err');
+          } finally {
+            setBusy(false);
+            setTargetRowIdx(null);
+          }
+        }}
+      />
+    </>
+  );
+}
 
 /* =================== Styles =================== */
 const styles = {
