@@ -85,8 +85,10 @@ function isSimilar(a,b){
 }
 function wantsAbsoluteSet(text) {
   const t = normKey(text);
-  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+  // se contiene "porta/metti/fissa/imposta ... a 4" OPPURE "sono 4", "ce ne sono 4", "ne ho 4", "ora/adesso sono 4", "in totale 4"
+  return /\b(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|fai\s+che\s+siano|in\s+totale|totali|ora\s+sono|adesso\s+sono|ce\s+ne\s+sono|ce\s+n'?e\s+sono|ne\s+ho|sono)\b[^0-9]*\b\d+(\,\d+)?\b/i.test(t);
 }
+
 
 /* ====================== Parser liste rapide ====================== */
 function extractPackInfo(str){
