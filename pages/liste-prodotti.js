@@ -559,7 +559,9 @@ export default function ListeProdotti() {
     packs: '0',
     unitsPerPack: '1',
     unitLabel: 'unità',
-    expiresAt: ''
+    expiresAt: '',
+    residueUnits: '0',
+    _ruTouched: false,
   });
 
   // UI / Toast / Busy
@@ -580,7 +582,7 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale inventario unificato (RIPRISTINATO)
+  // Vocale inventario unificato
   const invMediaRef = useRef(null);
   const invChunksRef = useRef([]);
   const invStreamRef = useRef(null);
@@ -667,7 +669,7 @@ export default function ListeProdotti() {
     return () => clearTimeout(cloudTimerRef.current);
   }, [lists, stock, currentList]);
 
-  /* =================== Brain Hub (come nel tuo codice) =================== */
+  /* =================== Brain Hub (no-op se non usi) =================== */
   {
     const stockRef = useRef(stock);
     const listsRef = useRef(lists);
@@ -691,106 +693,100 @@ export default function ListeProdotti() {
     }
 
     useEffect(() => {
-      let cancelled = false;
+      const hub = getHub();
+      if (!hub) return;
 
-      async function wireBrain() {
-        const hub = getHub();
-        if (!hub) return;
-
-        hub.registerDataSource({
-          name: 'scorte-complete',
-          fetch: () => {
-            return (stock || []).map(s => {
-              const upp = Math.max(1, Number(s.unitsPerPack || 1));
-              const residueUnits = Number.isFinite(Number(s.residueUnits))
-                ? Math.max(0, Number(s.residueUnits))
-                : Math.max(0, Number(s.packs || 0) * upp);
-              const baselineUnits = Math.max(
-                upp,
-                (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp)
-              );
-              const avgDailyUnits = Number(s.avgDailyUnits || 0);
-              return {
-                name: String(s.name || '').trim(),
-                brand: String(s.brand || '').trim(),
-                packs: Number(s.packs || 0),
-                unitsPerPack: upp,
-                unitLabel: s.unitLabel || 'unità',
-                residueUnits,
-                baselineUnits,
-                avgDailyUnits,
-                expiresAt: s.expiresAt || ''
-              };
-            });
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-esaurimento',
-          fetch: () => {
-            return (stock || []).filter(s => {
-              const { current, baseline } = residueInfo(s);
-              return baseline > 0 && current / baseline < 0.20;
-            });
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-scadenza',
-          fetch: ({ entroGiorni = 10 } = {}) => {
-            return (stock || []).filter(s => isExpiringSoon(s, entroGiorni));
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-giorni-esaurimento',
-          fetch: () => {
-            const out = [];
-            for (const s of (stock || [])) {
-              const upp = Math.max(1, Number(s.unitsPerPack || 1));
-              const currentUnits = Number.isFinite(Number(s.residueUnits))
-                ? Math.max(0, Number(s.residueUnits))
-                : Math.max(0, Number(s.packs || 0) * upp);
-              const day = Number(s.avgDailyUnits || 0);
-              const days = day > 0 ? Math.ceil(currentUnits / day) : null;
-              out.push({
-                name: s.name, brand: s.brand || '', unitLabel: s.unitLabel || 'unità',
-                residueUnits: currentUnits, avgDailyUnits: day, daysToDepletion: days
-              });
-            }
-            return out;
-          }
-        });
-        hub.registerDataSource({
-          name: 'liste-spesa',
-          fetch: () => {
-            const data = lists || {};
-            return Object.entries(data).flatMap(([type, items]) =>
-              (items || [])
-                .filter(it => !it.purchased && it.qty > 0)
-                .map(it => ({
-                  listType: type,
-                  name: String(it.name || '').trim(),
-                  brand: String(it.brand || '').trim(),
-                  qty: Number(it.qty || 0),
-                  unitsPerPack: Number(it.unitsPerPack || 1),
-                  unitLabel: String(it.unitLabel || 'unità').trim()
-                }))
+      hub.registerDataSource({
+        name: 'scorte-complete',
+        fetch: () => {
+          return (stock || []).map(s => {
+            const upp = Math.max(1, Number(s.unitsPerPack || 1));
+            const residueUnits = Number.isFinite(Number(s.residueUnits))
+              ? Math.max(0, Number(s.residueUnits))
+              : Math.max(0, Number(s.packs || 0) * upp);
+            const baselineUnits = Math.max(
+              upp,
+              (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp)
             );
+            const avgDailyUnits = Number(s.avgDailyUnits || 0);
+            return {
+              name: String(s.name || '').trim(),
+              brand: String(s.brand || '').trim(),
+              packs: Number(s.packs || 0),
+              unitsPerPack: upp,
+              unitLabel: s.unitLabel || 'unità',
+              residueUnits,
+              baselineUnits,
+              avgDailyUnits,
+              expiresAt: s.expiresAt || ''
+            };
+          });
+        }
+      });
+      hub.registerDataSource({
+        name: 'scorte-esaurimento',
+        fetch: () => {
+          return (stock || []).filter(s => {
+            const { current, baseline } = residueInfo(s);
+            return baseline > 0 && current / baseline < 0.20;
+          });
+        }
+      });
+      hub.registerDataSource({
+        name: 'scorte-scadenza',
+        fetch: ({ entroGiorni = 10 } = {}) => {
+          return (stock || []).filter(s => isExpiringSoon(s, entroGiorni));
+        }
+      });
+      hub.registerDataSource({
+        name: 'scorte-giorni-esaurimento',
+        fetch: () => {
+          const out = [];
+          for (const s of (stock || [])) {
+            const upp = Math.max(1, Number(s.unitsPerPack || 1));
+            const currentUnits = Number.isFinite(Number(s.residueUnits))
+              ? Math.max(0, Number(s.residueUnits))
+              : Math.max(0, Number(s.packs || 0) * upp);
+            const day = Number(s.avgDailyUnits || 0);
+            const days = day > 0 ? Math.ceil(currentUnits / day) : null;
+            out.push({
+              name: s.name, brand: s.brand || '', unitLabel: s.unitLabel || 'unità',
+              residueUnits: currentUnits, avgDailyUnits: day, daysToDepletion: days
+            });
           }
-        });
-        hub.registerDataSource({
-          name: 'lista-oggi',
-          fetch: () => {
-            const cur = currentListRef.current;
-            const items = (lists?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
-            return items.map(i => ({
-              listType: cur,
-              name: i.name, brand: i.brand || '', qty: i.qty,
-              unitsPerPack: i.unitsPerPack || 1, unitLabel: i.unitLabel || 'unità'
-            }));
-          }
-        });
-      }
-      wireBrain();
-      return () => { cancelled = true; };
+          return out;
+        }
+      });
+      hub.registerDataSource({
+        name: 'liste-spesa',
+        fetch: () => {
+          const data = lists || {};
+          return Object.entries(data).flatMap(([type, items]) =>
+            (items || [])
+              .filter(it => !it.purchased && it.qty > 0)
+              .map(it => ({
+                listType: type,
+                name: String(it.name || '').trim(),
+                brand: String(it.brand || '').trim(),
+                qty: Number(it.qty || 0),
+                unitsPerPack: Number(it.unitsPerPack || 1),
+                unitLabel: String(it.unitLabel || 'unità').trim()
+              }))
+          );
+        }
+      });
+      hub.registerDataSource({
+        name: 'lista-oggi',
+        fetch: () => {
+          const cur = currentListRef.current;
+          const items = (lists?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
+          return items.map(i => ({
+            listType: cur,
+            name: i.name, brand: i.brand || '', qty: i.qty,
+            unitsPerPack: i.unitsPerPack || 1, unitLabel: i.unitLabel || 'unità'
+          }));
+        }
+      });
     }, []);
   }
 
@@ -1039,7 +1035,7 @@ export default function ListeProdotti() {
       unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
       unitLabel: row.unitLabel || 'unità',
       expiresAt: row.expiresAt || '',
-      residueUnits: initRU,
+      residueUnits: row.residueUnits ?? initRU,
       _ruTouched: false,
     });
   }
@@ -1053,7 +1049,7 @@ export default function ListeProdotti() {
   function cancelRowEdit(){
     setEditingRow(null);
     setEditDraft({
-      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
+      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '', residueUnits: '0', _ruTouched:false
     });
   }
   function saveRowEdit(index){
@@ -1247,7 +1243,7 @@ export default function ListeProdotti() {
     }
   }
 
-  /* =================== Vocale UNIFICATO INVENTARIO (ripristinato) =================== */
+  /* =================== Vocale UNIFICATO INVENTARIO =================== */
   async function toggleVoiceInventory() {
     if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
     try {
@@ -1422,7 +1418,7 @@ export default function ListeProdotti() {
             {(lists[currentList] || []).length === 0 ? (
               <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
             ) : (
-              <div style={styles.listGrid}>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {(lists[currentList] || []).map((it) => {
                   const isBought = !!it.purchased;
                   return (
@@ -1452,8 +1448,8 @@ export default function ListeProdotti() {
                         }
                       }}
                       style={{
-                        ...styles.rowButton,
-                        ...(isBought ? styles.rowButtonBought : styles.rowButtonToBuy)
+                        ...styles.listCardRed,
+                        ...(isBought ? styles.listCardRedBought : null)
                       }}
                     >
                       <div style={styles.rowLeft}>
@@ -1467,53 +1463,55 @@ export default function ListeProdotti() {
                       </div>
 
                       <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
-                        <button title="Segna come comprato (–1 conf. e aggiorna scorte)"
-                                onClick={() => {
-                                  // scala di 1 e sposta a scorte
-                                  const item = it;
-                                  const movePacks = 1;
-                                  setLists(prev => {
-                                    const next = { ...prev };
-                                    next[currentList] = (prev[currentList] || [])
-                                      .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
-                                      .filter(r => Number(r.qty || 0) > 0);
-                                    return next;
-                                  });
-                                  setStock(prev => {
-                                    const arr = [...prev];
-                                    const todayISO = new Date().toISOString().slice(0, 10);
-                                    const idx = arr.findIndex(
-                                      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-                                    );
-                                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-                                    const moveLabel = item.unitLabel || 'unità';
-                                    if (idx >= 0) {
-                                      const old = arr[idx];
-                                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                                      arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
-                                    } else {
-                                      arr.unshift({
-                                        name: item.name, brand: item.brand || '',
-                                        packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                                        expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
-                                      });
-                                    }
-                                    return arr;
-                                  });
-                                }}
-                                style={styles.smallOkBtn}>✓</button>
+                        {/* ✓ conferma: scala 1 conf. e aggiorna scorte */}
+                        <button
+                          title="Segna come comprato (–1 conf. e aggiorna scorte)"
+                          onClick={() => {
+                            const item = it;
+                            const movePacks = 1;
+                            setLists(prev => {
+                              const next = { ...prev };
+                              next[currentList] = (prev[currentList] || [])
+                                .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
+                                .filter(r => Number(r.qty || 0) > 0);
+                              return next;
+                            });
+                            setStock(prev => {
+                              const arr = [...prev];
+                              const todayISO = new Date().toISOString().slice(0, 10);
+                              const idx = arr.findIndex(
+                                s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+                              );
+                              const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
+                              const moveLabel = item.unitLabel || 'unità';
+                              if (idx >= 0) {
+                                const old = arr[idx];
+                                const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
+                                const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
+                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
+                              } else {
+                                arr.unshift({
+                                  name: item.name, brand: item.brand || '',
+                                  packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
+                                  expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
+                                });
+                              }
+                              return arr;
+                            });
+                          }}
+                          style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
+                        >✓</button>
 
-                        <button title="–1" onClick={() => incQty(it.id, -1)} style={styles.smallQtyBtn}>−</button>
-                        <button title="+1" onClick={() => incQty(it.id, +1)} style={styles.smallQtyBtn}>+</button>
+                        <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
+                        <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
 
                         <button
                           title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
                           onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
-                          style={styles.smallGhostBtn}
+                          style={styles.ocrPillBtn}
                         >OCR riga</button>
 
-                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.smallDangerBtn}>🗑</button>
+                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
                       </div>
                     </div>
                   );
@@ -1708,6 +1706,7 @@ export default function ListeProdotti() {
                             <div style={styles.formRowWrap}>
                               <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
                                      onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                              {/* NUOVO: campo edit residuo unità */}
                               <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
                                      onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
                             </div>
@@ -1722,9 +1721,9 @@ export default function ListeProdotti() {
                           </div>
                         ) : (
                           <>
-                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | azioni */}
+                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
                             <div style={styles.stockRow}>
-                              {/* Colonna immagine (più grande) */}
+                              {/* Colonna immagine (clic per caricare/scattare) */}
                               <div
                                 style={styles.imageBox}
                                 role="button"
@@ -1738,7 +1737,7 @@ export default function ListeProdotti() {
                                 )}
                               </div>
 
-                              {/* Nome + barra (barra più alta) */}
+                              {/* Nome + barra (alta) */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={styles.stockTitle}>
                                   {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
@@ -1764,7 +1763,13 @@ export default function ListeProdotti() {
                                 <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
                               </div>
 
-                              {/* Azioni riga (allineate a destra) */}
+                              {/* NUOVA COLONNA → Residuo unità */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Residuo unità</div>
+                                <div style={styles.kvValue}>{Math.round(residueUnitsOf(s))}</div>
+                              </div>
+
+                              {/* Azioni riga */}
                               <div style={styles.rowActionsRight}>
                                 <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
                                 <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
@@ -2002,7 +2007,7 @@ const styles = {
 
   toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-    primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
+  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
 
   sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
   sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
@@ -2011,52 +2016,120 @@ const styles = {
   h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
   h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
 
-  listGrid:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
-  rowButton:{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', borderRadius:12, cursor:'pointer', userSelect:'none' },
-  rowButtonToBuy:{ background:'rgba(17,24,39,.6)', border:'1px solid #334155' },
-  rowButtonBought:{ background:'rgba(21,128,61,.4)', border:'1px solid #166534', textDecoration:'line-through', opacity:.75 },
+  // LISTA PRODOTTI: card rosse a pillola + bottoni icona
+  listCardRed: {
+    display:'flex',
+    justifyContent:'space-between',
+    alignItems:'center',
+    gap:10,
+    padding:'12px 14px',
+    borderRadius:16,
+    cursor:'pointer',
+    userSelect:'none',
+    background:'linear-gradient(180deg, #7f1d1d, #991b1b)',
+    border:'1px solid #450a0a',
+    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.35)',
+  },
+  listCardRedBought: {
+    background:'linear-gradient(180deg, #166534, #14532d)',
+    border:'1px solid #0f5132',
+    textDecoration:'line-through',
+    opacity:.9
+  },
+  iconBtnBase:{
+    width:36, height:36, minWidth:36,
+    display:'grid', placeItems:'center',
+    borderRadius:999,
+    border:'1px solid rgba(255,255,255,.15)',
+    background:'rgba(15,23,42,.55)',
+    color:'#f8fafc',
+    fontWeight:800,
+    boxShadow:'0 2px 8px rgba(0,0,0,.35)'
+  },
+  iconBtnGreen:{
+    background:'linear-gradient(180deg, #16a34a, #15803d)',
+    border:'1px solid #166534',
+    color:'#ffffff'
+  },
+  iconBtnDark:{
+    background:'linear-gradient(180deg, #0f172a, #111827)',
+    border:'1px solid #334155',
+    color:'#e5e7eb'
+  },
+  ocrPillBtn:{
+    padding:'8px 12px',
+    borderRadius:12,
+    border:'1px solid #7f1d1d',
+    background:'linear-gradient(180deg, #991b1b, #7f1d1d)',
+    color:'#fde68a',
+    fontWeight:700
+  },
+    trashBtn:{
+    padding:'8px 10px',
+    borderRadius:12,
+    border:'1px solid #4b5563',
+    background:'linear-gradient(180deg,#1f2937,#111827)',
+    color:'#f87171',
+    fontWeight:700
+  },
+
+  // LISTA — testo
   rowLeft:{ flex:1, minWidth:0 },
-  rowName:{ fontWeight:600, fontSize:'1.05rem' },
-  rowBrand:{ fontWeight:400, fontSize:'.95rem', opacity:.75 },
-  rowMeta:{ fontSize:'.9rem', opacity:.85, marginTop:2 },
-  rowActions:{ display:'flex', gap:6, marginLeft:12 },
-  rowActionsRight:{ display:'flex', gap:6, marginLeft:'auto' },
+  rowName:{ fontSize:'1.05rem', fontWeight:600, color:'#fff' },
+  rowBrand:{ opacity:.8, fontWeight:400, marginLeft:4 },
+  rowMeta:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
+  badgeBought:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#166534', color:'#dcfce7', fontSize:'.75rem' },
+  badgeToBuy:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#7f1d1d', color:'#fee2e2', fontSize:'.75rem' },
+  rowActions:{ display:'flex', gap:6, alignItems:'center' },
+  rowActionsRight:{ display:'flex', gap:6, alignItems:'center', marginLeft:10 },
 
-  badgeToBuy:{ marginLeft:8, background:'#1e40af', color:'#bfdbfe', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
-  badgeBought:{ marginLeft:8, background:'#14532d', color:'#bbf7d0', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
+  // STOCK / SCORTE
+  stockList:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
+  stockLineZ1:{ background:'rgba(255,255,255,.02)', padding:10, borderRadius:10 },
+  stockLineZ2:{ background:'rgba(0,0,0,.15)', padding:10, borderRadius:10 },
+  stockRow:{ display:'flex', alignItems:'center', gap:10 },
+  stockTitle:{ fontSize:'1rem', fontWeight:600, marginBottom:4 },
+  stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:2 },
 
-  smallOkBtn:{ padding:'2px 6px', borderRadius:6, background:'#16a34a', color:'#fff', border:'none', fontWeight:600 },
-  smallDangerBtn:{ padding:'2px 6px', borderRadius:6, background:'#dc2626', color:'#fff', border:'none', fontWeight:600 },
-  smallGhostBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.1)', color:'#e5e7eb', border:'1px solid #334155', fontWeight:500 },
-  smallQtyBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.08)', color:'#f8fafc', border:'1px solid #334155', fontWeight:700 },
+  imageBox:{
+    width:56, height:56, borderRadius:10,
+    border:'1px dashed #64748b',
+    display:'grid', placeItems:'center',
+    overflow:'hidden',
+    cursor:'pointer',
+    background:'rgba(255,255,255,.04)'
+  },
+  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
+  imagePlaceholder:{ fontSize:'1.5rem', color:'#94a3b8' },
 
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, margin:'6px 0' },
-  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
-  input:{ flex:1, minWidth:120, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.6)', color:'#f1f5f9' },
+  kvCol:{ minWidth:90, textAlign:'center' },
+  kvLabel:{ fontSize:'.75rem', opacity:.75 },
+  kvValue:{ fontSize:'1rem', fontWeight:600 },
 
-  critListWrap:{ display:'flex', flexDirection:'column', gap:6, marginTop:4 },
-  critRow:{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:10, background:'rgba(255,255,255,.05)' },
-  critName:{ flex:1, fontWeight:600 },
-  critMeta:{ fontSize:'.85rem', opacity:.85 },
-  progressOuterCrit:{ flex:1, height:6, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
-  progressOuterBig:{ marginTop:4, height:12, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
+  progressOuterBig:{ height:10, background:'rgba(255,255,255,.1)', borderRadius:6, overflow:'hidden', marginTop:2 },
+  progressOuterCrit:{ height:8, background:'rgba(255,255,255,.08)', borderRadius:6, overflow:'hidden', flex:1 },
   progressInner:{ height:'100%' },
 
-  expiryChip:{ marginLeft:6, background:'#7e22ce', color:'#f3e8ff', padding:'0 6px', borderRadius:6, fontSize:'.75rem' },
+  critListWrap:{ display:'flex', flexDirection:'column', gap:6 },
+  critRow:{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, background:'rgba(255,255,255,.04)' },
+  critName:{ flex:1, fontWeight:600 },
+  critMeta:{ fontSize:'.8rem', opacity:.9 },
+  expiryChip:{ marginLeft:6, padding:'1px 5px', borderRadius:6, background:'#7f1d1d', color:'#fee2e2', fontSize:'.7rem' },
 
-  stockList:{ display:'flex', flexDirection:'column', marginTop:6 },
-  stockLineZ1:{ padding:'8px 10px', borderRadius:12, background:'rgba(255,255,255,.04)', marginBottom:4 },
-  stockLineZ2:{ padding:'8px 10px', borderRadius:12, background:'rgba(0,0,0,.25)', marginBottom:4 },
+  // Bottoni piccoli
+  smallOkBtn:{ padding:'6px 10px', borderRadius:8, background:'#16a34a', color:'#fff', fontWeight:700, border:'none' },
+  smallGhostBtn:{ padding:'6px 10px', borderRadius:8, background:'transparent', border:'1px solid #475569', color:'#e2e8f0' },
+  smallDangerBtn:{ padding:'6px 10px', borderRadius:8, background:'#991b1b', border:'1px solid #7f1d1d', color:'#fee2e2' },
 
-  stockRow:{ display:'flex', alignItems:'center', gap:12 },
-  stockTitle:{ fontWeight:600, fontSize:'1.05rem' },
-  stockLineSmall:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
-
-  kvCol:{ minWidth:80, textAlign:'center' },
-  kvLabel:{ fontSize:'.75rem', opacity:.7 },
-  kvValue:{ fontWeight:700, fontSize:'1rem' },
-
-  imageBox:{ width:64, height:64, borderRadius:12, background:'rgba(255,255,255,.08)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer' },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.4rem', opacity:.5 }
+  formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
+  formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
+  input:{
+    flex:1,
+    minWidth:120,
+    padding:'8px 10px',
+    borderRadius:8,
+    border:'1px solid #475569',
+    background:'rgba(15,23,42,.65)',
+    color:'#f1f5f9'
+  }
 };
