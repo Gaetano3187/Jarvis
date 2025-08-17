@@ -2138,50 +2138,78 @@ export default function ListeProdotti() {
             </button>
           </div>
 
-          {/* Lista corrente */}
-          <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>
-              Lista corrente: <span style={{opacity:.85}}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
-            </h3>
+{/* Lista corrente */}
+<div style={styles.sectionLarge}>
+  <h3 style={styles.h3}>
+    Lista corrente:{' '}
+    <span style={{ opacity: 0.85 }}>
+      {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
+    </span>
+  </h3>
 
-           {curItems.length === 0 ? (
-  <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
-) : (
-  <div style={styles.listGrid}>
-    {curItems.map((it) => (
-      <div
-        key={it.id}
-        style={{
-          ...styles.itemRow,
-          borderColor: it.purchased ? '#16a34a' : '#dc2626',
-          background: it.purchased ? 'rgba(22,163,74,.06)' : 'rgba(220,38,38,.06)',
-        }}
-      >
-        <div style={styles.itemMain}>
-          <div style={styles.qtyBadge}>{it.qty}</div>
-          <div>
-            <div style={styles.itemName}>{it.name}</div>
-            <div style={styles.itemBrand}>
-              {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
+  {curItems.length === 0 ? (
+    <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
+  ) : (
+    <div style={styles.listGrid}>
+      {curItems.map((it) => (
+        <div
+          key={it.id}
+          style={{
+            ...styles.itemRow,
+            borderColor: it.purchased ? '#16a34a' : '#dc2626',
+            background: it.purchased
+              ? 'rgba(22,163,74,.06)'
+              : 'rgba(220,38,38,.06)',
+          }}
+        >
+          {/* Info prodotto */}
+          <div style={styles.itemMain}>
+            <div style={styles.qtyBadge}>{it.qty}</div>
+            <div>
+              <div style={styles.itemName}>{it.name}</div>
+              <div style={styles.itemBrand}>
+                {it.brand || '—'} · {it.unitsPerPack}{' '}
+                {it.unitLabel || 'unità'}/conf.
+              </div>
             </div>
           </div>
-        </div>
 
-        <div style={styles.itemActions}>
-          <button
-            title="Segna 1 acquistato"
-            onClick={() => markBought(it.id, 1)}
-            style={it.purchased ? styles.actionSuccess : styles.actionDanger}
-          >
-            {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
-          </button>
-
-          {Number(it.qty) > 1 && (
+          {/* Azioni */}
+          <div style={styles.itemActions}>
             <button
-              title="Segna tutta la quantità come acquistata"
-              onClick={() => markBought(it.id, Number(it.qty))}
-              style={styles.actionSuccess}
+              title="Segna 1 acquistato"
+              onClick={() => markBought(it.id, 1)}
+              style={
+                it.purchased ? styles.actionSuccess : styles.actionDanger
+              }
             >
+              {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
+            </button>
+
+            {Number(it.qty) > 1 && (
+              <button
+                title="Segna tutta la quantità come acquistata"
+                onClick={() => markBought(it.id, Number(it.qty))}
+                style={styles.actionSuccess}
+              >
+                ✔ Comprati tutti
+              </button>
+            )}
+
+            <button
+              title="Annulla acquisto"
+              onClick={() => unmarkBought(it.id)}
+              style={styles.actionGhost}
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
               ✔ Comprati tutti
             </button>
           )}
