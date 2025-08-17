@@ -1646,7 +1646,8 @@ export default function ListeProdotti() {
                         ) : (
                           <>
                             {/* Layout a 4 colonne: immagine | nome+barra | confezioni | unità/conf */}
-                            <div style={styles.stockRow}>
+                          <div style={styles.stockRow} className="stockRow">
+
                               {/* Colonna immagine */}
                               <div
                                 style={styles.imageBox}
@@ -1676,13 +1677,15 @@ export default function ListeProdotti() {
                               </div>
 
                               {/* Confezioni */}
-                              <div style={styles.kvCol}>
+                             <div style={styles.kvCol} className="kvCol">
+
                                 <div style={styles.kvLabel}>Confezioni</div>
                                 <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
                               </div>
 
                               {/* Unità/conf. */}
-                              <div style={styles.kvCol}>
+                             <div style={styles.kvCol} className="kvCol">
+
                                 <div style={styles.kvLabel}>Unità/conf.</div>
                                 <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
                               </div>
