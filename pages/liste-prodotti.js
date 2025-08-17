@@ -3782,7 +3782,7 @@ export default function ListeProdotti() {
     </>
   );
 }
-/* =================== Styles (completo con fix) =================== */
+/* =================== Styles (righe scorte) =================== */
 const styles = {
   page: {
     minHeight:'100vh',
@@ -3834,24 +3834,17 @@ const styles = {
     background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
   },
 
-  // Liste prodotti
+  // Lista prodotti (righe)
   listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
-
   rowButton:{
     display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
     borderRadius:14, cursor:'pointer', userSelect:'none', boxShadow:'0 8px 18px rgba(0,0,0,.35)',
-    minWidth:0   // ✅ importante per evitare testo a colonna su flex item
+    minWidth:0
   },
-  rowButtonToBuy:{
-    background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea'
-  },
-  rowButtonBought:{
-    background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
-  },
+  rowButtonToBuy:{ background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea' },
+  rowButtonBought:{ background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff' },
+  rowLeft:{ display:'flex', flexDirection:'column', minWidth:0 },
 
-  rowLeft:{ display:'flex', flexDirection:'column', minWidth:0 }, // ✅ lascia restringere il testo
-
-  // ✅ testo orizzontale + ellissi
   rowName:{
     display:'block', lineHeight:1.2,
     fontWeight:800, letterSpacing:.4, marginBottom:2,
@@ -3877,86 +3870,63 @@ const styles = {
   badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
   badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
 
-  // Griglia scorte
-  stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
-  stockCardCritical:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
-    border:'1px solid rgba(255,120,120,.25)', boxShadow:'0 10px 22px rgba(0,0,0,.38)'
-  },
-  stockCardZ1:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(22,30,44,.65),rgba(16,22,34,.65))',
-    border:'1px solid rgba(255,255,255,.06)'
-  },
-  stockCardZ2:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
-    border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
+  /* ---------------- Scorte A RIGHE ---------------- */
+  // Contenitore come lista verticale
+  stockGrid:{
+    display:'flex',
+    flexDirection:'column',
+    gap:8
   },
 
-  // ✅ layout riga scorte adattivo (più spazio al nome su mobile)
+  // Ogni riga scorte (non più card)
   stockRow:{
-    display:'grid',
-    gridTemplateColumns:'60px 1fr 80px 80px', // prima 72/90/90
-    gap:8,
+    display:'flex',
     alignItems:'center',
+    justifyContent:'space-between',
+    gap:12,
+    padding:'10px 12px',
+    borderRadius:14,
+    background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
+    border:'1px solid rgba(255,255,255,.08)',
     minWidth:0
   },
 
-  // Immagine prodotto
+  // Immagine a sinistra
   imageBox:{
-    width:56, height:56, borderRadius:12,
+    flex:'0 0 48px',
+    height:48,
+    borderRadius:10,
     border:'1px solid rgba(255,255,255,.1)',
     background:'rgba(0,0,0,.25)',
     display:'flex', alignItems:'center', justifyContent:'center',
     cursor:'pointer', overflow:'hidden'
   },
   imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.6rem', opacity:.7 },
+  imagePlaceholder:{ fontSize:'1.2rem', opacity:.7 },
 
-  // Colonne quantità
-  kvCol:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:0 }, // ✅ minWidth:0
+  // Blocco testo centrale
+  stockTitle:{
+    flex:1,
+    fontWeight:800,
+    lineHeight:1.2,
+    whiteSpace:'nowrap',
+    overflow:'hidden',
+    textOverflow:'ellipsis',
+    marginRight:8
+  },
+
+  // Colonne quantità a destra
+  kvCol:{
+    display:'flex',
+    flexDirection:'column',
+    alignItems:'flex-end',
+    minWidth:68
+  },
   kvLabel:{ fontSize:'.78rem', opacity:.75, whiteSpace:'nowrap' },
-  kvValue:{ fontSize:'1.1rem', fontWeight:800, whiteSpace:'nowrap' },
+  kvValue:{ fontSize:'1.05rem', fontWeight:800, whiteSpace:'nowrap' },
 
-  stockTitle:{ fontWeight:800, marginBottom:6, lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
-  progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
-  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
-
-  /* Toast */
-  toastWrap:{
-    position:'fixed', left:'50%', bottom:24, transform:'translateX(-50%)',
-    zIndex:9999, pointerEvents:'none'
-  },
-  toastBase:{
-    minWidth:260, maxWidth:520,
-    padding:'10px 14px', borderRadius:12,
-    boxShadow:'0 8px 20px rgba(0,0,0,.35)',
-    border:'1px solid rgba(255,255,255,.10)',
-    color:'#fff', textAlign:'center',
-    backdropFilter:'blur(2px)',
-    animation:'toastPop .24s ease-out, toastFade .2s ease-in 3s forwards'
-  },
-  toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
-  toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
-  toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
-};
-  imageBox:{
-    width:56, height:56, borderRadius:12,
-    border:'1px solid rgba(255,255,255,.1)',
-    background:'rgba(0,0,0,.25)',
-    display:'flex', alignItems:'center', justifyContent:'center',
-    cursor:'pointer', overflow:'hidden'
-  },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.6rem', opacity:.7 },
-
-  // Colonne quantità
-  kvCol:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:0 }, // ✅ minWidth:0
-  kvLabel:{ fontSize:'.78rem', opacity:.75, whiteSpace:'nowrap' },
-  kvValue:{ fontSize:'1.1rem', fontWeight:800, whiteSpace:'nowrap' },
-
-  stockTitle:{ fontWeight:800, marginBottom:6, lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
+  // Barra consumo
+  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)', flexBasis:'100%', marginTop:6 },
   progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
   progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
 
