@@ -2144,59 +2144,58 @@ export default function ListeProdotti() {
               Lista corrente: <span style={{opacity:.85}}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
             </h3>
 
-            {curItems.length === 0 ? (
-  <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
+           {curItems.length === 0 ? (
+  <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
 ) : (
   <div style={styles.listGrid}>
-    {curItems.map((it) => {
-      const rowStyle = it.purchased ? styles.rowBtnGreen : styles.rowBtnRed;
-      return (
-        <div
-          key={it.id}
-          role="button"
-          style={rowStyle}
-          onClick={() => markBought(it.id, 1)}                             // click = compra 1
-          onDoubleClick={() => markBought(it.id, Number(it.qty || 1))}    // doppio click = compra tutto
-          title="Clic: compri 1 • Doppio clic: compri tutto"
-        >
-          {/* Sinistra: quantità + info prodotto */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={styles.qtyBadge}>{it.qty}</div>
-            <div>
-              <div style={styles.itemName}>{it.name}</div>
-              <div style={styles.itemBrand}>
-                {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
-              </div>
+    {curItems.map((it) => (
+      <div
+        key={it.id}
+        style={{
+          ...styles.itemRow,
+          borderColor: it.purchased ? '#16a34a' : '#dc2626',
+          background: it.purchased ? 'rgba(22,163,74,.06)' : 'rgba(220,38,38,.06)',
+        }}
+      >
+        <div style={styles.itemMain}>
+          <div style={styles.qtyBadge}>{it.qty}</div>
+          <div>
+            <div style={styles.itemName}>{it.name}</div>
+            <div style={styles.itemBrand}>
+              {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
             </div>
           </div>
-
-          {/* Destra: azioni minus (+/−/elimina). Lo stopPropagation evita il click sulla riga */}
-          <div style={styles.itemActions} onClick={(e) => e.stopPropagation()}>
-            <button
-              title="Diminuisci confezioni"
-              onClick={() => incQty(it.id, -1)}
-              style={styles.actionGhost}
-            >
-              −
-            </button>
-            <button
-              title="Aumenta confezioni"
-              onClick={() => incQty(it.id, +1)}
-              style={styles.actionGhost}
-            >
-              ＋
-            </button>
-            <button
-              title="Elimina"
-              onClick={() => removeItem(it.id)}
-              style={styles.actionGhostDanger}
-            >
-              🗑 Elimina
-            </button>
-          </div>
         </div>
-      );
-    })}
+
+        <div style={styles.itemActions}>
+          <button
+            title="Segna 1 acquistato"
+            onClick={() => markBought(it.id, 1)}
+            style={it.purchased ? styles.actionSuccess : styles.actionDanger}
+          >
+            {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
+          </button>
+
+          {Number(it.qty) > 1 && (
+            <button
+              title="Segna tutta la quantità come acquistata"
+              onClick={() => markBought(it.id, Number(it.qty))}
+              style={styles.actionSuccess}
+            >
+              ✔ Comprati tutti
+            </button>
+          )}
+
+          <button
+            title="Annulla acquisto"
+            onClick={() => unmarkBought(it.id)}
+            style={styles.actionGhost}
+          >
+            Annulla
+          </button>
+        </div>
+      </div>
+    ))}
   </div>
 )}
                          ✅ Comprato tutto
