@@ -2138,11 +2138,81 @@ export default function ListeProdotti() {
             </button>
           </div>
 
-qtyBadge: {
-  minWidth: 28, height: 28, borderRadius: 9999,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontWeight: 700, padding: '0 8px', background: 'rgba(255,255,255,.15)'
-}
+{/* Lista corrente */}
+<div style={styles.sectionLarge}>
+  <h3 style={styles.h3}>
+    Lista corrente:{' '}
+    <span style={{ opacity: 0.85 }}>
+      {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
+    </span>
+  </h3>
+
+  {curItems.length === 0 ? (
+    <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
+  ) : (
+    <div style={styles.listGrid}>
+      {curItems.map((it) => {
+        const isBought = !!it.purchased;
+        return (
+          <div
+            key={it.id}
+            role="button"
+            tabIndex={0}
+            title="Click: +1 · Doppio click: tutti · Tasto destro: annulla"
+            onClick={() => markBought(it.id, 1)}
+            onDoubleClick={() => markBought(it.id, Number(it.qty))}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              unmarkBought(it.id);
+            }}
+            style={{
+              ...styles.itemRow,
+              cursor: 'pointer',
+              userSelect: 'none',
+              // tutta la riga rossa o verde
+              background: isBought ? '#16a34a' : '#dc2626',
+              color: 'beige',
+              borderRadius: 12,
+              transition: 'background .2s ease',
+            }}
+          >
+            {/* Info prodotto */}
+            <div style={styles.itemMain}>
+              <div style={styles.qtyBadge}>{it.qty}</div>
+              <div>
+                <div style={styles.itemName}>{it.name}</div>
+                <div style={styles.itemBrand}>
+                  {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
+                </div>
+              </div>
+            </div>
+
+            {/* Solo tasto elimina */}
+            <div
+              style={styles.itemActions}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+            >
+              <button
+                title="Elimina"
+                onClick={() => removeItem(it.id)}
+                style={styles.actionGhostDanger}
+              >
+                🗑 Elimina
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+
           {/* Form aggiunta manuale (Lista) */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
@@ -2543,44 +2613,216 @@ qtyBadge: {
 /* workaround MediaRecorder multipli */
 function theMediaWorkaround(){}
 
-<div
-  key={it.id}
-  style={{
-    ...styles.itemRow,
-    ...(it.purchased ? styles.itemRowBought : styles.itemRowPending),
-    ...(pressedRowId === it.id ? styles.rowTap : null),
-    ...(reboundRowId === it.id ? styles.rowRebound : null),
-  }}
-  onClick={(e) => handleRowClick(e, it)}          // toggle comprato / tutto
-  onDoubleClick={(e) => handleRowDoubleClick(e, it)}
->
-  <div style={styles.itemMain}>
-    <div
-      style={{
-        ...styles.qtyBadge,
-        ...(pressedQtyId === it.id ? styles.qtyTap : null),
-        ...(reboundQtyId === it.id ? styles.qtyRebound : null),
-      }}
-      onClick={(e) => handleQtyClick(e, it)}      // incrementa qty
-    >
-      {it.qty}
-    </div>
+/* ---------------- styles completi ---------------- */
+const styles = {
+  page: {
+    width: '100%',
+    minHeight: '100vh',
+    background: '#0f172a',
+    padding: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'beige',
+    textShadow: '0 1px 0 #000',
+    fontFamily:
+      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+  },
+  card: {
+    width: '100%',
+    maxWidth: 1000,
+    background: 'rgba(0,0,0,.6)',
+    borderRadius: 16,
+    padding: 22,
+    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
+  },
+  headerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  homeBtn: {
+    background: '#6366f1',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    textDecoration: 'none',
+    fontWeight: 700,
+  },
+  title3d: {
+    color: 'beige',
+    fontWeight: 900,
+    textShadow:
+      '0 2px 0 #000, 0 4px 12px rgba(0,0,0,.55), 0 0 18px rgba(255,255,255,.15)',
+  },
 
-    <div>
-      <div style={styles.itemName}>{it.name}</div>
-      <div style={styles.itemBrand}>
-        {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
-      </div>
-    </div>
-  </div>
+  /* switch */
+  switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
+  switchBtn: {
+    background: 'rgba(255,255,255,.08)',
+    border: '1px solid rgba(255,255,255,.15)',
+    color: 'beige',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    textShadow: '0 1px 0 #000',
+  },
+  switchBtnActive: {
+    background: '#06b6d4',
+    border: 0,
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
 
-  <div style={styles.itemActions}>
-    <button
-      title="Elimina"
-      onClick={(e) => { e.stopPropagation(); removeItem(it.id); }} // NON clicca la riga
-      style={styles.actionGhostDanger}
-    >
-      🗑 Elimina
-    </button>
-  </div>
-</div>
+  toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
+  voiceBtn: {
+    background: '#6366f1',
+    border: 0,
+    color: '#fff',
+    padding: '10px 14px',
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  sectionLarge: { marginTop: 30, marginBottom: 10 },
+  sectionXL: { marginTop: 38, marginBottom: 12 },
+  h3: { margin: '6px 0 12px', color: 'beige', textShadow: '0 1px 0 #000' },
+
+  listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
+  rowBtnRed: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: '#ef4444',
+    color: 'beige',
+    textShadow: '0 1px 0 #000',
+    border: 'none',
+    borderRadius: 12,
+    padding: '10px 12px',
+    cursor: 'pointer',
+    fontWeight: 800,
+    minHeight: 44,
+  },
+  rowBtnGreen: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: '#16a34a',
+    color: 'beige',
+    textShadow: '0 1px 0 #000',
+    border: 'none',
+    borderRadius: 12,
+    padding: '10px 12px',
+    cursor: 'pointer',
+    fontWeight: 800,
+    minHeight: 44,
+  },
+  qtyBadge: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 10,
+    background: 'rgba(0,0,0,.22)',
+    border: '1px solid rgba(255,255,255,.25)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    color: 'beige',
+  },
+  itemName: { fontSize: 16, fontWeight: 800, lineHeight: 1.1, color: 'beige' },
+  itemBrand: { fontSize: 12, opacity: 0.9, color: 'beige' },
+  itemActions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' },
+
+  actionTiny: {
+    background: 'rgba(255,255,255,.12)',
+    border: '1px solid rgba(255,255,255,.2)',
+    color: 'beige',
+    padding: '4px 8px',
+    borderRadius: 8,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textShadow: '0 1px 0 #000',
+  },
+  actionSuccessTiny: {
+    background: '#16a34a',
+    border: 0,
+    color: '#fff',
+    padding: '4px 8px',
+    borderRadius: 8,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  actionGhostDanger: {
+    background: 'rgba(239,68,68,.1)',
+    border: '1px solid rgba(239,68,68,.6)',
+    color: 'beige',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    textShadow: '0 1px 0 #000',
+  },
+  primaryBtn: {
+    background: '#16a34a',
+    border: 0,
+    color: '#fff',
+    padding: '10px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  input: {
+    padding: '10px 12px',
+    borderRadius: 10,
+    border: '1px solid rgba(255,255,255,.15)',
+    background: 'rgba(255,255,255,.06)',
+    color: 'beige',
+    textShadow: '0 1px 0 #000',
+    minWidth: 160,
+    flex: '1 1 160px',
+  },
+
+  th: {
+    textAlign: 'left',
+    padding: '10px',
+    borderBottom: '1px solid rgba(255,255,255,.12)',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+    color: 'beige',
+    textShadow: '0 1px 0 #000',
+  },
+  td: {
+    padding: '10px',
+    borderBottom: '1px solid rgba(255,255,255,.08)',
+    verticalAlign: 'middle',
+    color: 'beige',
+    textShadow: '0 1px 0 #000',
+  },
+  progressWrap: {
+    position: 'relative',
+    width: 120,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.15)',
+    overflow: 'hidden',
+    flex: '0 0 120px',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '0%',
+    transition: 'width .25s ease, background-color .25s ease',
+  },
+};
