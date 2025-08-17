@@ -2092,51 +2092,135 @@ async function handleStockImagePick(idx, file){
               )}
             </div>
 
-            {/* Elenco scorte completo */}
-            <div style={{ marginTop: 12 }}>
-              <h4 style={styles.h4}>Tutte le scorte</h4>
-              {stock.length === 0 ? (
-                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
+            {/* Elenco scorte completo (TABELLARE con colonna immagine) */}
+<div style={{ marginTop: 12 }}>
+  <h4 style={styles.h4}>Tutte le scorte</h4>
+
+  {stock.length === 0 ? (
+    <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
+  ) : (
+    <div style={styles.stockTableWrap}>
+      <div style={styles.stockTableHeader}>
+        <div style={{gridColumn:'img'}}>Foto</div>
+        <div style={{gridColumn:'name'}}>Prodotto · Consumo</div>
+        <div style={{gridColumn:'packs'}}>Confezioni acquistate</div>
+        <div style={{gridColumn:'upp'}}>Unità per confezione</div>
+        <div style={{gridColumn:'actions'}}>Azioni</div>
+      </div>
+
+      {stock.map((s, idx) => {
+        const { current, baseline, pct } = residueInfo(s);
+        const w = Math.round(pct*100);
+        const zebra = idx % 2 === 0;
+
+        return (
+          <div key={idx} style={{ ...(zebra ? styles.stockTableRowZ1 : styles.stockTableRowZ2) }}>
+            {/* IMG */}
+            <div style={{gridColumn:'img'}}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => { setImgRowIndex(idx); stockImgInputRef.current?.click(); }}
+                onKeyDown={(e)=>{ if(e.key==='Enter'||e.key===' ') { setImgRowIndex(idx); stockImgInputRef.current?.click(); }}}
+                style={{
+                  ...styles.imgSquare,
+                  backgroundImage: s.img ? `url(${s.img})` : 'none',
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                }}
+                title={s.img ? 'Cambia immagine' : 'Aggiungi immagine'}
+              >
+                {!s.img && <span style={styles.imgPlus}>＋</span>}
+              </div>
+            </div>
+
+            {/* NOME + BARRA */}
+            <div style={{gridColumn:'name'}}>
+              <div style={styles.stockTitle}>
+                {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+              </div>
+              <div style={styles.progressOuter}>
+                <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+              </div>
+              <div style={styles.stockLineSmall}>
+                {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+              </div>
+            </div>
+
+            {/* PACKS */}
+            <div style={{gridColumn:'packs'}}>
+              {editingRow === idx ? (
+                <input
+                  style={{...styles.input, width:120}}
+                  inputMode="decimal"
+                  value={editDraft.packs}
+                  onChange={e=>handleEditDraftChange('packs', e.target.value)}
+                />
               ) : (
-                <div style={styles.stockGrid}>
-                  {stock.map((s, idx) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    const zebra = idx % 2 === 0;
-                    return (
-                      <div key={idx} style={{ ...(zebra ? styles.stockCardZ1 : styles.stockCardZ2) }}>
-                        {editingRow === idx ? (
-                          <div>
-                            <div style={styles.formRowWrap}>
-                              <input style={styles.input} value={editDraft.name}
-                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
-                              <input style={styles.input} value={editDraft.brand}
-                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
-                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
-                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
-                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
-                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
-                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
-                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
-                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
-                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
-                            </div>
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
-                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                              <button
-                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                style={styles.smallGhostBtn}
-                              >OCR scad.</button>
-                            </div>
-                          </div>
-                        ) : (
+                <div style={styles.cellValue}>{Number(s.packs||0)}</div>
+              )}
+            </div>
+
+            {/* UPP */}
+            <div style={{gridColumn:'upp'}}>
+              {editingRow === idx ? (
+                <div style={{display:'flex', gap:6}}>
+                  <input
+                    style={{...styles.input, width:120}}
+                    inputMode="decimal"
+                    value={editDraft.unitsPerPack}
+                    onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)}
+                  />
+                  <input
+                    style={{...styles.input, width:140}}
+                    placeholder="Etichetta (es. bottiglie)"
+                    value={editDraft.unitLabel}
+                    onChange={e=>handleEditDraftChange('unitLabel', e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div style={styles.cellValue}>
+                  {Number(s.unitsPerPack||1)} <span style={{opacity:.85}}>{s.unitLabel||'unità'}</span>
+                </div>
+              )}
+            </div>
+
+            {/* ACTIONS */}
+            <div style={{gridColumn:'actions', display:'flex', gap:6, flexWrap:'wrap'}}>
+              {editingRow === idx ? (
+                <>
+                  <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                  <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
+                  <button
+                    onClick={() => applyDeltaToStock(idx, { setUnits: 0 })}
+                    style={styles.smallDangerBtn}
+                    title="Imposta residuo a 0"
+                  >Svuota</button>
+                  <button
+                    onClick={()=>{ setOcrRowIndex(idx); setOcrMode('label'); stockOcrInputRef.current?.click(); }}
+                    style={styles.smallGhostBtn}
+                    title="OCR etichetta (scadenza / UPP)"
+                  >OCR etichetta</button>
+                  <button
+                    onClick={()=>{ setOcrRowIndex(idx); setOcrMode('qty'); stockOcrInputRef.current?.click(); }}
+                    style={styles.smallGhostBtn}
+                    title="OCR quantità acquistata"
+                  >OCR quantità</button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+                       ) : (
                           <>
                             <div style={styles.stockTitle}>
                               {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
