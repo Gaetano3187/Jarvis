@@ -2132,5 +2132,5 @@ const styles = {
     background:'rgba(15,23,42,.65)',
     color:'#f1f5f9'
   }
-  }
+
 };
