@@ -2050,7 +2050,57 @@ const styles = {
     backdropFilter:'blur(2px)',
     animation:'toastPop .24s ease-out, toastFade .2s ease-in 3s forwards'
   },
-  toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
+    toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
   toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
   toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
+    /* ====== Nuove chiavi per layout a righe ====== */
+  stockTable: {
+    width: '100%',
+    display: 'block',
+    borderRadius: 12,
+    overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,.08)',
+    background: 'rgba(0,0,0,0.10)',
+    backdropFilter: 'none',
+  },
+  stockHeader: {
+    display: 'grid',
+    gridTemplateColumns: '60px 1fr 120px 120px',
+    gap: 8,
+    alignItems: 'center',
+    padding: '10px 12px',
+    fontWeight: 800,
+    letterSpacing: .3,
+    background: 'rgba(8,14,22,.65)',
+    borderBottom: '1px solid rgba(255,255,255,.08)'
+  },
+  stockRowLine: {
+    display: 'grid',
+    gridTemplateColumns: '60px 1fr 120px 120px',
+    gap: 8,
+    alignItems: 'center',
+    minWidth: 0,
+    padding: '10px 12px',
+    borderBottom: '1px solid rgba(255,255,255,.06)',
+  },
+  zebra1: { background: 'rgba(14,20,30,.35)' },
+  zebra2: { background: 'rgba(10,16,24,.28)' },
+  stockLineSmall: {
+    marginTop: 4,
+    fontSize: '.9rem',
+    opacity: .95,
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap'
+  },
+  expiryChip: {
+    marginLeft: 6,
+    padding: '0 8px',
+    borderRadius: 999,
+    border: '1px solid rgba(255,255,255,.18)',
+    background: 'rgba(255,255,255,.08)',
+    fontSize: '.78rem',
+    whiteSpace: 'nowrap'
+  },
+
 };
