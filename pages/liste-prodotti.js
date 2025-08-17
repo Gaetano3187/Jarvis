@@ -1715,8 +1715,25 @@ export default function ListeProdotti() {
               {toast.msg}
             </div>
           )}
-        </div>
-      </div>
+{/* Toast */}
+{toast && (
+  <div style={styles.toastWrap}>
+    <div
+      style={{
+        ...styles.toastBase,
+        ...(toast.type === 'ok'
+          ? styles.toastOk
+          : toast.type === 'err'
+          ? styles.toastErr
+          : styles.toastInfo),
+      }}
+      role="status"
+      aria-live="polite"
+    >
+      {toast.msg}
+    </div>
+  </div>
+)}
 
       {/* INPUT NASCOSTI */}
       <input
@@ -1998,3 +2015,22 @@ const styles = {
   progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
   progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 }
 };
+{/* Toast */}
+{toast && (
+  <div style={styles.toastWrap}>
+    <div
+      style={{
+        ...styles.toastBase,
+        ...(toast.type === 'ok'
+          ? styles.toastOk
+          : toast.type === 'err'
+          ? styles.toastErr
+          : styles.toastInfo),
+      }}
+      role="status"
+      aria-live="polite"
+    >
+      {toast.msg}
+    </div>
+  </div>
+)}
