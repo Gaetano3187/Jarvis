@@ -3870,92 +3870,99 @@ const styles = {
   badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
   badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
 
-  /* ---------------- Scorte A RIGHE ---------------- */
-  // Elenco scorte a righe
-  stockGrid:{
-    display:'flex',
-    flexDirection:'column',
-    gap:8,
-    width:'100%'
-  },
+/* ---------------- Scorte A RIGHE ---------------- */
+stockGrid:{
+  display:'flex',
+  flexDirection:'column',
+  gap:8,
+  width:'100%'
+},
 
-  stockCardZ1:{
-    display:'flex',
-    alignItems:'center',
-    justifyContent:'space-between',
-    gap:12,
-    padding:'10px 14px',
-    borderRadius:14,
-    background:'linear-gradient(180deg,rgba(22,30,44,.65),rgba(16,22,34,.65))',
-    border:'1px solid rgba(255,255,255,.06)',
-    minWidth:0
-  },
-  stockCardZ2:{
-    display:'flex',
-    alignItems:'center',
-    justifyContent:'space-between',
-    gap:12,
-    padding:'10px 14px',
-    borderRadius:14,
-    background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
-    border:'1px solid rgba(255,255,255,.07)',
-    minWidth:0
-  },
+stockCardZ1:{
+  display:'flex',
+  alignItems:'center',
+  justifyContent:'space-between',
+  gap:12,
+  padding:'12px 16px',
+  borderRadius:14,
+  background:'linear-gradient(180deg,rgba(22,30,44,.65),rgba(16,22,34,.65))',
+  border:'1px solid rgba(255,255,255,.06)',
+  minWidth:0
+},
+stockCardZ2:{
+  display:'flex',
+  alignItems:'center',
+  justifyContent:'space-between',
+  gap:12,
+  padding:'12px 16px',
+  borderRadius:14,
+  background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
+  border:'1px solid rgba(255,255,255,.07)',
+  minWidth:0
+},
 
-  // Immagine a sinistra
-  imageBox:{
-    flex:'0 0 48px',
-    height:48,
-    borderRadius:10,
-    border:'1px solid rgba(255,255,255,.1)',
-    background:'rgba(0,0,0,.25)',
-    display:'flex', alignItems:'center', justifyContent:'center',
-    cursor:'pointer', overflow:'hidden'
-  },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.2rem', opacity:.7 },
+// Immagine a sinistra (più grande)
+imageBox:{
+  flex:'0 0 60px',
+  height:60,
+  borderRadius:12,
+  border:'1px solid rgba(255,255,255,.1)',
+  background:'rgba(0,0,0,.25)',
+  display:'flex', alignItems:'center', justifyContent:'center',
+  cursor:'pointer', overflow:'hidden'
+},
+imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
+imagePlaceholder:{ fontSize:'1.4rem', opacity:.7 },
 
-  // Blocco testo centrale
-  stockTitle:{
-    flex:1,
-    fontWeight:800,
-    lineHeight:1.2,
-    whiteSpace:'nowrap',
-    overflow:'hidden',
-    textOverflow:'ellipsis',
-    marginRight:8
-  },
+// Blocco testo centrale
+stockTitle:{
+  flex:1,
+  fontWeight:800,
+  lineHeight:1.2,
+  whiteSpace:'nowrap',
+  overflow:'hidden',
+  textOverflow:'ellipsis',
+  marginRight:8
+},
 
-  // Colonne quantità a destra
-  kvCol:{
-    display:'flex',
-    flexDirection:'column',
-    alignItems:'flex-end',
-    minWidth:68
-  },
-  kvLabel:{ fontSize:'.78rem', opacity:.75, whiteSpace:'nowrap' },
-  kvValue:{ fontSize:'1.05rem', fontWeight:800, whiteSpace:'nowrap' },
+// Colonne quantità a destra
+kvCol:{
+  display:'flex',
+  flexDirection:'column',
+  alignItems:'flex-end',
+  minWidth:72
+},
+kvLabel:{ fontSize:'.78rem', opacity:.75, whiteSpace:'nowrap' },
+kvValue:{ fontSize:'1.1rem', fontWeight:800, whiteSpace:'nowrap' },
 
-  // Barra consumo
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)', flexBasis:'100%', marginTop:6 },
-  progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
-  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
+// Barra consumo
+progressOuter:{
+  height:8,
+  borderRadius:999,
+  background:'rgba(255,255,255,.08)',
+  overflow:'hidden',
+  border:'1px solid rgba(255,255,255,.1)',
+  flexBasis:'100%',
+  marginTop:6
+},
+progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
+progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
 
-  /* Toast */
-  toastWrap:{
-    position:'fixed', left:'50%', bottom:24, transform:'translateX(-50%)',
-    zIndex:9999, pointerEvents:'none'
-  },
-  toastBase:{
-    minWidth:260, maxWidth:520,
-    padding:'10px 14px', borderRadius:12,
-    boxShadow:'0 8px 20px rgba(0,0,0,.35)',
-    border:'1px solid rgba(255,255,255,.10)',
-    color:'#fff', textAlign:'center',
-    backdropFilter:'blur(2px)',
-    animation:'toastPop .24s ease-out, toastFade .2s ease-in 3s forwards'
-  },
-  toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
-  toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
-  toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
+/* Toast */
+toastWrap:{
+  position:'fixed', left:'50%', bottom:24, transform:'translateX(-50%)',
+  zIndex:9999, pointerEvents:'none'
+},
+toastBase:{
+  minWidth:260, maxWidth:520,
+  padding:'10px 14px', borderRadius:12,
+  boxShadow:'0 8px 20px rgba(0,0,0,.35)',
+  border:'1px solid rgba(255,255,255,.10)',
+  color:'#fff', textAlign:'center',
+  backdropFilter:'blur(2px)',
+  animation:'toastPop .24s ease-out, toastFade .2s ease-in 3s forwards'
+},
+toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
+toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
+toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
 };
