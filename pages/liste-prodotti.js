@@ -1977,85 +1977,107 @@ const styles = {
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
 
-  // Card trasparente
-  card: {
-    maxWidth:1000, margin:'0 auto',
-    background:'transparent',
-    backdropFilter:'none',
-    border:'1px solid rgba(255,255,255,.06)',
-    borderRadius:18, padding:16,
-    boxShadow:'none'
-  },
+// Card trasparente
+card: {
+  maxWidth:1000, margin:'0 auto',
+  background:'transparent',
+  backdropFilter:'none',
+  border:'1px solid rgba(255,255,255,.06)',
+  borderRadius:18, padding:16,
+  boxShadow:'none'
+},
 
-  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
-  title3d:{
-    margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
-    textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
-  },
-  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
-  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
+headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
+title3d:{
+  margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
+  textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
+},
+homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
+actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
 
-  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
-  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
-  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
+switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
+switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
+switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
 
-  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
-  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-    primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
+toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
+voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
+primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
 
-  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
-  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
+sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
+sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
+sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
 
-  h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
-  h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
+h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
+h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
 
-  listGrid:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
-  rowButton:{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', borderRadius:12, cursor:'pointer', userSelect:'none' },
-  rowButtonToBuy:{ background:'rgba(17,24,39,.6)', border:'1px solid #334155' },
-  rowButtonBought:{ background:'rgba(21,128,61,.4)', border:'1px solid #166534', textDecoration:'line-through', opacity:.75 },
-  rowLeft:{ flex:1, minWidth:0 },
-  rowName:{ fontWeight:600, fontSize:'1.05rem' },
-  rowBrand:{ fontWeight:400, fontSize:'.95rem', opacity:.75 },
-  rowMeta:{ fontSize:'.9rem', opacity:.85, marginTop:2 },
-  rowActions:{ display:'flex', gap:6, marginLeft:12 },
-  rowActionsRight:{ display:'flex', gap:6, marginLeft:'auto' },
+// Lista prodotti (rosso → verde leggibile)
+listGrid:{ display:'flex', flexDirection:'column', gap:8, marginTop:6 },
+rowButton:{
+  display:'flex', justifyContent:'space-between', alignItems:'center',
+  padding:'12px 14px', borderRadius:14, cursor:'pointer', userSelect:'none',
+  boxShadow:'0 6px 14px rgba(0,0,0,.35)', minWidth:0, borderWidth:1, borderStyle:'solid'
+},
+rowButtonToBuy:{
+  background:'linear-gradient(180deg,#7f1d1d,#4d0f0f)',
+  borderColor:'#a11d1d',
+  color:'#fff7ed'
+},
+rowButtonBought:{
+  background:'linear-gradient(180deg,#166534,#0b3f25)',
+  borderColor:'#1ea05a',
+  color:'#ecfeff'
+},
+rowLeft:{ flex:1, minWidth:0 },
+rowName:{
+  fontWeight:800, fontSize:'1.05rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+},
+rowBrand:{ fontWeight:600, fontSize:'.95rem', opacity:.85 },
+rowMeta:{ fontSize:'.9rem', opacity:.9, marginTop:2, display:'flex', gap:8, alignItems:'center' },
+rowActions:{ display:'flex', gap:6, marginLeft:12 },
+rowActionsRight:{ display:'flex', gap:6, marginLeft:'auto' },
 
-  badgeToBuy:{ marginLeft:8, background:'#1e40af', color:'#bfdbfe', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
-  badgeBought:{ marginLeft:8, background:'#14532d', color:'#bbf7d0', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
+badgeToBuy:{
+  padding:'2px 8px', borderRadius:999,
+  background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)',
+  fontSize:'.78rem', fontWeight:800
+},
+badgeBought:{
+  padding:'2px 8px', borderRadius:999,
+  background:'rgba(16,185,129,.22)', border:'1px solid rgba(16,185,129,.4)',
+  fontSize:'.78rem', fontWeight:800
+},
 
-  smallOkBtn:{ padding:'2px 6px', borderRadius:6, background:'#16a34a', color:'#fff', border:'none', fontWeight:600 },
-  smallDangerBtn:{ padding:'2px 6px', borderRadius:6, background:'#dc2626', color:'#fff', border:'none', fontWeight:600 },
-  smallGhostBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.1)', color:'#e5e7eb', border:'1px solid #334155', fontWeight:500 },
-  smallQtyBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.08)', color:'#f8fafc', border:'1px solid #334155', fontWeight:700 },
+smallOkBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #166534', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13', fontWeight:900 },
+smallDangerBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #7f1d1d', background:'linear-gradient(180deg,#991b1b,#7f1d1d)', color:'#fff0ea' },
+smallGhostBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'transparent', color:'#e5e7eb' },
+smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.85)', color:'#e5e7eb', fontWeight:800 },
 
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, margin:'6px 0' },
-  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
-  input:{ flex:1, minWidth:120, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.6)', color:'#f1f5f9' },
+formRow:{ display:'flex', flexWrap:'wrap', gap:8, margin:'6px 0' },
+formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
+input:{ flex:1, minWidth:120, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.6)', color:'#f1f5f9' },
 
-  critListWrap:{ display:'flex', flexDirection:'column', gap:6, marginTop:4 },
-  critRow:{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:10, background:'rgba(255,255,255,.05)' },
-  critName:{ flex:1, fontWeight:600 },
-  critMeta:{ fontSize:'.85rem', opacity:.85 },
-  progressOuterCrit:{ flex:1, height:6, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
-  progressOuterBig:{ marginTop:4, height:12, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
-  progressInner:{ height:'100%' },
+critListWrap:{ display:'flex', flexDirection:'column', gap:6, marginTop:4 },
+critRow:{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:10, background:'rgba(255,255,255,.05)' },
+critName:{ flex:1, fontWeight:600 },
+critMeta:{ fontSize:'.85rem', opacity:.85 },
+progressOuterCrit:{ flex:1, height:6, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
+progressOuterBig:{ marginTop:4, height:12, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
+progressInner:{ height:'100%' },
 
-  expiryChip:{ marginLeft:6, background:'#7e22ce', color:'#f3e8ff', padding:'0 6px', borderRadius:6, fontSize:'.75rem' },
+expiryChip:{ marginLeft:6, background:'#7e22ce', color:'#f3e8ff', padding:'0 6px', borderRadius:6, fontSize:'.75rem' },
 
-  stockList:{ display:'flex', flexDirection:'column', marginTop:6 },
-  stockLineZ1:{ padding:'8px 10px', borderRadius:12, background:'rgba(255,255,255,.04)', marginBottom:4 },
-  stockLineZ2:{ padding:'8px 10px', borderRadius:12, background:'rgba(0,0,0,.25)', marginBottom:4 },
+stockList:{ display:'flex', flexDirection:'column', marginTop:6 },
+stockLineZ1:{ padding:'8px 10px', borderRadius:12, background:'rgba(255,255,255,.04)', marginBottom:4 },
+stockLineZ2:{ padding:'8px 10px', borderRadius:12, background:'rgba(0,0,0,.25)', marginBottom:4 },
 
-  stockRow:{ display:'flex', alignItems:'center', gap:12 },
-  stockTitle:{ fontWeight:600, fontSize:'1.05rem' },
-  stockLineSmall:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
+stockRow:{ display:'flex', alignItems:'center', gap:12 },
+stockTitle:{ fontWeight:600, fontSize:'1.05rem' },
+stockLineSmall:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
 
-  kvCol:{ minWidth:80, textAlign:'center' },
-  kvLabel:{ fontSize:'.75rem', opacity:.7 },
-  kvValue:{ fontWeight:700, fontSize:'1rem' },
+kvCol:{ minWidth:80, textAlign:'center' },
+kvLabel:{ fontSize:'.75rem', opacity:.7 },
+kvValue:{ fontWeight:700, fontSize:'1rem' },
 
-  imageBox:{ width:64, height:64, borderRadius:12, background:'rgba(255,255,255,.08)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer' },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.4rem', opacity:.5 }
-};
+imageBox:{ width:64, height:64, borderRadius:12, background:'rgba(255,255,255,.08)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer' },
+imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
+imagePlaceholder:{ fontSize:'1.4rem', opacity:.5 }
