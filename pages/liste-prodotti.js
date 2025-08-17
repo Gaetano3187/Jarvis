@@ -2450,3 +2450,47 @@ const styles = {
   stockLineSmall:{ marginTop:6, opacity:.92, fontSize:'.92rem', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' },
   expiryChip:{ padding:'2px 8px', borderRadius:999, background:'rgba(250,204,21,.18)', border:'1px solid rgba(250,204,21,.35)', fontWeight:700 }
 };
+stockTableWrap:{ display:'grid', gap:8 },
+stockTableHeader:{
+  display:'grid',
+  gridTemplateColumns:'[img] 72px [name] 1fr [packs] 200px [upp] 220px [actions] 1fr',
+  padding:'8px 10px',
+  borderRadius:12,
+  background:'rgba(18,26,38,.35)',
+  border:'1px solid rgba(255,255,255,.08)',
+  fontWeight:800,
+  letterSpacing:.3
+},
+stockTableRowZ1:{
+  display:'grid',
+  gridTemplateColumns:'[img] 72px [name] 1fr [packs] 200px [upp] 220px [actions] 1fr',
+  alignItems:'center',
+  gap:10,
+  padding:'10px',
+  borderRadius:12,
+  background:'linear-gradient(180deg,rgba(22,30,44,.55),rgba(16,22,34,.55))',
+  border:'1px solid rgba(255,255,255,.06)'
+},
+stockTableRowZ2:{
+  display:'grid',
+  gridTemplateColumns:'[img] 72px [name] 1fr [packs] 200px [upp] 220px [actions] 1fr',
+  alignItems:'center',
+  gap:10,
+  padding:'10px',
+  borderRadius:12,
+  background:'linear-gradient(180deg,rgba(18,26,40,.55),rgba(14,20,30,.55))',
+  border:'1px solid rgba(255,255,255,.07)',
+  filter:'saturate(1.08)'
+},
+imgSquare:{
+  width:56, height:56,
+  borderRadius:10,
+  background:'rgba(255,255,255,.06)',
+  border:'1px solid rgba(255,255,255,.12)',
+  display:'grid',
+  placeItems:'center',
+  cursor:'pointer',
+  userSelect:'none'
+},
+imgPlus:{ fontSize:24, opacity:.9 },
+cellValue:{ fontWeight:800, letterSpacing:.2 },
