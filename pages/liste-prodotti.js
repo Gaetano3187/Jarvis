@@ -2256,9 +2256,13 @@ const styles = {
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
   card: {
-    maxWidth:1000, margin:'0 auto', background:'rgba(8,14,22,.55)', backdropFilter:'blur(8px)',
-    border:'1px solid rgba(255,255,255,.06)', borderRadius:18, padding:16, boxShadow:'0 12px 40px rgba(0,0,0,.35)'
-  },
+  maxWidth:1000, margin:'0 auto',
+  background:'transparent',                   // <— TRASPARENTE
+  backdropFilter:'none',
+  border:'1px solid rgba(255,255,255,.06)',
+  borderRadius:18, padding:16,
+  boxShadow:'0 12px 40px rgba(0,0,0,.0)'      // <— via l’ombra scura
+},
   headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
   title3d:{
     margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
