@@ -587,6 +587,40 @@ export default function ListeProdotti() {
   // Scorte & critici
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
+  // ——— immagini riga scorte
+const stockImgInputRef = useRef(null);
+const [imgRowIndex, setImgRowIndex] = useState(null);
+
+// ——— OCR etichetta / quantità
+const stockOcrInputRef = useRef(null);
+const [ocrRowIndex, setOcrRowIndex] = useState(null);
+const [ocrMode, setOcrMode] = useState('label'); // 'label' | 'qty'
+
+// DataURL per persistenza in localStorage
+async function fileToDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// Applica immagine alla riga scorte
+async function handleStockImagePick(idx, file){
+  try{
+    const dataUrl = await fileToDataURL(file);
+    setStock(prev=>{
+      const arr = [...prev];
+      if(!arr[idx]) return prev;
+      arr[idx] = { ...arr[idx], img: dataUrl };
+      return arr;
+    });
+    showToast('Immagine salvata ✓','ok');
+  }catch(e){
+    showToast('Impossibile leggere immagine','err');
+  }
+}
 
   // Edit riga scorte
   const [editingRow, setEditingRow] = useState(null);
