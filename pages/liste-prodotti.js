@@ -1890,51 +1890,53 @@ export default function ListeProdotti() {
           }
         }}
       />
+<>
+  {/* ...altri elementi del componente... */}
 
-      {/* 5) Input nascosto per immagine prodotto */}
-      <input
-        ref={rowImageInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (files.length && typeof targetImageIdx === 'number') {
-            handleRowImage(files, targetImageIdx);
-            setTargetImageIdx(null);
-          }
-        }}
-      />
+  {/* 5) Input nascosto per immagine prodotto */}
+  <input
+    ref={rowImageInputRef}
+    type="file"
+    accept="image/*"
+    capture="environment"
+    hidden
+    onChange={(e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (files.length && typeof targetImageIdx === 'number') {
+        handleRowImage(files, targetImageIdx);
+        setTargetImageIdx(null);
+      }
+    }}
+  />
 
-      {/* Stili locali */}
-      <style jsx>{`
-        @media (max-width: 600px){
-          .stockRow {
-            grid-template-columns: 64px 1fr;
-            grid-row-gap: 6px;
-          }
-          .stockRow .kvCol { 
-            grid-column: 1 / -1;
-            align-items: flex-start;
-          }
-        }
+  <style jsx>{`
+    @media (max-width: 600px){
+      .stockRow {
+        grid-template-columns: 64px 1fr;
+        grid-row-gap: 6px;
+      }
+      .stockRow .kvCol { 
+        grid-column: 1 / -1;
+        align-items: flex-start;
+      }
+    }
 
-        @keyframes toastPop {
-          0% { transform: translate(-50%, 10px) scale(.98); opacity: 0; }
-          100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
-        }
-        @keyframes toastFade { to { opacity: 0; } }
+    @keyframes toastPop {
+      0% { transform: translate(-50%, 10px) scale(.98); opacity: 0; }
+      100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+    }
+    @keyframes toastFade { to { opacity: 0; } }
 
-        .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
-        @keyframes titlePulse { 
-          0%,100% { transform: scale(1); } 
-          50% { transform: scale(1.05); } 
-        }
-        .muted { opacity:.85; }
-        .hint { opacity:.75; font-size:.9rem; margin-top:6px; }
-      `}</style>
+    .titlePulse { animation: titlePulse 2.2s ease-in-out infinite; }
+    @keyframes titlePulse { 
+      0%,100% { transform: scale(1); } 
+      50% { transform: scale(1.05); } 
+    }
+    .muted { opacity:.85; }
+    .hint { opacity:.75; font-size:.9rem; margin-top:6px; }
+  `}</style>
+</>
 
 /* =================== Styles (completo con fix) =================== */
 const styles = {
