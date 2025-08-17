@@ -360,29 +360,6 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
-function buildExpiryPrompt(itemName, brand, ocrText) {
-  const tag = brand ? `${itemName} (marca ${brand})` : itemName;
-  return [
-    'Sei Jarvis, estrattore scadenze da etichette/scontrini.',
-    'Cerca SOLO la scadenza riferita al prodotto indicato.',
-    'Rispondi SOLO in JSON con schema: { "expiries":[{ "name":"", "expiresAt":"YYYY-MM-DD" }] }',
-    '- Se non trovi una data chiara, restituisci {"expiries":[]}.',
-    '',
-    `PRODOTTO TARGET: "${tag}"`,
-    '',
-    'ESEMPI:',
-    'Input:',
-    '  Prodotto: "latte (marca Parmalat)"',
-    '  Testo OCR: "LATTE PS PARMALAT 1L SCAD 15/07/2025 lotto 18"',
-    'Output:',
-    '{ "expiries":[{ "name":"latte", "expiresAt":"2025-07-15" }] }',
-    '',
-    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO.',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
 function buildUnifiedRowPrompt(ocrText, { name, brand }) {
   const target = brand ? `${name} (marca ${brand})` : name;
   return [
@@ -421,7 +398,7 @@ function parseReceiptPurchases(ocrText) {
     }
     name = name
       .replace(/\b(\d+[gG]|kg|ml|l|cl)\b/g,'')
-      .replace(/\s{2,}/g,' ')
+      .replace(/\s{2,}/g, ' ')
       .trim()
       .toLowerCase()
       .replace(/\buht\b/g,'')
@@ -603,7 +580,7 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale inventario unificato
+  // Vocale inventario unificato (RIPRISTINATO)
   const invMediaRef = useRef(null);
   const invChunksRef = useRef([]);
   const invStreamRef = useRef(null);
@@ -723,7 +700,7 @@ export default function ListeProdotti() {
         hub.registerDataSource({
           name: 'scorte-complete',
           fetch: () => {
-            return (stockRef.current || []).map(s => {
+            return (stock || []).map(s => {
               const upp = Math.max(1, Number(s.unitsPerPack || 1));
               const residueUnits = Number.isFinite(Number(s.residueUnits))
                 ? Math.max(0, Number(s.residueUnits))
@@ -750,7 +727,7 @@ export default function ListeProdotti() {
         hub.registerDataSource({
           name: 'scorte-esaurimento',
           fetch: () => {
-            return (stockRef.current || []).filter(s => {
+            return (stock || []).filter(s => {
               const { current, baseline } = residueInfo(s);
               return baseline > 0 && current / baseline < 0.20;
             });
@@ -759,14 +736,14 @@ export default function ListeProdotti() {
         hub.registerDataSource({
           name: 'scorte-scadenza',
           fetch: ({ entroGiorni = 10 } = {}) => {
-            return (stockRef.current || []).filter(s => isExpiringSoon(s, entroGiorni));
+            return (stock || []).filter(s => isExpiringSoon(s, entroGiorni));
           }
         });
         hub.registerDataSource({
           name: 'scorte-giorni-esaurimento',
           fetch: () => {
             const out = [];
-            for (const s of (stockRef.current || [])) {
+            for (const s of (stock || [])) {
               const upp = Math.max(1, Number(s.unitsPerPack || 1));
               const currentUnits = Number.isFinite(Number(s.residueUnits))
                 ? Math.max(0, Number(s.residueUnits))
@@ -784,7 +761,7 @@ export default function ListeProdotti() {
         hub.registerDataSource({
           name: 'liste-spesa',
           fetch: () => {
-            const data = listsRef.current || {};
+            const data = lists || {};
             return Object.entries(data).flatMap(([type, items]) =>
               (items || [])
                 .filter(it => !it.purchased && it.qty > 0)
@@ -803,7 +780,7 @@ export default function ListeProdotti() {
           name: 'lista-oggi',
           fetch: () => {
             const cur = currentListRef.current;
-            const items = (listsRef.current?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
+            const items = (lists?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
             return items.map(i => ({
               listType: cur,
               name: i.name, brand: i.brand || '', qty: i.qty,
@@ -811,8 +788,6 @@ export default function ListeProdotti() {
             }));
           }
         });
-
-        // (Comandi invariati — omessi qui per brevità: sotto rimangono IDENTICI al tuo ultimo codice)
       }
       wireBrain();
       return () => { cancelled = true; };
@@ -886,7 +861,7 @@ export default function ListeProdotti() {
     setCritical(crit);
   }, [stock]);
 
-  /* =================== LISTE: azioni (invariato) =================== */
+  /* =================== LISTE: azioni =================== */
   function addManualItem(e) {
     e.preventDefault();
     const name = form.name.trim();
@@ -936,7 +911,7 @@ export default function ListeProdotti() {
     });
   }
 
-  /* =================== OCR scontrini (globale) — invariato salvo helper =================== */
+  /* =================== OCR scontrini (globale) =================== */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
     const decList = (listKey) => {
@@ -1164,7 +1139,7 @@ export default function ListeProdotti() {
     reader.readAsDataURL(file);
   }
 
-  /* =================== Vocale LISTA (invariato) =================== */
+  /* =================== Vocale LISTA =================== */
   async function toggleRecList() {
     if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
@@ -1272,8 +1247,108 @@ export default function ListeProdotti() {
     }
   }
 
-  /* =================== Vocale UNIFICATO (inventario) — invariato =================== */
-  // (Mantieni qui il tuo blocco completo per toggleVoiceInventory/processVoiceInventory se già presente nel progetto)
+  /* =================== Vocale UNIFICATO INVENTARIO (ripristinato) =================== */
+  async function toggleVoiceInventory() {
+    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      invStreamRef.current = stream;
+      invMediaRef.current = new MediaRecorder(stream);
+      invChunksRef.current = [];
+      invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
+      invMediaRef.current.onstop = processVoiceInventory;
+      invMediaRef.current.start();
+      setInvRecBusy(true);
+    } catch {
+      alert('Microfono non disponibile');
+    }
+  }
+  async function processVoiceInventory() {
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
+    try {
+      setBusy(true);
+      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+      const { text } = await res.json();
+      if (!text) throw new Error('Testo non riconosciuto');
+
+      // 1) Scadenze dal parlato (se presenti)
+      const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+
+      // 2) Aggiornamenti quantità / set residuo
+      const updates = parseStockUpdateText(text);
+
+      // Applica scadenze
+      if (expPairs.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          for (const ex of expPairs) {
+            const i = arr.findIndex(s => isSimilar(s.name, ex.name));
+            if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+            else arr.unshift({
+              name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
+              expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
+            });
+          }
+          return arr;
+        });
+      }
+
+      // Applica quantità
+      if (updates.length) {
+        const todayISO = new Date().toISOString().slice(0,10);
+        const absolute = wantsAbsoluteSet(text);
+        setStock(prev => {
+          const arr = [...prev];
+          for (const u of updates) {
+            const j = arr.findIndex(s => isSimilar(s.name, u.name));
+            if (j < 0) {
+              // crea con hint
+              const packs = u.mode === 'packs' ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(u._packs||1));
+              const upp   = u.mode === 'packs' ? Math.max(1, Number(u._upp||1)) : Math.max(1, Number(u.value||1));
+              arr.unshift({
+                name: u.name, brand:'', packs, unitsPerPack: upp, unitLabel:'unità',
+                expiresAt: '', ...restockTouch(packs, todayISO, upp), avgDailyUnits: 0, image:''
+              });
+              continue;
+            }
+            const old = arr[j];
+            if (u.op === 'restockExplicit' || u.mode === 'packs') {
+              // incremento o set a pacchi?
+              const newPacks = absolute ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(old.packs||0) + Number(u.value||0));
+              const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
+            } else {
+              // units → residueUnits (impostazione residuo o incremento residuo)
+              const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              const baseline = baselineUnitsOf(old) || upp;
+              const targetUnits = absolute
+                ? Math.max(0, Math.min(Number(u.value||0), baseline))
+                : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
+              arr[j] = { ...old, residueUnits: targetUnits };
+            }
+          }
+          return arr;
+        });
+      }
+
+      if (!expPairs.length && !updates.length) {
+        showToast('Nessun dato inventario riconosciuto', 'err');
+      } else {
+        showToast('Inventario aggiornato da Vocale ✓', 'ok');
+      }
+    } catch (e) {
+      console.error('[voice inventory] error', e);
+      showToast('Errore vocale inventario', 'err');
+    } finally {
+      setInvRecBusy(false);
+      setBusy(false);
+      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      invMediaRef.current = null;
+      invStreamRef.current = null;
+      invChunksRef.current = [];
+    }
+  }
 
   /* =================== Render =================== */
   return (
@@ -1463,7 +1538,9 @@ export default function ListeProdotti() {
             <div style={styles.sectionHeaderRow}>
               <h3 style={styles.h3}>🏠 Stato Scorte</h3>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                {/* (Pulsante vocale inventario, se lo usi nel tuo progetto, resta invariato) */}
+                <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+                  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
+                </button>
                 <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
                   {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
                 </button>
@@ -1576,19 +1653,19 @@ export default function ListeProdotti() {
               {critical.length === 0 ? (
                 <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
               ) : (
-                <div style={styles.stockGrid}>
+                <div style={styles.critListWrap}>
                   {critical.map((s, i) => {
                     const { current, baseline, pct } = residueInfo(s);
                     const w = Math.round(pct*100);
                     return (
-                      <div key={i} style={styles.stockCardCritical}>
-                        <div style={styles.stockTitle}>
+                      <div key={i} style={styles.critRow}>
+                        <div style={styles.critName}>
                           {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
                         </div>
-                        <div style={styles.progressOuter}>
+                        <div style={styles.progressOuterCrit}>
                           <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
                         </div>
-                        <div style={styles.stockLineSmall}>
+                        <div style={styles.critMeta}>
                           {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
                           {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
                         </div>
@@ -1599,19 +1676,19 @@ export default function ListeProdotti() {
               )}
             </div>
 
-            {/* Scorte complete — CARD sostituita con versione a 4 colonne */}
+            {/* Scorte complete — LAYOUT A RIGHE */}
             <div style={{ marginTop: 12 }}>
               <h4 style={styles.h4}>Tutte le scorte</h4>
               {stock.length === 0 ? (
                 <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
               ) : (
-                <div style={styles.stockGrid}>
+                <div style={styles.stockList}>
                   {stock.map((s, idx) => {
                     const { current, baseline, pct } = residueInfo(s);
                     const w = Math.round(pct*100);
                     const zebra = idx % 2 === 0;
                     return (
-                      <div key={idx} style={{ ...(zebra ? styles.stockCardZ1 : styles.stockCardZ2) }}>
+                      <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
                         {editingRow === idx ? (
                           <div>
                             <div style={styles.formRowWrap}>
@@ -1645,9 +1722,9 @@ export default function ListeProdotti() {
                           </div>
                         ) : (
                           <>
-                            {/* Layout a 4 colonne: immagine | nome+barra | confezioni | unità/conf */}
+                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | azioni */}
                             <div style={styles.stockRow}>
-                              {/* Colonna immagine */}
+                              {/* Colonna immagine (più grande) */}
                               <div
                                 style={styles.imageBox}
                                 role="button"
@@ -1661,12 +1738,12 @@ export default function ListeProdotti() {
                                 )}
                               </div>
 
-                              {/* Nome + barra */}
+                              {/* Nome + barra (barra più alta) */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={styles.stockTitle}>
                                   {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
                                 </div>
-                                <div style={styles.progressOuter}>
+                                <div style={styles.progressOuterBig}>
                                   <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
                                 </div>
                                 <div style={styles.stockLineSmall}>
@@ -1686,13 +1763,13 @@ export default function ListeProdotti() {
                                 <div style={styles.kvLabel}>Unità/conf.</div>
                                 <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
                               </div>
-                            </div>
 
-                            {/* Azioni riga */}
-                            <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                              <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                              <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                              <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                              {/* Azioni riga (allineate a destra) */}
+                              <div style={styles.rowActionsRight}>
+                                <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
+                                <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
+                                <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                              </div>
                             </div>
                           </>
                         )}
@@ -1733,7 +1810,7 @@ export default function ListeProdotti() {
         }}
       />
 
-      {/* 4) OCR UNICO di riga (multi-file + sostituisce onChange esistente) */}
+      {/* OCR UNICO di riga */}
       <input
         ref={rowOcrInputRef}
         type="file"
@@ -1812,7 +1889,7 @@ export default function ListeProdotti() {
                   ...old,
                   name: upd.name || old.name,
                   brand: upd.brand || old.brand,
-                  packs: upd.packs || old.packs || 0,
+                  packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
                   unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
                   unitLabel: upd.unitLabel || old.unitLabel || 'unità',
                   expiresAt: upd.expiresAt || old.expiresAt || ''
@@ -1871,7 +1948,7 @@ export default function ListeProdotti() {
         }}
       />
 
-      {/* 5) Input nascosto per immagine prodotto */}
+      {/* Input immagine prodotto */}
       <input
         ref={rowImageInputRef}
         type="file"
@@ -1890,6 +1967,7 @@ export default function ListeProdotti() {
     </>
   );
 }
+
 /* =================== Styles (completo con fix) =================== */
 const styles = {
   page: {
@@ -1924,127 +2002,61 @@ const styles = {
 
   toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
+    primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
 
-  // Sezioni trasparenti
-  sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'transparent', border:'1px solid rgba(255,255,255,.06)' },
-  sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'transparent', border:'1px solid rgba(255,255,255,.08)', boxShadow:'none' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
+  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
+  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
+  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
 
-  h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
-  h4:{ margin:'2px 0 6px', fontSize:'1rem', fontWeight:800, opacity:.95 },
+  h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
+  h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
 
-  // Form
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
-  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', marginTop:6 },
-  input:{
-    flex:'1 1 180px', minWidth:170, padding:'10px 12px', borderRadius:12,
-    background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
-  },
+  listGrid:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
+  rowButton:{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', borderRadius:12, cursor:'pointer', userSelect:'none' },
+  rowButtonToBuy:{ background:'rgba(17,24,39,.6)', border:'1px solid #334155' },
+  rowButtonBought:{ background:'rgba(21,128,61,.4)', border:'1px solid #166534', textDecoration:'line-through', opacity:.75 },
+  rowLeft:{ flex:1, minWidth:0 },
+  rowName:{ fontWeight:600, fontSize:'1.05rem' },
+  rowBrand:{ fontWeight:400, fontSize:'.95rem', opacity:.75 },
+  rowMeta:{ fontSize:'.9rem', opacity:.85, marginTop:2 },
+  rowActions:{ display:'flex', gap:6, marginLeft:12 },
+  rowActionsRight:{ display:'flex', gap:6, marginLeft:'auto' },
 
-  // Liste prodotti
-  listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
+  badgeToBuy:{ marginLeft:8, background:'#1e40af', color:'#bfdbfe', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
+  badgeBought:{ marginLeft:8, background:'#14532d', color:'#bbf7d0', padding:'1px 6px', borderRadius:6, fontSize:'.8rem' },
 
-  rowButton:{
-    display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
-    borderRadius:14, cursor:'pointer', userSelect:'none', boxShadow:'0 8px 18px rgba(0,0,0,.35)',
-    minWidth:0   // ✅ importante per evitare testo a colonna su flex item
-  },
-  rowButtonToBuy:{
-    background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea'
-  },
-  rowButtonBought:{
-    background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
-  },
+  smallOkBtn:{ padding:'2px 6px', borderRadius:6, background:'#16a34a', color:'#fff', border:'none', fontWeight:600 },
+  smallDangerBtn:{ padding:'2px 6px', borderRadius:6, background:'#dc2626', color:'#fff', border:'none', fontWeight:600 },
+  smallGhostBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.1)', color:'#e5e7eb', border:'1px solid #334155', fontWeight:500 },
+  smallQtyBtn:{ padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,.08)', color:'#f8fafc', border:'1px solid #334155', fontWeight:700 },
 
-  rowLeft:{ display:'flex', flexDirection:'column', minWidth:0 }, // ✅ lascia restringere il testo
+  formRow:{ display:'flex', flexWrap:'wrap', gap:8, margin:'6px 0' },
+  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
+  input:{ flex:1, minWidth:120, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.6)', color:'#f1f5f9' },
 
-  // ✅ testo orizzontale + ellissi
-  rowName:{
-    display:'block', lineHeight:1.2,
-    fontWeight:800, letterSpacing:.4, marginBottom:2,
-    whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', wordBreak:'normal'
-  },
-  rowBrand:{
-    display:'block', lineHeight:1.2,
-    opacity:.85, fontWeight:600,
-    whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', wordBreak:'normal'
-  },
-  rowMeta:{
-    display:'block', lineHeight:1.2,
-    opacity:.9, fontSize:'.92rem',
-    whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
-  },
-  rowActions:{ display:'flex', gap:6, alignItems:'center' },
+  critListWrap:{ display:'flex', flexDirection:'column', gap:6, marginTop:4 },
+  critRow:{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:10, background:'rgba(255,255,255,.05)' },
+  critName:{ flex:1, fontWeight:600 },
+  critMeta:{ fontSize:'.85rem', opacity:.85 },
+  progressOuterCrit:{ flex:1, height:6, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
+  progressOuterBig:{ marginTop:4, height:12, borderRadius:6, background:'rgba(255,255,255,.1)', overflow:'hidden' },
+  progressInner:{ height:'100%' },
 
-  smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.75)', color:'#e5e7eb', fontWeight:800 },
-  smallOkBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #166534', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13', fontWeight:900 },
-  smallGhostBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'transparent', color:'#e5e7eb' },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #7f1d1d', background:'linear-gradient(180deg,#991b1b,#7f1d1d)', color:'#fff0ea' },
+  expiryChip:{ marginLeft:6, background:'#7e22ce', color:'#f3e8ff', padding:'0 6px', borderRadius:6, fontSize:'.75rem' },
 
-  badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
-  badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
+  stockList:{ display:'flex', flexDirection:'column', marginTop:6 },
+  stockLineZ1:{ padding:'8px 10px', borderRadius:12, background:'rgba(255,255,255,.04)', marginBottom:4 },
+  stockLineZ2:{ padding:'8px 10px', borderRadius:12, background:'rgba(0,0,0,.25)', marginBottom:4 },
 
-  // Griglia scorte
-  stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
-  stockCardCritical:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
-    border:'1px solid rgba(255,120,120,.25)', boxShadow:'0 10px 22px rgba(0,0,0,.38)'
-  },
-  stockCardZ1:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(22,30,44,.65),rgba(16,22,34,.65))',
-    border:'1px solid rgba(255,255,255,.06)'
-  },
-  stockCardZ2:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
-    border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
-  },
+  stockRow:{ display:'flex', alignItems:'center', gap:12 },
+  stockTitle:{ fontWeight:600, fontSize:'1.05rem' },
+  stockLineSmall:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
 
-  // ✅ layout riga scorte adattivo (più spazio al nome su mobile)
-  stockRow:{
-    display:'grid',
-    gridTemplateColumns:'60px 1fr 80px 80px', // prima 72/90/90
-    gap:8,
-    alignItems:'center',
-    minWidth:0
-  },
+  kvCol:{ minWidth:80, textAlign:'center' },
+  kvLabel:{ fontSize:'.75rem', opacity:.7 },
+  kvValue:{ fontWeight:700, fontSize:'1rem' },
 
-  // Immagine prodotto
-  imageBox:{
-    width:56, height:56, borderRadius:12,
-    border:'1px solid rgba(255,255,255,.1)',
-    background:'rgba(0,0,0,.25)',
-    display:'flex', alignItems:'center', justifyContent:'center',
-    cursor:'pointer', overflow:'hidden'
-  },
+  imageBox:{ width:64, height:64, borderRadius:12, background:'rgba(255,255,255,.08)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer' },
   imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.6rem', opacity:.7 },
-
-  // Colonne quantità
-  kvCol:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:0 }, // ✅ minWidth:0
-  kvLabel:{ fontSize:'.78rem', opacity:.75, whiteSpace:'nowrap' },
-  kvValue:{ fontSize:'1.1rem', fontWeight:800, whiteSpace:'nowrap' },
-
-  stockTitle:{ fontWeight:800, marginBottom:6, lineHeight:1.2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
-  progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
-  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
-
-  /* Toast */
-  toastWrap:{
-    position:'fixed', left:'50%', bottom:24, transform:'translateX(-50%)',
-    zIndex:9999, pointerEvents:'none'
-  },
-  toastBase:{
-    minWidth:260, maxWidth:520,
-    padding:'10px 14px', borderRadius:12,
-    boxShadow:'0 8px 20px rgba(0,0,0,.35)',
-    border:'1px solid rgba(255,255,255,.10)',
-    color:'#fff', textAlign:'center',
-    backdropFilter:'blur(2px)',
-    animation:'toastPop .24s ease-out, toastFade .2s ease-in 3s forwards'
-  },
-  toastOk:{ background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13' },
-  toastErr:{ background:'linear-gradient(180deg,#ef4444,#b91c1c)' },
-  toastInfo:{ background:'linear-gradient(180deg,#334155,#1f2937)' },
+  imagePlaceholder:{ fontSize:'1.4rem', opacity:.5 }
 };
