@@ -1463,21 +1463,33 @@ export default function ListeProdotti() {
 
             const old = arr[j];
 
-            if (u.op === 'restockExplicit' || u.mode === 'packs') {
-              const uppFromVoice = Math.max(1, Number(u._upp || 1));
-              const packsNew = absolute
-                ? Math.max(0, Number(u.value||u._packs||0))
-                : Math.max(0, Number(old.packs||0) + Number(u.value||u._packs||0));
+        if (u.op === 'restockExplicit' || u.mode === 'packs') {
+  const up        = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+  const addPacks  = Math.max(0, Number(u.value || 0));
+  const oldPacks  = Math.max(0, Number(old.packs || 0));
+  const newPacks  = absolute ? addPacks : (oldPacks + addPacks);
+  const deltaPacks = absolute ? Math.max(0, newPacks - oldPacks) : addPacks;
 
-              if (u.explicit && uppFromVoice > 1) {
-                arr[j] = {
-                  ...old,
-                  packs: packsNew,
-                  unitsPerPack: uppFromVoice,
-                  unitLabel: old.unitLabel || 'unità',
-                  packsOnly: false,
-                  ...restockTouch(packsNew, todayISO, uppFromVoice)
-                };
+  const baselinePacks = Math.max(Number(old.baselinePacks || 0), newPacks);
+  const baselineUnits = Math.max(up, baselinePacks * up);
+
+  const prevResidue = residueUnitsOf(old);
+  const newResidue  = Math.min(baselineUnits, prevResidue + (deltaPacks * up));
+
+  const avg = computeNewAvgDailyUnits(old, newPacks);
+
+  arr[j] = {
+    ...old,
+    packs: newPacks,
+    baselinePacks,
+    unitsPerPack: up,
+    unitLabel: old.unitLabel || (u.unitLabel || 'unità'),
+    residueUnits: newResidue,
+    avgDailyUnits: avg,
+    lastRestockAt: todayISO,
+    consumptionAnchorAt: todayISO,
+  };
+}
               } else {
                 arr[j] = makePacksOnly({
                   ...old,
