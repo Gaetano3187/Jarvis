@@ -1489,8 +1489,7 @@ export default function ListeProdotti() {
     lastRestockAt: todayISO,
     consumptionAnchorAt: todayISO,
   };
-}
-              } else {
+        } else {
                 arr[j] = makePacksOnly({
                   ...old,
                   packs: packsNew,
