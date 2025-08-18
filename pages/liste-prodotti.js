@@ -380,6 +380,30 @@ function buildUnifiedRowPrompt(ocrText, { name, brand }) {
     ocrText
   ].join('\n');
 }
+function buildInventoryIntentPrompt(speechText, lexicon = [], knownProducts = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
+  const KNOWN = Array.isArray(knownProducts) && knownProducts.length ? knownProducts.join(', ') : '';
+  return [
+    'Sei Jarvis. Interpreta il parlato relativo a SCORTE di dispensa.',
+    'Rispondi SOLO in JSON con uno di questi formati:',
+    '',
+    '{ "intent":"stock_update", "updates":[ { "name":"", "mode":"packs|units", "value":0, "unitsPerPack":1, "unitLabel":"unità" } ] }',
+    '{ "intent":"expiry", "expiries":[ { "name":"", "expiresAt":"YYYY-MM-DD" } ] }',
+    '{ "intent":"none" }',
+    '',
+    'REGOLE:',
+    '- Se citi scadenze (es. "latte scade il 15/08/2025") → intent=expiry.',
+    '- Se citi quantità (es. "due pacchi di pasta", "5 vasetti di yogurt") → intent=stock_update.',
+    '- name: normalizza usando questo lessico come guida: ' + LEX,
+    (KNOWN ? ('- Prodotti noti: ' + KNOWN) : ''),
+    '- mode: "packs" se parli di confezioni, "units" se parli di pezzi/vasetti/bottiglie.',
+    '- unitsPerPack: se deducibile (es. 6 bottiglie per confezione), altrimenti 1.',
+    '- unitLabel: es. "unità", "bottiglie", "vasetti".',
+    '',
+    'TESTO:',
+    speechText
+  ].join('\n');
+}
 
 /* ====================== Parser fallback OCR ====================== */
 function parseReceiptPurchases(ocrText) {
