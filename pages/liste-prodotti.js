@@ -1429,45 +1429,64 @@ export default function ListeProdotti() {
               residueUnits: Math.max(0, Number(base.packs || 0)),
             });
 
-            if (j < 0) {
-              if (u.mode === 'packs') {
-                const packs = Math.max(0, Number(u.value||u._packs||0));
-                if (u.explicit && u._upp > 1) {
-                  const up = Math.max(1, Number(u._upp||1));
-                  const row = {
-                    name: u.name, brand:'', packs,
-                    unitsPerPack: up, unitLabel:'unità',
-                    expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly:false
-                  };
-                  arr.unshift(withRememberedImage(row, imagesIndex));
-                } else {
-                  const row = makePacksOnly({
-                    name: u.name, brand:'', packs,
-                    expiresAt:'', ...restockTouch(packs, todayISO, 1), avgDailyUnits:0
-                  });
-                  arr.unshift(withRememberedImage(row, imagesIndex));
-                }
-              } else {
-                const units = Math.max(0, Number(u.value||1));
-                const base = {
-                  name: u.name, brand:'', packs: 1,
-                  unitsPerPack: 1, unitLabel:'unità',
-                  expiresAt:'', baselinePacks:1, lastRestockAt: todayISO, avgDailyUnits:0,
-                  residueUnits: Math.max(0, Math.min(units, 1)),
-                  packsOnly:false
-                };
-                arr.unshift(withRememberedImage(base, imagesIndex));
-              }
-              continue;
-            }
+        if (j < 0) { 
+  if (u.mode === 'packs') {
+    const packs = Math.max(0, Number(u.value ?? u._packs ?? 0));
+    const upHint = Math.max(1, Number(u._upp ?? 1));
 
-            const old = arr[j];
+    if ((u.explicit && upHint > 1) || upHint > 1) {
+      // Confezioni con UPP noto → crea riga completa e incrementa anche residuo (packs*UPP)
+      const row = {
+        name: u.name, brand: '',
+        packs,
+        unitsPerPack: upHint,
+        unitLabel: u.unitLabel || 'unità',
+        expiresAt: '',
+        avgDailyUnits: 0,
+        packsOnly: false,
+        ...restockTouch(packs, todayISO, upHint),
+      };
+      arr.unshift(withRememberedImage(row, imagesIndex));
+    } else {
+      // UPP non noto → riga "solo pacchi" (UPP=1), residuo += packs
+      const row = makePacksOnly({
+        name: u.name, brand: '', packs,
+        expiresAt: '', avgDailyUnits: 0,
+        ...restockTouch(packs, todayISO, 1),
+      });
+      arr.unshift(withRememberedImage(row, imagesIndex));
+    }
+  } else {
+    // Creazione da "unità": baseline/residuo coerenti con le unità dichiarate
+    const units = Math.max(0, Number(u.value ?? 1));
+    const upp   = Math.max(1, Number(u._upp ?? 1));
+    const packs = Math.ceil(units / upp) || 1;
 
-        if (u.op === 'restockExplicit' || u.mode === 'packs') {
-  const up        = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-  const addPacks  = Math.max(0, Number(u.value || 0));
-  const oldPacks  = Math.max(0, Number(old.packs || 0));
-  const newPacks  = absolute ? addPacks : (oldPacks + addPacks);
+    const base = {
+      name: u.name, brand: '',
+      packs,
+      unitsPerPack: upp,
+      unitLabel: u.unitLabel || 'unità',
+      expiresAt: '',
+      avgDailyUnits: 0,
+      packsOnly: false,
+      ...restockTouch(packs, todayISO, upp),
+      residueUnits: units,                 // override per aderire alla misura
+      consumptionAnchorAt: todayISO,
+    };
+    arr.unshift(withRememberedImage(base, imagesIndex));
+  }
+  continue;
+}
+
+const old = arr[j];
+
+if (u.op === 'restockExplicit' || u.mode === 'packs') {
+  // Incremento a pacchi: aggiorna packs, baseline e residuo (+ deltaPacks * UPP)
+  const up         = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+  const addPacks   = Math.max(0, Number(u.value ?? u._packs ?? 0));
+  const oldPacks   = Math.max(0, Number(old.packs || 0));
+  const newPacks   = absolute ? addPacks : (oldPacks + addPacks);
   const deltaPacks = absolute ? Math.max(0, newPacks - oldPacks) : addPacks;
 
   const baselinePacks = Math.max(Number(old.baselinePacks || 0), newPacks);
@@ -1483,32 +1502,48 @@ export default function ListeProdotti() {
     packs: newPacks,
     baselinePacks,
     unitsPerPack: up,
-    unitLabel: old.unitLabel || (u.unitLabel || 'unità'),
+    unitLabel: old.unitLabel || u.unitLabel || 'unità',
     residueUnits: newResidue,
     avgDailyUnits: avg,
     lastRestockAt: todayISO,
     consumptionAnchorAt: todayISO,
+    packsOnly: false,
   };
-        } else {
-                arr[j] = makePacksOnly({
-                  ...old,
-                  packs: packsNew,
-                  ...restockTouch(packsNew, todayISO, 1)
-                });
-              }
-            } else {
-              const upp = Math.max(1, Number(old.unitsPerPack || 1));
-              const baseline = baselineUnitsOf(old) || upp;
-              const current = residueUnitsOf(old);
-              const targetUnits = absolute
-                ? Math.max(0, Math.min(Number(u.value||0), baseline))
-                : Math.max(0, Math.min(current + Number(u.value||0), baseline));
-              arr[j] = { ...old, packsOnly:false, residueUnits: targetUnits };
-            }
-          }
-          return arr;
-        });
-      }
+} else {
+  // Delta "unità": set/incremento residuo con auto-espansione baseline se necessario
+  const up       = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+  const current  = residueUnitsOf(old);
+  const desired  = absolute
+    ? Math.max(0, Number(u.value || 0))
+    : Math.max(0, current + Number(u.value || 0));
+
+  const baseline = baselineUnitsOf(old) || up;
+
+  if (desired > baseline) {
+    const packsNeeded = Math.ceil(desired / up);
+    const avg = updateAvgFromMeasurement(old, desired);
+    arr[j] = {
+      ...old,
+      packs: Math.max(Number(old.packs || 0), packsNeeded),
+      baselinePacks: Math.max(Number(old.baselinePacks || 0), packsNeeded),
+      unitsPerPack: up,
+      residueUnits: desired,
+      avgDailyUnits: avg,
+      lastRestockAt: todayISO,
+      consumptionAnchorAt: todayISO,
+      packsOnly: false,
+    };
+  } else {
+    const avg = updateAvgFromMeasurement(old, desired);
+    arr[j] = {
+      ...old,
+      residueUnits: desired,
+      avgDailyUnits: avg,
+      consumptionAnchorAt: todayISO,
+      packsOnly: false,
+    };
+  }
+}
 
       if (!expPairs.length && !updates.length) {
         showToast('Nessun dato inventario riconosciuto', 'err');
