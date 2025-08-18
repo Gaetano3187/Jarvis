@@ -1,4 +1,4 @@
-// pages/api/assistant.js
+// pages/api/assistant.js 
 import OpenAI from 'openai'
 import { runBrainQuery } from '@/lib/brainQuery';
 
