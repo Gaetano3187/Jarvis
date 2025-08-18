@@ -1,18 +1,18 @@
+
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
-/* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
 
 // Endpoints esistenti
-const API_ASSISTANT_TEXT = '/api/assistant';
-const API_OCR = '/api/ocr';
+const API_ASSISTANT_TEXT = '/api/assistant'; // usa il tuo assistant.js
+const API_OCR = '/api/ocr';                  // usa il tuo ocr.js
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
-/* ====================== Persistenza locale ====================== */
+/* ---------------- Persistenza locale (localStorage) ---------------- */
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
 
@@ -43,7 +43,7 @@ function persistNow(snapshot) {
   }
 }
 
-/* ====================== Lessico supermercato ====================== */
+/* ----------------- Lessico supermercato ----------------- */
 const GROCERY_LEXICON = [
   'latte','latte ps','latte parzialmente scremato','latte intero','latte uht','latte zymil',
   'yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
@@ -56,7 +56,7 @@ const GROCERY_LEXICON = [
   'uova','acqua','birra','vino','tortillas','piadine','affettati','ferrero fiesta'
 ];
 
-/* ====================== Utils testo ====================== */
+/* ---------------- utils testo ---------------- */
 function normKey(str) {
   return String(str || '')
     .toLowerCase()
@@ -78,12 +78,14 @@ function isSimilar(a,b){
   const j = inter/union;
   return j>=0.5 || (inter>=1 && (A.size===1 || B.size===1));
 }
+
+/* ——— capisce se l’utente vuole “impostare a …” invece di aggiungere ——— */
 function wantsAbsoluteSet(text) {
   const t = normKey(text);
   return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
 }
 
-/* ====================== Parser liste rapide ====================== */
+/* ---------------- parser liste (aggiunta rapida da testo) ---------------- */
 function parseLinesToItems(text) {
   const chunks = String(text || '')
     .split(/[\n,;]+/g)
@@ -95,9 +97,11 @@ function parseLinesToItems(text) {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) continue;
 
-    const packInfo = extractPackInfo(s);
+    // Prova a ricavare confezioni/unità da testo
+    const packInfo = extractPackInfo(s); // {packs, unitsPerPack, unitLabel}
     let packs = Number(packInfo.packs || 1);
 
+    // Nome + brand
     let rest = s;
     const mQtyLead = rest.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
     if (mQtyLead) rest = mQtyLead[2].trim();
@@ -123,7 +127,7 @@ function parseLinesToItems(text) {
         id: 'tmp-' + Math.random().toString(36).slice(2),
         name,
         brand: brand || '',
-        qty: Number.isFinite(packs) && packs > 0 ? packs : 1,
+        qty: Number.isFinite(packs) && packs > 0 ? packs : 1, // qty = confezioni richieste nella lista
         unitsPerPack: Number(packInfo.unitsPerPack || 1),
         unitLabel: packInfo.unitLabel || 'unità',
         purchased: false,
@@ -133,7 +137,7 @@ function parseLinesToItems(text) {
   return items;
 }
 
-/* ====================== Scadenze utils ====================== */
+/* ------------- helpers scadenze ------------- */
 function toISODate(any) {
   const s = String(any || '').trim();
   if (!s) return '';
@@ -161,6 +165,8 @@ function toISODate(any) {
   }
   return '';
 }
+
+/** Parser scadenze più severo e ampliato */
 function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
   if (DEBUG) console.log('[parseExpiryPairs] input:', text);
   const out = [];
@@ -211,7 +217,7 @@ function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
   return out;
 }
 
-/* ====================== Fetch helpers / util varie ====================== */
+/* ---------- fetch helpers robusti ---------- */
 async function readJsonSafe(res) {
   const ct = (res.headers.get?.('content-type') || '').toLowerCase();
   const raw = await res.text?.() || '';
@@ -234,14 +240,17 @@ function timeoutFetch(url, opts={}, ms=25000) {
     .finally(()=>clearTimeout(t));
 }
 
-/* ====================== Calcoli scorte ====================== */
+/* ---------------- Confezioni × Unità helpers ---------------- */
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+// clamp 0..1
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 
+// Calcola unità correnti, baseline e percentuale (usa baselinePacks come "pieno")
 function residueUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
   const ru = Number(s.residueUnits);
   if (Number.isFinite(ru)) return Math.max(0, ru);
+  // default: se mai impostato, usa packs*upp
   return Math.max(0, Number(s.packs || 0) * upp);
 }
 function baselineUnitsOf(s){
@@ -250,19 +259,25 @@ function baselineUnitsOf(s){
   const base = Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp;
   return Math.max(upp, base);
 }
+// sostituisce la tua residueInfo precedente
 function residueInfo(s){
   const current  = residueUnitsOf(s);
   const baseline = baselineUnitsOf(s);
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
 }
+
+// Soglie colore: ≥60% verde, 30–59% ambra, <30% rosso
 const RESIDUE_THRESHOLDS = { green: 0.60, amber: 0.30 };
+
 function colorForPct(p){
   const x = clamp01(p);
-  if (x >= RESIDUE_THRESHOLDS.green) return '#16a34a';
-  if (x >= RESIDUE_THRESHOLDS.amber) return '#f59e0b';
-  return '#ef4444';
+  if (x >= RESIDUE_THRESHOLDS.green) return '#16a34a'; // verde
+  if (x >= RESIDUE_THRESHOLDS.amber) return '#f59e0b'; // ambra
+  return '#ef4444';                                    // rosso
 }
+
+// Giorni alla scadenza (∞ se non impostata/non valida)
 function daysToExpiry(iso){
   if (!iso) return Infinity;
   const d = new Date(iso);
@@ -270,31 +285,43 @@ function daysToExpiry(iso){
   const now = new Date();
   return Math.floor((d - now) / 86400000);
 }
+
+// True se scade entro N giorni (default 10)
 function isExpiringSoon(s, days=10){
   return daysToExpiry(s?.expiresAt) <= days;
 }
+
+/** Estrae {packs, unitsPerPack, unitLabel} da una stringa riga-prodotto */
 function extractPackInfo(str){
   const s = normKey(str);
+
   let packs = 1;
   let unitsPerPack = 1;
   let unitLabel = 'unità';
 
+  // unit terms extra: bottiglie, merendine, bustine, monouso
   const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
 
+  // "2 confezioni da 6 [unit]" / "1 pacco x 10 pz" / "una confezione da 6 di latte"
   let m = s.match(new RegExp(String.raw`(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:${UNIT_TERMS})?`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    const u = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
+    const u = (m[3] || 'unità')
+      .replace(/pz|pezzi/i,'unità');
     unitLabel = u;
     return { packs, unitsPerPack, unitLabel };
   }
+
+  // "4x125" → 1 conf. da 4 unità (grammatura ignorata)
   m = s.match(/(\d+)\s*[x×]\s*\d+\s*(?:g|kg|ml|cl|l|lt)?/i);
   if (m){
     packs = 1;
     unitsPerPack = Number(m[1]);
     return { packs, unitsPerPack, unitLabel };
   }
+
+  // "10 pz"/"10 unità"/"10 vasetti"/"10 uova"/"10 bottiglie"/"10 merendine"/"10 bustine"/"10 monouso"
   m = s.match(new RegExp(String.raw`(\d+)\s*${UNIT_TERMS}\b`, 'i'));
   if (m){
     packs = 1;
@@ -302,6 +329,8 @@ function extractPackInfo(str){
     unitLabel = m[2] ? m[2].replace(/pz|pezzi/i,'unità') : 'unità';
     return { packs, unitsPerPack, unitLabel };
   }
+
+  // "3 bottiglie"/"2 pacchi"/"2 confezioni"/"2 scatole"
   m = s.match(new RegExp(String.raw`(\d+)\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
   if (m){
     packs = Number(m[1]);
@@ -309,16 +338,19 @@ function extractPackInfo(str){
     unitLabel = (/^bott/i.test(m[2]) ? 'bottiglie' : 'unità');
     return { packs, unitsPerPack, unitLabel };
   }
+
+  // leading qty "2 latte" → 2 conf. da 1
   m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
   if (m){
     packs = Number(String(m[1]).replace(',','.')) || 1;
     unitsPerPack = 1;
     return { packs, unitsPerPack, unitLabel };
   }
+
   return { packs, unitsPerPack, unitLabel };
 }
 
-/* ====================== Prompt builders ====================== */
+/* ------------- Prompt builder: scontrino ------------- */
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
   const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
   return [
@@ -359,6 +391,8 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
+
+/* ------------- Prompt builder: scadenza singola ------------- */
 function buildExpiryPrompt(itemName, brand, ocrText) {
   const tag = brand ? `${itemName} (marca ${brand})` : itemName;
   return [
@@ -382,6 +416,8 @@ function buildExpiryPrompt(itemName, brand, ocrText) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
+
+/* --------- Prompt builder: INTENTO VOCALE SCORTE/SCADENZE (unificato) --------- */
 function buildInventoryIntentPrompt(text) {
   return [
     'Sei Jarvis. Capisci un comando VOCALE per SCORTE & SCADENZE.',
@@ -410,10 +446,9 @@ function buildInventoryIntentPrompt(text) {
     'Testo utente:',
     text
   ].join('\n');
-  
 }
 
-/* ====================== Parser fallback OCR ====================== */
+/* ------------- Fallback parser OCR locale (packs/units) ------------- */
 function parseReceiptPurchases(ocrText) {
   const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const ignore = /(totale|iva|bancomat|contanti|resto|scontrino|cassa|cliente|sconto|subtotale|pagato|euro)/i;
@@ -424,12 +459,14 @@ function parseReceiptPurchases(ocrText) {
     let name = raw;
     let brand = '';
 
+    // brand: ultima parola capitalizzata (approssimazione)
     const parts = name.split(' ');
     if (parts.length>1 && /^[A-ZÀ-ÖØ-Þ]/.test(parts[parts.length-1])) {
       brand = parts.pop();
       name = parts.join(' ');
     }
 
+    // normalizza nome
     name = name
       .replace(/\b(\d+[gG]|kg|ml|l|cl)\b/g,'')
       .replace(/\s{2,}/g,' ')
@@ -456,32 +493,41 @@ function parseReceiptPurchases(ocrText) {
   }
   return out;
 }
+/** Trova il nome prodotto migliore in una frase usando il lessico */
 function guessProductName(chunk) {
   let best = '';
   let bestLen = 0;
   for (const lex of GROCERY_LEXICON) {
     if (isSimilar(chunk, lex) && lex.length > bestLen) { best = lex; bestLen = lex.length; }
   }
+  // fallback: prima parola significativa
   if (!best) {
     const t = normKey(chunk).split(' ').filter(Boolean);
     if (t.length) best = t.slice(0, 2).join(' ');
   }
   return best.trim();
 }
+
+/** True se la frase suona come “sono/ce ne sono/ne ho …” ⇒ set residuo (units) */
 function looksLikeSetResidue(text) {
   const t = normKey(text);
   return /\b(sono|ce\s+ne\s+sono|ce\s+n'?e\s+sono|ne\s+ho|adesso\s+sono|ora\s+sono|in\s+totale\s+sono)\b/.test(t);
 }
+/** Rileva se il testo specifica esplicitamente la struttura "confezioni da X" */
 function hasExplicitPackStructure(text){
   const s = normKey(text);
   return /(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*\d+/.test(s);
 }
+
+/* --------- Parser VOCALE per aggiornare scorte (robusto, ignora anni/date) --------- */
+/* --------- Parser VOCALE per aggiornare scorte (esteso) --------- */
+/* --------- Parser VOCALE scorte con "inerzia" su righe esistenti --------- */
 function parseStockUpdateText(text) {
   const t = normKey(text);
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text);
+  const absolute = wantsAbsoluteSet(text); // “porta a …”, “imposta a …”
 
   for (let rawChunk of parts) {
     if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
@@ -494,10 +540,13 @@ function parseStockUpdateText(text) {
       const name = guessProductName(chunk);
       if (!name) continue;
 
+      // Rileva struttura esplicita "confezioni da X"
       const explicit = hasExplicitPackStructure(chunk);
-      const pack = extractPackInfo(chunk);
+      const pack = extractPackInfo(chunk); // {packs, unitsPerPack, unitLabel}
 
+      // Numero finale (anche "sono 3 ...")
       let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
+      // Parole 2..10 come numero
       if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
         const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
         const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
@@ -507,11 +556,13 @@ function parseStockUpdateText(text) {
       const valNum = m ? Number(String(m[1]).replace(',','.')) : NaN;
       const tag = (m && m[2] ? m[2].toLowerCase() : '');
 
+      // 1) Caso SOLO NOME → incrementa (nuovo: 1 conf × 1); su riga esistente poi tratteremo come “set residuo = 1”
       if (!/\d/.test(chunk)) {
         res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
         continue;
       }
 
+      // 2) Caso ESPRESSO “confezione/i da X” → è un vero restock strutturale
       if (explicit) {
         const packs = Math.max(1, Number(pack.packs || 1));
         const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
@@ -519,10 +570,15 @@ function parseStockUpdateText(text) {
         continue;
       }
 
+      // 3) Caso numerico semplice (“latte 3 bottiglie”, “pasta 4 pacchi”, “fiesta 3 unità”)
       const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
       const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
       if (!value) continue;
 
+      // Di default: sarà interpretato come “set residuo” se la riga esiste;
+      // se NON esiste, creeremo la struttura migliore:
+      // - se tag è "units-like" → packs=1, upp=value
+      // - se tag è "packs-like" → packs=value, upp=1
       const packsLike = /pacc|conf|scatol/.test(tag);
       const hintPacks = packsLike ? value : 1;
       const hintUpp   = packsLike ? 1 : value;
@@ -540,7 +596,7 @@ function parseStockUpdateText(text) {
   return res;
 }
 
-/* ====================== Consumi / restock helpers ====================== */
+/* ---------- calcoli consumo/aggiornamento ---------- */
 function computeNewAvgDailyUnits(old, newPacks) {
   const upp = Math.max(1, Number(old.unitsPerPack || 1));
   const oldUnits = Number(old.packs || 0) * upp;
@@ -555,6 +611,7 @@ function computeNewAvgDailyUnits(old, newPacks) {
   }
   return avg;
 }
+
 function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
   const upp = Math.max(1, Number(unitsPerPack || 1));
   const bp  = Math.max(0, Number(baselineFromPacks || 0));
@@ -562,34 +619,28 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
   return {
     baselinePacks: bp,
     lastRestockAt: lastDateISO,
-    residueUnits: fullUnits,
+    residueUnits: fullUnits, // pieno al restock
   };
 }
-
-/* ====================== Piccola utility media (no-op sicura) ====================== */
-function theMediaWorkaround(){
-  // Alcuni browser mobile richiedono una chiamata “user-gesture” prima dell’audio.
-  // Qui non serve realmente nulla: la lasciamo no-op per evitare ReferenceError.
-  return;
-}
-
-/* ====================== Component principale ====================== */
+/* ---------------- component ---------------- */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
+
+  // Liste
   const [lists, setLists] = useState({
     [LIST_TYPES.SUPERMARKET]: [],
     [LIST_TYPES.ONLINE]: [],
   });
 
-  // Form Lista (ora in pannello apribile)
+  // Form Lista (ora con confezioni + unità/conf.)
   const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
-  const [showListForm, setShowListForm] = useState(false);
 
   // Scorte & critici
+  // Record scorta:
+  // { name, brand, packs, unitsPerPack, unitLabel, expiresAt?, baselinePacks?, lastRestockAt?, avgDailyUnits? }
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
-
-  // Edit riga scorte
+  // 
   const [editingRow, setEditingRow] = useState(null);
   const [editDraft, setEditDraft] = useState({
     name: '',
@@ -600,15 +651,16 @@ export default function ListeProdotti() {
     expiresAt: ''
   });
 
-  // UI / Toast / Busy
+  // UI
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
+
   function showToast(msg, type='ok'){
     setToast({ msg, type });
     setTimeout(() => setToast(null), 1800);
   }
 
-  // Persistenza debounce
+  // Persistenza: timer per debounce salvataggio
   const persistTimerRef = useRef(null);
 
   // Vocale: LISTA
@@ -618,7 +670,7 @@ export default function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Vocale: INVENTARIO UNIFICATO
+  // Vocale: INVENTARIO UNIFICATO (Scorte + Scadenze)
   const invMediaRef = useRef(null);
   const invChunksRef = useRef([]);
   const invStreamRef = useRef(null);
@@ -631,454 +683,49 @@ export default function ListeProdotti() {
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
-  // Upload immagine per riga scorte
-const rowImageInputRef = useRef(null);
-const [targetImageIdx, setTargetImageIdx] = useState(null);
-
-
-  // Form Aggiunta Scorta manuale (opzionale, lo teniamo dietro a bottone)
+  // Form Aggiunta Scorta manuale
   const [stockForm, setStockForm] = useState({
     name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
   });
-  const [showStockForm, setShowStockForm] = useState(false);
-
-  // Form inserimento manuale scadenze (richiesto)
-  const [expiryForm, setExpiryForm] = useState({ name: '', expiresAt: '' });
-  const [showExpiryForm, setShowExpiryForm] = useState(false);
 
   const curItems = lists[currentList] || [];
 
-  /* =================== Brain Hub (come nel tuo codice) =================== */
-  {
-    const stockRef = useRef(stock);
-    const listsRef = useRef(lists);
-    const currentListRef = useRef(currentList);
-    useEffect(()=>{ stockRef.current = stock; }, [stock]);
-    useEffect(()=>{ listsRef.current = lists; }, [lists]);
-    useEffect(()=>{ currentListRef.current = currentList; }, [currentList]);
-
-    function getHub() {
-      if (typeof window === 'undefined') return null;
-      window.__jarvisBrainHub = window.__jarvisBrainHub || {
-        _datasources: new Map(),
-        _commands: new Map(),
-        registerDataSource(def){ this._datasources.set(def.name, def); },
-        registerCommand(def){ this._commands.set(def.name, def); },
-        async ask(name, payload){ const ds=this._datasources.get(name); return ds?.fetch(payload); },
-        async run(name, payload){ const cmd=this._commands.get(name); return cmd?.execute(payload); },
-        list(){ return { datasources:[...this._datasources.keys()], commands:[...this._commands.keys()]}; }
-      };
-      return window.__jarvisBrainHub;
-    }
-
-    useEffect(() => {
-      let cancelled = false;
-
-      async function wireBrain() {
-        const hub = getHub();
-        if (!hub) return;
-
-        hub.registerDataSource({
-          name: 'scorte-complete',
-          fetch: () => {
-            return (stockRef.current || []).map(s => {
-              const upp = Math.max(1, Number(s.unitsPerPack || 1));
-              const residueUnits = Number.isFinite(Number(s.residueUnits))
-                ? Math.max(0, Number(s.residueUnits))
-                : Math.max(0, Number(s.packs || 0) * upp);
-              const baselineUnits = Math.max(
-                upp,
-                (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp)
-              );
-              const avgDailyUnits = Number(s.avgDailyUnits || 0);
-              return {
-                name: String(s.name || '').trim(),
-                brand: String(s.brand || '').trim(),
-                packs: Number(s.packs || 0),
-                unitsPerPack: upp,
-                unitLabel: s.unitLabel || 'unità',
-                residueUnits,
-                baselineUnits,
-                avgDailyUnits,
-                expiresAt: s.expiresAt || ''
-              };
-            });
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-esaurimento',
-          fetch: () => {
-            return (stockRef.current || []).filter(s => {
-              const { current, baseline } = residueInfo(s);
-              return baseline > 0 && current / baseline < 0.20;
-            });
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-scadenza',
-          fetch: ({ entroGiorni = 10 } = {}) => {
-            return (stockRef.current || []).filter(s => isExpiringSoon(s, entroGiorni));
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-giorni-esaurimento',
-          fetch: () => {
-            const out = [];
-            for (const s of (stockRef.current || [])) {
-              const upp = Math.max(1, Number(s.unitsPerPack || 1));
-              const currentUnits = Number.isFinite(Number(s.residueUnits))
-                ? Math.max(0, Number(s.residueUnits))
-                : Math.max(0, Number(s.packs || 0) * upp);
-              const day = Number(s.avgDailyUnits || 0);
-              const days = day > 0 ? Math.ceil(currentUnits / day) : null;
-              out.push({
-                name: s.name, brand: s.brand || '', unitLabel: s.unitLabel || 'unità',
-                residueUnits: currentUnits, avgDailyUnits: day, daysToDepletion: days
-              });
-            }
-            return out;
-          }
-        });
-        hub.registerDataSource({
-          name: 'liste-spesa',
-          fetch: () => {
-            const data = listsRef.current || {};
-            return Object.entries(data).flatMap(([type, items]) =>
-              (items || [])
-                .filter(it => !it.purchased && it.qty > 0)
-                .map(it => ({
-                  listType: type,
-                  name: String(it.name || '').trim(),
-                  brand: String(it.brand || '').trim(),
-                  qty: Number(it.qty || 0),
-                  unitsPerPack: Number(it.unitsPerPack || 1),
-                  unitLabel: String(it.unitLabel || 'unità').trim()
-                }))
-            );
-          }
-        });
-        hub.registerDataSource({
-          name: 'lista-oggi',
-          fetch: () => {
-            const cur = currentListRef.current;
-            const items = (listsRef.current?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
-            return items.map(i => ({
-              listType: cur,
-              name: i.name, brand: i.brand || '', qty: i.qty,
-              unitsPerPack: i.unitsPerPack || 1, unitLabel: i.unitLabel || 'unità'
-            }));
-          }
-        });
-
-        hub.registerCommand({
-          name: 'imposta-scadenze',
-          execute: (text) => {
-            const expiries = parseExpiryPairs(
-              text,
-              GROCERY_LEXICON,
-              (stockRef.current || []).map(s => s.name)
-            );
-            if (!expiries.length) return 'Nessuna scadenza riconosciuta.';
-            let updated = 0;
-            setStock(prev => {
-              const arr = [...prev];
-              for (let i=0;i<arr.length;i++){
-                const hit = expiries.find(e => isSimilar(e.name, arr[i].name));
-                if (hit?.expiresAt) {
-                  const iso = toISODate(hit.expiresAt);
-                  if (iso) { arr[i] = { ...arr[i], expiresAt: iso }; updated++; }
-                }
-              }
-              return arr;
-            });
-            return updated ? `Aggiornate ${updated} scadenze.` : 'Nessuna scadenza aggiornata.';
-          }
-        });
-        hub.registerCommand({
-          name: 'aggiorna-scorte',
-          execute: (text) => {
-            const updates = parseStockUpdateText(text);
-            if (!updates.length) return 'Nessun aggiornamento scorte riconosciuto.';
-            let applied = 0;
-            setStock(prev => {
-              const arr = [...prev];
-              const todayISO = new Date().toISOString().slice(0, 10);
-              for (const u of updates) {
-                const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-                const hintedPacks = Math.max(1, Number(u._packs || 1));
-                const hintedUPP   = Math.max(1, Number(u._upp || 1));
-
-                if (idx >= 0) {
-                  const old = arr[idx];
-                  const upp = Math.max(1, Number(old.unitsPerPack || 1));
-
-                  if (u.op === 'restockExplicit') {
-                    const np = Math.max(0, Number(old.packs || 0) + hintedPacks);
-                    const nupp = Math.max(1, hintedUPP || upp);
-                    arr[idx] = { ...old, packs: np, unitsPerPack: nupp, unitLabel: old.unitLabel || 'unità', ...restockTouch(np, todayISO, nupp) };
-                    applied++; continue;
-                  }
-                  if (u.op === 'set' || u.mode === 'units' || u.mode === 'packs') {
-                    const asUnits = (u.mode === 'units');
-                    const valueUnits = asUnits ? Math.max(0, Number(u.value || 0)) : Math.max(0, Number(u.value || 0) * upp);
-                    arr[idx] = { ...old, residueUnits: valueUnits };
-                    applied++; continue;
-                  }
-                } else {
-                  if (u.op === 'restockExplicit') {
-                    arr.unshift({
-                      name: u.name, brand: '',
-                      packs: hintedPacks, unitsPerPack: hintedUPP, unitLabel: 'unità',
-                      expiresAt: '', ...restockTouch(hintedPacks, todayISO, hintedUPP), avgDailyUnits: 0
-                    });
-                    applied++; continue;
-                  }
-                  const asUnitsLike = (u.mode === 'units');
-                  if (asUnitsLike) {
-                    const upp = Math.max(1, Number(u.value || 1));
-                    arr.unshift({
-                      name: u.name, brand: '',
-                      packs: 1, unitsPerPack: upp, unitLabel: 'unità',
-                      expiresAt: '', ...restockTouch(1, todayISO, upp), avgDailyUnits: 0
-                    });
-                  } else {
-                    const p = Math.max(1, Number(u.value || 1));
-                    arr.unshift({
-                      name: u.name, brand: '',
-                      packs: p, unitsPerPack: 1, unitLabel: 'unità',
-                      expiresAt: '', ...restockTouch(p, todayISO, 1), avgDailyUnits: 0
-                    });
-                  }
-                  applied++;
-                }
-              }
-              return arr;
-            });
-            return applied ? `Aggiornate ${applied} scorte.` : 'Nessuna scorta aggiornata.';
-          }
-        });
-        hub.registerCommand({
-          name: 'imposta-residuo',
-          execute: ({ name, units }) => {
-            if (!name || units == null) return 'Parametri mancanti.';
-            let ok = false;
-            setStock(prev => {
-              const arr = [...prev];
-              const i = arr.findIndex(s => isSimilar(s.name, name));
-              if (i >= 0) {
-                const upp = Math.max(1, Number(arr[i].unitsPerPack || 1));
-                const baseline = Math.max(upp, Number(arr[i].baselinePacks || arr[i].packs || 0) * upp);
-                const clamped = Math.max(0, Math.min(Number(units || 0), baseline));
-                arr[i] = { ...arr[i], residueUnits: clamped };
-                ok = true;
-              }
-              return arr;
-            });
-            return ok ? `Impostato residuo per ${name}.` : `Prodotto "${name}" non trovato.`;
-          }
-        });
-        hub.registerCommand({
-          name: 'set-confezioni',
-          execute: ({ name, packs, unitsPerPack, unitLabel }) => {
-            if (!name) return 'Nome mancante.';
-            const p = Math.max(0, Number(packs || 0));
-            const upp = Math.max(1, Number(unitsPerPack || 1));
-            const ulabel = (unitLabel || 'unità').trim() || 'unità';
-            let done = false;
-
-            setStock(prev => {
-              const arr = [...prev];
-              const i = arr.findIndex(s => isSimilar(s.name, name));
-              const todayISO = new Date().toISOString().slice(0,10);
-              if (i >= 0) {
-                arr[i] = { ...arr[i], packs: p, unitsPerPack: upp, unitLabel: ulabel, ...restockTouch(p, todayISO, upp) };
-                done = true;
-              } else {
-                arr.unshift({
-                  name, brand:'', packs:p, unitsPerPack:upp, unitLabel: ulabel,
-                  expiresAt:'', ...restockTouch(p, todayISO, upp), avgDailyUnits:0
-                });
-                done = true;
-              }
-              return arr;
-            });
-
-            return done ? `Impostate confezioni per ${name}.` : `Impossibile impostare ${name}.`;
-          }
-        });
-        hub.registerCommand({
-          name: 'aggiungi-alla-lista',
-          execute: ({ name, brand = '', packs = 1, unitsPerPack = 1, unitLabel = 'unità', listType }) => {
-            if (!name) return 'Nome prodotto mancante.';
-            const target = listType && listsRef.current?.[listType] ? listType : currentListRef.current;
-
-            setLists(prev => {
-              const next = { ...prev };
-              const items = [...(prev[target] || [])];
-              const idx = items.findIndex(i =>
-                i.name.toLowerCase() === name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === brand.toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(unitsPerPack||1)
-              );
-              if (idx >= 0) {
-                items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + Math.max(1, Number(packs || 1)) };
-              } else {
-                items.push({
-                  id: 'tmp-' + Math.random().toString(36).slice(2),
-                  name, brand, qty: Math.max(1, Number(packs || 1)),
-                  unitsPerPack: Math.max(1, Number(unitsPerPack || 1)),
-                  unitLabel, purchased: false
-                });
-              }
-              next[target] = items;
-              return next;
-            });
-
-            return `Aggiunto "${name}" alla lista ${target}.`;
-          }
-        });
-        hub.registerCommand({
-          name: 'segna-comprato',
-          execute: ({ name, amount = 1, listType }) => {
-            const allLists = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE];
-            const targets = listType && allLists.includes(listType) ? [listType] : allLists;
-            let done = false;
-
-            setLists(prev => {
-              const next = { ...prev };
-              for (const key of targets) {
-                const arr = [...(next[key] || [])];
-                const idx = arr.findIndex(i => isSimilar(i.name, name));
-                if (idx >= 0) {
-                  const it = arr[idx];
-                  const movePacks = Math.max(1, Math.min(Number(it.qty || 0), Number(amount || 1)));
-                  const moveUPP   = Math.max(1, Number(it.unitsPerPack || 1));
-                  const moveLabel = it.unitLabel || 'unità';
-
-                  arr[idx] = { ...it, qty: Math.max(0, Number(it.qty || 0) - movePacks), purchased: true };
-                  next[key] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-
-                  setStock(prevStock => {
-                    const st = [...prevStock];
-                    const todayISO = new Date().toISOString().slice(0, 10);
-                    const j = st.findIndex(s => isSimilar(s.name, it.name) && (!it.brand || isSimilar(s.brand || '', it.brand)));
-                    if (j >= 0) {
-                      const old = st[j];
-                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                      st[j] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
-                    } else {
-                      st.unshift({
-                        name: it.name, brand: it.brand || '',
-                        packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                        expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
-                      });
-                    }
-                    return st;
-                  });
-
-                  done = true;
-                  break;
-                }
-              }
-              return next;
-            });
-
-            return done ? `Segnato "${name}" come comprato.` : `Prodotto "${name}" non trovato nelle liste.`;
-          }
-        });
-        hub.registerCommand({
-          name: 'rispondi',
-          execute: async (textRaw) => {
-            const text = (textRaw || '').toLowerCase();
-
-            if (/cosa\s+devo\s+comprare|cosa\s+compr(are|o)\s+oggi|lista\s+(di\s+)?oggi/.test(text)) {
-              const items = await hub.ask('lista-oggi');
-              if (!items?.length) return 'La lista di oggi è vuota.';
-              const rows = items.map(i => `• ${i.name}${i.brand?` (${i.brand})`:''} — ${i.qty} conf. × ${i.unitsPerPack} ${i.unitLabel}`).join('\n');
-              return `Ecco la lista di oggi:\n${rows}`;
-            }
-            if (/in\s+esaurimento|quasi\s+finiti|scorte\s+basse/.test(text)) {
-              const crit = await hub.ask('scorte-esaurimento');
-              if (!crit?.length) return 'Nessun prodotto in esaurimento.';
-              const lines = crit.map(p => {
-                const { current, baseline } = residueInfo(p);
-                const pct = Math.round((current / Math.max(1, baseline)) * 100);
-                return `• ${p.name}${p.brand?` (${p.brand})`:''} — ${Math.round(current)}/${Math.round(baseline)} unità (${pct}%)`;
-              }).join('\n');
-              return `Prodotti in esaurimento:\n${lines}`;
-            }
-            const mEntro = text.match(/entro\s+(\d{1,3})\s+giorni/);
-            if (/in\s+scadenza|scadono|scadenze/.test(text) || mEntro) {
-              const entro = mEntro ? Number(mEntro[1]) : 10;
-              const exp = await hub.ask('scorte-scadenza', { entroGiorni: entro });
-              if (!exp?.length) return `Nessun prodotto in scadenza entro ${entro} giorni.`;
-              const lines = exp.map(p => `• ${p.name}${p.brand?` (${p.brand})`:''} — scade il ${new Date(p.expiresAt).toLocaleDateString('it-IT')}`).join('\n');
-              return `Prodotti in scadenza entro ${entro} giorni:\n${lines}`;
-            }
-            const mDays = text.match(/(quanti|quanto)\s+giorni.*(mancano|all'esaurimento|per\s+finire).*([a-z0-9\sàèéìòù]+)/i);
-            if (mDays) {
-              const prod = (mDays[3] || '').trim();
-              const all = await hub.ask('scorte-giorni-esaurimento');
-              const hit = (all || []).find(p => isSimilar(p.name, prod));
-              if (!hit) return `Non trovo "${prod}" fra le scorte.`;
-              if (hit.daysToDepletion == null) return `Non ho abbastanza dati per stimare i giorni per "${hit.name}".`;
-              return `Per ${hit.name} mancano circa ${hit.daysToDepletion} giorni all’esaurimento.`;
-            }
-            if (/scad/.test(text)) {
-              return hub.run('imposta-scadenze', text);
-            }
-            if (/\b(pacch|conf|scatol|bottigl|unit|pz|pezzi|uova|vasetti|barrette|merendine|bustine)\b|\d+\s*$/.test(text)) {
-              return hub.run('aggiorna-scorte', text);
-            }
-            const tryExp = parseExpiryPairs(text, GROCERY_LEXICON, (stockRef.current||[]).map(s=>s.name));
-            if (tryExp.length) return hub.run('imposta-scadenze', text);
-            const tryUpd = parseStockUpdateText(text);
-            if (tryUpd.length) return hub.run('aggiorna-scorte', text);
-
-            return 'Non ho capito la richiesta (scorte/lista/scadenze). Riprova con: "cosa devo comprare oggi", "prodotti in esaurimento", "il latte scade il 15/01/2025", "pasta 3 pacchi", ecc.';
-          }
-        });
-
-        if (cancelled) return;
-        if (typeof window !== 'undefined') {
-          window.jarvisBrain = getHub();
-        }
-      }
-
-      wireBrain();
-      return () => { cancelled = true; };
-    }, []);
-  }
-
-  /* =================== Hydration iniziale =================== */
+  /* ---- Hydration iniziale da localStorage ---- */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const saved = loadPersisted();
     if (!saved) return;
 
+    // Ripristina liste
     if (saved.lists && typeof saved.lists === 'object') {
       setLists({
         [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
         [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
       });
     }
+    // Ripristina scorte
     if (Array.isArray(saved.stock)) setStock(saved.stock);
+
+    // Ripristina lista corrente
     if (saved.currentList && (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)) {
       setCurrentList(saved.currentList);
     }
   }, []);
 
-  /* =================== Autosave debounce =================== */
+  /* ---- Autosave con debounce ---- */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+
     const snapshot = { lists, stock, currentList };
-    persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
+    persistTimerRef.current = setTimeout(() => {
+      persistNow(snapshot);
+    }, 300);
+
     return () => clearTimeout(persistTimerRef.current);
   }, [lists, stock, currentList]);
 
-  /* =================== Sync tra tab =================== */
+  /* ---- Sync tra tab (evento storage) ---- */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onStorage = (e) => {
@@ -1097,28 +744,36 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  /* =================== Derivati: critici =================== */
+  /* --------------- derivati: prodotti critici --------------- */
   useEffect(() => {
     const crit = stock.filter(p => {
       const upp = Math.max(1, Number(p.unitsPerPack || 1));
+
+      // Unità residue correnti: preferisci residueUnits se esiste, altrimenti packs*upp
       const ru = Number(p.residueUnits);
       const currentUnits = Number.isFinite(ru)
         ? Math.max(0, ru)
         : Math.max(0, Number(p.packs || 0) * upp);
+
+      // Baseline: preferisci baselinePacks*upp; fallback packs*upp; minimo = upp
       const bp = Number(p.baselinePacks);
       const baselineUnits = Math.max(
         upp,
         (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(p.packs || 0) * upp)
       );
+
       const pct = baselineUnits ? (currentUnits / baselineUnits) : 1;
-      const lowResidue = pct < 0.20;
-      const expSoon   = isExpiringSoon(p, 10);
+
+      const lowResidue = pct < 0.20;          // <20% residuo
+      const expSoon   = isExpiringSoon(p, 10); // scadenza entro 10 giorni
+
       return lowResidue || expSoon;
     });
+
     setCritical(crit);
   }, [stock]);
 
-  /* =================== LISTE: azioni =================== */
+  /* ---------------- LISTE: add/remove/inc/Comprato ---------------- */
   function addManualItem(e) {
     e.preventDefault();
     const name = form.name.trim();
@@ -1149,8 +804,8 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
     });
 
     setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
-    setShowListForm(false);
   }
+
   function removeItem(id) {
     setLists(prev => {
       const next = { ...prev };
@@ -1158,6 +813,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       return next;
     });
   }
+
   function incQty(id, delta) {
     setLists(prev => {
       const next = { ...prev };
@@ -1167,6 +823,8 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       return next;
     });
   }
+
+  // Segna acquistato (confezioni) + aggiorna scorte
   function markBought(id, amount = 1) {
     const item = (lists[currentList] || []).find(i => i.id === id);
     if (!item) return;
@@ -1175,6 +833,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
     const moveUPP   = Math.max(1, Number(item.unitsPerPack || 1));
     const moveLabel = item.unitLabel || 'unità';
 
+    // 1) aggiorna la lista
     setLists(prev => {
       const next = { ...prev };
       next[currentList] = (prev[currentList] || [])
@@ -1187,6 +846,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       return next;
     });
 
+    // 2) aggiorna scorte (restock → baseline & residuo al pieno)
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0, 10);
@@ -1205,7 +865,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
           packs: newPacks,
           unitsPerPack: upp,
           unitLabel: old.unitLabel || moveLabel,
-          ...restockTouch(newPacks, todayISO, upp),
+          ...restockTouch(newPacks, todayISO, upp), // <- passa anche UPP
         };
       } else {
         arr.unshift({
@@ -1215,23 +875,15 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
           unitsPerPack: moveUPP,
           unitLabel: moveLabel,
           expiresAt: '',
-          ...restockTouch(movePacks, todayISO, moveUPP),
+          ...restockTouch(movePacks, todayISO, moveUPP), // <- pieno al primo inserimento
           avgDailyUnits: 0,
         });
       }
       return arr;
     });
   }
-  // Ripristina "annulla" (click destro): semplicemente togli il flag purchased
-  function unmarkBought(id){
-    setLists(prev => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).map(i => i.id === id ? { ...i, purchased: false } : i);
-      return next;
-    });
-  }
 
-  /* =================== Vocale: LISTA =================== */
+  /* ---------------- Vocale: LISTA (aggiunta veloce) ---------------- */
   async function toggleRecList() {
     if (recBusy) {
       try { mediaRecRef.current?.stop(); } catch {}
@@ -1250,6 +902,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       alert('Microfono non disponibile');
     }
   }
+
   async function processVoiceList() {
     const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
     const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
@@ -1257,6 +910,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       setBusy(true);
       const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
       const { text } = await res.json();
+      if (DEBUG) console.log('[STT list] text:', text);
       if (!text) throw new Error('Testo non riconosciuto');
 
       let appended = false;
@@ -1344,45 +998,61 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
     }
   }
 
-  /* =================== OCR scontrini (con decremento in entrambe le liste) =================== */
+  /* ---------------- OCR: supporto decremento su entrambe le liste (matcher tollerante) ---------------- */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
+
     const decList = (listKey) => {
       const arr = [...(next[listKey] || [])];
+
       for (const p of purchases) {
         const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
         const brand = (p.brand || '').trim();
         const upp = Number(p.unitsPerPack ?? 1);
+
+        // 1) match stretto: nome ~, brand (se presente) ~, unitsPerPack uguali
         let idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
           (!brand || isSimilar(i.brand || '', brand)) &&
           Number(i.unitsPerPack || 1) === upp
         );
+
+        // 2) se non trovato: ignora unitsPerPack
         if (idx < 0) {
           idx = arr.findIndex(i =>
             isSimilar(i.name, p.name) &&
             (!brand || isSimilar(i.brand || '', brand))
           );
         }
+
+        // 3) estremo: solo nome
         if (idx < 0) {
           idx = arr.findIndex(i => isSimilar(i.name, p.name));
         }
+
         if (idx >= 0) {
           const cur = arr[idx];
           const newQty = Math.max(0, Number(cur.qty || 0) - dec);
           arr[idx] = { ...cur, qty: newQty, purchased: true };
         }
       }
+
+      // rimuovi dalla lista quelli portati a zero e marcati come comprati
       next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
     };
+
     decList(LIST_TYPES.SUPERMARKET);
     decList(LIST_TYPES.ONLINE);
     return next;
   }
+
+  /* ---------------- OCR: scontrini ---------------- */
   async function handleOCR(files) {
     if (!files?.length) return;
     try {
       setBusy(true);
+
+      // 1) OCR testo dallo scontrino
       const fdOcr = new FormData();
       files.forEach((f) => fdOcr.append('images', f));
       const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
@@ -1391,6 +1061,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       const ocrText = String(ocrJson?.text || '').trim();
       if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
+      // 2) Estrazione strutturata con Assistant
       const prompt = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
         method:'POST',
@@ -1402,8 +1073,11 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
       let purchases = ensureArray(parsed?.purchases);
+
+      // fallback locale
       if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
 
+      // 3) aggiorna liste, scorte e finanze
       if (purchases.length) {
         setLists(prev => decrementAcrossBothLists(prev, purchases));
         setStock(prev => {
@@ -1461,7 +1135,7 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
     }
   }
 
-  /* =================== Edit riga scorte =================== */
+  /* --------- Edit in-line scorte --------- */
   function startRowEdit(index, row){
     const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
     setEditingRow(index);
@@ -1501,25 +1175,29 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
       const expiresAt = toISODate(editDraft.expiresAt || '');
 
+      // Le CONFEZIONI vengono SOLO dal campo "Confezioni"
       const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
 
       const todayISO = new Date().toISOString().slice(0,10);
       const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-      const wasUnits = Number(old.packs || 0) * uppOld;
-      const nowUnits = newPacks * unitsPerPack;
+      const wasUnits = Math.max(0, Number(old.packs || 0) * uppOld);
+      const nowUnits = Math.max(0, newPacks * unitsPerPack);
       const restock = nowUnits > wasUnits;
 
-      let ru = residueUnitsOf(old);
+      // RESIDUO: indipendente dalle confezioni
+      let ru = residueUnitsOf(old); // se assente → packs*upp
       const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
       if (ruTouched) {
         const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
         if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
       }
-      const fullNow = Math.max(unitsPerPack, nowUnits);
-      ru = Math.min(ru, fullNow);
+      const fullNow = Math.max(unitsPerPack, nowUnits); // pieno attuale
+      ru = Math.min(ru, fullNow); // mai oltre il pieno
 
+      // Consumo medio stimato (se diminuisce rispetto all’ultimo restock)
       const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
 
+      // Componi l'oggetto finale
       let next = {
         ...old,
         name, brand,
@@ -1530,8 +1208,10 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       };
 
       if (restock) {
+        // aumento = restock → baseline e residueUnits al pieno
         next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
       } else {
+        // nessun restock: aggiorna solo il residuo (clamp ≤ pieno)
         next.residueUnits = ru;
       }
 
@@ -1541,6 +1221,23 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
 
     setEditingRow(null);
   }
+
+  function setResidualUnits(i) {
+    const it = stock[i];
+    if (!it) return;
+    const upp = Math.max(1, Number(it.unitsPerPack || 1));
+    const currentRU = Number.isFinite(Number(it.residueUnits))
+      ? Math.max(0, Number(it.residueUnits))
+      : Math.max(0, Number(it.packs || 0) * upp);
+
+    const v = prompt(`Imposta Residuo unità per "${it.name}"`, String(Math.round(currentRU)));
+    if (v == null) return;
+
+    const units = Math.max(0, Number(String(v).replace(',','.')) || 0);
+    applyDeltaToStock(i, { setUnits: units });
+  }
+
+  // helper mancante in origine: applica setUnits sul residuo
   function applyDeltaToStock(index, { setUnits }) {
     setStock(prev => {
       const arr = [...prev];
@@ -1552,27 +1249,346 @@ const [targetImageIdx, setTargetImageIdx] = useState(null);
       arr[index] = { ...row, residueUnits: clamped };
       return arr;
     });
-    /* =================== Gestione immagine riga scorte =================== */
-async function handleRowImage(files, idx) {
-  const file = (files && files[0]) || null;
-  if (!file) return;
-  // Salvo in dataURL (poi eventualmente su Supabase Storage)
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = String(reader.result || '');
-    setStock(prev => {
-      const arr = [...prev];
-      if (!arr[idx]) return prev;
-      arr[idx] = { ...arr[idx], image: dataUrl };
-      return arr;
-    });
-    showToast('Immagine prodotto aggiornata ✓', 'ok');
-  };
-  reader.readAsDataURL(file);
-}
   }
 
-  /* =================== Scorte aggiunta manuale (dietro pulsante) =================== */
+  /* ---------------- Modifica / Elimina scorte (modal prompt) ---------------- */
+  function editStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    const name = prompt('Nome prodotto:', it.name);
+    if (name == null || !name.trim()) return;
+    const brand = prompt('Marca (opzionale):', it.brand || '');
+    if (brand == null) return;
+
+    const packsStr = prompt('Confezioni (può essere decimale es. 1.5):', String(it.packs ?? 0));
+    if (packsStr == null) return;
+    const packs = Math.max(0, Number(String(packsStr).replace(',','.')) || 0);
+
+    const uppStr = prompt('Unità per confezione:', String(it.unitsPerPack ?? 1));
+    if (uppStr == null) return;
+    const unitsPerPack = Math.max(1, Number(String(uppStr).replace(',','.')) || 1);
+
+    const unitLabel = prompt('Etichetta unità (es. unità, bottiglie, vasetti):', it.unitLabel || 'unità');
+    if (unitLabel == null) return;
+
+    const expStr = prompt('Scadenza (YYYY-MM-DD) opzionale:', it.expiresAt || '');
+    const ex = expStr ? toISODate(expStr) : '';
+
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[i];
+      const todayISO = new Date().toISOString().slice(0,10);
+      const avgDailyUnits = computeNewAvgDailyUnits(old, packs);
+
+      // aumento? allora è restock
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = Number(old.packs || 0) * uppOld;
+      const nowUnits = packs * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      arr[i] = {
+        ...old,
+        name: name.trim(),
+        brand: (brand||'').trim(),
+        packs, unitsPerPack, unitLabel,
+        expiresAt: ex || '',
+        avgDailyUnits,
+        ...(restock ? restockTouch(packs, todayISO, unitsPerPack) : {})
+      };
+      return arr;
+    });
+  }
+
+  function deleteStockRow(i) {
+    const it = stock[i];
+    if (!it) return;
+    if (!confirm(`Eliminare "${it.name}${it.brand?   ` (${it.brand})`:''}" dalle scorte?`)) return;
+    setStock(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  /* ---------------- OCR scadenza per riga ---------------- */
+  function openRowOcr(idx) {
+    setTargetRowIdx(idx);
+    rowOcrInputRef.current?.click();
+  }
+  async function handleRowOcrChange(files) {
+    if (targetRowIdx == null || !files?.length) return;
+    const row = stock[targetRowIdx];
+    try {
+      setBusy(true);
+
+      const fd = new FormData();
+      files.forEach((f)=>fd.append('images', f));
+      const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
+      const ocrJson = await readJsonSafe(ocrRes);
+      if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+      const ocrText = String(ocrJson?.text || '').trim();
+      if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
+
+      const prompt = buildExpiryPrompt(row.name, row.brand || '', ocrText);
+      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+      }, 25000);
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+
+      const ex = ensureArray(parsed?.expiries)[0];
+      const iso = ex?.expiresAt ? toISODate(ex.expiresAt) : '';
+      if (iso) {
+        setStock(prev => {
+          const arr = [...prev];
+          if (arr[targetRowIdx]) arr[targetRowIdx] = { ...arr[targetRowIdx], expiresAt: iso };
+          return arr;
+        });
+        showToast('Scadenza assegnata ✓', 'ok');
+      } else {
+        showToast('Scadenza non riconosciuta', 'err');
+      }
+    } catch (e) {
+      console.error('[OCR row] error', e);
+      showToast(`Errore OCR scadenza: ${e?.message || e}`, 'err');
+    } finally {
+      setBusy(false);
+      setTargetRowIdx(null);
+      if (rowOcrInputRef.current) rowOcrInputRef.current.value = '';
+    }
+  }
+
+  /* ---------------- Vocale UNIFICATO: SCADENZE + AGGIORNA SCORTE ---------------- */
+  async function toggleVoiceInventory() {
+    if (invRecBusy) {
+      try { invMediaRef.current?.stop(); } catch {}
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      invStreamRef.current = stream;
+      invMediaRef.current = new MediaRecorder(stream);
+      invChunksRef.current = [];
+      invMediaRef.current.ondataavailable = (e) => {
+        if (e.data && e.data.size) invChunksRef.current.push(e.data);
+      };
+      invMediaRef.current.onstop = processVoiceInventory;
+      invMediaRef.current.start();
+      setInvRecBusy(true);
+    } catch {
+      alert('Microfono non disponibile');
+    }
+  }
+
+  async function processVoiceInventory() {
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    const fd = new FormData();
+    fd.append('audio', blob, 'inventory.webm');
+
+    try {
+      setBusy(true);
+
+      // 0) STT
+      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+      const { text } = await res.json();
+      if (DEBUG) console.log('[STT inventory] text:', text);
+      if (!text) {
+        showToast('Nessun testo riconosciuto', 'err');
+        return;
+      }
+
+      // 1) Heuristica: presenza parole/data scadenza
+      const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
+
+      // 2) Parser locali (entrambi, per consentire modalità “mista”)
+      let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
+      let updates  = parseStockUpdateText(text);
+
+      // 3) Fallback Assistant per SCADENZE (se utile)
+      if (looksExpiry && expiries.length === 0) {
+        try {
+          const prompt = buildInventoryIntentPrompt(text);
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+          }, 25000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string'
+            ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+            : answer;
+          if (parsed?.intent === 'expiry') {
+            const ex = ensureArray(parsed?.expiries)
+              .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
+              .filter(e => e.name && e.expiresAt);
+            if (ex.length) expiries = ex;
+          }
+        } catch (e) {
+          if (DEBUG) console.warn('[Assistant expiry fallback error]', e);
+        }
+      }
+
+      // 4) Fallback Assistant per SCORTE (se utile)
+      if (updates.length === 0 && !looksExpiry) {
+        try {
+          const prompt = buildInventoryIntentPrompt(text);
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+          }, 25000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string'
+            ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
+            : answer;
+          if (parsed?.intent === 'stock_update') {
+            const up = ensureArray(parsed?.updates)
+              .map(u => ({
+                name: String(u.name || '').trim(),
+                mode: (u.mode === 'units' ? 'units' : 'packs'),
+                value: Math.max(0, Number(u.value || 0)),
+                op: 'add'
+              }))
+              .filter(u => u.name && u.value > 0);
+            if (up.length) updates = up;
+          }
+        } catch (e) {
+          if (DEBUG) console.warn('[Assistant updates fallback error]', e);
+        }
+      }
+
+      // 5) Applica SCADENZE
+      let expiryHits = 0;
+      if (expiries.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          for (const p of expiries) {
+            const idx = arr.findIndex(s => isSimilar(s.name, p.name));
+            if (idx >= 0) {
+              arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
+              expiryHits++;
+            }
+          }
+          return arr;
+        });
+      }
+
+      // 6) Applica SCORTE (inerzia su righe esistenti)
+      let applied = 0;
+      if (updates.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          const todayISO = new Date().toISOString().slice(0, 10);
+
+          for (const u of updates) {
+            const idx = arr.findIndex(s => isSimilar(s.name, u.name));
+            const explicit = (u.op === 'restockExplicit');  // pattern “X confezioni da Y”
+            const hintedPacks = Math.max(1, Number(u._packs || 1));
+            const hintedUPP   = Math.max(1, Number(u._upp || 1));
+
+            // ---- PRODOTTO ESISTENTE
+            if (idx >= 0) {
+              const old = arr[idx];
+              const upp = Math.max(1, Number(old.unitsPerPack || 1));
+              const packs = Math.max(0, Number(old.packs || 0));
+
+              if (explicit) {
+                // Restock esplicito: aggiorna struttura e riporta a pieno
+                const np = Math.max(0, packs + hintedPacks);
+                const nupp = Math.max(1, hintedUPP || upp);
+                arr[idx] = {
+                  ...old,
+                  packs: np,
+                  unitsPerPack: nupp,
+                  unitLabel: old.unitLabel || 'unità',
+                  ...restockTouch(np, todayISO, nupp)
+                };
+                applied++;
+                continue;
+              }
+
+              // Inerzia: aggiorna SOLO il residuo in unità (anche > pieno attuale)
+              const ru = Math.max(0, Number(u.value || 0) || 0);
+              arr[idx] = { ...old, residueUnits: ru };
+              applied++;
+              continue;
+            }
+
+            // ---- PRODOTTO NUOVO
+            if (explicit) {
+              arr.unshift({
+                name: u.name,
+                brand: '',
+                packs: hintedPacks,
+                unitsPerPack: hintedUPP,
+                unitLabel: 'unità',
+                expiresAt: '',
+                ...restockTouch(hintedPacks, todayISO, hintedUPP),
+                avgDailyUnits: 0
+              });
+              applied++;
+              continue;
+            }
+
+            // Creazione plausibile:
+            // - units-like → packs = 1, upp = value
+            // - packs-like → packs = value, upp = 1
+            const asUnitsLike = (u.mode === 'units');
+            if (asUnitsLike) {
+              const upp = Math.max(1, Number(u.value || 1));
+              arr.unshift({
+                name: u.name,
+                brand: '',
+                packs: 1,
+                unitsPerPack: upp,
+                unitLabel: 'unità',
+                expiresAt: '',
+                ...restockTouch(1, todayISO, upp),
+                avgDailyUnits: 0
+              });
+            } else {
+              const p = Math.max(1, Number(u.value || 1));
+              arr.unshift({
+                name: u.name,
+                brand: '',
+                packs: p,
+                unitsPerPack: 1,
+                unitLabel: 'unità',
+                expiresAt: '',
+                ...restockTouch(p, todayISO, 1),
+                avgDailyUnits: 0
+              });
+            }
+            applied++;
+          }
+
+          return arr;
+        });
+      }
+
+      // 7) Toast finale
+      if (expiryHits && applied) {
+        showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
+      } else if (expiryHits) {
+        showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
+      } else if (applied) {
+        showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
+      } else {
+        showToast('Nessuna scorta/scadenza riconosciuta', 'err');
+      }
+    } catch (e) {
+      console.error('[Voice Inventory] error', e);
+      showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+    } finally {
+      setBusy(false);
+      setInvRecBusy(false);
+      try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+      invMediaRef.current = null;
+      invStreamRef.current = null;
+      invChunksRef.current = [];
+    }
+  }
+
+  /* ---------------- Aggiunta SCORTE manuale ---------------- */
   function addManualStock(e) {
     e.preventDefault();
     const name = stockForm.name.trim();
@@ -1613,46 +1629,10 @@ async function handleRowImage(files, idx) {
     });
 
     setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
-    setShowStockForm(false);
     showToast('Scorta aggiunta ✓', 'ok');
   }
 
-  /* =================== Inserimento manuale SCADENZE (dietro pulsante) =================== */
-  function addManualExpiry(e){
-    e.preventDefault();
-    const name = (expiryForm.name || '').trim();
-    const iso  = toISODate(expiryForm.expiresAt || '');
-    if (!name || !iso) {
-      showToast('Nome o data non validi', 'err');
-      return;
-    }
-    let updated = false;
-    setStock(prev => {
-      const arr = [...prev];
-      const i = arr.findIndex(s => isSimilar(s.name, name));
-      if (i >= 0) {
-        arr[i] = { ...arr[i], expiresAt: iso };
-        updated = true;
-      } else {
-        // se non esiste la scorta, la creiamo minimale (0 conf) per memorizzare la scadenza
-        arr.unshift({
-          name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-          expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
-        });
-        updated = true;
-      }
-      return arr;
-    });
-    if (updated) {
-      showToast('Scadenza impostata ✓', 'ok');
-      setExpiryForm({ name:'', expiresAt:'' });
-      setShowExpiryForm(false);
-    } else {
-      showToast('Scadenza non aggiornata', 'err');
-    }
-  }
-
-  /* =================== Reset locale =================== */
+  /* ---------------- Reset locale (facoltativo) ---------------- */
   function resetLocalData() {
     try { localStorage.removeItem(LS_KEY); } catch {}
     setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
@@ -1661,203 +1641,17 @@ async function handleRowImage(files, idx) {
     showToast('Dati locali azzerati', 'ok');
   }
 
-  /* =================== Vocale UNIFICATO: SCADENZE + SCORTE =================== */
-  async function toggleVoiceInventory() {
-    if (invRecBusy) {
-      try { invMediaRef.current?.stop(); } catch {}
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      invStreamRef.current = stream;
-      invMediaRef.current = new MediaRecorder(stream);
-      invChunksRef.current = [];
-      invMediaRef.current.ondataavailable = (e) => {
-        if (e.data && e.data.size) invChunksRef.current.push(e.data);
-      };
-      invMediaRef.current.onstop = processVoiceInventory;
-      invMediaRef.current.start();
-      setInvRecBusy(true);
-    } catch {
-      alert('Microfono non disponibile');
-    }
-  }
-  async function processVoiceInventory() {
-    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
-    const fd = new FormData();
-    fd.append('audio', blob, 'inventory.webm');
-
-    try {
-      setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
-      const { text } = await res.json();
-      if (!text) {
-        showToast('Nessun testo riconosciuto', 'err');
-        return;
-      }
-
-      const looksExpiry = /scad|scadenza|scade|entro|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/i.test(text);
-
-      let expiries = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
-      let updates  = parseStockUpdateText(text);
-
-      if (looksExpiry && expiries.length === 0) {
-        try {
-          const prompt = buildInventoryIntentPrompt(text);
-          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
-          }, 25000);
-          const safe = await readJsonSafe(r);
-          const answer = safe?.answer || safe?.data || safe;
-          const parsed = typeof answer === 'string'
-            ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-            : answer;
-          if (parsed?.intent === 'expiry') {
-            const ex = ensureArray(parsed?.expiries)
-              .map(e => ({ name: String(e.name || '').trim(), expiresAt: toISODate(e.expiresAt) }))
-              .filter(e => e.name && e.expiresAt);
-            if (ex.length) expiries = ex;
-          }
-        } catch (e) {
-          if (DEBUG) console.warn('[Assistant expiry fallback error]', e);
-        }
-      }
-
-      if (updates.length === 0 && !looksExpiry) {
-        try {
-          const prompt = buildInventoryIntentPrompt(text);
-          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
-          }, 25000);
-          const safe = await readJsonSafe(r);
-          const answer = safe?.answer || safe?.data || safe;
-          const parsed = typeof answer === 'string'
-            ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
-            : answer;
-          if (parsed?.intent === 'stock_update') {
-            const up = ensureArray(parsed?.updates)
-              .map(u => ({
-                name: String(u.name || '').trim(),
-                mode: (u.mode === 'units' ? 'units' : 'packs'),
-                value: Math.max(0, Number(u.value || 0)),
-                op: 'add'
-              }))
-              .filter(u => u.name && u.value > 0);
-            if (up.length) updates = up;
-          }
-        } catch (e) {
-        }
-      }
-
-      let expiryHits = 0;
-      if (expiries.length) {
-        setStock(prev => {
-          const arr = [...prev];
-          for (const p of expiries) {
-            const idx = arr.findIndex(s => isSimilar(s.name, p.name));
-            if (idx >= 0) {
-              arr[idx] = { ...arr[idx], expiresAt: p.expiresAt || arr[idx].expiresAt };
-              expiryHits++;
-            }
-          }
-          return arr;
-        });
-      }
-
-      let applied = 0;
-      if (updates.length) {
-        setStock(prev => {
-          const arr = [...prev];
-          const todayISO = new Date().toISOString().slice(0, 10);
-
-          for (const u of updates) {
-            const idx = arr.findIndex(s => isSimilar(s.name, u.name));
-            const explicit = (u.op === 'restockExplicit');
-            const hintedPacks = Math.max(1, Number(u._packs || 1));
-            const hintedUPP   = Math.max(1, Number(u._upp || 1));
-
-            if (idx >= 0) {
-              const old = arr[idx];
-              const upp = Math.max(1, Number(old.unitsPerPack || 1));
-              const packs = Math.max(0, Number(old.packs || 0));
-
-              if (explicit) {
-                const np = Math.max(0, packs + hintedPacks);
-                const nupp = Math.max(1, hintedUPP || upp);
-                arr[idx] = {
-                  ...old, packs: np, unitsPerPack: nupp, unitLabel: old.unitLabel || 'unità',
-                  ...restockTouch(np, todayISO, nupp)
-                };
-                applied++;
-                continue;
-              }
-
-              const ru = Math.max(0, Number(u.value || 0) || 0);
-              arr[idx] = { ...old, residueUnits: ru };
-              applied++;
-              continue;
-            }
-
-            if (explicit) {
-              arr.unshift({
-                name: u.name, brand: '', packs: hintedPacks, unitsPerPack: hintedUPP, unitLabel: 'unità',
-                expiresAt: '', ...restockTouch(hintedPacks, todayISO, hintedUPP), avgDailyUnits: 0
-              });
-              applied++;
-              continue;
-            }
-
-            const asUnitsLike = (u.mode === 'units');
-            if (asUnitsLike) {
-              const upp = Math.max(1, Number(u.value || 1));
-              arr.unshift({
-                name: u.name, brand: '', packs: 1, unitsPerPack: upp, unitLabel: 'unità',
-                expiresAt: '', ...restockTouch(1, todayISO, upp), avgDailyUnits: 0
-              });
-            } else {
-              const p = Math.max(1, Number(u.value || 1));
-              arr.unshift({
-                name: u.name, brand: '', packs: p, unitsPerPack: 1, unitLabel: 'unità',
-                expiresAt: '', ...restockTouch(p, todayISO, 1), avgDailyUnits: 0
-              });
-            }
-            applied++;
-          }
-          return arr;
-        });
-      }
-
-      if (expiryHits && applied)      showToast(`Aggiornate ${expiryHits} scadenze e ${applied} scorte ✓`, 'ok');
-      else if (expiryHits)            showToast(`Aggiornate ${expiryHits} scadenze ✓`, 'ok');
-      else if (applied)               showToast(`Aggiornate ${applied} scorte ✓`, 'ok');
-      else                            showToast('Nessuna scorta/scadenza riconosciuta', 'err');
-    } catch (e) {
-      console.error('[Voice Inventory] error', e);
-      showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
-    } finally {
-      setBusy(false);
-      setInvRecBusy(false);
-      try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-      invMediaRef.current = null;
-      invStreamRef.current = null;
-      invChunksRef.current = [];
-    }
-  }
-
-  /* =================== Render =================== */
+  /* ---------------- render ---------------- */
   return (
     <>
       <Head><title>🛍 Lista Prodotti</title></Head>
 
       <div style={styles.page}>
+        <div className="bg-kaleido" aria-hidden="true" />
         <div style={styles.card}>
           {/* Header */}
           <div style={styles.headerRow}>
-            <h2 style={styles.title3d}>🛍 Lista Prodotti</h2>
+            <h2 style={{margin:0}}>🛍 Lista Prodotti</h2>
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <button onClick={resetLocalData} style={styles.actionGhost} title="Cancella i dati locali">↺ Reset locale</button>
               <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
@@ -1881,478 +1675,785 @@ async function handleRowImage(files, idx) {
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
-            {/* NUOVO: bottone che apre il form manuale lista */}
-            <button onClick={() => setShowListForm(v => !v)} style={styles.primaryBtn}>
-              {showListForm ? '– Chiudi form lista' : '➕ Aggiungi manualmente alla lista corrente'}
-            </button>
           </div>
-
-          {/* Form aggiunta manuale (Lista) — ora a comparsa */}
-          {showListForm && (
-            <div style={styles.sectionLarge}>
-              <form onSubmit={addManualItem} style={styles.formRow}>
-                <input placeholder="Prodotto (es. latte)" value={form.name}
-                      onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-                <input placeholder="Marca (es. Parmalat)" value={form.brand}
-                      onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-                <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
-                      onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
-                <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
-                      onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
-                <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
-                      onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
-                <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
-              </form>
-              <p style={{opacity:.8, marginTop: 6}}>
-                Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
-              </p>
-            </div>
-          )}
 
           {/* Lista corrente */}
           <div style={styles.sectionLarge}>
             <h3 style={styles.h3}>
-              Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+              Lista corrente: <span style={{opacity:.85}}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
             </h3>
 
             {curItems.length === 0 ? (
-              <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
+              <p style={{opacity:.8}}>Nessun prodotto ancora</p>
             ) : (
               <div style={styles.listGrid}>
-                {curItems.map((it) => {
-                  const isBought = !!it.purchased;
-                  return (
-                    <div
-                      key={it.id}
-                      role="button"
-                                           tabIndex={0}
-                      onClick={() => {
-                        // Click riga = toggle rosso/verde (non scala la quantità)
-                        setLists(prev => {
-                          const next = { ...prev };
-                          next[currentList] = (prev[currentList] || []).map(i =>
-                            i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                          );
-                          return next;
-                        });
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setLists(prev => {
-                            const next = { ...prev };
-                            next[currentList] = (prev[currentList] || []).map(i =>
-                              i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                            );
-                            return next;
-                          });
-                        }
-                      }}
-                      style={{
-                        ...styles.rowButton,
-                        ...(isBought ? styles.rowButtonBought : styles.rowButtonToBuy)
-                      }}
-                    >
-                      <div style={styles.rowLeft}>
-                        <div style={styles.rowName}>
-                          {it.name}
-                          {it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
+                {curItems.map((it) => (
+                  <div key={it.id} style={styles.itemRow}>
+                    <div style={styles.itemMain}>
+                      <div style={styles.qtyBadge}>{it.qty}</div>
+                      <div>
+                        <div style={styles.itemName}>{it.name}</div>
+                        <div style={styles.itemBrand}>
+                          {it.brand || '—'} · {it.unitsPerPack} {it.unitLabel || 'unità'}/conf.
                         </div>
-                        <div style={styles.rowMeta}>
-                          {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
-                          {isBought ? <span style={styles.badgeBought}>preso</span> : <span style={styles.badgeToBuy}>da prendere</span>}
-                        </div>
-                      </div>
-
-                      <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
-                        {/* Compra (–1 conf) = scala quantità e sposta a scorte */}
-                        <button title="Segna come comprato (–1 conf. e aggiorna scorte)"
-                                onClick={() => markBought(it.id, 1)}
-                                style={styles.smallOkBtn}>✓</button>
-
-                        <button title="–1" onClick={() => incQty(it.id, -1)} style={styles.smallQtyBtn}>−</button>
-                        <button title="+1" onClick={() => incQty(it.id, +1)} style={styles.smallQtyBtn}>+</button>
-
-                        {/* OCR scadenza per questa riga */}
-                        <button
-                          title="OCR scadenza (foto etichetta/scontrino di questo prodotto)"
-                          onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
-                          style={styles.smallGhostBtn}
-                        >OCR scad.</button>
-
-                        {/* Annulla stato 'preso' se messo per errore (tasto destro) */}
-                        <button title="Annulla 'preso'" onClick={() => unmarkBought(it.id)} style={styles.smallGhostBtn}>↺</button>
-
-                        {/* Elimina riga */}
-                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.smallDangerBtn}>🗑</button>
                       </div>
                     </div>
-                  );
-                })}
+                    <div style={styles.itemActions}>
+                      <button
+                        title="Segna 1 acquistato"
+                        onClick={() => markBought(it.id, 1)}
+                        style={it.purchased ? styles.actionSuccess : styles.actionDanger}
+                      >
+                        {it.purchased ? '✔ Comprato 1' : 'Comprato 1'}
+                      </button>
+
+                      {Number(it.qty) > 1 && (
+                        <button
+                          title="Segna tutta la quantità come acquistata"
+                          onClick={() => markBought(it.id, Number(it.qty))}
+                          style={styles.actionSuccess}
+                        >
+                          ✅ Comprato tutto
+                        </button>
+                      )}
+
+                      <div style={{display:'flex', gap:6}}>
+                        <button title="Diminuisci confezioni" onClick={() => incQty(it.id, -1)} style={styles.actionGhost}>−</button>
+                        <button title="Aumenta confezioni" onClick={() => incQty(it.id, +1)} style={styles.actionGhost}>＋</button>
+                      </div>
+                      <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.actionGhostDanger}>🗑 Elimina</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* --- OCR Scontrino globale --- */}
+          {/* Form aggiunta manuale (Lista) */}
           <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>📸 OCR Scontrino</h3>
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-              <button
-                onClick={() => ocrInputRef.current?.click()}
-                style={styles.primaryBtn}
-                disabled={busy}
-              >Carica foto scontrino</button>
-              <p style={{ opacity:.8, margin:0 }}>Riconosce acquisti, riduce la lista e aggiorna le scorte.</p>
-            </div>
+            <h3 style={styles.h3}>Aggiungi prodotto (Lista)</h3>
+            <form onSubmit={addManualItem} style={styles.formRow}>
+              <input placeholder="Prodotto (es. latte)" value={form.name}
+                     onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
+              <input placeholder="Marca (es. Parmalat)" value={form.brand}
+                     onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
+              <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
+                     onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
+              <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
+                     onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
+              <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
+                     onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
+            </form>
+            <p style={{opacity:.8, marginTop: 6}}>
+              Esempi voce: “2 confezioni da 6 yogurt muller”, “latte 1 confezione da 6 bottiglie”, “uova 10”.
+            </p>
           </div>
 
-          {/* --- Sezione Scorte / Inventario --- */}
-          <div style={styles.sectionLifted}>
-            <div style={styles.sectionHeaderRow}>
-              <h3 style={styles.h3}>🏠 Stato Scorte</h3>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-                  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte/Scadenze'}
-                </button>
-                <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
-                  {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
-                </button>
-                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.primaryBtn}>
-                  {showExpiryForm ? '– Chiudi scadenze manuali' : '🗓️ Inserisci scadenza manuale'}
-                </button>
+          {/* Prodotti in esaurimento / scadenza */}
+          <div style={styles.sectionXL}>
+            <h3 style={styles.h3}>📦 Prodotti in esaurimento / scadenza</h3>
+            {critical.length === 0 ? (
+              <p style={{opacity:.8}}>Nessun prodotto critico</p>
+            ) : (
+              <ul style={{margin:'6px 0 0', paddingLeft: '18px'}}>
+                {critical.map((p, i) => (
+                  <li key={i}>
+                    {p.name} {p.brand ? (`(${p.brand})`) : ''} — {p.packs} conf. × {p.unitsPerPack} {p.unitLabel} = {totalUnitsOf(p)} unità
+                    {p.expiresAt ? ` — Scadenza: ${new Date(p.expiresAt).toLocaleDateString('it-IT')}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Stato scorte */}
+          <div style={styles.sectionXL}>
+            <div style={styles.scorteHeader}>
+              <h3 style={{...styles.h3, marginBottom:0}}>📊 Stato Scorte</h3>
+              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                {!invRecBusy ? (
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmall} disabled={busy}>🎙 Vocale Scadenze/Scorte</button>
+                ) : (
+                  <button onClick={toggleVoiceInventory} style={styles.voiceBtnSmallStop}>⏹️ Stop</button>
+                )}
+                <button onClick={() => ocrInputRef.current?.click()} style={styles.ocrBtnSmall} disabled={busy}>📷 OCR Scontrini</button>
+                <input
+                  ref={ocrInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  capture="environment"
+                  multiple
+                  hidden
+                  onChange={(e) => handleOCR(Array.from(e.target.files || []))}
+                />
               </div>
             </div>
 
-            {/* Form scorte manuali */}
-            {showStockForm && (
-              <form onSubmit={addManualStock} style={styles.formRow}>
-                <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
-                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
-                <input style={styles.input} placeholder="Marca" value={stockForm.brand}
-                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
-                <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
-                       onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
-                <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
-                       onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
-                <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
-                       onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
-                <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
-                       onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
-                <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
-              </form>
-            )}
+            {stock.length === 0 ? (
+              <p style={{opacity:.8, marginTop:8}}>Nessun dato scorte</p>
+            ) : (
+              <table style={{...styles.table, marginTop:10}}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Prodotto</th>
+                    <th style={styles.th}>Marca</th>
+                    <th style={styles.th}>Confezioni</th>
+                    <th style={styles.th}>Unità/conf.</th>
+                    <th style={styles.th}>Residuo unità</th>
+                    <th style={styles.th}>Scadenza</th>
+                    <th style={styles.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stock.map((s, i) => {
+                    const isEditing = editingRow === i;
 
-            {/* Form scadenze manuali */}
-            {showExpiryForm && (
-              <form onSubmit={addManualExpiry} style={styles.formRow}>
-                <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
-                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
-                <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
-                       onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
-                <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
-              </form>
-            )}
-
-            {/* Critici in evidenza */}
-            <div style={{ marginTop: 8 }}>
-              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-              {critical.length === 0 ? (
-                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
-              ) : (
-                <div style={styles.stockGrid}>
-                  {critical.map((s, i) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
                     return (
-                      <div key={i} style={styles.stockCardCritical}>
-                        <div style={styles.stockTitle}>
-                          {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                        </div>
-                        <div style={styles.progressOuter}>
-                          <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                        </div>
-                        <div style={styles.stockLineSmall}>
-                          {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                          {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                      <tr key={i}>
+                        {/* Prodotto */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            s.name
+                          ) : (
+                            <input
+                              value={editDraft.name}
+                              onChange={(e) => handleEditDraftChange('name', e.target.value)}
+                              style={styles.input}
+                            />
+                          )}
+                        </td>
 
-            {/* Elenco scorte completo */}
-            <div style={{ marginTop: 12 }}>
-              <h4 style={styles.h4}>Tutte le scorte</h4>
-              {stock.length === 0 ? (
-                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
-              ) : (
-                <div style={styles.stockGrid}>
-                  {stock.map((s, idx) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    const zebra = idx % 2 === 0;
-                    return (
-                      <div key={idx} style={{ ...(zebra ? styles.stockCardZ1 : styles.stockCardZ2) }}>
-                        {editingRow === idx ? (
-                          <div>
-                            <div style={styles.formRowWrap}>
-                              <input style={styles.input} value={editDraft.name}
-                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
-                              <input style={styles.input} value={editDraft.brand}
-                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
+                        {/* Marca */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            s.brand || '-'
+                          ) : (
+                            <input
+                              value={editDraft.brand}
+                              onChange={(e) => handleEditDraftChange('brand', e.target.value)}
+                              style={styles.input}
+                            />
+                          )}
+                        </td>
+
+                        {/* Confezioni */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            (s.packs ?? 0).toFixed?.(2) ?? s.packs
+                          ) : (
+                            <input
+                              inputMode="decimal"
+                              value={editDraft.packs}
+                              onChange={(e) => handleEditDraftChange('packs', e.target.value)}
+                              style={{ ...styles.input, width: 120 }}
+                              placeholder="Confezioni"
+                            />
+                          )}
+                        </td>
+
+                        {/* Unità/conf. + Etichetta */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            <>
+                              {s.unitsPerPack ?? 1} {s.unitLabel || 'unità'}
+                            </>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <input
+                                inputMode="decimal"
+                                value={editDraft.unitsPerPack}
+                                onChange={(e) => handleEditDraftChange('unitsPerPack', e.target.value)}
+                                style={{ ...styles.input, width: 120 }}
+                                placeholder="Unità/conf."
+                              />
+                              <input
+                                value={editDraft.unitLabel}
+                                onChange={(e) => handleEditDraftChange('unitLabel', e.target.value)}
+                                style={{ ...styles.input, width: 150 }}
+                                placeholder="Etichetta"
+                              />
                             </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
-                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
-                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
-                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
-                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
-                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
-                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
-                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
-                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
-                            </div>
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
-                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                              <button
-                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                style={styles.smallGhostBtn}
-                              >OCR scad.</button>
-                            </div>
+                          )}
+                        </td>
+
+                        {/* Residuo unità */}
+                        <td style={styles.td}>
+                          {(() => {
+                            const { current, baseline, pct } = residueInfo(s);
+
+                            if (editingRow === i) {
+                              const uppPreview = Math.max(1, Number(editDraft.unitsPerPack || s.unitsPerPack || 1));
+                              const ruPreviewRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+                              const currentPreview = Number.isFinite(ruPreviewRaw) ? Math.max(0, ruPreviewRaw) : current;
+                              const baselinePreview = baseline || uppPreview;
+                              const pctPreview = clamp01(currentPreview / (baselinePreview || uppPreview));
+
+                              const expIso = (editDraft.expiresAt ?? s.expiresAt) || '';
+                              const soon = daysToExpiry(expIso) <= 10;
+
+                              const barColor = soon ? '#ef4444' : colorForPct(pctPreview);
+                              const isLow = soon || pctPreview < 0.20;
+
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <input
+                                    inputMode="decimal"
+                                    value={editDraft.residueUnits ?? String(current)}
+                                    onChange={(e) => handleEditDraftChange('residueUnits', e.target.value)}
+                                    style={{ ...styles.input, width: 150 }}
+                                    placeholder="Residuo unità"
+                                  />
+                                  <div style={styles.progressWrap} title={`${Math.round(currentPreview)}/${Math.round(baselinePreview)} unità`}>
+                                    <div
+                                      className={isLow ? 'jarvisLow' : undefined}
+                                      style={{
+                                        ...styles.progressBar,
+                                        width: `${pctPreview * 100}%`,
+                                        background: barColor,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            const soon = isExpiringSoon(s);
+                            const barColor = soon ? '#ef4444' : colorForPct(pct);
+                            const isLow = soon || pct < 0.20;
+
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span>{Math.round(current)}</span>
+                                <div style={styles.progressWrap} title={`${Math.round(current)}/${Math.round(baseline)} unità`}>
+                                  <div
+                                    className={isLow ? 'jarvisLow' : undefined}
+                                    style={{
+                                      ...styles.progressBar,
+                                      width: `${pct * 100}%`,
+                                      background: barColor,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Scadenza */}
+                        <td style={styles.td}>
+                          {!isEditing ? (
+                            s.expiresAt ? new Date(s.expiresAt).toLocaleDateString('it-IT') : '-'
+                          ) : (
+                            <input
+                              value={editDraft.expiresAt}
+                              onChange={(e) => handleEditDraftChange('expiresAt', e.target.value)}
+                              style={{ ...styles.input, width: 150 }}
+                              placeholder="YYYY-MM-DD"
+                            />
+                          )}
+                        </td>
+
+                        {/* Azioni: SOLO OCR / Modifica (o Salva/Annulla) / Elimina */}
+                        <td style={styles.td}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRowOcr(i)}
+                              style={styles.ocrInlineBtn}
+                              disabled={busy}
+                              title="Rileva scadenza da foto"
+                            >
+                              📷 OCR
+                            </button>
+
+                            {!isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => startRowEdit(i, s)}
+                                  style={styles.actionGhost}
+                                >
+                                  ✎ Modifica
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteStockRow(i)}
+                                  style={styles.actionGhostDanger}
+                                >
+                                  🗑 Elimina
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => saveRowEdit(i)}
+                                  style={styles.actionSuccess}
+                                >
+                                  💾 Salva
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelRowEdit}
+                                  style={styles.actionGhost}
+                                >
+                                  ✖ Annulla
+                                </button>
+                              </>
+                            )}
                           </div>
-                        ) : (
-                          <>
-                            <div style={styles.stockTitle}>
-                              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                            </div>
-                            <div style={styles.progressOuter}>
-                              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                            </div>
-                            <div style={styles.stockLineSmall}>
-                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                            </div>
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
-                              <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                              <button
-                                onClick={() => applyDeltaToStock(idx, { setUnits: 0 })}
-                                style={styles.smallDangerBtn}
-                                title="Imposta residuo a 0"
-                              >Svuota</button>
-                              <button
-                                title="OCR scadenza per questo prodotto"
-                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                style={styles.smallGhostBtn}
-                              >OCR scad.</button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                        </td>
+                      </tr>
                     );
                   })}
-                </div>
-              )}
-            </div>
+                </tbody>
+              </table>
+            )}
+            {/* input file unico per OCR scadenza di riga */}
+            <input
+              ref={rowOcrInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              capture="environment"
+              hidden
+              onChange={(e)=>handleRowOcrChange(Array.from(e.target.files||[]))}
+            />
+            <p style={{opacity:.75, marginTop:8}}>
+              Esempi scadenze: “il latte scade il 15/07/2025; lo yogurt il 10 agosto 2025”.
+            </p>
+            <p style={{opacity:.75, marginTop:4}}>
+              Esempi scorte: “latte sono 3 bottiglie, pasta 4 pacchi, ferrero fiesta 3 unità”.
+              Per impostare il totale invece di aggiungere: “latte <b>porta a</b> 3 bottiglie”.
+            </p>
           </div>
 
-          {/* TOAST */}
+          {/* Aggiungi SCORTA manuale */}
+          <div style={styles.sectionLarge}>
+            <h3 style={styles.h3}>➕ Aggiungi scorta manuale</h3>
+            <form onSubmit={addManualStock} style={styles.formRow}>
+              <input placeholder="Prodotto (es. latte)" value={stockForm.name}
+                     onChange={e => setStockForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
+              <input placeholder="Marca (opzionale)" value={stockForm.brand}
+                     onChange={e => setStockForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
+              <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs}
+                     onChange={e => setStockForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width:120}} required />
+              <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack}
+                     onChange={e => setStockForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width:120}} required />
+              <input placeholder="Etichetta unità (es. bottiglie)" value={stockForm.unitLabel}
+                     onChange={e => setStockForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width:180}} />
+              <input placeholder="Scadenza YYYY-MM-DD (opz.)" value={stockForm.expiresAt}
+                     onChange={e => setStockForm(f => ({...f, expiresAt: e.target.value}))} style={{...styles.input, width:200}} />
+              <button style={styles.primaryBtn} disabled={busy}>Aggiungi alle scorte</button>
+            </form>
+            <p style={{opacity:.8, marginTop:6}}>
+              Esempio: “Latte — confezioni 1 — unità/conf. 6 — etichetta bottiglie”.
+            </p>
+          </div>
+
+          {/* Toast */}
           {toast && (
             <div style={{
               position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
               background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10,
-              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999, fontWeight:600, letterSpacing:.2
+              color:'#fff', padding:'10px 14px', borderRadius:10, boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999
             }}>
               {toast.msg}
             </div>
           )}
+          <style jsx>{`
+            /* ======= BG caleidoscopio senza video ======= */
+            .bg-kaleido{
+              position: fixed; inset: 0;
+              z-index: -1; pointer-events: none;
+              background:
+                radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.06), transparent 40%),
+                radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.05), transparent 40%),
+                conic-gradient(from 0deg,
+                  rgba(6,182,212,0.14),
+                  rgba(99,102,241,0.14),
+                  rgba(248,113,113,0.14),
+                  rgba(6,182,212,0.14));
+              filter: saturate(1.08) contrast(1.04);
+              animation: spinGlow 28s linear infinite, pulseBloom 3.2s ease-in-out infinite;
+            }
+
+            /* Glow/shimmer forte in stile finanze */
+            .glow-strong::before{
+              content:""; position:absolute; inset:-22%;
+              background: conic-gradient(from 0deg,
+                rgba(255,255,255,.10),
+                rgba(255,255,255,.26),
+                rgba(255,255,255,.10));
+              filter: blur(18px); opacity:.55; z-index:1;
+              animation: spinGlow 12s linear infinite;
+              pointer-events:none;
+            }
+            .glow-strong::after{
+              content:""; position:absolute; inset:0;
+              background:
+                radial-gradient(120% 80% at -10% 0%, rgba(255,255,255,0.14), transparent 40%),
+                radial-gradient(120% 80% at 120% 100%, rgba(255,255,255,0.12), transparent 40%);
+              z-index:1; mix-blend-mode:screen; animation: pulseBloom 2.4s ease-in-out infinite;
+              pointer-events:none;
+            }
+
+            /* Badge scorte basse (tua animazione mantenuta) */
+            @keyframes jarvisPulse {
+              0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.65); }
+              70%  { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+              100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+            }
+            .jarvisLow { animation: jarvisPulse 1.5s infinite; }
+
+            /* Micro-animazioni condivise */
+            @keyframes spinGlow { to { transform: rotate(360deg); } }
+            @keyframes pulseBloom { 0%,100%{ opacity:.32; filter:brightness(1);} 50%{ opacity:.78; filter:brightness(1.25);} }
+
+            /* Hover morbidi per bottoni (applicati via :global perché sono inline-styled) */
+            :global(button){
+              transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .25s ease, border-color .25s ease;
+              will-change: transform, filter;
+            }
+            :global(button:hover){ transform: translateY(-1px); }
+          `}</style>
         </div>
       </div>
-
-      {/* INPUT NASCOSTI */}
-      <input
-        ref={ocrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        multiple
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          if (!files.length) return;
-          handleOCR(files);
-          e.target.value = '';
-        }}
-      />
-
-      {/* input file unico per OCR scadenza di riga */}
-      <input
-        ref={rowOcrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        capture="environment"
-        hidden
-        onChange={async (e) => {
-          const file = (e.target.files || [])[0];
-          e.target.value = '';
-          if (!file) return;
-
-          // Determina prodotto target: se targetRowIdx è un id di lista, prendi da lista; se è indice scorte, prendi da stock
-          let itemName = '';
-          let brand = '';
-          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
-          if (byId) {
-            itemName = byId.name;
-            brand = byId.brand || '';
-          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
-            itemName = stock[targetRowIdx].name;
-            brand = stock[targetRowIdx].brand || '';
-          } else {
-            showToast('Elemento non trovato per OCR scadenza', 'err');
-            return;
-          }
-
-          try {
-            setBusy(true);
-            const fd = new FormData();
-            fd.append('images', file);
-            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 30000);
-            const o = await readJsonSafe(ocrRes);
-            if (!o.ok) throw new Error(o.error || 'Errore OCR');
-            const ocrText = String(o.text || '').trim();
-            if (!ocrText) throw new Error('Nessun testo letto');
-
-            // Chiedi solo la scadenza del prodotto target
-            const prompt = buildExpiryPrompt(itemName, brand, ocrText);
-            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-              method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
-            }, 25000);
-            const safe = await readJsonSafe(r);
-            const answer = safe?.answer || safe?.data || safe;
-            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })() : answer;
-            const ex = ensureArray(parsed?.expiries).map(e => toISODate(e.expiresAt)).filter(Boolean)[0];
-
-            if (!ex) { showToast('Nessuna data trovata', 'err'); return; }
-
-            setStock(prev => {
-              const arr = [...prev];
-              // prova a colpire prima per nome+brand
-              let hit = arr.findIndex(s => isSimilar(s.name, itemName) && (!brand || isSimilar(s.brand||'', brand)));
-              if (hit < 0) hit = arr.findIndex(s => isSimilar(s.name, itemName));
-              if (hit >= 0) {
-                arr[hit] = { ...arr[hit], expiresAt: ex };
-                return arr;
-              }
-              // se non c'è scorta, crea segnaposto con la scadenza
-              arr.unshift({
-                name: itemName, brand: brand || '',
-                packs: 0, unitsPerPack: 1, unitLabel: 'unità',
-                expiresAt: ex, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0
-              });
-              return arr;
-            });
-            showToast('Scadenza aggiornata ✓', 'ok');
-          } catch (err) {
-            console.error('[Row OCR expiry]', err);
-            showToast(`Errore OCR scadenza: ${err?.message || err}`, 'err');
-          } finally {
-            setBusy(false);
-            setTargetRowIdx(null);
-          }
-        }}
-      />
     </>
   );
 }
+/** Piccolo workaround per evitare warning su più MediaRecorder in certi browser */
+function theMediaWorkaround(){}
 
-/* =================== Styles =================== */
+/* ---------------- styles (ottimizzati) ---------------- */
 const styles = {
   page: {
-    minHeight:'100vh',
-    background:'radial-gradient(1200px 1200px at 10% -10%, rgba(90,130,160,.25), transparent), radial-gradient(1200px 1200px at 110% 10%, rgba(60,110,140,.25), transparent), linear-gradient(180deg, #0b1520, #0e1b27 60%, #0b1520)',
-    padding:'24px 16px',
-    color:'#f8f1dc' /* beige chiaro con un filo di giallo */,
-    textShadow:'0 0 6px rgba(255,245,200,.15)'
+    width: '100%',
+    minHeight: '100vh',
+    background: '#0f172a',
+    padding: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#fff',
+    fontFamily:
+      'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
   },
+
   card: {
-    maxWidth:1000, margin:'0 auto', background:'rgba(8,14,22,.55)', backdropFilter:'blur(8px)',
-    border:'1px solid rgba(255,255,255,.06)', borderRadius:18, padding:16, boxShadow:'0 12px 40px rgba(0,0,0,.35)'
-  },
-  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
-  title3d:{
-    margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
-    textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
-  },
-  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
-  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
-  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
-  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
-  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
-
-  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
-  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
-
-  sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'rgba(18,26,38,.55)', border:'1px solid rgba(255,255,255,.06)' },
-  sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'rgba(28,36,50,.62)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 12px 32px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.03)' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
-
-  h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
-  h4:{ margin:'2px 0 6px', fontSize:'1rem', fontWeight:800, opacity:.95 },
-
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
-  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', marginTop:6 },
-  input:{
-    flex:'1 1 180px', minWidth:170, padding:'10px 12px', borderRadius:12,
-    background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
+    width: '100%',
+    maxWidth: 1000,
+    background: 'rgba(0,0,0,.6)',
+    borderRadius: 16,
+    padding: 22,
+    boxShadow: '0 6px 16px rgba(0,0,0,.3)',
   },
 
-  listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
-  rowButton:{
-    display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
-    borderRadius:14, cursor:'pointer', userSelect:'none', boxShadow:'0 8px 18px rgba(0,0,0,.35)'
+  headerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+    flexWrap: 'wrap',
   },
-  rowButtonToBuy:{
-    background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea'
+  homeBtn: {
+    background: '#6366f1',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    textDecoration: 'none',
+    fontWeight: 700,
   },
-  rowButtonBought:{
-    background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
-  },
-  rowLeft:{ display:'flex', flexDirection:'column' },
-  rowName:{ fontWeight:800, letterSpacing:.4, marginBottom:2 },
-  rowBrand:{ opacity:.85, fontWeight:600 },
-  rowMeta:{ opacity:.9, fontSize:'.92rem' },
-  rowActions:{ display:'flex', gap:6, alignItems:'center' },
 
-  smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.75)', color:'#e5e7eb', fontWeight:800 },
-  smallOkBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #166534', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13', fontWeight:900 },
-  smallGhostBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'transparent', color:'#e5e7eb' },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #7f1d1d', background:'linear-gradient(180deg,#991b1b,#7f1d1d)', color:'#fff0ea' },
+  switchRow: { display: 'flex', gap: 10, margin: '16px 0 10px', flexWrap: 'wrap' },
+  switchBtn: {
+    background: 'rgba(255,255,255,.08)',
+    border: '1px solid rgba(255,255,255,.15)',
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 600,
+  },
+  switchBtnActive: {
+    background: '#06b6d4',
+    border: 0,
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
 
-  badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
-  badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
+  toolsRow: { display: 'flex', flexWrap: 'wrap', gap: 10, margin: '12px 0 6px' },
 
-  stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
-  stockCardCritical:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
-    border:'1px solid rgba(255,120,120,.25)', boxShadow:'0 10px 22px rgba(0,0,0,.38)'
+  voiceBtn: {
+    background: '#6366f1',
+    border: 0,
+    color: '#fff',
+    padding: '10px 14px',
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 800,
   },
-  stockCardZ1:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(22,30,44,.9),rgba(16,22,34,.9))',
-    border:'1px solid rgba(255,255,255,.06)'
+
+  sectionLarge: { marginTop: 30, marginBottom: 10 },
+  sectionXL: { marginTop: 38, marginBottom: 12 },
+  h3: { margin: '6px 0 12px' },
+
+  listGrid: { display: 'flex', flexDirection: 'column', gap: 12 },
+  itemRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: 'rgba(255,255,255,.05)',
+    border: '1px solid rgba(255,255,255,.12)',
+    borderRadius: 12,
+    padding: '10px 12px',
+    gap: 8,
+    flexWrap: 'wrap',
   },
-  stockCardZ2:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(18,26,40,.9),rgba(14,20,30,.9))',
-    border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
+  itemMain: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, flex: 1 },
+  qtyBadge: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 10,
+    background: 'rgba(99,102,241,.25)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 800,
   },
-  stockTitle:{ fontWeight:800, marginBottom:6 },
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
-  progressInner:{ height:'100%', borderRadius:999, transition:'width .25s ease' },
-  stockLineSmall:{ marginTop:6, opacity:.92, fontSize:'.92rem', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' },
-  expiryChip:{ padding:'2px 8px', borderRadius:999, background:'rgba(250,204,21,.18)', border:'1px solid rgba(250,204,21,.35)', fontWeight:700 }
-};
+  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.1 },
+  itemBrand: { fontSize: 12, opacity: 0.8 },
+
+  itemActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  actionSuccess: {
+    background: '#16a34a',
+    border: 0,
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  actionDanger: {
+    background: '#ef4444',
+    border: 0,
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+  },
+  actionGhost: {
+    background: 'rgba(255,255,255,.12)',
+    border: '1px solid rgba(255,255,255,.2)',
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
+  actionGhostDanger: {
+    background: 'rgba(239,68,68,.1)',
+    border: '1px solid rgba(239,68,68,.6)',
+    color: '#fff',
+    padding: '8px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
+
+  formRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
+  },
+  input: {
+    padding: '10px 12px',
+    borderRadius: 10,
+    border: '1px solid rgba(255,255,255,.15)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    minWidth: 160,
+    flex: '1 1 160px',
+  },
+  primaryBtn: {
+    background: '#16a34a',
+    border: 0,
+    color: '#fff',
+    padding: '10px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    background: 'rgba(255,255,255,.04)',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  th: {
+    textAlign: 'left',
+    padding: '10px',
+    borderBottom: '1px solid rgba(255,255,255,.12)',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: '10px',
+    borderBottom: '1px solid rgba(255,255,255,.08)',
+    verticalAlign: 'middle',
+  },
+
+  scorteHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+
+  voiceBtnSmall: {
+    background: '#6366f1',
+    border: 0,
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  },
+  voiceBtnSmallStop: {
+    background: '#ef4444',
+    border: 0,
+    color: '#fff',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  ocrBtnSmall: {
+    background: '#06b6d4',
+    border: 0,
+    color: '#0b1220',
+    padding: '8px 12px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  ocrInlineBtn: {
+    background: 'rgba(6,182,212,.15)',
+    border: '1px solid rgba(6,182,212,.6)',
+    color: '#e0fbff',
+    padding: '6px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  },
+
+  /* ---------- Badge “Giorni rimasti” ---------- */
+  daysBadgeBase: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 34,
+    height: 26,
+    padding: '0 8px',
+    borderRadius: 999,
+    fontWeight: 800,
+    fontSize: 12,
+  },
+  daysBadgeGreen: {
+    background: 'rgba(22,163,74,.18)',
+    border: '1px solid rgba(22,163,74,.7)',
+    color: '#dcfce7',
+  },
+  daysBadgeAmber: {
+    background: 'rgba(245,158,11,.18)',
+    border: '1px solid rgba(245,158,11,.7)',
+    color: '#fffbeb',
+  },
+  daysBadgeRed: {
+    background: 'rgba(239,68,68,.18)',
+    border: '1px solid rgba(239,68,68,.7)',
+    color: '#fee2e2',
+  },
+  daysBadgeGray: {
+    background: 'rgba(148,163,184,.18)',
+    border: '1px solid rgba(148,163,184,.6)',
+    color: '#e2e8f0',
+  },
+
+  inputTable: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: '100%',
+    minWidth: 0,
+  },
+  inputTableSm: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 90,
+    minWidth: 0,
+  },
+  inputTableXs: {
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.2)',
+    background: 'rgba(255,255,255,.06)',
+    color: '#fff',
+    width: 110,
+    minWidth: 0,
+  },
+
+  progressWrap: {
+    position: 'relative',
+    width: 120,
+    height: 10,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.15)',
+    overflow: 'hidden',
+    flex: '0 0 120px',
+  },
+  progressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '0%',
+    transition: 'width .25s ease, background-color .25s ease',
+  },
+
+  inputTableXs: {
+  padding: '6px 8px',
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,.2)',
+  background: 'rgba(255,255,255,.06)',
+  color: '#fff',
+  width: 110,
+  minWidth: 0,
+},
+
+}; // <-- e chiudi l’oggetto con punto e virgola
