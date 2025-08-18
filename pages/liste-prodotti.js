@@ -21,6 +21,20 @@ const API_FINANCES_INGEST = '/api/finances/ingest';
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
 
+// chiave univoca per nome+marca
+function normKey(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+function productKey(name = '', brand = '') {
+  return `${normKey(name)}|${normKey(brand)}`;
+}
+
 function loadPersisted() {
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
@@ -41,6 +55,7 @@ function persistNow(snapshot) {
       lists: snapshot.lists,
       stock: snapshot.stock,
       currentList: snapshot.currentList,
+      imagesIndex: snapshot.imagesIndex || {}, // nuovo indice immagini
     };
     localStorage.setItem(LS_KEY, JSON.stringify(payload));
   } catch (e) {
@@ -62,15 +77,6 @@ const GROCERY_LEXICON = [
 ];
 
 /* ====================== Utils testo ====================== */
-function normKey(str) {
-  return String(str || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 function tokens(str){ return new Set(normKey(str).split(' ').filter(Boolean)); }
 function isSimilar(a,b){
   const na=normKey(a), nb=normKey(b);
@@ -97,41 +103,57 @@ function extractPackInfo(str){
 
   const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
 
+  // classico: "2 confezioni da 6 bottiglie"
   let m = s.match(new RegExp(String.raw`(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:${UNIT_TERMS})?`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    const u = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
-    unitLabel = u;
-    return { packs, unitsPerPack, unitLabel };
+    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
+    return { packs, unitsPerPack, unitLabel, explicit:true };
   }
-  m = s.match(/(\d+)\s*[x×]\s*\d+\s*(?:g|kg|ml|cl|l|lt)?/i);
+
+  // nuovo: "aggiungendo 2 a confezioni 6 a unità" / "2 confezioni 6 unità"
+  m = s.match(new RegExp(String.raw`(?:aggiungendo\s*)?(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\b.*?\b(\d+)\s*(?:${UNIT_TERMS}|unit[aà]|u\/conf|unit[aà]\s*\/\s*conf)?`, 'i'));
+  if (m){
+    packs = Number(m[1]);
+    unitsPerPack = Number(m[2]);
+    return { packs, unitsPerPack, unitLabel, explicit:true };
+  }
+
+  // "4x125"
+  m = s.match(/(\d+)\s*[x×]\s*\d+/i);
   if (m){
     packs = 1;
     unitsPerPack = Number(m[1]);
-    return { packs, unitsPerPack, unitLabel };
+    return { packs, unitsPerPack, unitLabel, explicit:true };
   }
-  m = s.match(new RegExp(String.raw`(\d+)\s*${UNIT_TERMS}\b`, 'i'));
+
+  // "... 6 bottiglie"
+  m = s.match(new RegExp(String.raw`(\d+)\s*(?:${UNIT_TERMS})\b`, 'i'));
   if (m){
     packs = 1;
     unitsPerPack = Number(m[1]);
-    unitLabel = m[2] ? m[2].replace(/pz|pezzi/i,'unità') : 'unità';
-    return { packs, unitsPerPack, unitLabel };
+    return { packs, unitsPerPack, unitLabel, explicit:false };
   }
-  m = s.match(new RegExp(String.raw`(\d+)\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
+
+  // "... 2 confezioni"
+  m = s.match(new RegExp(String.raw`(\d+)\s*(?:bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = 1;
-    unitLabel = (/^bott/i.test(m[2]) ? 'bottiglie' : 'unità');
-    return { packs, unitsPerPack, unitLabel };
+    unitLabel = (/^bott/i.test(m[2]||'') ? 'bottiglie' : 'unità');
+    return { packs, unitsPerPack, unitLabel, explicit:false };
   }
+
+  // "2 kg zucchero"
   m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
   if (m){
     packs = Number(String(m[1]).replace(',','.')) || 1;
     unitsPerPack = 1;
-    return { packs, unitsPerPack, unitLabel };
+    return { packs, unitsPerPack, unitLabel, explicit:false };
   }
-  return { packs, unitsPerPack, unitLabel };
+
+  return { packs, unitsPerPack, unitLabel, explicit:false };
 }
 function parseLinesToItems(text) {
   const chunks = String(text || '')
@@ -285,11 +307,13 @@ function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
 function residueUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
   const ru = Number(s.residueUnits);
+  if (s.packsOnly) return Math.max(0, Number(s.packs || 0)); // barra sui pacchi in modalità solo confezioni
   if (Number.isFinite(ru)) return Math.max(0, ru);
   return Math.max(0, Number(s.packs || 0) * upp);
 }
 function baselineUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
+  if (s.packsOnly) return Math.max(1, Number(s.baselinePacks || s.packs || 1));
   const bp  = Number(s.baselinePacks);
   const base = Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp;
   return Math.max(upp, base);
@@ -460,9 +484,10 @@ function parseStockUpdateText(text) {
       const name = guessProductName(chunk);
       if (!name) continue;
 
-      const explicit = hasExplicitPackStructure(chunk);
       const pack = extractPackInfo(chunk);
+      const explicit = !!pack.explicit;
 
+      // parole → numeri (due, tre, …)
       let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
       if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
         const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
@@ -470,26 +495,26 @@ function parseStockUpdateText(text) {
         m = w ? [null, String(map[w[1].toLowerCase()]), ''] : null;
       }
 
+      const asUnits = m ? /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test((m[2]||'').toLowerCase()) : false;
       const valNum = m ? Number(String(m[1]).replace(',','.')) : NaN;
-      const tag = (m && m[2] ? m[2].toLowerCase() : '');
 
       if (!/\d/.test(chunk)) {
-        res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1 });
+        // comando generico tipo "aggiungi latte"
+        res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1, explicit:false });
         continue;
       }
 
       if (explicit) {
         const packs = Math.max(1, Number(pack.packs || 1));
         const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
-        res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp });
+        res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp, explicit:true });
         continue;
       }
 
-      const asUnits = /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test(tag);
       const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
       if (!value) continue;
 
-      const packsLike = /pacc|conf|scatol/.test(tag);
+      const packsLike = m ? /pacc|conf|scatol/.test((m[2]||'').toLowerCase()) : false;
       const hintPacks = packsLike ? value : 1;
       const hintUpp   = packsLike ? 1 : value;
 
@@ -500,6 +525,7 @@ function parseStockUpdateText(text) {
         op: absolute ? 'set' : 'maybeResidue',
         _packs: Math.max(1, hintPacks),
         _upp: Math.max(1, hintUpp),
+        explicit:false
       });
     }
   }
@@ -534,6 +560,15 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
 
 /* ====================== Piccola utility media (no-op sicura) ====================== */
 function theMediaWorkaround(){ return; }
+
+/* ====================== Utility immagini ====================== */
+function withRememberedImage(row, imagesIdx) {
+  if (row?.image) return row;
+  const key = productKey(row?.name, row?.brand || '');
+  const img = imagesIdx?.[key];
+  if (img) return { ...row, image: img };
+  return row;
+}
 
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
@@ -607,244 +642,232 @@ export default function ListeProdotti() {
   const [expiryForm, setExpiryForm] = useState({ name: '', expiresAt: '' });
   const [showExpiryForm, setShowExpiryForm] = useState(false);
 
+  // 🔥 indice immagini: { "latte|parmalat": "data:image/..." }
+  const [imagesIndex, setImagesIndex] = useState({});
+
   const curItems = lists[currentList] || [];
 
- /* =================== Cloud Sync (Supabase) — opzionale =================== */
-const userIdRef = useRef(null);
+  /* =================== Cloud Sync (Supabase) — opzionale =================== */
+  const userIdRef = useRef(null);
 
-useEffect(() => {
-  if (!CLOUD_SYNC) return;
-  let mounted = true;
+  useEffect(() => {
+    if (!CLOUD_SYNC) return;
+    let mounted = true;
 
-  (async () => {
-    try {
-      // Importa solo se il client esiste; altrimenti non sincronizzare (no crash)
-      const mod = await import('@/lib/supabaseClient').catch(() => null);
-      if (!mod?.supabase) return;
+    (async () => {
+      try {
+        // Importa solo se il client esiste; altrimenti non sincronizzare (no crash)
+        const mod = await import('@/lib/supabaseClient').catch(() => null);
+        if (!mod?.supabase) return;
 
-      __supabase = mod.supabase;
+        __supabase = mod.supabase;
 
-      // Prende l'utente loggato (se non loggato → esci silenziosamente)
-      const { data: userData, error: authErr } = await __supabase.auth.getUser();
-      if (authErr) return;
-      const uid = userData?.user?.id || null;
-      if (mounted) userIdRef.current = uid;
-      if (!uid) return;
+        // Prende l'utente loggato (se non loggato → esci silenziosamente)
+        const { data: userData, error: authErr } = await __supabase.auth.getUser();
+        if (authErr) return;
+        const uid = userData?.user?.id || null;
+        if (mounted) userIdRef.current = uid;
+        if (!uid) return;
 
-      // Carica stato dal cloud (se esiste). Se manca la colonna `state`, ignora.
-      const { data: row, error } = await __supabase
-        .from(CLOUD_TABLE)
-        .select('state')
-        .eq('user_id', uid)
-        .maybeSingle();
+        // Carica stato dal cloud (se esiste).
+        const { data: row, error } = await __supabase
+          .from(CLOUD_TABLE)
+          .select('state')
+          .eq('user_id', uid)
+          .maybeSingle();
 
-      if (error) {
-        // Gestione "column does not exist" (42703) o messaggio equivalente
-        const msg = (error.message || '').toLowerCase();
-        if (error.code === '42703' || msg.includes('column') && msg.includes('does not exist')) {
-          if (DEBUG) console.warn('[cloud] colonna state assente: skip load');
-        } else if (DEBUG) {
-          console.warn('[cloud] load error', error);
+        if (error) {
+          const msg = (error.message || '').toLowerCase();
+          if (error.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))) {
+            if (DEBUG) console.warn('[cloud] colonna state assente: skip load');
+          } else if (DEBUG) {
+            console.warn('[cloud] load error', error);
+          }
+          return;
         }
-        return;
-      }
 
-      const st = row?.state;
-      if (!st) return;
+        const st = row?.state;
+        if (!st) return;
 
-      setLists({
-        [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-      });
-      if (Array.isArray(st.stock)) setStock(st.stock);
-      if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
-        setCurrentList(st.currentList);
-      }
-    } catch (e) {
-      if (DEBUG) console.warn('[cloud init] skipped', e);
-    }
-  })();
-
-  return () => { mounted = false; };
-}, []);
-
-const cloudTimerRef = useRef(null);
-useEffect(() => {
-  if (!CLOUD_SYNC || !__supabase) return;
-  if (!userIdRef.current) return;
-
-  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
-  const snapshot = { lists, stock, currentList };
-
-  cloudTimerRef.current = setTimeout(async () => {
-    try {
-      await __supabase
-        .from(CLOUD_TABLE)
-        .upsert(
-          { user_id: userIdRef.current, state: snapshot },
-          { onConflict: 'user_id' }
-        );
-    } catch (e) {
-      // Se la colonna non esiste, ignora senza interrompere l’app
-      const msg = (e?.message || '').toLowerCase?.() || '';
-      if (DEBUG && !(msg.includes('column') && msg.includes('does not exist'))) {
-        console.warn('[cloud upsert] fail', e);
-      }
-    }
-  }, 400);
-
-  return () => clearTimeout(cloudTimerRef.current);
-}, [lists, stock, currentList]);
-
-/* === Brain Hub – versione robusta (evita forme incompatibili) === */
-const HUB_KEY = '__jarvisBrainHub_v2';
-
-function getHub() {
-  if (typeof window === 'undefined') return null;
-  const h = window[HUB_KEY];
-
-  const isValid =
-    h &&
-    typeof h === 'object' &&
-    typeof h.registerDataSource === 'function' &&
-    typeof h.registerCommand === 'function' &&
-    h._datasources instanceof Map &&
-    h._commands instanceof Map;
-
-  if (isValid) return h;
-
-  // Crea (o sostituisce) un hub valido se quello esistente è corrotto/incompatibile
-  const hub = {
-    _datasources: new Map(),
-    _commands: new Map(),
-    registerDataSource(def) {
-      if (!def?.name) return;
-      this._datasources.set(def.name, def);
-    },
-    registerCommand(def) {
-      if (!def?.name) return;
-      this._commands.set(def.name, def);
-    },
-    async ask(name, payload) {
-      const ds = this._datasources.get(name);
-      return ds?.fetch(payload);
-    },
-    async run(name, payload) {
-      const cmd = this._commands.get(name);
-      return cmd?.execute(payload);
-    },
-    list() {
-      return {
-        datasources: [...this._datasources.keys()],
-        commands: [...this._commands.keys()],
-      };
-    },
-  };
-
-  window[HUB_KEY] = hub;
-  return hub;
-}
-
-useEffect(() => {
-  const hub = getHub();
-  if (!hub) return;
-
-  // Usa registrazioni idempotenti per evitare duplicati se la pagina si rimonta
-  const safeRegDS = (def) => {
-    if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
-  };
-
-  safeRegDS({
-    name: 'scorte-complete',
-    fetch: () => {
-      return (stock || []).map((s) => {
-        const upp = Math.max(1, Number(s.unitsPerPack || 1));
-        const residueUnits = Number.isFinite(Number(s.residueUnits))
-          ? Math.max(0, Number(s.residueUnits))
-          : Math.max(0, Number(s.packs || 0) * upp);
-        const baselineUnits = Math.max(
-          upp,
-          Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp
-        );
-        const avgDailyUnits = Number(s.avgDailyUnits || 0);
-        return {
-          name: String(s.name || '').trim(),
-          brand: String(s.brand || '').trim(),
-          packs: Number(s.packs || 0),
-          unitsPerPack: upp,
-          unitLabel: s.unitLabel || 'unità',
-          residueUnits,
-          baselineUnits,
-          avgDailyUnits,
-          expiresAt: s.expiresAt || '',
-        };
-      });
-    },
-  });
-
-  safeRegDS({
-    name: 'scorte-esaurimento',
-    fetch: () => {
-      return (stock || []).filter((s) => {
-        const upp = Math.max(1, Number(s.unitsPerPack || 1));
-        const ru = Number(s.residueUnits);
-        const currentUnits = Number.isFinite(ru) ? Math.max(0, ru) : Math.max(0, Number(s.packs || 0) * upp);
-        const bp = Number(s.baselinePacks);
-        const baselineUnits = Math.max(upp, (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp));
-        return baselineUnits > 0 && currentUnits / baselineUnits < 0.2;
-      });
-    },
-  });
-
-  safeRegDS({
-    name: 'scorte-scadenza',
-    fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => isExpiringSoon(s, entroGiorni)),
-  });
-
-  safeRegDS({
-    name: 'scorte-giorni-esaurimento',
-    fetch: () => {
-      const out = [];
-      for (const s of stock || []) {
-        const upp = Math.max(1, Number(s.unitsPerPack || 1));
-        const currentUnits = Number.isFinite(Number(s.residueUnits))
-          ? Math.max(0, Number(s.residueUnits))
-          : Math.max(0, Number(s.packs || 0) * upp);
-        const day = Number(s.avgDailyUnits || 0);
-        const days = day > 0 ? Math.ceil(currentUnits / day) : null;
-        out.push({
-          name: s.name,
-          brand: s.brand || '',
-          unitLabel: s.unitLabel || 'unità',
-          residueUnits: currentUnits,
-          avgDailyUnits: day,
-          daysToDepletion: days,
+        setLists({
+          [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
+          [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
         });
+        if (Array.isArray(st.stock)) setStock(st.stock);
+        if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
+          setCurrentList(st.currentList);
+        }
+        if (st.imagesIndex && typeof st.imagesIndex === 'object') {
+          setImagesIndex(st.imagesIndex);
+        }
+      } catch (e) {
+        if (DEBUG) console.warn('[cloud init] skipped', e);
       }
-      return out;
-    },
-  });
+    })();
 
-  safeRegDS({
-    name: 'liste-spesa',
-    fetch: () => {
-      const data = lists || {};
-      return Object.entries(data).flatMap(([type, items]) =>
-        (items || [])
-          .filter((it) => !it.purchased && it.qty > 0)
-          .map((it) => ({
-            listType: type,
-            name: String(it.name || '').trim(),
-            brand: String(it.brand || '').trim(),
-            qty: Number(it.qty || 0),
-            unitsPerPack: Number(it.unitsPerPack || 1),
-            unitLabel: String(it.unitLabel || 'unità').trim(),
-          }))
-      );
-    },
-  });
-}, [stock, lists]);
+    return () => { mounted = false; };
+  }, []);
 
+  const cloudTimerRef = useRef(null);
+  useEffect(() => {
+    if (!CLOUD_SYNC || !__supabase) return;
+    if (!userIdRef.current) return;
+
+    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+    const snapshot = { lists, stock, currentList, imagesIndex };
+
+    cloudTimerRef.current = setTimeout(async () => {
+      try {
+        await __supabase
+          .from(CLOUD_TABLE)
+          .upsert(
+            { user_id: userIdRef.current, state: snapshot },
+            { onConflict: 'user_id' }
+          );
+      } catch (e) {
+        const msg = (e?.message || '').toLowerCase?.() || '';
+        if (DEBUG && !(msg.includes('column') && msg.includes('does not exist'))) {
+          console.warn('[cloud upsert] fail', e);
+        }
+      }
+    }, 400);
+
+    return () => clearTimeout(cloudTimerRef.current);
+  }, [lists, stock, currentList, imagesIndex]);
+
+  /* === Brain Hub – versione robusta (evita forme incompatibili) === */
+  const HUB_KEY = '__jarvisBrainHub_v2';
+
+  function getHub() {
+    if (typeof window === 'undefined') return null;
+    const h = window[HUB_KEY];
+
+    const isValid =
+      h &&
+      typeof h === 'object' &&
+      typeof h.registerDataSource === 'function' &&
+      typeof h.registerCommand === 'function' &&
+      h._datasources instanceof Map &&
+      h._commands instanceof Map;
+
+    if (isValid) return h;
+
+    const hub = {
+      _datasources: new Map(),
+      _commands: new Map(),
+      registerDataSource(def) {
+        if (!def?.name) return;
+        this._datasources.set(def.name, def);
+      },
+      registerCommand(def) {
+        if (!def?.name) return;
+        this._commands.set(def.name, def);
+      },
+      async ask(name, payload) {
+        const ds = this._datasources.get(name);
+        return ds?.fetch(payload);
+      },
+      async run(name, payload) {
+        const cmd = this._commands.get(name);
+        return cmd?.execute(payload);
+      },
+      list() {
+        return {
+          datasources: [...this._datasources.keys()],
+          commands: [...this._commands.keys()],
+        };
+      },
+    };
+
+    window[HUB_KEY] = hub;
+    return hub;
+  }
+
+  useEffect(() => {
+    const hub = getHub();
+    if (!hub) return;
+
+    const safeRegDS = (def) => {
+      if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
+    };
+
+    safeRegDS({
+      name: 'scorte-complete',
+      fetch: () => {
+        return (stock || []).map((s) => {
+          const upp = Math.max(1, Number(s.unitsPerPack || 1));
+          const residueUnits = s.packsOnly
+            ? Math.max(0, Number(s.packs || 0))
+            : (Number.isFinite(Number(s.residueUnits))
+                ? Math.max(0, Number(s.residueUnits))
+                : Math.max(0, Number(s.packs || 0) * upp));
+          const baselineUnits = s.packsOnly
+            ? Math.max(1, Number(s.baselinePacks || s.packs || 1))
+            : Math.max(
+                upp,
+                Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp
+              );
+          const avgDailyUnits = Number(s.avgDailyUnits || 0);
+          return {
+            name: String(s.name || '').trim(),
+            brand: String(s.brand || '').trim(),
+            packs: Number(s.packs || 0),
+            unitsPerPack: upp,
+            unitLabel: s.unitLabel || 'unità',
+            residueUnits,
+            baselineUnits,
+            avgDailyUnits,
+            expiresAt: s.expiresAt || '',
+          };
+        });
+      },
+    });
+
+    safeRegDS({
+      name: 'scorte-esaurimento',
+      fetch: () => {
+        return (stock || []).filter((s) => {
+          const upp = Math.max(1, Number(s.unitsPerPack || 1));
+          const currentUnits = s.packsOnly
+            ? Math.max(0, Number(s.packs || 0))
+            : (Number.isFinite(Number(s.residueUnits)) ? Math.max(0, Number(s.residueUnits)) : Math.max(0, Number(s.packs || 0) * upp));
+          const baselineUnits = s.packsOnly
+            ? Math.max(1, Number(s.baselinePacks || s.packs || 1))
+            : Math.max(upp, (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp));
+          return baselineUnits > 0 && (currentUnits / baselineUnits) < 0.2;
+        });
+      },
+    });
+
+    safeRegDS({
+      name: 'scorte-scadenza',
+      fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => isExpiringSoon(s, entroGiorni)),
+    });
+
+    safeRegDS({
+      name: 'scorte-giorni-esaurimento',
+      fetch: () => {
+        const out = [];
+        for (const s of stock || []) {
+          const upp = Math.max(1, Number(s.unitsPerPack || 1));
+          const currentUnits = s.packsOnly
+            ? Math.max(0, Number(s.packs || 0))
+            : (Number.isFinite(Number(s.residueUnits)) ? Math.max(0, Number(s.residueUnits)) : Math.max(0, Number(s.packs || 0) * upp));
+          const day = Number(s.avgDailyUnits || 0);
+          const days = day > 0 ? Math.ceil(currentUnits / day) : null;
+          out.push({
+            name: s.name,
+            brand: s.brand || '',
+            unitLabel: s.unitLabel || 'unità',
+            residueUnits: currentUnits,
+            avgDailyUnits: day,
+            daysToDepletion: days,
+          });
+        }
+        return out;
+      },
+    });
+  }, [stock, lists]);
 
   /* =================== Hydration iniziale (locale) =================== */
   useEffect(() => {
@@ -862,16 +885,19 @@ useEffect(() => {
     if (saved.currentList && (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)) {
       setCurrentList(saved.currentList);
     }
+    if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
+      setImagesIndex(saved.imagesIndex);
+    }
   }, []);
 
   /* =================== Autosave debounce (locale) =================== */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    const snapshot = { lists, stock, currentList };
+    const snapshot = { lists, stock, currentList, imagesIndex };
     persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
     return () => clearTimeout(persistTimerRef.current);
-  }, [lists, stock, currentList]);
+  }, [lists, stock, currentList, imagesIndex]);
 
   /* =================== Sync tra tab =================== */
   useEffect(() => {
@@ -887,6 +913,7 @@ useEffect(() => {
       });
       setStock(Array.isArray(saved.stock) ? saved.stock : []);
       setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+      setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -895,17 +922,9 @@ useEffect(() => {
   /* =================== Derivati: critici =================== */
   useEffect(() => {
     const crit = stock.filter(p => {
-      const upp = Math.max(1, Number(p.unitsPerPack || 1));
-      const ru = Number(p.residueUnits);
-      const currentUnits = Number.isFinite(ru)
-        ? Math.max(0, ru)
-        : Math.max(0, Number(p.packs || 0) * upp);
-      const bp = Number(p.baselinePacks);
-      const baselineUnits = Math.max(
-        upp,
-        (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(p.packs || 0) * upp)
-      );
-      const pct = baselineUnits ? (currentUnits / baselineUnits) : 1;
+      const current = residueUnitsOf(p);
+      const baseline = baselineUnitsOf(p);
+      const pct = baseline ? (current / baseline) : 1;
       const lowResidue = pct < 0.20;
       const expSoon   = isExpiringSoon(p, 10);
       return lowResidue || expSoon;
@@ -1032,21 +1051,23 @@ useEffect(() => {
             const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
             const pack = {
               packs: Number(p.packs ?? p.qty ?? 1),
-              unitsPerPack: Number(p.unitsPerPack ?? 1),
+              unitsPerPack: Math.max(1, Number(p.unitsPerPack ?? 1)),
               unitLabel: p.unitLabel || 'unità'
             };
             if (idx >= 0) {
               const old = arr[idx];
               const newPacks = Number(old.packs || 0) + pack.packs;
+              const upp = Math.max(1, Number(old.unitsPerPack || pack.unitsPerPack));
               arr[idx] = {
                 ...old,
                 packs: newPacks,
-                unitsPerPack: old.unitsPerPack || pack.unitsPerPack,
+                unitsPerPack: upp,
                 unitLabel: old.unitLabel || pack.unitLabel,
-                ...restockTouch(newPacks, todayISO, old.unitsPerPack || pack.unitsPerPack)
+                packsOnly: false,
+                ...restockTouch(newPacks, todayISO, upp)
               };
             } else {
-              arr.unshift({
+              const row = {
                 name: p.name, brand: p.brand || '',
                 packs: pack.packs,
                 unitsPerPack: pack.unitsPerPack,
@@ -1055,8 +1076,10 @@ useEffect(() => {
                 baselinePacks: pack.packs,
                 lastRestockAt: todayISO,
                 avgDailyUnits: 0,
-                residueUnits: pack.packs * (pack.unitsPerPack || 1)
-              });
+                residueUnits: pack.packs * (pack.unitsPerPack || 1),
+                packsOnly: false
+              };
+              arr.unshift(withRememberedImage(row, imagesIndex));
             }
           }
           return arr;
@@ -1091,7 +1114,7 @@ useEffect(() => {
       unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
       unitLabel: row.unitLabel || 'unità',
       expiresAt: row.expiresAt || '',
-      residueUnits: row.residueUnits ?? initRU,
+      residueUnits: row.packsOnly ? String(Number(row.packs||0)) : (row.residueUnits ?? initRU),
       _ruTouched: false,
     });
   }
@@ -1124,7 +1147,7 @@ useEffect(() => {
 
       const todayISO = new Date().toISOString().slice(0,10);
       const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-      const wasUnits = Number(old.packs || 0) * uppOld;
+      const wasUnits = old.packsOnly ? Number(old.packs||0) : Number(old.packs || 0) * uppOld;
       const nowUnits = newPacks * unitsPerPack;
       const restock = nowUnits > wasUnits;
 
@@ -1135,7 +1158,7 @@ useEffect(() => {
         if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
       }
       const fullNow = Math.max(unitsPerPack, nowUnits);
-      ru = Math.min(ru, fullNow);
+      if (!old.packsOnly) ru = Math.min(ru, fullNow);
 
       const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
 
@@ -1146,12 +1169,13 @@ useEffect(() => {
         unitsPerPack, unitLabel,
         expiresAt,
         avgDailyUnits,
+        packsOnly: false
       };
 
       if (restock) {
         next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
       } else {
-        next.residueUnits = ru;
+        next.residueUnits = old.packsOnly ? Math.max(0, Number(newPacks)) : ru;
       }
 
       arr[index] = next;
@@ -1165,10 +1189,15 @@ useEffect(() => {
       const arr = [...prev];
       const row = arr[index];
       if (!row) return prev;
-      const upp = Math.max(1, Number(row.unitsPerPack || 1));
-      const baseline = baselineUnitsOf(row) || upp;
+      if (row.packsOnly) {
+        const baselinePacks = Math.max(1, Number(row.baselinePacks || row.packs || 1));
+        const clampedP = Math.max(0, Math.min(Number(setUnits || 0), baselinePacks));
+        arr[index] = { ...row, packs: clampedP };
+        return arr;
+      }
+      const baseline = baselineUnitsOf(row) || Math.max(1, Number(row.unitsPerPack || 1));
       const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
-      arr[index] = { ...row, residueUnits: clamped };
+      arr[index] = { ...row, residueUnits: clamped, packsOnly:false };
       return arr;
     });
   }
@@ -1183,7 +1212,13 @@ useEffect(() => {
       setStock(prev => {
         const arr = [...prev];
         if (!arr[idx]) return prev;
-        arr[idx] = { ...arr[idx], image: dataUrl };
+        const updated = { ...arr[idx], image: dataUrl };
+        arr[idx] = updated;
+
+        // salva in indice immagini
+        const key = productKey(updated.name, updated.brand || '');
+        setImagesIndex(prevIdx => ({ ...prevIdx, [key]: dataUrl }));
+
         return arr;
       });
       showToast('Immagine prodotto aggiornata ✓', 'ok');
@@ -1329,6 +1364,8 @@ useEffect(() => {
 
       // 2) Aggiornamenti quantità / set residuo
       const updates = parseStockUpdateText(text);
+      const todayISO = new Date().toISOString().slice(0,10);
+      const absolute = wantsAbsoluteSet(text);
 
       // Applica scadenze
       if (expPairs.length) {
@@ -1337,10 +1374,10 @@ useEffect(() => {
           for (const ex of expPairs) {
             const i = arr.findIndex(s => isSimilar(s.name, ex.name));
             if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
-            else arr.unshift({
+            else arr.unshift(withRememberedImage({
               name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-              expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
-            });
+              expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
+            }, imagesIndex));
           }
           return arr;
         });
@@ -1348,36 +1385,84 @@ useEffect(() => {
 
       // Applica quantità
       if (updates.length) {
-        const todayISO = new Date().toISOString().slice(0,10);
-        const absolute = wantsAbsoluteSet(text);
         setStock(prev => {
           const arr = [...prev];
           for (const u of updates) {
             const j = arr.findIndex(s => isSimilar(s.name, u.name));
+
+            // helper packsOnly
+            const makePacksOnly = (base) => ({
+              ...base,
+              unitsPerPack: 1,
+              unitLabel: 'conf.',
+              packsOnly: true,
+              residueUnits: Math.max(0, Number(base.packs || 0)),
+            });
+
             if (j < 0) {
-              // crea con hint
-              const packs = u.mode === 'packs' ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(u._packs||1));
-              const upp   = u.mode === 'packs' ? Math.max(1, Number(u._upp||1)) : Math.max(1, Number(u.value||1));
-              arr.unshift({
-                name: u.name, brand:'', packs, unitsPerPack: upp, unitLabel:'unità',
-                expiresAt: '', ...restockTouch(packs, todayISO, upp), avgDailyUnits: 0, image:''
-              });
+              if (u.mode === 'packs') {
+                const packs = Math.max(0, Number(u.value||u._packs||0));
+                if (u.explicit && u._upp > 1) {
+                  const up = Math.max(1, Number(u._upp||1));
+                  const row = {
+                    name: u.name, brand:'', packs,
+                    unitsPerPack: up, unitLabel:'unità',
+                    expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly:false
+                  };
+                  arr.unshift(withRememberedImage(row, imagesIndex));
+                } else {
+                  const row = makePacksOnly({
+                    name: u.name, brand:'', packs,
+                    expiresAt:'', ...restockTouch(packs, todayISO, 1), avgDailyUnits:0
+                  });
+                  arr.unshift(withRememberedImage(row, imagesIndex));
+                }
+              } else {
+                const units = Math.max(0, Number(u.value||1));
+                const base = {
+                  name: u.name, brand:'', packs: 1,
+                  unitsPerPack: 1, unitLabel:'unità',
+                  expiresAt:'', baselinePacks:1, lastRestockAt: todayISO, avgDailyUnits:0,
+                  residueUnits: Math.max(0, Math.min(units, 1)),
+                  packsOnly:false
+                };
+                arr.unshift(withRememberedImage(base, imagesIndex));
+              }
               continue;
             }
+
             const old = arr[j];
+
             if (u.op === 'restockExplicit' || u.mode === 'packs') {
-              // incremento o set a pacchi?
-              const newPacks = absolute ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(old.packs||0) + Number(u.value||0));
-              const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-              arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
+              const uppFromVoice = Math.max(1, Number(u._upp || 1));
+              const packsNew = absolute
+                ? Math.max(0, Number(u.value||u._packs||0))
+                : Math.max(0, Number(old.packs||0) + Number(u.value||u._packs||0));
+
+              if (u.explicit && uppFromVoice > 1) {
+                arr[j] = {
+                  ...old,
+                  packs: packsNew,
+                  unitsPerPack: uppFromVoice,
+                  unitLabel: old.unitLabel || 'unità',
+                  packsOnly: false,
+                  ...restockTouch(packsNew, todayISO, uppFromVoice)
+                };
+              } else {
+                arr[j] = makePacksOnly({
+                  ...old,
+                  packs: packsNew,
+                  ...restockTouch(packsNew, todayISO, 1)
+                });
+              }
             } else {
-              // units → residueUnits (impostazione residuo o incremento residuo)
-              const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              const upp = Math.max(1, Number(old.unitsPerPack || 1));
               const baseline = baselineUnitsOf(old) || upp;
+              const current = residueUnitsOf(old);
               const targetUnits = absolute
                 ? Math.max(0, Math.min(Number(u.value||0), baseline))
-                : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
-              arr[j] = { ...old, residueUnits: targetUnits };
+                : Math.max(0, Math.min(current + Number(u.value||0), baseline));
+              arr[j] = { ...old, packsOnly:false, residueUnits: targetUnits };
             }
           }
           return arr;
@@ -1418,6 +1503,7 @@ useEffect(() => {
                 setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
                 setStock([]);
                 setCurrentList(LIST_TYPES.SUPERMARKET);
+                setImagesIndex({});
                 showToast('Dati locali azzerati', 'ok');
               }} style={styles.actionGhost} title="Cancella i dati locali">↺ Reset locale</button>
               <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
@@ -1544,13 +1630,14 @@ useEffect(() => {
                                 const old = arr[idx];
                                 const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
                                 const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
+                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, packsOnly:false, ...restockTouch(newPacks, todayISO, upp) };
                               } else {
-                                arr.unshift({
+                                const row = {
                                   name: item.name, brand: item.brand || '',
                                   packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                                  expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
-                                });
+                                  expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0, packsOnly:false
+                                };
+                                arr.unshift(withRememberedImage(row, imagesIndex));
                               }
                               return arr;
                             });
@@ -1621,16 +1708,18 @@ useEffect(() => {
                   if (idx >= 0) {
                     const old = arr[idx];
                     const newPacks = Number(old.packs || 0) + packs;
+                    const upp = Math.max(1, Number(old.unitsPerPack || unitsPerPack));
                     arr[idx] = {
                       ...old,
                       packs: newPacks,
-                      unitsPerPack: old.unitsPerPack || unitsPerPack,
+                      unitsPerPack: upp,
                       unitLabel: old.unitLabel || unitLabel,
                       expiresAt: ex || old.expiresAt || '',
-                      ...restockTouch(newPacks, todayISO, old.unitsPerPack || unitsPerPack)
+                      packsOnly:false,
+                      ...restockTouch(newPacks, todayISO, upp)
                     };
                   } else {
-                    arr.unshift({
+                    const row = {
                       name, brand,
                       packs, unitsPerPack, unitLabel,
                       expiresAt: ex || '',
@@ -1638,8 +1727,10 @@ useEffect(() => {
                       lastRestockAt: todayISO,
                       avgDailyUnits: 0,
                       residueUnits: packs * unitsPerPack,
-                      image: ''
-                    });
+                      image: '',
+                      packsOnly:false
+                    };
+                    arr.unshift(withRememberedImage(row, imagesIndex));
                   }
                   return arr;
                 });
@@ -1677,10 +1768,10 @@ useEffect(() => {
                     arr[i] = { ...arr[i], expiresAt: iso };
                     updated = true;
                   } else {
-                    arr.unshift({
+                    arr.unshift(withRememberedImage({
                       name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-                      expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
-                    });
+                      expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
+                    }, imagesIndex));
                     updated = true;
                   }
                   return arr;
@@ -1762,9 +1853,9 @@ useEffect(() => {
                             <div style={styles.formRowWrap}>
                               <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
                                      onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
-                              {/* NUOVO: campo edit residuo unità */}
+                              {/* Campo edit residuo unità / o pacchi se packsOnly */}
                               <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
-                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
+                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
                             </div>
                             <div style={{ display:'flex', gap:8, marginTop:6 }}>
                               <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
@@ -1779,7 +1870,7 @@ useEffect(() => {
                           <>
                             {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
                             <div style={styles.stockRow}>
-                              {/* Colonna immagine (clic per caricare/scattare) */}
+                              {/* Colonna immagine */}
                               <div
                                 style={styles.imageBox}
                                 role="button"
@@ -1793,7 +1884,7 @@ useEffect(() => {
                                 )}
                               </div>
 
-                              {/* Nome + barra (alta) */}
+                              {/* Nome + barra */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={styles.stockTitle}>
                                   {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
@@ -1816,13 +1907,13 @@ useEffect(() => {
                               {/* Unità/conf. */}
                               <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Unità/conf.</div>
-                                <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
+                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
                               </div>
 
-                              {/* NUOVA COLONNA → Residuo unità */}
+                              {/* Residuo unità */}
                               <div style={styles.kvCol}>
                                 <div style={styles.kvLabel}>Residuo unità</div>
-                                <div style={styles.kvValue}>{Math.round(residueUnitsOf(s))}</div>
+                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
                               </div>
 
                               {/* Azioni riga */}
@@ -1943,7 +2034,9 @@ useEffect(() => {
               if (stockIndex >= 0 && arr[stockIndex]) {
                 const old = arr[stockIndex];
                 const nowUnits = upd.packs * upd.unitsPerPack;
-                const wasUnits = Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
+                const wasUnits = old.packsOnly
+                  ? Math.max(0, Number(old.packs || 0))
+                  : Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
                 const restock = nowUnits > wasUnits;
 
                 let next = {
@@ -1953,7 +2046,8 @@ useEffect(() => {
                   packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
                   unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
                   unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || old.expiresAt || ''
+                  expiresAt: upd.expiresAt || old.expiresAt || '',
+                  packsOnly:false
                 };
                 if (restock) {
                   next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
@@ -1976,12 +2070,13 @@ useEffect(() => {
                   unitsPerPack: newUPP,
                   unitLabel: upd.unitLabel || old.unitLabel || 'unità',
                   expiresAt: upd.expiresAt || old.expiresAt || '',
+                  packsOnly:false,
                   ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP)
                 };
               } else {
                 const p = Math.max(0, Number(upd.packs || 0));
                 const u = Math.max(1, Number(upd.unitsPerPack || 1));
-                arr.unshift({
+                const row = {
                   name: upd.name || itemName,
                   brand: upd.brand || brand || '',
                   packs: p,
@@ -1992,8 +2087,10 @@ useEffect(() => {
                   lastRestockAt: todayISO,
                   avgDailyUnits: 0,
                   residueUnits: p * u,
-                  image: ''
-                });
+                  image: '',
+                  packsOnly:false
+                };
+                arr.unshift(withRememberedImage(row, imagesIndex));
               }
               return arr;
             });
@@ -2028,6 +2125,10 @@ useEffect(() => {
     </>
   );
 }
+
+/* =================== Styles (segue identico all’originale) =================== */
+// Confermi che posso incollare qui sotto il blocco styles invariato?
+
 
 /* =================== Styles (completo con fix) =================== */
 const styles = {
