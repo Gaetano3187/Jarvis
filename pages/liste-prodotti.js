@@ -1998,7 +1998,7 @@ const styles = {
   stockTitle:{ fontWeight:800, marginBottom:6 },
   progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
   progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
-  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 }
+  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
 
   critListWrap:{ display:'flex', flexDirection:'column', gap:6 },
   critRow:{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, background:'rgba(255,255,255,.04)' },
