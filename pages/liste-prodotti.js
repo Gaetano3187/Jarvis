@@ -101,51 +101,79 @@ function extractPackInfo(str){
   let unitsPerPack = 1;
   let unitLabel = 'unità';
 
-  const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
+  // Include anche "bott" abbreviato
+  const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bott(?:iglie)?|merendine?|bustin[ae]|monouso)';
+  const PACK_TERMS = '(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])';
+  const NUM_WORDS = '(?:\\d+|un(?:a)?|uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici)';
 
-  // classico: "2 confezioni da 6 bottiglie"
-  let m = s.match(new RegExp(String.raw`(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:${UNIT_TERMS})?`, 'i'));
+  const wordToNum = (t) => {
+    const x = String(t || '').trim();
+    if (/^\d+$/.test(x)) return Number(x);
+    const map = {
+      un:1, una:1, uno:1, due:2, tre:3, quattro:4, cinque:5, sei:6,
+      sette:7, otto:8, nove:9, dieci:10, undici:11, dodici:12
+    };
+    return map[x] ?? NaN;
+  };
+
+  // classico/esteso: "2 confezioni da 6 bottiglie" / "due confezioni di 6 bottiglie" / "2 conf x 6 bottiglie"
+  let m = s.match(new RegExp(
+    `(${NUM_WORDS})\\s*${PACK_TERMS}\\s*(?:di\\s+|da\\s+|x\\s*)?(${NUM_WORDS})\\s*(${UNIT_TERMS})?`,
+    'i'
+  ));
   if (m){
-    packs = Number(m[1]);
-    unitsPerPack = Number(m[2]);
-    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
+    packs = wordToNum(m[1]) || 1;
+    unitsPerPack = wordToNum(m[2]) || 1;
+    unitLabel = (m[3] || 'unità').replace(/^(?:pz|pezzi)$/i,'unità');
     return { packs, unitsPerPack, unitLabel, explicit:true };
   }
 
-  // nuovo: "aggiungendo 2 a confezioni 6 a unità" / "2 confezioni 6 unità"
-  m = s.match(new RegExp(String.raw`(?:aggiungendo\s*)?(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\b.*?\b(\d+)\s*(?:${UNIT_TERMS}|unit[aà]|u\/conf|unit[aà]\s*\/\s*conf)?`, 'i'));
+  // variante libera: "2 confezioni 6 unità" / "aggiungendo 2 confezioni 6 bottiglie"
+  m = s.match(new RegExp(
+    `(?:aggiungendo\\s*)?(${NUM_WORDS})\\s*${PACK_TERMS}\\b.*?(${NUM_WORDS})\\s*(?:(${UNIT_TERMS})|unit[aà](?:\\s*\\/\\s*conf)?|u\\s*\\/\\s*conf)?`,
+    'i'
+  ));
   if (m){
-    packs = Number(m[1]);
-    unitsPerPack = Number(m[2]);
+    packs = wordToNum(m[1]) || 1;
+    unitsPerPack = wordToNum(m[2]) || 1;
+    unitLabel = (m[3] || unitLabel).replace(/^(?:pz|pezzi)$/i,'unità');
     return { packs, unitsPerPack, unitLabel, explicit:true };
   }
 
-  // "4x125"
-  m = s.match(/(\d+)\s*[x×]\s*\d+/i);
+  // "2x6" = 2 confezioni da 6 (se senza g/ml), oppure "4x125g" = 1 conf da 4 unità (etichetta non rilevante)
+  m = s.match(/(\d+)\s*[x×]\s*(\d+)\s*(g|kg|ml|cl|l|lt)?/i);
+  if (m){
+    if (m[3]) {
+      // tipo "4x125g" → 1 confezione da 4 unità
+      packs = 1;
+      unitsPerPack = Number(m[1]);
+    } else {
+      // "2x6" → 2 confezioni da 6
+      packs = Number(m[1]);
+      unitsPerPack = Number(m[2]);
+    }
+    return { packs, unitsPerPack, unitLabel, explicit:true };
+  }
+
+  // "... 6 bottiglie" → 1 conf da 6 unità (label catturata)
+  m = s.match(new RegExp(`(${NUM_WORDS})\\s*(${UNIT_TERMS})\\b`, 'i'));
   if (m){
     packs = 1;
-    unitsPerPack = Number(m[1]);
-    return { packs, unitsPerPack, unitLabel, explicit:true };
-  }
-
-  // "... 6 bottiglie"
-  m = s.match(new RegExp(String.raw`(\d+)\s*(?:${UNIT_TERMS})\b`, 'i'));
-  if (m){
-    packs = 1;
-    unitsPerPack = Number(m[1]);
+    unitsPerPack = wordToNum(m[1]) || 1;
+    unitLabel = (m[2] || unitLabel).replace(/^(?:pz|pezzi)$/i,'unità');
     return { packs, unitsPerPack, unitLabel, explicit:false };
   }
 
-  // "... 2 confezioni"
-  m = s.match(new RegExp(String.raw`(\d+)\s*(?:bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
+  // "... 2 confezioni" (senza specifica UPP)
+  m = s.match(new RegExp(`(${NUM_WORDS})\\s*(bott(?:iglie)?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
   if (m){
-    packs = Number(m[1]);
+    packs = wordToNum(m[1]) || 1;
     unitsPerPack = 1;
-    unitLabel = (/^bott/i.test(m[2]||'') ? 'bottiglie' : 'unità');
+    unitLabel = /^bott/i.test(m[2]||'') ? 'bottiglie' : 'unità';
     return { packs, unitsPerPack, unitLabel, explicit:false };
   }
 
-  // "2 kg zucchero"
+  // "2 kg zucchero" → interpreta 2 come quantità confezioni (fallback)
   m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
   if (m){
     packs = Number(String(m[1]).replace(',','.')) || 1;
@@ -155,6 +183,7 @@ function extractPackInfo(str){
 
   return { packs, unitsPerPack, unitLabel, explicit:false };
 }
+
 function parseLinesToItems(text) {
   const chunks = String(text || '')
     .split(/[\n,;]+/g)
@@ -201,6 +230,7 @@ function parseLinesToItems(text) {
   }
   return items;
 }
+
 
 /* ====================== Scadenze utils ====================== */
 function toISODate(any) {
