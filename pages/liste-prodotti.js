@@ -1311,29 +1311,26 @@ useEffect(() => {
     }
   }
 
-  /* =================== Vocale UNIFICATO INVENTARIO =================== */
-  async function toggleVoiceInventory() {
-    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      invStreamRef.current = stream;
-      invMediaRef.current = new MediaRecorder(stream);
-      invChunksRef.current = [];
-      invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
-      invMediaRef.current.onstop = processVoiceInventory;
-      invMediaRef.current.start();
-      setInvRecBusy(true);
-    } catch {
-      alert('Microfono non disponibile');
-    }
+ /* =================== Vocale UNIFICATO INVENTARIO =================== */
+async function toggleVoiceInventory() {
+  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    invStreamRef.current = stream;
+    invMediaRef.current = new MediaRecorder(stream);
+    invChunksRef.current = [];
+    invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
+    invMediaRef.current.onstop = processVoiceInventory;
+    invMediaRef.current.start();
+    setInvRecBusy(true);
+  } catch {
+    alert('Microfono non disponibile');
   }
-  async function processVoiceInventory() {
+}
+
+async function processVoiceInventory() {
   const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
   const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
-
-  // piccoli helper locali per il riepilogo
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('it-IT') : '';
-  const msgParts = []; // qui accumuliamo le conferme da mostrare nel toast
 
   try {
     setBusy(true);
@@ -1341,15 +1338,13 @@ useEffect(() => {
     const { text } = await res.json();
     if (!text) throw new Error('Testo non riconosciuto');
 
-    // 1) Scadenze dal parlato (se presenti)
+    const absolute = wantsAbsoluteSet(text); // “metti a”, “ora sono…”
     const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+    const updates = parseStockUpdateText(text); // già capisce packs/units + hint _packs/_upp
 
-    // 2) Aggiornamenti quantità / set residuo
-    const updates = parseStockUpdateText(text);
-    const absolute = wantsAbsoluteSet(text);
-    const todayISO = new Date().toISOString().slice(0,10);
+    const msgParts = [];
 
-    // Applica scadenze (con conferma)
+    /* ——— 1) Applica SCADENZE ——— */
     if (expPairs.length) {
       setStock(prev => {
         const arr = [...prev];
@@ -1357,101 +1352,135 @@ useEffect(() => {
           const i = arr.findIndex(s => isSimilar(s.name, ex.name));
           if (i >= 0) {
             arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+            msgParts.push(`${ex.name}: scade ${new Date(ex.expiresAt).toLocaleDateString('it-IT')}`);
           } else {
             arr.unshift({
               name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
               expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
             });
+            msgParts.push(`${ex.name}: scadenza impostata`);
           }
-          msgParts.push(`${ex.name}: scadenza ${fmtDate(ex.expiresAt)}`);
         }
         return arr;
       });
     }
 
-    // Applica quantità (con conferma)
+    /* ——— 2) Applica QUANTITÀ ——— */
     if (updates.length) {
+      const todayISO = new Date().toISOString().slice(0,10);
+
       setStock(prev => {
         const arr = [...prev];
 
         for (const u of updates) {
           const j = arr.findIndex(s => isSimilar(s.name, u.name));
+          const uppHint = Math.max(1, Number(u._upp || 1));
+          const packsHint = Math.max(1, Number(u._packs || 1));
 
           if (j < 0) {
-            // crea nuova scorta
-            if (u.mode === 'units') {
-              // es. "latte sono 4 bottiglie"
-              const uppHint = Math.max(1, Number(u._upp || 1));
-              const residue = Math.max(0, Number(u.value || 0));
-              const baselineUnits = Math.max(uppHint, residue);
-              const packs = Math.max(1, Math.ceil(baselineUnits / uppHint));
+            // CREAZIONE
+            if (u.mode === 'packs') {
+              const newPacks = Math.max(0, Number(u.value || 0));
+              const newUpp = uppHint;
               arr.unshift({
-                name: u.name, brand:'', 
-                packs, unitsPerPack: uppHint, unitLabel:'unità',
-                expiresAt: '',
-                baselinePacks: packs,
-                lastRestockAt: todayISO,
-                avgDailyUnits: 0,
-                residueUnits: residue,
-                image: ''
+                name: u.name, brand:'', packs: newPacks, unitsPerPack: newUpp, unitLabel:'unità',
+                expiresAt:'', ...restockTouch(newPacks, todayISO, newUpp), avgDailyUnits:0, image:''
               });
-              msgParts.push(`${u.name}: creato, residuo = ${residue} u.`);
+              msgParts.push(`${u.name}: creato ${newPacks} conf × ${newUpp}`);
             } else {
-              // mode === 'packs' (restock a pacchi)
-              const packs = Math.max(0, Number(u.value || 0));
-              const upp   = Math.max(1, Number(u._upp || 1));
-              arr.unshift({
-                name: u.name, brand:'',
-                packs, unitsPerPack: upp, unitLabel:'unità',
-                expiresAt:'',
-                ...restockTouch(packs, todayISO, upp),
-                avgDailyUnits: 0, image:''
-              });
-              msgParts.push(`${u.name}: +${packs} conf. × ${upp}`);
+              const reqUnits = Math.max(0, Number(u.value || 0));
+              const newUpp = uppHint;
+              if (absolute) {
+                const needPacks = Math.max(1, Math.ceil(reqUnits / newUpp));
+                arr.unshift({
+                  name: u.name, brand:'', packs: needPacks, unitsPerPack: newUpp, unitLabel:'unità',
+                  expiresAt:'', baselinePacks: needPacks, lastRestockAt: todayISO, avgDailyUnits:0,
+                  residueUnits: reqUnits, image:''
+                });
+                msgParts.push(`${u.name}: creato residuo = ${reqUnits} u. (baseline ${needPacks}×${newUpp})`);
+              } else {
+                // tratta come un piccolo restock “di base”
+                const newPacks = packsHint;
+                arr.unshift({
+                  name: u.name, brand:'', packs: newPacks, unitsPerPack: newUpp, unitLabel:'unità',
+                  expiresAt:'', ...restockTouch(newPacks, todayISO, newUpp), avgDailyUnits:0, image:''
+                });
+                // aggiungo units ma verrà clampato al baseline (pieno)
+                const idx0 = 0;
+                const baseUnits = baselineUnitsOf(arr[idx0]);
+                const curResidue = residueUnitsOf(arr[idx0]);
+                const target = Math.max(0, Math.min(curResidue + reqUnits, baseUnits));
+                arr[idx0] = { ...arr[idx0], residueUnits: target };
+                msgParts.push(`${u.name}: creato pieno (${baseUnits} u.), richiesta +${reqUnits} u. → ${target} u.`);
+              }
             }
             continue;
           }
 
-          // esiste già
+          // AGGIORNAMENTO ESISTENTE
           const old = arr[j];
+          const upp = Math.max(1, Number(old.unitsPerPack || uppHint));
 
-          if (u.op === 'restockExplicit' || u.mode === 'packs') {
-            // set/inc pacchi
-            const delta = Math.max(0, Number(u.value || 0));
-            const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-            const newPacks = absolute
-              ? Math.max(0, delta)
-              : Math.max(0, Number(old.packs || 0) + delta);
-
-            arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
-
-            if (absolute) {
-              msgParts.push(`${u.name}: pacchi impostati a ${newPacks} (× ${up})`);
+          if (u.mode === 'packs') {
+            const val = Math.max(0, Number(u.value || 0));
+            let newPacks;
+            if (absolute || u.op === 'set') {
+              newPacks = val;
+              msgParts.push(`${u.name}: imposta a ${newPacks} conf.`);
             } else {
-              msgParts.push(`${u.name}: +${delta} conf. (× ${up})`);
+              newPacks = Math.max(0, Number(old.packs || 0) + val);
+              msgParts.push(`${u.name}: +${val} conf. → ${newPacks}`);
             }
+            arr[j] = { ...old, packs: newPacks, unitsPerPack: upp, ...restockTouch(newPacks, todayISO, upp) };
+            continue;
+          }
+
+          // mode === 'units'
+          const reqUnits = Math.max(0, Number(u.value || 0));
+          const curBaselineUnits = baselineUnitsOf(old) || upp;
+          const curResidue = residueUnitsOf(old);
+
+          if (absolute || u.op === 'set') {
+            let newBaselineUnits = curBaselineUnits;
+            if (reqUnits > curBaselineUnits) newBaselineUnits = reqUnits;
+            const needPacks = Math.max(1, Math.ceil(newBaselineUnits / upp));
+            arr[j] = {
+              ...old,
+              packs: Math.max(Number(old.packs || 0), needPacks),
+              unitsPerPack: upp,
+              baselinePacks: needPacks,
+              residueUnits: reqUnits,
+              lastRestockAt: old.lastRestockAt || todayISO
+            };
+            msgParts.push(`${u.name}: residuo = ${Math.round(reqUnits)} u. (baseline ${needPacks}×${upp})`);
           } else {
-            // units → residueUnits (set o incremento residuo)
-            const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-            const baseline = baselineUnitsOf(old) || upp;
-
-            const targetUnits = absolute
-              ? Math.max(0, Math.min(Number(u.value||0), baseline))
-              : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
-
-            arr[j] = { ...old, residueUnits: targetUnits };
-
-            if (absolute) {
-              msgParts.push(`${u.name}: residuo = ${Math.round(targetUnits)} u.`);
-            } else {
-              msgParts.push(`${u.name}: +${Number(u.value||0)} u. → ${Math.round(targetUnits)} u.`);
-            }
+            const targetUnits = Math.max(0, Math.min(curResidue + reqUnits, curBaselineUnits));
+            arr[j] = { ...old, unitsPerPack: upp, residueUnits: targetUnits };
+            msgParts.push(`${u.name}: +${reqUnits} u. → ${Math.round(targetUnits)} u.`);
           }
         }
 
         return arr;
       });
     }
+
+    showToast(
+      msgParts.length ? `Inventario aggiornato ✓\n• ` + msgParts.join('\n• ') : 'Nessun dato inventario riconosciuto',
+      msgParts.length ? 'ok' : 'err'
+    );
+
+  } catch (e) {
+    console.error('[voice inventory] error', e);
+    showToast('Errore vocale inventario', 'err');
+  } finally {
+    setInvRecBusy(false);
+    setBusy(false);
+    try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+    invMediaRef.current = null;
+    invStreamRef.current = null;
+    invChunksRef.current = [];
+  }
+}
 
     if (!expPairs.length && !updates.length) {
       showToast('Nessun dato inventario riconosciuto', 'err');
