@@ -1,4 +1,3 @@
-
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -295,8 +294,37 @@ function baselineUnitsOf(s){
   const base = Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp;
   return Math.max(upp, base);
 }
+function daysBetweenISO(fromISO, toISO){
+  if (!fromISO || !toISO) return 0;
+  const a = new Date(fromISO); const b = new Date(toISO);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.max(0, Math.floor((b - a) / 86400000));
+}
+/** Residuo “vivo”: applica calo giornaliero dal momento dell’ultima misura/ancora */
+function liveResidueUnits(s){
+  const base = residueUnitsOf(s);
+  const anchor = s.consumptionAnchorAt || s.lastRestockAt || '';
+  const day = Number(s.avgDailyUnits || 0);
+  if (!anchor || day <= 0) return base;
+  const nowISO = new Date().toISOString().slice(0,10);
+  const days = daysBetweenISO(anchor, nowISO);
+  return Math.max(0, base - day * days);
+}
+/** Aggiorna media consumo partendo da una misura puntuale del residuo */
+function updateAvgFromMeasurement(old, measuredUnits){
+  const anchor = old.consumptionAnchorAt || old.lastRestockAt;
+  if (!anchor) return Number(old.avgDailyUnits || 0);
+  const baseline = baselineUnitsOf(old);
+  const nowISO = new Date().toISOString().slice(0,10);
+  const days = Math.max(1, daysBetweenISO(anchor, nowISO));
+  const used = Math.max(0, baseline - Math.max(0, Number(measuredUnits || 0)));
+  const day = used / days;
+  const prev = Number(old.avgDailyUnits || 0);
+  return prev ? (0.6*prev + 0.4*day) : day;
+}
+
 function residueInfo(s){
-  const current  = residueUnitsOf(s);
+  const current  = liveResidueUnits(s);
   const baseline = baselineUnitsOf(s);
   const pct = baseline ? clamp01(current / baseline) : 1;
   return { current, baseline, pct };
@@ -554,6 +582,7 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
     baselinePacks: bp,
     lastRestockAt: lastDateISO,
     residueUnits: fullUnits,
+    consumptionAnchorAt: lastDateISO, // l’ancora coincide con il riempimento
   };
 }
 
@@ -784,9 +813,7 @@ useEffect(() => {
     fetch: () => {
       return (stock || []).map((s) => {
         const upp = Math.max(1, Number(s.unitsPerPack || 1));
-        const residueUnits = Number.isFinite(Number(s.residueUnits))
-          ? Math.max(0, Number(s.residueUnits))
-          : Math.max(0, Number(s.packs || 0) * upp);
+        const residueUnits = liveResidueUnits(s);
         const baselineUnits = Math.max(
           upp,
           Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp
@@ -812,8 +839,7 @@ useEffect(() => {
     fetch: () => {
       return (stock || []).filter((s) => {
         const upp = Math.max(1, Number(s.unitsPerPack || 1));
-        const ru = Number(s.residueUnits);
-        const currentUnits = Number.isFinite(ru) ? Math.max(0, ru) : Math.max(0, Number(s.packs || 0) * upp);
+        const currentUnits = liveResidueUnits(s);
         const bp = Number(s.baselinePacks);
         const baselineUnits = Math.max(upp, (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp));
         return baselineUnits > 0 && currentUnits / baselineUnits < 0.2;
@@ -832,9 +858,7 @@ useEffect(() => {
       const out = [];
       for (const s of stock || []) {
         const upp = Math.max(1, Number(s.unitsPerPack || 1));
-        const currentUnits = Number.isFinite(Number(s.residueUnits))
-          ? Math.max(0, Number(s.residueUnits))
-          : Math.max(0, Number(s.packs || 0) * upp);
+        const currentUnits = liveResidueUnits(s);
         const day = Number(s.avgDailyUnits || 0);
         const days = day > 0 ? Math.ceil(currentUnits / day) : null;
         out.push({
@@ -921,10 +945,7 @@ useEffect(() => {
   useEffect(() => {
     const crit = stock.filter(p => {
       const upp = Math.max(1, Number(p.unitsPerPack || 1));
-      const ru = Number(p.residueUnits);
-      const currentUnits = Number.isFinite(ru)
-        ? Math.max(0, ru)
-        : Math.max(0, Number(p.packs || 0) * upp);
+      const currentUnits = liveResidueUnits(p);
       const bp = Number(p.baselinePacks);
       const baselineUnits = Math.max(
         upp,
@@ -1080,7 +1101,8 @@ useEffect(() => {
                 baselinePacks: pack.packs,
                 lastRestockAt: todayISO,
                 avgDailyUnits: 0,
-                residueUnits: pack.packs * (pack.unitsPerPack || 1)
+                residueUnits: pack.packs * (pack.unitsPerPack || 1),
+                consumptionAnchorAt: todayISO,
               });
             }
           }
@@ -1155,14 +1177,23 @@ useEffect(() => {
 
       let ru = residueUnitsOf(old);
       const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
+      let avgDailyUnits = old.avgDailyUnits || 0;
+
       if (ruTouched) {
         const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-        if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
+        if (Number.isFinite(ruRaw)) {
+          ru = Math.max(0, ruRaw);
+          // nuova misura → aggiorno media
+          avgDailyUnits = updateAvgFromMeasurement(old, ru);
+        }
       }
       const fullNow = Math.max(unitsPerPack, nowUnits);
       ru = Math.min(ru, fullNow);
 
-      const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+      // se è restock, aggiorna media con computeNewAvgDailyUnits
+      if (restock) {
+        avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+      }
 
       let next = {
         ...old,
@@ -1175,8 +1206,9 @@ useEffect(() => {
 
       if (restock) {
         next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
-      } else {
+      } else if (ruTouched) {
         next.residueUnits = ru;
+        next.consumptionAnchorAt = todayISO; // riparti da questa lettura
       }
 
       arr[index] = next;
@@ -1192,8 +1224,10 @@ useEffect(() => {
       if (!row) return prev;
       const upp = Math.max(1, Number(row.unitsPerPack || 1));
       const baseline = baselineUnitsOf(row) || upp;
-      const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
-      arr[index] = { ...row, residueUnits: clamped };
+      const measured = Math.max(0, Math.min(Number(setUnits || 0), baseline));
+      const avg = updateAvgFromMeasurement(row, measured);
+      const todayISO = new Date().toISOString().slice(0,10);
+      arr[index] = { ...row, residueUnits: measured, avgDailyUnits: avg, consumptionAnchorAt: todayISO };
       return arr;
     });
   }
@@ -1394,7 +1428,14 @@ useEffect(() => {
               // incremento o set a pacchi?
               const newPacks = absolute ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(old.packs||0) + Number(u.value||0));
               const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-              arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
+              const avg = computeNewAvgDailyUnits(old, newPacks);
+              arr[j] = {
+                ...old,
+                packs: newPacks,
+                unitsPerPack: up,
+                avgDailyUnits: avg,
+                ...restockTouch(newPacks, todayISO, up)
+              };
             } else {
               // units → residueUnits (impostazione residuo o incremento residuo)
               const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
@@ -1402,7 +1443,8 @@ useEffect(() => {
               const targetUnits = absolute
                 ? Math.max(0, Math.min(Number(u.value||0), baseline))
                 : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
-              arr[j] = { ...old, residueUnits: targetUnits };
+              const avg = updateAvgFromMeasurement(old, targetUnits);
+              arr[j] = { ...old, residueUnits: targetUnits, avgDailyUnits: avg, consumptionAnchorAt: todayISO };
             }
           }
           return arr;
@@ -1569,12 +1611,13 @@ useEffect(() => {
                                 const old = arr[idx];
                                 const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
                                 const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
+                                const avg = computeNewAvgDailyUnits(old, newPacks);
+                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, avgDailyUnits: avg, ...restockTouch(newPacks, todayISO, upp) };
                               } else {
                                 arr.unshift({
                                   name: item.name, brand: item.brand || '',
                                   packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                                  expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
+                                  expiresAt: '', avgDailyUnits: 0, ...restockTouch(movePacks, todayISO, moveUPP)
                                 });
                               }
                               return arr;
@@ -1646,572 +1689,305 @@ useEffect(() => {
                   if (idx >= 0) {
                     const old = arr[idx];
                     const newPacks = Number(old.packs || 0) + packs;
+                                        const avg = computeNewAvgDailyUnits(old, newPacks);
                     arr[idx] = {
                       ...old,
                       packs: newPacks,
-                      unitsPerPack: old.unitsPerPack || unitsPerPack,
+                      unitsPerPack: Math.max(1, Number(old.unitsPerPack || unitsPerPack)),
                       unitLabel: old.unitLabel || unitLabel,
                       expiresAt: ex || old.expiresAt || '',
-                      ...restockTouch(newPacks, todayISO, old.unitsPerPack || unitsPerPack)
+                      avgDailyUnits: avg,
+                      ...restockTouch(newPacks, todayISO, Math.max(1, Number(old.unitsPerPack || unitsPerPack))),
                     };
                   } else {
                     arr.unshift({
                       name, brand,
-                      packs, unitsPerPack, unitLabel,
-                      expiresAt: ex || '',
-                      baselinePacks: packs,
-                      lastRestockAt: todayISO,
+                      packs,
+                      unitsPerPack,
+                      unitLabel,
+                      expiresAt: ex,
                       avgDailyUnits: 0,
-                      residueUnits: packs * unitsPerPack,
-                      image: ''
+                      ...restockTouch(packs, todayISO, unitsPerPack),
                     });
                   }
                   return arr;
                 });
-                setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
                 setShowStockForm(false);
-                showToast('Scorta aggiunta ✓', 'ok');
-              }} style={styles.formRow}>
-                <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
-                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
-                <input style={styles.input} placeholder="Marca" value={stockForm.brand}
-                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
-                <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
-                       onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
-                <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
-                       onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
-                <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
-                       onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
-                <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
-                       onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
-                <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
+                setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
+                showToast('Scorta aggiunta/aggiornata ✓', 'ok');
+              }} style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(6, minmax(0, 1fr))', alignItems:'center' }}>
+                <input placeholder="Prodotto" value={stockForm.name} onChange={e=>setStockForm(s=>({...s, name:e.target.value}))} style={styles.input} required />
+                <input placeholder="Marca" value={stockForm.brand} onChange={e=>setStockForm(s=>({...s, brand:e.target.value}))} style={styles.input} />
+                <input placeholder="Confezioni" inputMode="decimal" value={stockForm.packs} onChange={e=>setStockForm(s=>({...s, packs:e.target.value}))} style={styles.input} />
+                <input placeholder="Unità/conf." inputMode="decimal" value={stockForm.unitsPerPack} onChange={e=>setStockForm(s=>({...s, unitsPerPack:e.target.value}))} style={styles.input} />
+                <input placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel} onChange={e=>setStockForm(s=>({...s, unitLabel:e.target.value}))} style={styles.input} />
+                <input placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt} onChange={e=>setStockForm(s=>({...s, expiresAt:e.target.value}))} style={styles.input} />
+                <div style={{ gridColumn:'1 / -1', display:'flex', gap:8 }}>
+                  <button className="btn" style={styles.primaryBtn}>Salva scorta</button>
+                  <button type="button" onClick={()=>setShowStockForm(false)} style={styles.actionGhost}>Annulla</button>
+                </div>
               </form>
             )}
 
             {/* Form scadenze manuali */}
             {showExpiryForm && (
-              <form onSubmit={(e)=>{e.preventDefault();
-                const name = (expiryForm.name || '').trim();
-                const iso  = toISODate(expiryForm.expiresAt || '');
-                if (!name || !iso) { showToast('Nome o data non validi', 'err'); return; }
-                let updated = false;
-                setStock(prev => {
-                  const arr = [...prev];
-                  const i = arr.findIndex(s => isSimilar(s.name, name));
-                  if (i >= 0) {
-                    arr[i] = { ...arr[i], expiresAt: iso };
-                    updated = true;
-                  } else {
-                    arr.unshift({
-                      name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-                      expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
-                    });
-                    updated = true;
-                  }
+              <form onSubmit={(e)=>{ e.preventDefault();
+                const nm = (expiryForm.name||'').trim(); if(!nm) return;
+                const ex = toISODate(expiryForm.expiresAt||''); if(!ex){ showToast('Data non valida', 'err'); return; }
+                setStock(prev=>{
+                  const arr=[...prev];
+                  const i = arr.findIndex(s=>isSimilar(s.name, nm));
+                  if(i>=0) arr[i] = { ...arr[i], expiresAt: ex };
+                  else arr.unshift({ name:nm, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità', expiresAt:ex, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0 });
                   return arr;
                 });
-                if (updated) {
-                  showToast('Scadenza impostata ✓', 'ok');
-                  setExpiryForm({ name:'', expiresAt:'' });
-                  setShowExpiryForm(false);
-                } else {
-                  showToast('Scadenza non aggiornata', 'err');
-                }
-              }} style={styles.formRow}>
-                <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
-                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
-                <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
-                       onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
-                <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
+                setExpiryForm({ name:'', expiresAt:'' });
+                setShowExpiryForm(false);
+                showToast('Scadenza impostata ✓', 'ok');
+              }} style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:8 }}>
+                <input placeholder="Prodotto" value={expiryForm.name} onChange={e=>setExpiryForm(s=>({...s, name:e.target.value}))} style={styles.input} required />
+                <input placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt} onChange={e=>setExpiryForm(s=>({...s, expiresAt:e.target.value}))} style={styles.input} required />
+                <button style={styles.primaryBtn}>Salva scadenza</button>
+                <button type="button" onClick={()=>setShowExpiryForm(false)} style={styles.actionGhost}>Annulla</button>
               </form>
             )}
 
-            {/* Critici */}
-            <div style={{ marginTop: 8 }}>
-              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-              {critical.length === 0 ? (
-                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
-              ) : (
-                <div style={styles.critListWrap}>
-                  {critical.map((s, i) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    return (
-                      <div key={i} style={styles.critRow}>
-                        <div style={styles.critName}>
-                          {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                        </div>
-                        <div style={styles.progressOuterCrit}>
-                          <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                        </div>
-                        <div style={styles.critMeta}>
-                          {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                          {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Scorte complete — LAYOUT A RIGHE */}
-            <div style={{ marginTop: 12 }}>
-              <h4 style={styles.h4}>Tutte le scorte</h4>
-              {stock.length === 0 ? (
-                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
-              ) : (
-                <div style={styles.stockList}>
-                  {stock.map((s, idx) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    const zebra = idx % 2 === 0;
-                    return (
-                      <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
-                        {editingRow === idx ? (
-                          <div>
-                            <div style={styles.formRowWrap}>
-                              <input style={styles.input} value={editDraft.name}
-                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
-                              <input style={styles.input} value={editDraft.brand}
-                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
-                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
-                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
-                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
-                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
-                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
-                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
-                              {/* NUOVO: campo edit residuo unità */}
-                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
-                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
-                            </div>
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
-                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                              <button
-                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                style={styles.smallGhostBtn}
-                              >OCR riga</button>
-                            </div>
+            {/* Elenco scorte */}
+            {(stock||[]).length === 0 ? (
+              <p style={{ opacity:.8, marginTop:8 }}>Nessuna scorta registrata.</p>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:10 }}>
+                {stock.map((s, idx) => {
+                  const { current, baseline, pct } = residueInfo(s);
+                  const soon = isExpiringSoon(s, 10);
+                  return (
+                    <div key={`${s.name}-${idx}`} style={styles.stockRow}>
+                      <div style={{ display:'flex', gap:12, alignItems:'center', flex:1 }}>
+                        <img src={s.image || '/img/placeholder.svg'} alt="" width={48} height={48} style={styles.stockImage} />
+                        <div style={styles.stockColLeft}>
+                          <div style={styles.stockName}>
+                            {s.name}
+                            {s.brand ? <span style={styles.stockBrand}> · {s.brand}</span> : null}
                           </div>
-                        ) : (
-                          <>
-                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
-                            <div style={styles.stockRow}>
-                              {/* Colonna immagine (clic per caricare/scattare) */}
-                              <div
-                                style={styles.imageBox}
-                                role="button"
-                                title="Aggiungi/Modifica immagine"
-                                onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
-                              >
-                                {s.image ? (
-                                  <img src={s.image} alt={s.name} style={styles.imageThumb} />
-                                ) : (
-                                  <div style={styles.imagePlaceholder}>＋</div>
-                                )}
-                              </div>
-
-                              {/* Nome + barra (alta) */}
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={styles.stockTitle}>
-                                  {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                                </div>
-                                <div style={styles.progressOuterBig}>
-                                  <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                                </div>
-                                <div style={styles.stockLineSmall}>
-                                  {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                                  {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                                </div>
-                              </div>
-
-                              {/* Confezioni */}
-                              <div style={styles.kvCol}>
-                                <div style={styles.kvLabel}>Confezioni</div>
-                                <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
-                              </div>
-
-                              {/* Unità/conf. */}
-                              <div style={styles.kvCol}>
-                                <div style={styles.kvLabel}>Unità/conf.</div>
-                                <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
-                              </div>
-
-                              {/* NUOVA COLONNA → Residuo unità */}
-                              <div style={styles.kvCol}>
-                                <div style={styles.kvLabel}>Residuo unità</div>
-                                <div style={styles.kvValue}>{Math.round(residueUnitsOf(s))}</div>
-                              </div>
-
-                              {/* Azioni riga */}
-                              <div style={styles.rowActionsRight}>
-                                <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                                <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                                <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
-                              </div>
-                            </div>
-                          </>
-                        )}
+                          <div style={styles.stockMeta}>
+                            {s.packs} conf · {s.unitsPerPack} {s.unitLabel} /conf · residuo stimato {Math.round(current)} / {Math.max(1, Math.round(baseline))} {s.unitLabel}
+                            {s.expiresAt ? (
+                              <span style={{ ...styles.statusPill, marginLeft:8, background: soon ? '#ef4444' : '#334155' }}>
+                                {soon ? '⚠︎' : '🗓'} Scade: {s.expiresAt}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div style={styles.meterTrack}>
+                            <div style={{ ...styles.meterFill, width: `${Math.round(clamp01(pct)*100)}%`, background: colorForPct(pct) }} />
+                          </div>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+
+                      {/* Azioni riga scorte */}
+                      {editingRow === idx ? (
+                        <div style={styles.editRow}>
+                          <input value={editDraft.name} onChange={e=>handleEditDraftChange('name', e.target.value)} placeholder="Prodotto" style={styles.editInput} />
+                          <input value={editDraft.brand} onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" style={styles.editInput} />
+                          <input value={editDraft.packs} onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" inputMode="decimal" style={styles.editInput} />
+                          <input value={editDraft.unitsPerPack} onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." inputMode="decimal" style={styles.editInput} />
+                          <input value={editDraft.unitLabel} onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" style={styles.editInput} />
+                          <input value={editDraft.expiresAt} onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" style={styles.editInput} />
+                          <input value={editDraft.residueUnits} onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità (misurato)" inputMode="decimal" style={styles.editInput} />
+
+                          <div style={styles.editActions}>
+                            <button onClick={()=>saveRowEdit(idx)} style={styles.saveBtn}>Salva</button>
+                            <button onClick={cancelRowEdit} style={styles.cancelBtn}>Annulla</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                          <button onClick={()=>startRowEdit(idx, s)} style={styles.editBtn}>✏️ Modifica</button>
+                          <button onClick={()=>applyDeltaToStock(idx, { setUnits: Math.max(0, Math.round(current) - Math.max(1, Math.round((s.avgDailyUnits||0)))) })} style={styles.smallBtn} title="Scala una giornata">–1 giorno</button>
+                          <button onClick={()=>applyDeltaToStock(idx, { setUnits: Math.min(Math.round(baseline), Math.round(current)+Math.max(1, Math.round((s.avgDailyUnits||0)))) })} style={styles.smallBtn} title="Aggiungi una giornata">+1 giorno</button>
+                          <button onClick={()=>{ setTargetImageIdx(idx); rowImageInputRef.current?.click(); }} style={styles.smallBtn}>🖼️ Immagine</button>
+                          <button onClick={()=>setStock(prev => prev.filter((_,i)=>i!==idx))} style={styles.dangerBtn}>Elimina</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* TOAST */}
+          {/* Sezione OCR riga lista (etichetta/scontrino) */}
+          <input ref={rowOcrInputRef} type="file" accept="image/*" multiple hidden
+            onChange={async (e) => {
+              const files = Array.from(e.target.files||[]);
+              e.target.value = '';
+              const id = targetRowIdx;
+              setTargetRowIdx(null);
+              if (!id || !files.length) return;
+
+              const item = (lists[currentList]||[]).find(x => x.id === id);
+              if (!item) return;
+
+              try {
+                setBusy(true);
+                const fdOcr = new FormData();
+                files.forEach(f=>fdOcr.append('images', f));
+                const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fdOcr }, 40000);
+                const ocrJson = await readJsonSafe(ocrRes);
+                if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+                const ocrText = String(ocrJson?.text || '').trim();
+
+                const prompt = buildUnifiedRowPrompt(ocrText, { name:item.name, brand:item.brand });
+                const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+                  method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+                }, 30000);
+                const safe = await readJsonSafe(r);
+                const answer = safe?.answer || safe?.data || safe;
+                const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+
+                if (parsed && (parsed.name || parsed.expiresAt || parsed.unitsPerPack || parsed.packs)) {
+                  // Aggiorna voce lista
+                  setLists(prev=>{
+                    const next={...prev};
+                    next[currentList] = (prev[currentList]||[]).map(x=>{
+                      if (x.id !== id) return x;
+                      return {
+                        ...x,
+                        name: parsed.name || x.name,
+                        brand: (parsed.brand ?? x.brand) || '',
+                        unitsPerPack: Math.max(1, Number(parsed.unitsPerPack || x.unitsPerPack || 1)),
+                        unitLabel: parsed.unitLabel || x.unitLabel || 'unità',
+                        qty: Number.isFinite(Number(parsed.packs)) && Number(parsed.packs)>0 ? Number(parsed.packs) : x.qty,
+                      };
+                    });
+                    return next;
+                  });
+
+                  // Se c'è scadenza, prova ad aggiornarla in scorte
+                  if (parsed.expiresAt) {
+                    const ex = toISODate(parsed.expiresAt);
+                    if (ex) {
+                      setStock(prev=>{
+                        const arr=[...prev];
+                        const j = arr.findIndex(s=>isSimilar(s.name, parsed.name||item.name));
+                        if (j>=0) arr[j] = { ...arr[j], expiresAt: ex };
+                        return arr;
+                      });
+                    }
+                  }
+                  showToast('Riga aggiornata da OCR ✓', 'ok');
+                } else {
+                  showToast('Nessun dato utile dalla foto', 'err');
+                }
+              } catch (e) {
+                console.error('[row OCR] error', e);
+                showToast('Errore OCR riga', 'err');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+
+          {/* Input OCR globale & immagine riga scorte */}
+          <input ref={ocrInputRef} type="file" accept="image/*" multiple hidden onChange={(e)=>{ const f=[...e.target.files||[]]; e.target.value=''; handleOCR(f); }} />
+          <input ref={rowImageInputRef} type="file" accept="image/*" hidden onChange={(e)=>{ const f=[...e.target.files||[]]; const i=targetImageIdx; setTargetImageIdx(null); if(f.length && Number.isFinite(i)) handleRowImage(f, i); }} />
+
+          {/* Toast */}
           {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10,
-              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999, fontWeight:600, letterSpacing:.2
-            }}>
+            <div style={{ ...styles.toast, background: toast.type==='ok' ? 'rgba(34,197,94,.9)' : 'rgba(239,68,68,.9)' }}>
               {toast.msg}
             </div>
           )}
         </div>
       </div>
-
-      {/* INPUT NASCOSTI */}
-      <input
-        ref={ocrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        multiple
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          if (!files.length) return;
-          handleOCR(files);
-          e.target.value = '';
-        }}
-      />
-
-      {/* OCR UNICO di riga */}
-      <input
-        ref={rowOcrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        capture="environment"
-        multiple
-        hidden
-        onChange={async (e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (!files.length) return;
-
-          // Chi è la riga target? (lista o scorte)
-          let itemName = '';
-          let brand = '';
-          let stockIndex = -1;
-
-          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
-          if (byId) {
-            itemName = byId.name;
-            brand = byId.brand || '';
-          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
-            stockIndex = targetRowIdx;
-            itemName = stock[stockIndex].name;
-            brand = stock[stockIndex].brand || '';
-          } else {
-            showToast('Elemento non trovato per OCR riga', 'err');
-            return;
-          }
-
-          try {
-            setBusy(true);
-
-            // 1) OCR di tutte le immagini caricate
-            const fd = new FormData();
-            files.forEach(f => fd.append('images', f));
-            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 35000);
-            const ocr = await readJsonSafe(ocrRes);
-            if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
-            const ocrText = String(ocr.text || '').trim();
-            if (!ocrText) throw new Error('Nessun testo letto');
-
-            // 2) Chiedi il pacchetto unificato
-            const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
-            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ prompt })
-            }, 30000);
-            const safe = await readJsonSafe(r);
-            const answer = safe?.answer || safe?.data || safe;
-            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
-
-            // 3) Applica ai dati di scorta
-            const upd = {
-              name: String(parsed?.name || itemName || '').trim(),
-              brand: String(parsed?.brand || brand || '').trim(),
-              packs: Math.max(0, Number(parsed?.packs || 0)),
-              unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
-              unitLabel: String(parsed?.unitLabel || 'unità').trim() || 'unità',
-              expiresAt: toISODate(parsed?.expiresAt || '')
-            };
-
-            const todayISO = new Date().toISOString().slice(0,10);
-
-            setStock(prev => {
-              const arr = [...prev];
-
-              if (stockIndex >= 0 && arr[stockIndex]) {
-                const old = arr[stockIndex];
-                const nowUnits = upd.packs * upd.unitsPerPack;
-                const wasUnits = Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
-                const restock = nowUnits > wasUnits;
-
-                let next = {
-                  ...old,
-                  name: upd.name || old.name,
-                  brand: upd.brand || old.brand,
-                  packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
-                  unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
-                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || old.expiresAt || ''
-                };
-                if (restock) {
-                  next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
-                }
-                arr[stockIndex] = next;
-                return arr;
-              }
-
-              // Se partiva da lista: crea/aggiorna scorta corrispondente
-              const j = arr.findIndex(s => isSimilar(s.name, upd.name) && (!upd.brand || isSimilar(s.brand || '', upd.brand)));
-              if (j >= 0) {
-                const old = arr[j];
-                const newPacks = Math.max(0, Number(upd.packs || 0));
-                const newUPP = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
-                arr[j] = {
-                  ...old,
-                  name: upd.name || old.name,
-                  brand: upd.brand || old.brand,
-                  packs: newPacks || old.packs || 0,
-                  unitsPerPack: newUPP,
-                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || old.expiresAt || '',
-                  ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP)
-                };
-              } else {
-                const p = Math.max(0, Number(upd.packs || 0));
-                const u = Math.max(1, Number(upd.unitsPerPack || 1));
-                arr.unshift({
-                  name: upd.name || itemName,
-                  brand: upd.brand || brand || '',
-                  packs: p,
-                  unitsPerPack: u,
-                  unitLabel: upd.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || '',
-                  baselinePacks: p,
-                  lastRestockAt: todayISO,
-                  avgDailyUnits: 0,
-                  residueUnits: p * u,
-                  image: ''
-                });
-              }
-              return arr;
-            });
-
-            showToast('Riga aggiornata da OCR ✓', 'ok');
-          } catch (err) {
-            console.error('[Row OCR unified]', err);
-            showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
-          } finally {
-            setBusy(false);
-            setTargetRowIdx(null);
-          }
-        }}
-      />
-
-      {/* Input immagine prodotto */}
-      <input
-        ref={rowImageInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (files.length && typeof targetImageIdx === 'number') {
-            handleRowImage(files, targetImageIdx);
-            setTargetImageIdx(null);
-          }
-        }}
-      />
     </>
+
   );
 }
 
-/* =================== Styles (completo con fix) =================== */
+/* =================== Stili inline (coerenti con la UI precedente) =================== */
 const styles = {
   page: {
     minHeight:'100vh',
-    background:'radial-gradient(1200px 1200px at 10% -10%, rgba(90,130,160,.25), transparent), radial-gradient(1200px 1200px at 110% 10%, rgba(60,110,140,.25), transparent), linear-gradient(180deg, #0b1520, #0e1b27 60%, #0b1520)',
     padding:'24px 16px',
-    color:'#f8f1dc',
-    textShadow:'0 0 6px rgba(255,245,200,.15)'
+    background:'radial-gradient(1200px 600px at 20% -10%, rgba(59,130,246,.15), transparent), radial-gradient(1000px 500px at 120% 10%, rgba(236,72,153,.12), transparent), linear-gradient(180deg,#0b1220,#0a0f1a 60%, #0b1220)',
+    color:'#e5e7eb',
   },
-
-  // Card trasparente
   card: {
-    maxWidth:1000, margin:'0 auto',
-    background:'transparent',
-    backdropFilter:'none',
-    border:'1px solid rgba(255,255,255,.06)',
+    maxWidth:1100, margin:'0 auto',
+    background:'rgba(15,23,42,.35)',
+    backdropFilter:'blur(6px)',
+    border:'1px solid rgba(148,163,184,.15)',
     borderRadius:18, padding:16,
-    boxShadow:'none'
+    boxShadow:'0 10px 30px rgba(0,0,0,.25)'
   },
-
   headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
   title3d:{
     margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
     textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
   },
-  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
-  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
+  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid rgba(148,163,184,.25)', textDecoration:'none' },
+  actionGhost:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(148,163,184,.25)', background:'transparent', color:'#e5e7eb' },
 
-  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
-  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
-  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
+  switchRow:{ display:'flex', gap:8, margin:'8px 0 4px' },
+  switchBtn:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(148,163,184,.25)', background:'transparent', color:'#cbd5e1' },
+  switchBtnActive:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(59,130,246,.6)', background:'rgba(59,130,246,.15)', color:'#e5e7eb', boxShadow:'0 0 20px rgba(59,130,246,.25) inset' },
 
-  toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
-  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
+  toolsRow:{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginTop:8 },
+  voiceBtn:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(59,130,246,.5)', background:'rgba(30,64,175,.4)', color:'#e5e7eb' },
+  primaryBtn:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(34,197,94,.5)', background:'rgba(22,163,74,.35)', color:'#e5e7eb' },
 
-  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
-  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
+  sectionLarge:{ marginTop:14 },
+  sectionLifted:{ marginTop:14, padding:12, borderRadius:14, background:'rgba(2,6,23,.45)', border:'1px solid rgba(148,163,184,.15)' },
+  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap' },
 
-  h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
-  h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
+  formRow:{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0, 1fr)) 160px', gap:8 },
+  input:{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid rgba(148,163,184,.25)', background:'rgba(15,23,42,.6)', color:'#e5e7eb' },
 
-  // LISTA PRODOTTI: card rosse a pillola + bottoni icona
-  listCardRed: {
-    display:'flex',
-    justifyContent:'space-between',
-    alignItems:'center',
-    gap:10,
-    padding:'12px 14px',
-    borderRadius:16,
-    cursor:'pointer',
-    userSelect:'none',
-    background:'linear-gradient(180deg, #7f1d1d, #991b1b)',
-    border:'1px solid #450a0a',
-    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.35)',
-  },
-  listCardRedBought: {
-    background:'linear-gradient(180deg, #166534, #14532d)',
-    border:'1px solid #0f5132',
-    textDecoration:'line-through',
-    opacity:.9
-  },
-  iconBtnBase:{
-    width:36, height:36, minWidth:36,
-    display:'grid', placeItems:'center',
-    borderRadius:999,
-    border:'1px solid rgba(255,255,255,.15)',
-    background:'rgba(15,23,42,.55)',
-    color:'#f8fafc',
-    fontWeight:800,
-    boxShadow:'0 2px 8px rgba(0,0,0,.35)'
-  },
-  iconBtnGreen:{
-    background:'linear-gradient(180deg, #16a34a, #15803d)',
-    border:'1px solid #166534',
-    color:'#ffffff'
-  },
-  iconBtnDark:{
-    background:'linear-gradient(180deg, #0f172a, #111827)',
-    border:'1px solid #334155',
-    color:'#e5e7eb'
-  },
-  ocrPillBtn:{
-    padding:'8px 12px',
-    borderRadius:12,
-    border:'1px solid #7f1d1d',
-    background:'linear-gradient(180deg, #991b1b, #7f1d1d)',
-    color:'#fde68a',
-    fontWeight:700
-  },
-    trashBtn:{
-    padding:'8px 10px',
-    borderRadius:12,
-    border:'1px solid #4b5563',
-    background:'linear-gradient(180deg,#1f2937,#111827)',
-    color:'#f87171',
-    fontWeight:700
-  },
+  h3:{ margin:'8px 0', fontSize:'1.1rem', color:'#f3f4f6' },
 
-  // LISTA — testo
-  rowLeft:{ flex:1, minWidth:0 },
-  rowName:{ fontSize:'1.05rem', fontWeight:600, color:'#fff' },
-  rowBrand:{ opacity:.8, fontWeight:400, marginLeft:4 },
-  rowMeta:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
-  badgeBought:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#166534', color:'#dcfce7', fontSize:'.75rem' },
-  badgeToBuy:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#7f1d1d', color:'#fee2e2', fontSize:'.75rem' },
+  listCardRed:{
+    display:'flex', justifyContent:'space-between', alignItems:'center', gap:8,
+    padding:12, borderRadius:12,
+    background:'linear-gradient(180deg, rgba(239,68,68,.18), rgba(127,29,29,.18))',
+    border:'1px solid rgba(239,68,68,.35)',
+    cursor:'pointer'
+  },
+  listCardRedBought:{ opacity:.65, filter:'grayscale(.3)' },
+  rowLeft:{ display:'flex', flexDirection:'column' },
+  rowName:{ fontWeight:700, fontSize:16 },
+  rowBrand:{ opacity:.85, fontWeight:600 },
+  rowMeta:{ opacity:.9, fontSize:13, marginTop:2 },
+  badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, fontSize:12, background:'rgba(34,197,94,.2)', border:'1px solid rgba(34,197,94,.5)' },
+  badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, fontSize:12, background:'rgba(234,179,8,.15)', border:'1px solid rgba(234,179,8,.45)' },
+
   rowActions:{ display:'flex', gap:6, alignItems:'center' },
-  rowActionsRight:{ display:'flex', gap:6, alignItems:'center', marginLeft:10 },
+  iconBtnBase:{ width:34, height:34, borderRadius:9, border:'1px solid rgba(148,163,184,.25)', background:'rgba(15,23,42,.6)', color:'#e5e7eb' },
+  iconBtnGreen:{ border:'1px solid rgba(34,197,94,.55)', background:'rgba(22,163,74,.25)' },
+  iconBtnDark:{},
+  ocrPillBtn:{ padding:'8px 10px', borderRadius:10, border:'1px solid rgba(59,130,246,.5)', background:'rgba(30,64,175,.35)', color:'#e5e7eb' },
+  trashBtn:{ padding:'8px 10px', borderRadius:10, border:'1px solid rgba(239,68,68,.55)', background:'rgba(127,29,29,.35)', color:'#fecaca' },
 
-  // STOCK / SCORTE
-  stockList:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
-  stockLineZ1:{ background:'rgba(255,255,255,.02)', padding:10, borderRadius:10 },
-  stockLineZ2:{ background:'rgba(0,0,0,.15)', padding:10, borderRadius:10 },
-  stockRow:{ display:'flex', alignItems:'center', gap:10 },
-  stockTitle:{ fontSize:'1rem', fontWeight:600, marginBottom:4 },
-  stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:2 },
+  stockRow:{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, padding:12, borderRadius:12, border:'1px solid rgba(148,163,184,.18)', background:'rgba(15,23,42,.45)' },
+  stockImage:{ objectFit:'cover', borderRadius:10, border:'1px solid rgba(148,163,184,.25)' },
+  stockColLeft:{ display:'flex', flexDirection:'column', gap:6, minWidth:0 },
+  stockName:{ fontWeight:800, fontSize:16 },
+  stockBrand:{ opacity:.85, fontWeight:600 },
+  stockMeta:{ opacity:.9, fontSize:13 },
+  meterTrack:{ width:'100%', height:8, background:'rgba(2,6,23,.8)', borderRadius:999, border:'1px solid rgba(148,163,184,.2)', overflow:'hidden', marginTop:6 },
+  meterFill:{ height:'100%' },
 
-  imageBox:{
-    width:56, height:56, borderRadius:10,
-    border:'1px dashed #64748b',
-    display:'grid', placeItems:'center',
-    overflow:'hidden',
-    cursor:'pointer',
-    background:'rgba(255,255,255,.04)'
-  },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.5rem', color:'#94a3b8' },
+  statusPill:{ padding:'2px 8px', borderRadius:999, border:'1px solid rgba(148,163,184,.35)', fontSize:12, color:'#e5e7eb' },
 
-  kvCol:{ minWidth:90, textAlign:'center' },
-  kvLabel:{ fontSize:'.75rem', opacity:.75 },
-  kvValue:{ fontSize:'1rem', fontWeight:600 },
+  editBtn:{ padding:'8px 10px', borderRadius:10, border:'1px solid rgba(59,130,246,.5)', background:'rgba(30,64,175,.35)', color:'#e5e7eb' },
+  smallBtn:{ padding:'8px 10px', borderRadius:10, border:'1px solid rgba(148,163,184,.25)', background:'rgba(15,23,42,.6)', color:'#e5e7eb' },
+  dangerBtn:{ padding:'8px 10px', borderRadius:10, border:'1px solid rgba(239,68,68,.55)', background:'rgba(127,29,29,.35)', color:'#fecaca' },
 
-  progressOuterBig:{ height:10, background:'rgba(255,255,255,.1)', borderRadius:6, overflow:'hidden', marginTop:2 },
-  progressOuterCrit:{ height:8, background:'rgba(255,255,255,.08)', borderRadius:6, overflow:'hidden', flex:1 },
-  progressInner:{ height:'100%' },
+  editRow:{ display:'grid', gridTemplateColumns:'repeat(7, minmax(0, 1fr))', gap:8, alignItems:'center' },
+  editInput:{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1px solid rgba(148,163,184,.25)', background:'rgba(2,6,23,.7)', color:'#e5e7eb' },
+  editActions:{ gridColumn:'1 / -1', display:'flex', gap:8, justifyContent:'flex-end' },
+  saveBtn:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(34,197,94,.5)', background:'rgba(22,163,74,.35)', color:'#e5e7eb' },
+  cancelBtn:{ padding:'8px 12px', borderRadius:10, border:'1px solid rgba(148,163,184,.25)', background:'transparent', color:'#e5e7eb' },
 
-  critListWrap:{ display:'flex', flexDirection:'column', gap:6 },
-  critRow:{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, background:'rgba(255,255,255,.04)' },
-  critName:{ flex:1, fontWeight:600 },
-  critMeta:{ fontSize:'.8rem', opacity:.9 },
-  expiryChip:{ marginLeft:6, padding:'1px 5px', borderRadius:6, background:'#7f1d1d', color:'#fee2e2', fontSize:'.7rem' },
-
-  // Bottoni piccoli
-  smallOkBtn:{ padding:'6px 10px', borderRadius:8, background:'#16a34a', color:'#fff', fontWeight:700, border:'none' },
-  smallGhostBtn:{ padding:'6px 10px', borderRadius:8, background:'transparent', border:'1px solid #475569', color:'#e2e8f0' },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:8, background:'#991b1b', border:'1px solid #7f1d1d', color:'#fee2e2' },
-
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
-  formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
-  input:{
-    flex:1,
-    minWidth:120,
-    padding:'8px 10px',
-    borderRadius:8,
-    border:'1px solid #475569',
-    background:'rgba(15,23,42,.65)',
-    color:'#f1f5f9'
-  }
-
+  toast:{ position:'fixed', right:16, bottom:16, padding:'10px 14px', borderRadius:10, color:'#0b1220', fontWeight:700, boxShadow:'0 10px 25px rgba(0,0,0,.3)' },
 };
+
