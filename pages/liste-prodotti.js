@@ -360,29 +360,6 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
-function buildExpiryPrompt(itemName, brand, ocrText) {
-  const tag = brand ? `${itemName} (marca ${brand})` : itemName;
-  return [
-    'Sei Jarvis, estrattore scadenze da etichette/scontrini.',
-    'Cerca SOLO la scadenza riferita al prodotto indicato.',
-    'Rispondi SOLO in JSON con schema: { "expiries":[{ "name":"", "expiresAt":"YYYY-MM-DD" }] }',
-    '- Se non trovi una data chiara, restituisci {"expiries":[]}.',
-    '',
-    `PRODOTTO TARGET: "${tag}"`,
-    '',
-    'ESEMPI:',
-    'Input:',
-    '  Prodotto: "latte (marca Parmalat)"',
-    '  Testo OCR: "LATTE PS PARMALAT 1L SCAD 15/07/2025 lotto 18"',
-    'Output:',
-    '{ "expiries":[{ "name":"latte", "expiresAt":"2025-07-15" }] }',
-    '',
-    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO.',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
 function buildUnifiedRowPrompt(ocrText, { name, brand }) {
   const target = brand ? `${name} (marca ${brand})` : name;
   return [
@@ -421,7 +398,7 @@ function parseReceiptPurchases(ocrText) {
     }
     name = name
       .replace(/\b(\d+[gG]|kg|ml|l|cl)\b/g,'')
-      .replace(/\s{2,}/g,' ')
+      .replace(/\s{2,}/g, ' ')
       .trim()
       .toLowerCase()
       .replace(/\buht\b/g,'')
@@ -582,7 +559,9 @@ export default function ListeProdotti() {
     packs: '0',
     unitsPerPack: '1',
     unitLabel: 'unità',
-    expiresAt: ''
+    expiresAt: '',
+    residueUnits: '0',
+    _ruTouched: false,
   });
 
   // UI / Toast / Busy
@@ -630,194 +609,242 @@ export default function ListeProdotti() {
 
   const curItems = lists[currentList] || [];
 
-  /* =================== Cloud Sync (Supabase) — opzionale =================== */
-  const userIdRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC) return;
-    let mounted = true;
-    (async () => {
-      try {
-        const mod = await import('@/lib/supabaseClient').catch(()=>null);
-        if (!mod?.supabase) return;
-        __supabase = mod.supabase;
-        const { data } = await __supabase.auth.getUser();
-        const uid = data?.user?.id || null;
-        if (mounted) userIdRef.current = uid;
+ /* =================== Cloud Sync (Supabase) — opzionale =================== */
+const userIdRef = useRef(null);
 
-        if (!uid) return; // non loggato → nessuna cloud load
-        // Carica stato cloud (se esiste)
-        const { data: rows, error } = await __supabase
-          .from(CLOUD_TABLE)
-          .select('state')
-          .eq('user_id', uid)
-          .maybeSingle();
-        if (!error && rows?.state) {
-          const st = rows.state;
-          if (st?.lists) {
-            setLists({
-              [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-              [LIST_TYPES.ONLINE]: Array.isArray(st.lists[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-            });
-          }
-          if (Array.isArray(st.stock)) setStock(st.stock);
-          if (st.currentList && (st.currentList === LIST_TYPES.SUPERMARKET || st.currentList === LIST_TYPES.ONLINE)) {
-            setCurrentList(st.currentList);
-          }
+useEffect(() => {
+  if (!CLOUD_SYNC) return;
+  let mounted = true;
+
+  (async () => {
+    try {
+      // Importa solo se il client esiste; altrimenti non sincronizzare (no crash)
+      const mod = await import('@/lib/supabaseClient').catch(() => null);
+      if (!mod?.supabase) return;
+
+      __supabase = mod.supabase;
+
+      // Prende l'utente loggato (se non loggato → esci silenziosamente)
+      const { data: userData, error: authErr } = await __supabase.auth.getUser();
+      if (authErr) return;
+      const uid = userData?.user?.id || null;
+      if (mounted) userIdRef.current = uid;
+      if (!uid) return;
+
+      // Carica stato dal cloud (se esiste). Se manca la colonna `state`, ignora.
+      const { data: row, error } = await __supabase
+        .from(CLOUD_TABLE)
+        .select('state')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (error) {
+        // Gestione "column does not exist" (42703) o messaggio equivalente
+        const msg = (error.message || '').toLowerCase();
+        if (error.code === '42703' || msg.includes('column') && msg.includes('does not exist')) {
+          if (DEBUG) console.warn('[cloud] colonna state assente: skip load');
+        } else if (DEBUG) {
+          console.warn('[cloud] load error', error);
         }
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud init] skipped', e);
+        return;
       }
-    })();
-    return () => { mounted = false; };
-  }, []);
 
-  // Upsert cloud a ogni modifica, con debounce leggero
-  const cloudTimerRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC || !__supabase) return;
-    if (!userIdRef.current) return;
-    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
-    const snapshot = { lists, stock, currentList };
-    cloudTimerRef.current = setTimeout(async () => {
-      try {
-        await __supabase
-          .from(CLOUD_TABLE)
-          .upsert({ user_id: userIdRef.current, state: snapshot }, { onConflict: 'user_id' });
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud upsert] fail', e);
+      const st = row?.state;
+      if (!st) return;
+
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
+      });
+      if (Array.isArray(st.stock)) setStock(st.stock);
+      if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
+        setCurrentList(st.currentList);
       }
-    }, 400);
-    return () => clearTimeout(cloudTimerRef.current);
-  }, [lists, stock, currentList]);
-
-  /* =================== Brain Hub (come nel tuo codice) =================== */
-  {
-    const stockRef = useRef(stock);
-    const listsRef = useRef(lists);
-    const currentListRef = useRef(currentList);
-    useEffect(()=>{ stockRef.current = stock; }, [stock]);
-    useEffect(()=>{ listsRef.current = lists; }, [lists]);
-    useEffect(()=>{ currentListRef.current = currentList; }, [currentList]);
-
-    function getHub() {
-      if (typeof window === 'undefined') return null;
-      window.__jarvisBrainHub = window.__jarvisBrainHub || {
-        _datasources: new Map(),
-        _commands: new Map(),
-        registerDataSource(def){ this._datasources.set(def.name, def); },
-        registerCommand(def){ this._commands.set(def.name, def); },
-        async ask(name, payload){ const ds=this._datasources.get(name); return ds?.fetch(payload); },
-        async run(name, payload){ const cmd=this._commands.get(name); return cmd?.execute(payload); },
-        list(){ return { datasources:[...this._datasources.keys()], commands:[...this._commands.keys()]}; }
-      };
-      return window.__jarvisBrainHub;
+    } catch (e) {
+      if (DEBUG) console.warn('[cloud init] skipped', e);
     }
+  })();
 
-    useEffect(() => {
-      let cancelled = false;
+  return () => { mounted = false; };
+}, []);
 
-      async function wireBrain() {
-        const hub = getHub();
-        if (!hub) return;
+const cloudTimerRef = useRef(null);
+useEffect(() => {
+  if (!CLOUD_SYNC || !__supabase) return;
+  if (!userIdRef.current) return;
 
-        hub.registerDataSource({
-          name: 'scorte-complete',
-          fetch: () => {
-            return (stockRef.current || []).map(s => {
-              const upp = Math.max(1, Number(s.unitsPerPack || 1));
-              const residueUnits = Number.isFinite(Number(s.residueUnits))
-                ? Math.max(0, Number(s.residueUnits))
-                : Math.max(0, Number(s.packs || 0) * upp);
-              const baselineUnits = Math.max(
-                upp,
-                (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp)
-              );
-              const avgDailyUnits = Number(s.avgDailyUnits || 0);
-              return {
-                name: String(s.name || '').trim(),
-                brand: String(s.brand || '').trim(),
-                packs: Number(s.packs || 0),
-                unitsPerPack: upp,
-                unitLabel: s.unitLabel || 'unità',
-                residueUnits,
-                baselineUnits,
-                avgDailyUnits,
-                expiresAt: s.expiresAt || ''
-              };
-            });
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-esaurimento',
-          fetch: () => {
-            return (stockRef.current || []).filter(s => {
-              const { current, baseline } = residueInfo(s);
-              return baseline > 0 && current / baseline < 0.20;
-            });
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-scadenza',
-          fetch: ({ entroGiorni = 10 } = {}) => {
-            return (stockRef.current || []).filter(s => isExpiringSoon(s, entroGiorni));
-          }
-        });
-        hub.registerDataSource({
-          name: 'scorte-giorni-esaurimento',
-          fetch: () => {
-            const out = [];
-            for (const s of (stockRef.current || [])) {
-              const upp = Math.max(1, Number(s.unitsPerPack || 1));
-              const currentUnits = Number.isFinite(Number(s.residueUnits))
-                ? Math.max(0, Number(s.residueUnits))
-                : Math.max(0, Number(s.packs || 0) * upp);
-              const day = Number(s.avgDailyUnits || 0);
-              const days = day > 0 ? Math.ceil(currentUnits / day) : null;
-              out.push({
-                name: s.name, brand: s.brand || '', unitLabel: s.unitLabel || 'unità',
-                residueUnits: currentUnits, avgDailyUnits: day, daysToDepletion: days
-              });
-            }
-            return out;
-          }
-        });
-        hub.registerDataSource({
-          name: 'liste-spesa',
-          fetch: () => {
-            const data = listsRef.current || {};
-            return Object.entries(data).flatMap(([type, items]) =>
-              (items || [])
-                .filter(it => !it.purchased && it.qty > 0)
-                .map(it => ({
-                  listType: type,
-                  name: String(it.name || '').trim(),
-                  brand: String(it.brand || '').trim(),
-                  qty: Number(it.qty || 0),
-                  unitsPerPack: Number(it.unitsPerPack || 1),
-                  unitLabel: String(it.unitLabel || 'unità').trim()
-                }))
-            );
-          }
-        });
-        hub.registerDataSource({
-          name: 'lista-oggi',
-          fetch: () => {
-            const cur = currentListRef.current;
-            const items = (listsRef.current?.[cur] || []).filter(i => !i.purchased && i.qty > 0);
-            return items.map(i => ({
-              listType: cur,
-              name: i.name, brand: i.brand || '', qty: i.qty,
-              unitsPerPack: i.unitsPerPack || 1, unitLabel: i.unitLabel || 'unità'
-            }));
-          }
-        });
+  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+  const snapshot = { lists, stock, currentList };
 
-        // (Comandi invariati — omessi qui per brevità: sotto rimangono IDENTICI al tuo ultimo codice)
+  cloudTimerRef.current = setTimeout(async () => {
+    try {
+      await __supabase
+        .from(CLOUD_TABLE)
+        .upsert(
+          { user_id: userIdRef.current, state: snapshot },
+          { onConflict: 'user_id' }
+        );
+    } catch (e) {
+      // Se la colonna non esiste, ignora senza interrompere l’app
+      const msg = (e?.message || '').toLowerCase?.() || '';
+      if (DEBUG && !(msg.includes('column') && msg.includes('does not exist'))) {
+        console.warn('[cloud upsert] fail', e);
       }
-      wireBrain();
-      return () => { cancelled = true; };
-    }, []);
-  }
+    }
+  }, 400);
+
+  return () => clearTimeout(cloudTimerRef.current);
+}, [lists, stock, currentList]);
+
+/* === Brain Hub – versione robusta (evita forme incompatibili) === */
+const HUB_KEY = '__jarvisBrainHub_v2';
+
+function getHub() {
+  if (typeof window === 'undefined') return null;
+  const h = window[HUB_KEY];
+
+  const isValid =
+    h &&
+    typeof h === 'object' &&
+    typeof h.registerDataSource === 'function' &&
+    typeof h.registerCommand === 'function' &&
+    h._datasources instanceof Map &&
+    h._commands instanceof Map;
+
+  if (isValid) return h;
+
+  // Crea (o sostituisce) un hub valido se quello esistente è corrotto/incompatibile
+  const hub = {
+    _datasources: new Map(),
+    _commands: new Map(),
+    registerDataSource(def) {
+      if (!def?.name) return;
+      this._datasources.set(def.name, def);
+    },
+    registerCommand(def) {
+      if (!def?.name) return;
+      this._commands.set(def.name, def);
+    },
+    async ask(name, payload) {
+      const ds = this._datasources.get(name);
+      return ds?.fetch(payload);
+    },
+    async run(name, payload) {
+      const cmd = this._commands.get(name);
+      return cmd?.execute(payload);
+    },
+    list() {
+      return {
+        datasources: [...this._datasources.keys()],
+        commands: [...this._commands.keys()],
+      };
+    },
+  };
+
+  window[HUB_KEY] = hub;
+  return hub;
+}
+
+useEffect(() => {
+  const hub = getHub();
+  if (!hub) return;
+
+  // Usa registrazioni idempotenti per evitare duplicati se la pagina si rimonta
+  const safeRegDS = (def) => {
+    if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
+  };
+
+  safeRegDS({
+    name: 'scorte-complete',
+    fetch: () => {
+      return (stock || []).map((s) => {
+        const upp = Math.max(1, Number(s.unitsPerPack || 1));
+        const residueUnits = Number.isFinite(Number(s.residueUnits))
+          ? Math.max(0, Number(s.residueUnits))
+          : Math.max(0, Number(s.packs || 0) * upp);
+        const baselineUnits = Math.max(
+          upp,
+          Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp
+        );
+        const avgDailyUnits = Number(s.avgDailyUnits || 0);
+        return {
+          name: String(s.name || '').trim(),
+          brand: String(s.brand || '').trim(),
+          packs: Number(s.packs || 0),
+          unitsPerPack: upp,
+          unitLabel: s.unitLabel || 'unità',
+          residueUnits,
+          baselineUnits,
+          avgDailyUnits,
+          expiresAt: s.expiresAt || '',
+        };
+      });
+    },
+  });
+
+  safeRegDS({
+    name: 'scorte-esaurimento',
+    fetch: () => {
+      return (stock || []).filter((s) => {
+        const upp = Math.max(1, Number(s.unitsPerPack || 1));
+        const ru = Number(s.residueUnits);
+        const currentUnits = Number.isFinite(ru) ? Math.max(0, ru) : Math.max(0, Number(s.packs || 0) * upp);
+        const bp = Number(s.baselinePacks);
+        const baselineUnits = Math.max(upp, (Number.isFinite(bp) && bp > 0 ? bp * upp : Number(s.packs || 0) * upp));
+        return baselineUnits > 0 && currentUnits / baselineUnits < 0.2;
+      });
+    },
+  });
+
+  safeRegDS({
+    name: 'scorte-scadenza',
+    fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => isExpiringSoon(s, entroGiorni)),
+  });
+
+  safeRegDS({
+    name: 'scorte-giorni-esaurimento',
+    fetch: () => {
+      const out = [];
+      for (const s of stock || []) {
+        const upp = Math.max(1, Number(s.unitsPerPack || 1));
+        const currentUnits = Number.isFinite(Number(s.residueUnits))
+          ? Math.max(0, Number(s.residueUnits))
+          : Math.max(0, Number(s.packs || 0) * upp);
+        const day = Number(s.avgDailyUnits || 0);
+        const days = day > 0 ? Math.ceil(currentUnits / day) : null;
+        out.push({
+          name: s.name,
+          brand: s.brand || '',
+          unitLabel: s.unitLabel || 'unità',
+          residueUnits: currentUnits,
+          avgDailyUnits: day,
+          daysToDepletion: days,
+        });
+      }
+      return out;
+    },
+  });
+
+  safeRegDS({
+    name: 'liste-spesa',
+    fetch: () => {
+      const data = lists || {};
+      return Object.entries(data).flatMap(([type, items]) =>
+        (items || [])
+          .filter((it) => !it.purchased && it.qty > 0)
+          .map((it) => ({
+            listType: type,
+            name: String(it.name || '').trim(),
+            brand: String(it.brand || '').trim(),
+            qty: Number(it.qty || 0),
+            unitsPerPack: Number(it.unitsPerPack || 1),
+            unitLabel: String(it.unitLabel || 'unità').trim(),
+          }))
+      );
+    },
+  });
+}, [stock, lists]);
+
 
   /* =================== Hydration iniziale (locale) =================== */
   useEffect(() => {
@@ -886,7 +913,7 @@ export default function ListeProdotti() {
     setCritical(crit);
   }, [stock]);
 
-  /* =================== LISTE: azioni (invariato) =================== */
+  /* =================== LISTE: azioni =================== */
   function addManualItem(e) {
     e.preventDefault();
     const name = form.name.trim();
@@ -936,7 +963,7 @@ export default function ListeProdotti() {
     });
   }
 
-  /* =================== OCR scontrini (globale) — invariato salvo helper =================== */
+  /* =================== OCR scontrini (globale) =================== */
   function decrementAcrossBothLists(prevLists, purchases) {
     const next = { ...prevLists };
     const decList = (listKey) => {
@@ -1040,7 +1067,7 @@ export default function ListeProdotti() {
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ purchases })
           });
-        } catch (e) { /* noop */ }
+        } catch {}
       }
 
       showToast('OCR scontrino elaborato ✓', 'ok');
@@ -1064,7 +1091,7 @@ export default function ListeProdotti() {
       unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
       unitLabel: row.unitLabel || 'unità',
       expiresAt: row.expiresAt || '',
-      residueUnits: initRU,
+      residueUnits: row.residueUnits ?? initRU,
       _ruTouched: false,
     });
   }
@@ -1078,7 +1105,7 @@ export default function ListeProdotti() {
   function cancelRowEdit(){
     setEditingRow(null);
     setEditDraft({
-      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: ''
+      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '', residueUnits: '0', _ruTouched:false
     });
   }
   function saveRowEdit(index){
@@ -1166,7 +1193,7 @@ export default function ListeProdotti() {
 
   /* =================== Vocale LISTA =================== */
   async function toggleRecList() {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch (e) { /* noop */ } return; }
+    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -1176,9 +1203,8 @@ export default function ListeProdotti() {
       mediaRecRef.current.onstop = processVoiceList;
       mediaRecRef.current.start();
       setRecBusy(true);
-    } catch (e) {
+    } catch {
       alert('Microfono non disponibile');
-      console.error(e);
     }
   }
   async function processVoiceList() {
@@ -1237,7 +1263,7 @@ export default function ListeProdotti() {
           });
           appended = true;
         }
-      } catch (e) { /* noop */ }
+      } catch {}
       if (!appended) {
         const local = parseLinesToItems(text);
         if (local.length) {
@@ -1261,21 +1287,120 @@ export default function ListeProdotti() {
         }
       }
       showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
-    } catch (e) {
+    } catch {
       alert('Errore nel riconoscimento vocale');
-      console.error(e);
     } finally {
       setRecBusy(false);
       setBusy(false);
-      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) { /* noop */ }
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
       mediaRecRef.current = null;
       streamRef.current = null;
       recordedChunks.current = [];
     }
   }
 
-  /* =================== Vocale UNIFICATO (inventario) — invariato =================== */
-  // (Mantieni qui il tuo blocco completo per toggleVoiceInventory/processVoiceInventory se già presente nel progetto)
+  /* =================== Vocale UNIFICATO INVENTARIO =================== */
+  async function toggleVoiceInventory() {
+    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      invStreamRef.current = stream;
+      invMediaRef.current = new MediaRecorder(stream);
+      invChunksRef.current = [];
+      invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
+      invMediaRef.current.onstop = processVoiceInventory;
+      invMediaRef.current.start();
+      setInvRecBusy(true);
+    } catch {
+      alert('Microfono non disponibile');
+    }
+  }
+  async function processVoiceInventory() {
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
+    try {
+      setBusy(true);
+      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+      const { text } = await res.json();
+      if (!text) throw new Error('Testo non riconosciuto');
+
+      // 1) Scadenze dal parlato (se presenti)
+      const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+
+      // 2) Aggiornamenti quantità / set residuo
+      const updates = parseStockUpdateText(text);
+
+      // Applica scadenze
+      if (expPairs.length) {
+        setStock(prev => {
+          const arr = [...prev];
+          for (const ex of expPairs) {
+            const i = arr.findIndex(s => isSimilar(s.name, ex.name));
+            if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+            else arr.unshift({
+              name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
+              expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0
+            });
+          }
+          return arr;
+        });
+      }
+
+      // Applica quantità
+      if (updates.length) {
+        const todayISO = new Date().toISOString().slice(0,10);
+        const absolute = wantsAbsoluteSet(text);
+        setStock(prev => {
+          const arr = [...prev];
+          for (const u of updates) {
+            const j = arr.findIndex(s => isSimilar(s.name, u.name));
+            if (j < 0) {
+              // crea con hint
+              const packs = u.mode === 'packs' ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(u._packs||1));
+              const upp   = u.mode === 'packs' ? Math.max(1, Number(u._upp||1)) : Math.max(1, Number(u.value||1));
+              arr.unshift({
+                name: u.name, brand:'', packs, unitsPerPack: upp, unitLabel:'unità',
+                expiresAt: '', ...restockTouch(packs, todayISO, upp), avgDailyUnits: 0, image:''
+              });
+              continue;
+            }
+            const old = arr[j];
+            if (u.op === 'restockExplicit' || u.mode === 'packs') {
+              // incremento o set a pacchi?
+              const newPacks = absolute ? Math.max(0, Number(u.value||0)) : Math.max(0, Number(old.packs||0) + Number(u.value||0));
+              const up = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              arr[j] = { ...old, packs: newPacks, unitsPerPack: up, ...restockTouch(newPacks, todayISO, up) };
+            } else {
+              // units → residueUnits (impostazione residuo o incremento residuo)
+              const upp = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
+              const baseline = baselineUnitsOf(old) || upp;
+              const targetUnits = absolute
+                ? Math.max(0, Math.min(Number(u.value||0), baseline))
+                : Math.max(0, Math.min(residueUnitsOf(old) + Number(u.value||0), baseline));
+              arr[j] = { ...old, residueUnits: targetUnits };
+            }
+          }
+          return arr;
+        });
+      }
+
+      if (!expPairs.length && !updates.length) {
+        showToast('Nessun dato inventario riconosciuto', 'err');
+      } else {
+        showToast('Inventario aggiornato da Vocale ✓', 'ok');
+      }
+    } catch (e) {
+      console.error('[voice inventory] error', e);
+      showToast('Errore vocale inventario', 'err');
+    } finally {
+      setInvRecBusy(false);
+      setBusy(false);
+      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      invMediaRef.current = null;
+      invStreamRef.current = null;
+      invChunksRef.current = [];
+    }
+  }
 
   /* =================== Render =================== */
   return (
@@ -1289,7 +1414,7 @@ export default function ListeProdotti() {
             <h2 style={styles.title3d}>🛍 Lista Prodotti</h2>
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <button onClick={()=>{
-                try { localStorage.removeItem(LS_KEY); } catch (e) { /* noop */ }
+                try { localStorage.removeItem(LS_KEY); } catch {}
                 setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
                 setStock([]);
                 setCurrentList(LIST_TYPES.SUPERMARKET);
@@ -1349,7 +1474,7 @@ export default function ListeProdotti() {
             {(lists[currentList] || []).length === 0 ? (
               <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
             ) : (
-              <div style={styles.listGrid}>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {(lists[currentList] || []).map((it) => {
                   const isBought = !!it.purchased;
                   return (
@@ -1379,8 +1504,8 @@ export default function ListeProdotti() {
                         }
                       }}
                       style={{
-                        ...styles.rowButton,
-                        ...(isBought ? styles.rowButtonBought : styles.rowButtonToBuy)
+                        ...styles.listCardRed,
+                        ...(isBought ? styles.listCardRedBought : null)
                       }}
                     >
                       <div style={styles.rowLeft}>
@@ -1394,53 +1519,55 @@ export default function ListeProdotti() {
                       </div>
 
                       <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
-                        <button title="Segna come comprato (–1 conf. e aggiorna scorte)"
-                                onClick={() => {
-                                  // scala di 1 e sposta a scorte
-                                  const item = it;
-                                  const movePacks = 1;
-                                  setLists(prev => {
-                                    const next = { ...prev };
-                                    next[currentList] = (prev[currentList] || [])
-                                      .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
-                                      .filter(r => Number(r.qty || 0) > 0);
-                                    return next;
-                                  });
-                                  setStock(prev => {
-                                    const arr = [...prev];
-                                    const todayISO = new Date().toISOString().slice(0, 10);
-                                    const idx = arr.findIndex(
-                                      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-                                    );
-                                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-                                    const moveLabel = item.unitLabel || 'unità';
-                                    if (idx >= 0) {
-                                      const old = arr[idx];
-                                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                                      arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
-                                    } else {
-                                      arr.unshift({
-                                        name: item.name, brand: item.brand || '',
-                                        packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                                        expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
-                                      });
-                                    }
-                                    return arr;
-                                  });
-                                }}
-                                style={styles.smallOkBtn}>✓</button>
+                        {/* ✓ conferma: scala 1 conf. e aggiorna scorte */}
+                        <button
+                          title="Segna come comprato (–1 conf. e aggiorna scorte)"
+                          onClick={() => {
+                            const item = it;
+                            const movePacks = 1;
+                            setLists(prev => {
+                              const next = { ...prev };
+                              next[currentList] = (prev[currentList] || [])
+                                .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
+                                .filter(r => Number(r.qty || 0) > 0);
+                              return next;
+                            });
+                            setStock(prev => {
+                              const arr = [...prev];
+                              const todayISO = new Date().toISOString().slice(0, 10);
+                              const idx = arr.findIndex(
+                                s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+                              );
+                              const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
+                              const moveLabel = item.unitLabel || 'unità';
+                              if (idx >= 0) {
+                                const old = arr[idx];
+                                const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
+                                const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
+                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, ...restockTouch(newPacks, todayISO, upp) };
+                              } else {
+                                arr.unshift({
+                                  name: item.name, brand: item.brand || '',
+                                  packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
+                                  expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0
+                                });
+                              }
+                              return arr;
+                            });
+                          }}
+                          style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
+                        >✓</button>
 
-                        <button title="–1" onClick={() => incQty(it.id, -1)} style={styles.smallQtyBtn}>−</button>
-                        <button title="+1" onClick={() => incQty(it.id, +1)} style={styles.smallQtyBtn}>+</button>
+                        <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
+                        <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
 
                         <button
                           title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
                           onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
-                          style={styles.smallGhostBtn}
+                          style={styles.ocrPillBtn}
                         >OCR riga</button>
 
-                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.smallDangerBtn}>🗑</button>
+                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
                       </div>
                     </div>
                   );
@@ -1465,7 +1592,9 @@ export default function ListeProdotti() {
             <div style={styles.sectionHeaderRow}>
               <h3 style={styles.h3}>🏠 Stato Scorte</h3>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                {/* (Pulsante vocale inventario, se lo usi nel tuo progetto, resta invariato) */}
+                <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+                  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
+                </button>
                 <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
                   {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
                 </button>
@@ -1578,19 +1707,19 @@ export default function ListeProdotti() {
               {critical.length === 0 ? (
                 <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
               ) : (
-                <div style={styles.stockGrid}>
+                <div style={styles.critListWrap}>
                   {critical.map((s, i) => {
                     const { current, baseline, pct } = residueInfo(s);
                     const w = Math.round(pct*100);
                     return (
-                      <div key={i} style={styles.stockCardCritical}>
-                        <div style={styles.stockTitle}>
+                      <div key={i} style={styles.critRow}>
+                        <div style={styles.critName}>
                           {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
                         </div>
-                        <div style={styles.progressOuter}>
+                        <div style={styles.progressOuterCrit}>
                           <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
                         </div>
-                        <div style={styles.stockLineSmall}>
+                        <div style={styles.critMeta}>
                           {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
                           {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
                         </div>
@@ -1601,19 +1730,19 @@ export default function ListeProdotti() {
               )}
             </div>
 
-            {/* Scorte complete — CARD sostituita con versione a 4 colonne */}
+            {/* Scorte complete — LAYOUT A RIGHE */}
             <div style={{ marginTop: 12 }}>
               <h4 style={styles.h4}>Tutte le scorte</h4>
               {stock.length === 0 ? (
                 <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
               ) : (
-                <div style={styles.stockGrid}>
+                <div style={styles.stockList}>
                   {stock.map((s, idx) => {
                     const { current, baseline, pct } = residueInfo(s);
                     const w = Math.round(pct*100);
                     const zebra = idx % 2 === 0;
                     return (
-                      <div key={idx} style={{ ...(zebra ? styles.stockCardZ1 : styles.stockCardZ2) }}>
+                      <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
                         {editingRow === idx ? (
                           <div>
                             <div style={styles.formRowWrap}>
@@ -1633,6 +1762,7 @@ export default function ListeProdotti() {
                             <div style={styles.formRowWrap}>
                               <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
                                      onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                              {/* NUOVO: campo edit residuo unità */}
                               <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
                                      onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità" />
                             </div>
@@ -1647,9 +1777,9 @@ export default function ListeProdotti() {
                           </div>
                         ) : (
                           <>
-                            {/* Layout a 4 colonne: immagine | nome+barra | confezioni | unità/conf */}
+                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
                             <div style={styles.stockRow}>
-                              {/* Colonna immagine */}
+                              {/* Colonna immagine (clic per caricare/scattare) */}
                               <div
                                 style={styles.imageBox}
                                 role="button"
@@ -1663,12 +1793,12 @@ export default function ListeProdotti() {
                                 )}
                               </div>
 
-                              {/* Nome + barra */}
+                              {/* Nome + barra (alta) */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={styles.stockTitle}>
                                   {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
                                 </div>
-                                <div style={styles.progressOuter}>
+                                <div style={styles.progressOuterBig}>
                                   <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
                                 </div>
                                 <div style={styles.stockLineSmall}>
@@ -1688,13 +1818,19 @@ export default function ListeProdotti() {
                                 <div style={styles.kvLabel}>Unità/conf.</div>
                                 <div style={styles.kvValue}>{Number(s.unitsPerPack || 1)}</div>
                               </div>
-                            </div>
 
-                            {/* Azioni riga */}
-                            <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                              <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                              <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                              <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                              {/* NUOVA COLONNA → Residuo unità */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Residuo unità</div>
+                                <div style={styles.kvValue}>{Math.round(residueUnitsOf(s))}</div>
+                              </div>
+
+                              {/* Azioni riga */}
+                              <div style={styles.rowActionsRight}>
+                                <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
+                                <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
+                                <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                              </div>
                             </div>
                           </>
                         )}
@@ -1735,7 +1871,7 @@ export default function ListeProdotti() {
         }}
       />
 
-      {/* 4) OCR UNICO di riga (multi-file + sostituisce onChange esistente) */}
+      {/* OCR UNICO di riga */}
       <input
         ref={rowOcrInputRef}
         type="file"
@@ -1814,7 +1950,7 @@ export default function ListeProdotti() {
                   ...old,
                   name: upd.name || old.name,
                   brand: upd.brand || old.brand,
-                  packs: upd.packs || old.packs || 0,
+                  packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
                   unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
                   unitLabel: upd.unitLabel || old.unitLabel || 'unità',
                   expiresAt: upd.expiresAt || old.expiresAt || ''
@@ -1873,7 +2009,7 @@ export default function ListeProdotti() {
         }}
       />
 
-      {/* 5) Input nascosto per immagine prodotto */}
+      {/* Input immagine prodotto */}
       <input
         ref={rowImageInputRef}
         type="file"
@@ -1892,7 +2028,8 @@ export default function ListeProdotti() {
     </>
   );
 }
-/* =================== Styles =================== */
+
+/* =================== Styles (completo con fix) =================== */
 const styles = {
   page: {
     minHeight:'100vh',
@@ -1901,7 +2038,8 @@ const styles = {
     color:'#f8f1dc',
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
-  // 7) SFONDO TRASPARENTE
+
+  // Card trasparente
   card: {
     maxWidth:1000, margin:'0 auto',
     background:'transparent',
@@ -1910,6 +2048,7 @@ const styles = {
     borderRadius:18, padding:16,
     boxShadow:'none'
   },
+
   headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
   title3d:{
     margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
@@ -1917,88 +2056,115 @@ const styles = {
   },
   homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
   actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
+
   switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
   switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
   switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
 
   toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
-  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #3f6212', background:'linear-gradient(180deg,#4d7c0f,#3f6212)', color:'#eff6ff', fontWeight:700 },
+  primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
 
-  // 7) TRASPARENTE
-  sectionLarge:{ marginTop:10, padding:12, borderRadius:14, background:'transparent', border:'1px solid rgba(255,255,255,.06)' },
-  sectionLifted:{ marginTop:14, padding:12, borderRadius:16, background:'transparent', border:'1px solid rgba(255,255,255,.08)', boxShadow:'none' },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
+  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
+  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
+  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
 
-  h3:{ margin:'0 0 6px', fontSize:'1.2rem', fontWeight:800, letterSpacing:.5, textShadow:'0 0 10px rgba(160,225,255,.25)' },
-  h4:{ margin:'2px 0 6px', fontSize:'1rem', fontWeight:800, opacity:.95 },
+  h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
+  h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
 
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' },
-  formRowWrap:{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', marginTop:6 },
-  input:{
-    flex:'1 1 180px', minWidth:170, padding:'10px 12px', borderRadius:12,
-    background:'rgba(8,14,22,.75)', color:'#f8f1dc', border:'1px solid #334155', outline:'none'
+  // LISTA PRODOTTI: card rosse a pillola + bottoni icona
+  listCardRed: {
+    display:'flex',
+    justifyContent:'space-between',
+    alignItems:'center',
+    gap:10,
+    padding:'12px 14px',
+    borderRadius:16,
+    cursor:'pointer',
+    userSelect:'none',
+    background:'linear-gradient(180deg, #7f1d1d, #991b1b)',
+    border:'1px solid #450a0a',
+    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.35)',
+  },
+  listCardRedBought: {
+    background:'linear-gradient(180deg, #166534, #14532d)',
+    border:'1px solid #0f5132',
+    textDecoration:'line-through',
+    opacity:.9
+  },
+  iconBtnBase:{
+    width:36, height:36, minWidth:36,
+    display:'grid', placeItems:'center',
+    borderRadius:999,
+    border:'1px solid rgba(255,255,255,.15)',
+    background:'rgba(15,23,42,.55)',
+    color:'#f8fafc',
+    fontWeight:800,
+    boxShadow:'0 2px 8px rgba(0,0,0,.35)'
+  },
+  iconBtnGreen:{
+    background:'linear-gradient(180deg, #16a34a, #15803d)',
+    border:'1px solid #166534',
+    color:'#ffffff'
+  },
+  iconBtnDark:{
+    background:'linear-gradient(180deg, #0f172a, #111827)',
+    border:'1px solid #334155',
+    color:'#e5e7eb'
+  },
+  ocrPillBtn:{
+    padding:'8px 12px',
+    borderRadius:12,
+    border:'1px solid #7f1d1d',
+    background:'linear-gradient(180deg, #991b1b, #7f1d1d)',
+    color:'#fde68a',
+    fontWeight:700
+  },
+    trashBtn:{
+    padding:'8px 10px',
+    borderRadius:12,
+    border:'1px solid #4b5563',
+    background:'linear-gradient(180deg,#1f2937,#111827)',
+    color:'#f87171',
+    fontWeight:700
   },
 
-  listGrid:{ display:'grid', gridTemplateColumns:'1fr', gap:8 },
-  rowButton:{
-    display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'10px 12px',
-    borderRadius:14, cursor:'pointer', userSelect:'none', boxShadow:'0 8px 18px rgba(0,0,0,.35)'
-  },
-  rowButtonToBuy:{
-    background:'linear-gradient(180deg,#7f1d1d,#450a0a)', border:'1px solid #7f1d1d', color:'#fff4ea'
-  },
-  rowButtonBought:{
-    background:'linear-gradient(180deg,#166534,#064e3b)', border:'1px solid #166534', color:'#ecfeff'
-  },
-  rowLeft:{ display:'flex', flexDirection:'column' },
-  rowName:{ fontWeight:800, letterSpacing:.4, marginBottom:2 },
-  rowBrand:{ opacity:.85, fontWeight:600 },
-  rowMeta:{ opacity:.9, fontSize:'.92rem' },
+  // LISTA — testo
+  rowLeft:{ flex:1, minWidth:0 },
+  rowName:{ fontSize:'1.05rem', fontWeight:600, color:'#fff' },
+  rowBrand:{ opacity:.8, fontWeight:400, marginLeft:4 },
+  rowMeta:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
+  badgeBought:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#166534', color:'#dcfce7', fontSize:'.75rem' },
+  badgeToBuy:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#7f1d1d', color:'#fee2e2', fontSize:'.75rem' },
   rowActions:{ display:'flex', gap:6, alignItems:'center' },
+  rowActionsRight:{ display:'flex', gap:6, alignItems:'center', marginLeft:10 },
 
-  smallQtyBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'rgba(17,24,39,.75)', color:'#e5e7eb', fontWeight:800 },
-  smallOkBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #166534', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#052e13', fontWeight:900 },
-  smallGhostBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #334155', background:'transparent', color:'#e5e7eb' },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:10, border:'1px solid #7f1d1d', background:'linear-gradient(180deg,#991b1b,#7f1d1d)', color:'#fff0ea' },
+  // STOCK / SCORTE
+  stockList:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
+  stockLineZ1:{ background:'rgba(255,255,255,.02)', padding:10, borderRadius:10 },
+  stockLineZ2:{ background:'rgba(0,0,0,.15)', padding:10, borderRadius:10 },
+  stockRow:{ display:'flex', alignItems:'center', gap:10 },
+  stockTitle:{ fontSize:'1rem', fontWeight:600, marginBottom:4 },
+  stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:2 },
 
-  badgeBought:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(16,185,129,.2)', border:'1px solid rgba(16,185,129,.35)', fontSize:'.78rem', fontWeight:800 },
-  badgeToBuy:{ marginLeft:8, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,.22)', border:'1px solid rgba(239,68,68,.4)', fontSize:'.78rem', fontWeight:800 },
-
-  stockGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:10 },
-  stockCardCritical:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(60,35,35,.85),rgba(40,20,20,.9))',
-    border:'1px solid rgba(255,120,120,.25)', boxShadow:'0 10px 22px rgba(0,0,0,.38)'
-  },
-  stockCardZ1:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(22,30,44,.65),rgba(16,22,34,.65))',
-    border:'1px solid rgba(255,255,255,.06)'
-  },
-  stockCardZ2:{
-    padding:10, borderRadius:14, background:'linear-gradient(180deg,rgba(18,26,40,.65),rgba(14,20,30,.65))',
-    border:'1px solid rgba(255,255,255,.07)', filter:'saturate(1.08)'
-  },
-
-  // 6) Nuovo layout card a 4 colonne
-  stockRow:{ display:'grid', gridTemplateColumns:'72px 1fr 120px 120px', gap:10, alignItems:'center' },
   imageBox:{
-    width:64, height:64, borderRadius:12,
-    border:'1px solid rgba(255,255,255,.1)',
-    background:'rgba(0,0,0,.25)',
-    display:'flex', alignItems:'center', justifyContent:'center',
-    cursor:'pointer', overflow:'hidden'
+    width:56, height:56, borderRadius:10,
+    border:'1px dashed #64748b',
+    display:'grid', placeItems:'center',
+    overflow:'hidden',
+    cursor:'pointer',
+    background:'rgba(255,255,255,.04)'
   },
   imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.6rem', opacity:.7 },
+  imagePlaceholder:{ fontSize:'1.5rem', color:'#94a3b8' },
 
-  kvCol:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, minWidth:0 },
-  kvLabel:{ fontSize:'.78rem', opacity:.75 },
-  kvValue:{ fontSize:'1.1rem', fontWeight:800 },
+  kvCol:{ minWidth:90, textAlign:'center' },
+  kvLabel:{ fontSize:'.75rem', opacity:.75 },
+  kvValue:{ fontSize:'1rem', fontWeight:600 },
 
-  stockTitle:{ fontWeight:800, marginBottom:6 },
-  progressOuter:{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' },
-  progressInner:{ height:'100%', background:'linear-gradient(90deg,#16a34a,#22c55e)', borderRadius:999 },
-  progressCritical:{ height:'100%', background:'linear-gradient(90deg,#dc2626,#b91c1c)', borderRadius:999 },
+  progressOuterBig:{ height:10, background:'rgba(255,255,255,.1)', borderRadius:6, overflow:'hidden', marginTop:2 },
+  progressOuterCrit:{ height:8, background:'rgba(255,255,255,.08)', borderRadius:6, overflow:'hidden', flex:1 },
+  progressInner:{ height:'100%' },
 
   critListWrap:{ display:'flex', flexDirection:'column', gap:6 },
   critRow:{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, background:'rgba(255,255,255,.04)' },
