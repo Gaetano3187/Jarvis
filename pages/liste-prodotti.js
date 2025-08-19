@@ -2671,33 +2671,27 @@ async function processVoiceInventory() {
                               </div>
 
                               {/* Azioni riga */}
-                            <div style={styles.rowActionsRight}>
-  {/* Modifica (matita) */}
+      <div style={styles.rowActionsRight}>
   <button
+    onClick={()=>startRowEdit(idx, s)}
+    style={{ ...styles.iconSquareBase, ...styles.iconBtnEdit }}
     title="Modifica"
-    onClick={() => startRowEdit(idx, s)}
-    style={{ ...styles.iconSquareBase }}
-  >
-    <Pencil size={18} />
-  </button>
+    aria-label="Modifica"
+  >✏️</button>
 
-  {/* Elimina definitivamente (cestino) */}
   <button
+    onClick={()=>deleteStockRow(idx)}
+    style={{ ...styles.iconSquareBase, ...styles.iconBtnTrash }}
     title="Elimina definitivamente"
-    onClick={() => deleteStockRow(idx)}
-    style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
-  >
-    <Trash2 size={18} />
-  </button>
+    aria-label="Elimina definitivamente"
+  >🗑</button>
 
-  {/* OCR riga (fotocamera) */}
   <button
-    title="OCR riga"
     onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-    style={{ ...styles.iconSquareBase }}
-  >
-    <Camera size={18} />
-  </button>
+    style={{ ...styles.iconSquareBase, ...styles.iconBtnCamera }}
+    title="OCR riga"
+    aria-label="OCR riga"
+  >📷</button>
 </div>
 
                             </div>
