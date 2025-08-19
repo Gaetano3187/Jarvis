@@ -560,6 +560,25 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
 
 /* ====================== Piccola utility media (no-op sicura) ====================== */
 function theMediaWorkaround(){ return; }
+// ==== Audio Recorder helpers (robust MIME) ====
+function pickAudioMime(){
+  if (typeof window === 'undefined' || !window.MediaRecorder) {
+    return { mime: 'audio/webm', ext: 'webm' };
+  }
+  const cand = [
+    { mime: 'audio/webm;codecs=opus', ext:'webm' },
+    { mime: 'audio/ogg;codecs=opus',  ext:'ogg'  },
+    { mime: 'audio/mp4',              ext:'m4a'  },
+    { mime: 'audio/webm',             ext:'webm' },
+  ];
+  for (const c of cand) {
+    try {
+      if (MediaRecorder.isTypeSupported?.(c.mime)) return c;
+    } catch(_) {}
+  }
+  return { mime: '', ext: 'webm' }; // fallback
+}
+
 
 /* ====================== Utility immagini ====================== */
 function withRememberedImage(row, imagesIdx) {
