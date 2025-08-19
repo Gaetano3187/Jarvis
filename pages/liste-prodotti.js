@@ -1381,11 +1381,7 @@ async function handleOCR(files) {
         parsed =
           typeof answer === 'string'
             ? (() => {
-                try {
-                  return JSON.parse(answer);
-                } catch {
-                  return null;
-                }
+                try { return JSON.parse(answer); } catch { return null; }
               })()
             : answer;
       } catch {}
@@ -1417,6 +1413,10 @@ async function handleOCR(files) {
       return;
     }
 
+    // (opzionale) fallback store/data se vuoti
+    if (!store) store = 'Sconosciuto';
+    if (!purchaseDate) purchaseDate = new Date().toISOString().slice(0,10);
+
     // —— INVIO a finances/ingest ——
     const payload = {
       user_id: uid,
@@ -1439,7 +1439,15 @@ async function handleOCR(files) {
     const json = await resp.json().catch(() => ({}));
     console.log('INGEST response →', resp.status, json);
 
-    // se serve, continua con la logica di aggiornamento scorte qui...
+    // …se hai altra logica di aggiornamento scorte, continua qui…
+
+    setBusy(false);
+  } catch (err) {
+    console.error('Errore handleOCR:', err);
+    setBusy(false);
+  }
+}
+
 
     setBusy(false);
   } catch (err) {
