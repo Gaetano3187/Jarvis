@@ -1455,6 +1455,10 @@ async function handleOCR(files) {
     if (!purchases.length) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
     }
+if (!purchases.length) {
+  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+  return; // <-- interrompe la funzione; il finally chiuderà busy
+}
 
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
