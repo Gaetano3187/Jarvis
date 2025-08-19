@@ -2236,18 +2236,13 @@ async function processVoiceInventory() {
           </div>
 
           {/* Comandi Lista */}
-<button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
-  {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
-</button>
-
-{/* ➕ solo icona: apre/chiude il form “Aggiungi manualmente alla lista corrente” */}
-<button
-  onClick={() => setShowListForm(v => !v)}
-  title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista corrente'}
-  style={{ ...styles.iconSquareBase, ...styles.iconGreen }}
->
-  <Plus size={18} />
-</button>
+          <div style={styles.toolsRow}>
+            <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
+              {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
+            </button>
+            <button onClick={() => setShowListForm(v => !v)} style={styles.primaryBtn}>
+              {showListForm ? '– Chiudi form lista' : '➕ Aggiungi manualmente alla lista corrente'}
+            </button>
           </div>
 
           {/* Form aggiunta manuale Lista */}
