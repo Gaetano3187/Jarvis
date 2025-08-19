@@ -1107,7 +1107,7 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
   }
 
 /* =================== OCR scontrini (globale) =================== */
-function decrementAcrossBothLists(prevLists, purchases) {
+const decrementAcrossBothLists = (prevLists, purchases) => {
   const next = { ...prevLists };
 
   const decList = (listKey) => {
@@ -1145,100 +1145,240 @@ function decrementAcrossBothLists(prevLists, purchases) {
   decList(LIST_TYPES.SUPERMARKET);
   decList(LIST_TYPES.ONLINE);
   return next;
-}
+};
 
-/* ==== Helpers robusti per costruire FormData con veri Blob/File ==== */
-function isBlobish(v) {
-  try {
-    return !!(v && typeof v === 'object'
-      && typeof v.type === 'string'
-      && typeof v.size === 'number'
-      && typeof v.arrayBuffer === 'function'
-      && typeof v.slice === 'function');
-  } catch { return false; }
-}
+// Coercion numerica sicura
+const coerceNum = (x) => {
+  if (x == null) return 0;
+  const s = String(x).trim().replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+};
 
-function dataUrlToBlob(dataUrl) {
-  try {
-    const [head, base64] = String(dataUrl || '').split(',');
-    const m = head.match(/data:(.*?);base64/i);
-    const mime = m ? m[1] : 'application/octet-stream';
-    const bin = atob(base64 || '');
-    const len = bin.length;
-    const u8 = new Uint8Array(len);
-    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
-    return new Blob([u8], { type: mime });
-  } catch {
-    return null;
+// Heuristica: meta da testo OCR (store + data)
+const parseReceiptMeta = (ocrText) => {
+  const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  let purchaseDate = '';
+  for (const ln of lines) {
+    const iso = toISODate(ln);
+    if (iso) { purchaseDate = iso; break; }
   }
-}
+  const bad = /(totale|iva|imp|euro|€|tel|cassa|scontrino|fiscale|subtot|pagamento|contanti|resto)/i;
+  let store = '';
+  for (const ln of lines) {
+    const hasLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln);
+    if (hasLetters && !bad.test(ln) && ln.length >= 3) { store = ln.replace(/\s{2,}/g,' ').trim(); break; }
+  }
+  return { store, purchaseDate };
+};
 
-function guessExt(mime = '') {
-  const m = (mime || '').toLowerCase();
-  if (m.includes('pdf')) return 'pdf';
-  if (m.includes('png')) return 'png';
-  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
-  if (m.includes('webp')) return 'webp';
-  if (m.includes('heic')) return 'heic';
-  return 'bin';
-}
+// Normalizzazione etichette unità
+const normalizeUnitLabel = (lbl='') => {
+  const s = normKey(lbl);
+  if (/bottigl/.test(s)) return 'bottiglie';
+  if (/(?:pz|pezz|unit\b|unita?)/.test(s)) return 'pezzi';
+  if (/bust/.test(s)) return 'buste';
+  if (/lattin/.test(s)) return 'lattine';
+  if (/vasett/.test(s)) return 'vasetti';
+  if (/barattol/.test(s)) return 'barattoli';
+  if (/vaschett/.test(s)) return 'vaschette';
+  if (/rotol/.test(s)) return 'rotoli';
+  if (/fogli?/.test(s)) return 'fogli';
+  if (/capsul/.test(s)) return 'capsule';
+  return 'unità';
+};
 
-// Converte FileList/array/obj/url/dataURL in veri Blob appendibili
-async function collectImageBlobs(input) {
-  const list = Array.from(input || []);
-  const out = [];
+const handleOCR = async (files) => {
+  if (!files?.length) return;
+  try {
+    setBusy(true);
 
-  for (const f of list) {
-    // 1) File/Blob nativo
-    if (isBlobish(f)) {
-      out.push({ blob: f, name: f.name || `upload.${guessExt(f.type)}` });
-      continue;
+    // 1) OCR immagini → FormData robusto
+    const fdOcr = new FormData();
+    const entries = await collectImageBlobs(files);
+    let appended = 0;
+    for (let i = 0; i < entries.length; i++) {
+      const it = entries[i];
+      if (it && isBlobish(it.blob)) {
+        const fname = it.name || `upload_${i}.${guessExt(it.blob.type)}`;
+        fdOcr.append('images', it.blob, fname);
+        appended++;
+      }
+    }
+    if (!appended) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
+
+    const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 45000);
+    const ocrJson = await readJsonSafe(ocrRes);
+    if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+    const ocrText = String(ocrJson?.text || '').trim();
+    if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
+
+    // 2) Parsing SCONTRINO (store/date/righe)
+    const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+    let parsed = null;
+    try {
+      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ prompt: promptTicket })
+      }, 35000);
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+    } catch(e) {}
+
+    const meta = parseReceiptMeta(ocrText);
+    let store = (parsed?.store || meta.store || '').trim();
+    let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
+
+    let purchases = ensureArray(parsed?.purchases).map(p => ({
+      name: String(p?.name||'').trim(),
+      brand: String(p?.brand||'').trim(),
+      packs: coerceNum(p?.packs),
+      unitsPerPack: coerceNum(p?.unitsPerPack),
+      unitLabel: normalizeUnitLabel(p?.unitLabel||''),
+      priceEach: coerceNum(p?.priceEach),
+      priceTotal: coerceNum(p?.priceTotal),
+      currency: String(p?.currency||'').trim() || 'EUR',
+      expiresAt: toISODate(p?.expiresAt || '')
+    })).filter(p => p.name);
+
+    // 3) Se non ci sono righe, prova parsing BUSTA/ETICHETTE
+    if (!purchases.length) {
+      const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
+      try {
+        const r2 = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ prompt: promptBag })
+        }, 35000);
+        const safe2 = await readJsonSafe(r2);
+        const answer2 = safe2?.answer || safe2?.data || safe2;
+        const parsed2 = typeof answer2 === 'string' ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })() : answer2;
+        const items = ensureArray(parsed2?.items).map(p => ({
+          name: String(p?.name||'').trim(),
+          brand: String(p?.brand||'').trim(),
+          packs: coerceNum(p?.packs),
+          unitsPerPack: coerceNum(p?.unitsPerPack),
+          unitLabel: normalizeUnitLabel(p?.unitLabel||''),
+          priceEach: 0,
+          priceTotal: 0,
+          currency: 'EUR',
+          expiresAt: toISODate(p?.expiresAt || '')
+        })).filter(p => p.name);
+        purchases = items;
+      } catch(e) {}
     }
 
-    // 2) stringa data URL o URL http(s)/blob:
-    if (typeof f === 'string') {
-      if (f.startsWith('data:')) {
-        const b = dataUrlToBlob(f);
-        if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-        continue;
-      }
-      if (/^(blob:|https?:)/i.test(f)) {
-        try {
-          const resp = await fetch(f);
-          const b = await resp.blob();
-          out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-        } catch {}
-        continue;
-      }
+    // 4) Fallback minimale
+    if (!purchases.length) purchases = parseReceiptPurchases(ocrText).map(p => ({
+      name: p.name, brand: p.brand || '', packs: p.packs||0, unitsPerPack: p.unitsPerPack||0,
+      unitLabel: normalizeUnitLabel(p.unitLabel||''), priceEach:0, priceTotal:0, currency:'EUR', expiresAt:''
+    }));
+
+    // 5) Decrementa liste
+    if (purchases.length) {
+      setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
 
-    // 3) wrapper { file|blob|preview|url|uri }
-    if (f && typeof f === 'object') {
-      const maybe = f.file || f.blob;
-      if (isBlobish(maybe)) {
-        out.push({ blob: maybe, name: f.name || `upload.${guessExt(maybe.type)}` });
-        continue;
-      }
-      const url = f.preview || f.uri || f.url;
-      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
-        try {
-          if (url.startsWith('data:')) {
-            const b = dataUrlToBlob(url);
-            if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+    // 6) Aggiorna scorte
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0,10);
+
+      for (const p of purchases) {
+        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+        const packs = coerceNum(p.packs);
+        const upp   = coerceNum(p.unitsPerPack);
+        const hasCounts = packs > 0 || upp > 0;
+
+        if (idx >= 0) {
+          const old = arr[idx];
+          if (hasCounts) {
+            const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
+            arr[idx] = {
+              ...old,
+              packs: newPacks,
+              unitsPerPack: nextUpp,
+              unitLabel: old.unitLabel || p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || old.expiresAt || '',
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(newPacks, todayISO, nextUpp)
+            };
           } else {
-            const resp = await fetch(url);
-            const b = await resp.blob();
-            out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+            arr[idx] = { ...old, needsUpdate: true };
           }
-        } catch {}
-        continue;
+        } else {
+          if (hasCounts) {
+            const uPP = Math.max(1, upp || 1);
+            arr.unshift(withRememberedImage({
+              name: p.name, brand: p.brand || '',
+              packs: Math.max(0, packs || 1),
+              unitsPerPack: uPP,
+              unitLabel: p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || '',
+              baselinePacks: Math.max(0, packs || 1),
+              lastRestockAt: todayISO,
+              avgDailyUnits: 0,
+              residueUnits: Math.max(0, (packs || 1) * uPP),
+              packsOnly: false,
+              needsUpdate: false
+            }, imagesIndex));
+          } else {
+            arr.unshift(withRememberedImage({
+              name: p.name, brand: p.brand || '',
+              packs: 0,
+              unitsPerPack: 1,
+              unitLabel: '-',
+              expiresAt: p.expiresAt || '',
+              baselinePacks: 0,
+              lastRestockAt: '',
+              avgDailyUnits: 0,
+              residueUnits: 0,
+              packsOnly: true,
+              needsUpdate: true
+            }, imagesIndex));
+          }
+        }
       }
-    }
-    // altro → ignora
-  }
 
-  return out;
-}
+      return arr;
+    });
+
+    // 7) Invia a FINANZE / SPESE-CASA
+    try {
+      await fetch(API_FINANCES_INGEST, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          store,
+          purchaseDate,
+          items: purchases.map(p => ({
+            name: p.name,
+            brand: p.brand || '',
+            packs: p.packs || 0,
+            unitsPerPack: p.unitsPerPack || 0,
+            unitLabel: p.unitLabel || '',
+            priceEach: p.priceEach || 0,
+            priceTotal: p.priceTotal || 0,
+            currency: p.currency || 'EUR',
+            expiresAt: p.expiresAt || ''
+          }))
+        })
+      });
+    } catch(e) {
+      if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
+    }
+
+    showToast('OCR scorte completato ✓', 'ok');
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+};
 
 
   /* =================== Vocale LISTA =================== */
