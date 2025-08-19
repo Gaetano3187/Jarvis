@@ -4,23 +4,24 @@ export const config = { api: { bodyParser: true }, runtime: 'nodejs' };
 
 import { createClient } from '@supabase/supabase-js';
 
+/** UUID categoria "casa" */
+const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc';
+
 const SUPABASE_URL =
   process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY; // <- fallback al tuo nome variabile
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
 const admin =
   SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
         auth: { persistSession: false, autoRefreshToken: false },
-        global: {
-          headers: { 'x-application-name': 'jarvis-assistant/finances-ingest' },
-        },
+        global: { headers: { 'x-application-name': 'jarvis-assistant/finances-ingest' } },
       })
     : null;
 
-// ——— CORS helper ———
+// ——— CORS ———
 function setCors(res, origin) {
   res.setHeader('Access-Control-Allow-Origin', origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -40,8 +41,7 @@ const toDate = (s) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
   const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
   if (m) {
-    const d = String(m[1]).padStart(2, '0'),
-      M = String(m[2]).padStart(2, '0');
+    const d = String(m[1]).padStart(2, '0'), M = String(m[2]).padStart(2, '0');
     let y = String(m[3]);
     if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
     return `${y}-${M}-${d}`;
@@ -52,9 +52,13 @@ const toDate = (s) => {
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const isUUID = (s) =>
   typeof s === 'string' &&
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    s
-  );
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+
+function coerceItemsArray(body) {
+  // Accetta sia body.items che body.purchases
+  const arr = Array.isArray(body?.items) ? body.items : (Array.isArray(body?.purchases) ? body.purchases : []);
+  return Array.isArray(arr) ? arr : [];
+}
 
 function mapItemsToRows({
   user_id,
@@ -66,25 +70,23 @@ function mapItemsToRows({
   items,
 }) {
   const out = [];
-  for (const p of Array.isArray(items) ? items : []) {
+  for (const p of items) {
     const name = (p?.name || '').trim();
-    const brand = (p?.brand || '').trim();
-    const packs = toNum(p?.packs) ?? 0;
-    const upp = toNum(p?.unitsPerPack) ?? 0;
+    if (!name) continue;
 
-    let qty = 1;
-    if (packs && upp) qty = packs * upp;
-    else if (packs) qty = packs;
-    else if (upp) qty = upp;
+    const brand = (p?.brand || '').trim();
+    const packs = toNum(p?.packs) ?? toNum(p?.qty) ?? 1; // qty fallback
+    const upp = toNum(p?.unitsPerPack) ?? 1;
+
+    // qty complessivo = confezioni * unità/conf (se noti)
+    const qty = Math.max(1, Number((packs || 1) * (upp || 1)));
 
     const priceTotal = toNum(p?.priceTotal);
     const priceEach = toNum(p?.priceEach);
     const amount =
-      priceTotal != null
-        ? priceTotal
-        : priceEach != null && qty != null
-        ? Number((priceEach * qty).toFixed(2))
-        : 0;
+      priceTotal != null ? priceTotal
+      : priceEach != null ? Number((priceEach * qty).toFixed(2))
+      : 0;
 
     const currency = (p?.currency || 'EUR').trim() || 'EUR';
     const description = brand ? `${name} (${brand})` : name;
@@ -100,9 +102,9 @@ function mapItemsToRows({
       spent_at,
       payment_method: payment_method || 'cash',
       card_label: card_label || null,
-      product_id: p?.product_id || null,
+      product_id: isUUID(p?.product_id) ? p.product_id : null,
 
-      // colonne duplicate del tuo schema
+      // colonne alias (se presenti nello schema)
       categoria: null,
       descrizione: description || null,
       importo: amount,
@@ -114,63 +116,55 @@ function mapItemsToRows({
 }
 
 export default async function handler(req, res) {
-  // CORS per tutte le richieste
   setCors(res, req.headers.origin);
-
-  // Preflight OPTIONS
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST', 'OPTIONS']);
-    return res
-      .status(405)
-      .json({ ok: false, error: 'Method Not Allowed', method: req.method });
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
   }
 
   try {
     if (!admin) {
-      return res
-        .status(500)
-        .json({ ok: false, error: 'Supabase env vars mancanti' });
+      return res.status(500).json({ ok: false, error: 'Supabase env vars mancanti' });
     }
 
+    const body = req.body || {};
     const {
       user_id,
-      category_id: rawCategoryId = null,
+      category_id: rawCategory = null,
       store = '',
       purchaseDate = '',
-      items = [],
       payment_method: rawPM = 'cash',
       card_label = null,
-    } = req.body || {};
+      currency = 'EUR',
+      total_amount = null, // opzionale, non usato direttamente ora
+    } = body;
 
-    if (!user_id)
-      return res
-        .status(400)
-        .json({ ok: false, error: 'user_id obbligatorio' });
+    if (!user_id) return res.status(400).json({ ok: false, error: 'user_id obbligatorio' });
+
+    // Prendi items o purchases
+    const items = coerceItemsArray(body);
     if (!Array.isArray(items) || items.length === 0) {
-      return res
-        .status(400)
-        .json({ ok: false, error: 'items deve essere un array non vuoto' });
+      return res.status(400).json({ ok: false, error: 'items deve essere un array non vuoto' });
     }
 
-    // enum payment_method: limitiamo ai valori noti
+    // payment method
     const ALLOWED_PM = new Set(['cash', 'card', 'bank', 'other']);
     const payment_method = ALLOWED_PM.has(String(rawPM || '').toLowerCase())
       ? String(rawPM).toLowerCase()
       : 'cash';
 
-    // verifica FK categoria: se non UUID o non esiste ⇒ null (evita errori 500)
-    let category_id = isUUID(rawCategoryId) ? rawCategoryId : null;
-    if (category_id) {
+    // category_id: forza a "casa" se non valido o mancante
+    let category_id = isUUID(rawCategory) ? rawCategory : CATEGORY_ID_CASA;
+
+    // (opzionale) verifica che la categoria esista; se no, rimetti "casa"
+    if (category_id && category_id !== CATEGORY_ID_CASA) {
       const { data: cat, error: catErr } = await admin
         .from('finance_categories')
         .select('id')
         .eq('id', category_id)
         .maybeSingle();
-      if (catErr || !cat) category_id = null;
+      if (catErr || !cat) category_id = CATEGORY_ID_CASA;
     }
 
     const spent_at = toDate(purchaseDate) || todayISO();
@@ -185,40 +179,43 @@ export default async function handler(req, res) {
       items,
     });
 
-    // normalizzazioni finali
+    // normalizzazioni ultime
     for (const r of rows) {
-      if (!isUUID(r.product_id)) r.product_id = null;
       if (r.amount == null || Number.isNaN(r.amount)) r.amount = 0;
-      if (r.qty == null || Number.isNaN(r.qty)) r.qty = 1;
+      if (r.qty == null || Number.isNaN(r.qty) || r.qty <= 0) r.qty = 1;
+      if (!r.currency) r.currency = currency || 'EUR';
     }
 
-   // ⬇️ upsert con ritorno righe effettivamente scritte/aggiornate
-const { data, error } = await admin
-  .from('finances')
-  .upsert(rows, {
-    // Conflitto più realistico: stai tracciando movimenti giornalieri per descrizione
-    // (evita amount/qty nella chiave di conflitto, altrimenti l'update non scatta mai)
-    onConflict: 'user_id,category_id,spent_at,description',
-    ignoreDuplicates: false,
-    defaultToNull: true,
-  })
-  .select('id'); // importantissimo per sapere cosa è stato scritto
+    // 🧩 upsert con ritorno id reali
+    const { data, error } = await admin
+      .from('finances')
+      .upsert(rows, {
+        // chiave di conflitto realistica per “movimenti”:
+        onConflict: 'user_id,category_id,spent_at,description',
+        ignoreDuplicates: false,
+        defaultToNull: true,
+      })
+      .select('id');
 
-if (error) {
-  return res.status(500).json({
-    ok: false,
-    error: error.message || 'DB error',
-    code: error.code || null,
-    details: error.details || null,
-    hint: error.hint || null,
-  });
+    if (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error.message || 'DB error',
+        code: error.code || null,
+        details: error.details || null,
+        hint: error.hint || null,
+      });
+    }
+
+    const saved = Array.isArray(data) ? data.length : 0;
+    return res.status(200).json({
+      ok: true,
+      saved,
+      insertedIds: Array.isArray(data) ? data.map((r) => r.id) : [],
+      category_id, // utile per il client
+    });
+  } catch (e) {
+    console.error('[finances/ingest] fatal', e);
+    return res.status(500).json({ ok: false, error: e?.message || 'Server error' });
+  }
 }
-
-// data può essere [] se nessuna riga è stata toccata
-const saved = Array.isArray(data) ? data.length : 0;
-return res.status(200).json({
-  ok: true,
-  saved,
-  insertedIds: (Array.isArray(data) ? data.map(r => r.id) : []),
-});
-
