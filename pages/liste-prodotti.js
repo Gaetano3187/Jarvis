@@ -504,8 +504,14 @@ function parseStockUpdateText(text) {
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-const absoluteGlobal = wantsAbsoluteSet(text) || hasAbsoluteKeywords(text);
+  const absoluteGlobal = wantsAbsoluteSet(text) || (typeof hasAbsoluteKeywords === 'function' && hasAbsoluteKeywords(text));
 
+  // parole → numeri
+  const WORD_MAP = { un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
+  const wordToNum = (chunk) => {
+    const m = chunk.match(/\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
+    return m ? (WORD_MAP[m[1].toLowerCase()] || NaN) : NaN;
+  };
 
   for (let rawChunk of parts) {
     if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
@@ -518,49 +524,71 @@ const absoluteGlobal = wantsAbsoluteSet(text) || hasAbsoluteKeywords(text);
       const name = guessProductName(chunk);
       if (!name) continue;
 
-      const pack = extractPackInfo(chunk);
-      const explicit = !!pack.explicit;
-
-      // parole → numeri (due, tre, …)
-      let m = chunk.match(/(\d+(?:[.,]\d+)?)\s*(bottiglie?|bott|pacchi?|conf(?:e(?:zioni)?)?|scatol[ae]|unit[aà]|pz|pezzi|barrett[e]?|vasett[i]?|uova|merendine?|bustin[ae]|monouso)?$/i);
-      if (!m && /\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i.test(chunk)) {
-        const map = { due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
-        const w = chunk.match(/\b(due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
-        m = w ? [null, String(map[w[1].toLowerCase()]), ''] : null;
-      }
-
-      const asUnits = m ? /unit|pz|pezzi|barrett|vasett|uova|bott|bottiglie|merendine?|bustin[ae]|monouso/.test((m[2]||'').toLowerCase()) : false;
-      const valNum = m ? Number(String(m[1]).replace(',','.')) : NaN;
-
-      if (!/\d/.test(chunk)) {
-        // comando generico tipo "aggiungi latte"
-        res.push({ name, mode: 'units', value: 1, op: 'maybeResidue', _packs: 1, _upp: 1, explicit:false });
+      const forceSet = (typeof hasAbsoluteKeywords === 'function' && hasAbsoluteKeywords(chunk));
+      // 1) Struttura esplicita: "2 confezioni da 6 bottiglie"
+      const mExplicit = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}\\s*(?:da|x)\\s*(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
+      if (mExplicit) {
+        const packs = Math.max(1, Number(mExplicit[1] || 1));
+        const upp   = Math.max(1, Number(mExplicit[2] || 1));
+        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
         continue;
       }
 
-      if (explicit) {
-        const packs = Math.max(1, Number(pack.packs || 1));
-        const upp   = Math.max(1, Number(pack.unitsPerPack || 1));
-        res.push({ name, mode: 'packs', value: packs, op: 'restockExplicit', _packs: packs, _upp: upp, explicit:true });
+      // 2) "2 confezioni 6 bottiglie"
+      const mBoth = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}.*?\\b(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
+      if (mBoth) {
+        const packs = Math.max(1, Number(mBoth[1] || 1));
+        const upp   = Math.max(1, Number(mBoth[2] || 1));
+        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
         continue;
       }
 
-      const value = Number.isFinite(valNum) ? Math.max(0, valNum) : 0;
-      if (!value) continue;
+      // 3) Solo UNITA': "... 6 bottiglie / 6 pezzi / 6 unit"
+      const mUnits = chunk.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${UNIT_SYNONYMS})\\b`, 'i'));
+      if (mUnits) {
+        const value = Math.max(0, Number(String(mUnits[1]).replace(',','.')) || 0);
+        res.push({ name, mode:'units', value, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
+        continue;
+      }
 
-      const packsLike = m ? /pacc|conf|scatol/.test((m[2]||'').toLowerCase()) : false;
-      const hintPacks = packsLike ? value : 1;
-      const hintUpp   = packsLike ? 1 : value;
+      // 4) Solo PACCHI: "... 3 confezioni / 2 pacchi / 1 scatola"
+      const mPacks = chunk.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${PACK_SYNONYMS})\\b`, 'i'));
+      if (mPacks) {
+        const value = Math.max(0, Number(String(mPacks[1]).replace(',','.')) || 0);
+        res.push({ name, mode:'packs', value, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:value, _upp:1, explicit:false, forceSet });
+        continue;
+      }
 
-      res.push({
-        name,
-        mode: asUnits ? 'units' : 'packs',
-        value,
-        op: absolute ? 'set' : 'maybeResidue',
-        _packs: Math.max(1, hintPacks),
-        _upp: Math.max(1, hintUpp),
-        explicit:false
-      });
+      // 5) Numero scritto come parola (senza tag): prova a dedurre
+      const wnum = wordToNum(chunk);
+      if (Number.isFinite(wnum)) {
+        // Se contiene parole di unità → units, altrimenti pacchi
+        const looksUnits = new RegExp(UNIT_SYNONYMS, 'i').test(chunk);
+        const looksPacks = new RegExp(PACK_SYNONYMS, 'i').test(chunk);
+        if (looksUnits && !looksPacks) {
+          res.push({ name, mode:'units', value: wnum, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:1, _upp:wnum, explicit:false, forceSet });
+        } else {
+          res.push({ name, mode:'packs', value: wnum, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:wnum, _upp:1, explicit:false, forceSet });
+        }
+        continue;
+      }
+
+      // 6) Fallback su numero finale isolato
+      const mNum = chunk.match(/(\d+(?:[.,]\d+)?)\s*$/);
+      if (mNum) {
+        const value = Math.max(0, Number(String(mNum[1]).replace(',','.')) || 0);
+        // prova a capire da parole presenti
+        const looksUnits = new RegExp(UNIT_SYNONYMS, 'i').test(chunk);
+        const looksPacks = new RegExp(PACK_SYNONYMS, 'i').test(chunk);
+        if (looksUnits && !looksPacks) {
+          res.push({ name, mode:'units', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
+        } else if (looksPacks && !looksUnits) {
+          res.push({ name, mode:'packs', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:value, _upp:1, explicit:false, forceSet });
+        } else {
+          // ambiguo → considera units (caso più comune)
+          res.push({ name, mode:'units', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
+        }
+      }
     }
   }
   return res;
