@@ -1519,9 +1519,7 @@ async function handleOCR(files) {
       }
       return arr;
     });
-
-    // 4) Invia alle FINANZE (best-effort, ma con errori visibili)
-   // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
+  // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
 const hasPurchases = Array.isArray(purchases) && purchases.length > 0;
 let financesOk = true;
 
@@ -1548,8 +1546,6 @@ if (hasPurchases) {
       items: itemsSafe
     };
 
-    if (DEBUG) console.log('[FINANCES_INGEST] payload', payload);
-
     const r = await fetchJSONStrict(API_FINANCES_INGEST, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1563,13 +1559,21 @@ if (hasPurchases) {
     showToast(`Finanze: ${e.message}`, 'err');
   }
 } else {
-  if (DEBUG) console.log('[FINANCES_INGEST] skipped: no items');
+  if (DEBUG) console.log('[FINANCES_INGEST] SKIP — no items');
 }
 
-// ✅ Mostra il successo SOLO se abbiamo davvero aggiornato le scorte e la chiamata Finanze non è fallita
+// ✅ SUCCESS solo se davvero abbiamo aggiornato e Finanze non è fallito
 if (hasPurchases && financesOk) {
   showToast('OCR scorte completato ✓', 'ok');
 }
+} catch (e) {
+  console.error('[OCR scorte] error', e);
+  showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+} finally {
+  setBusy(false);
+  if (ocrInputRef.current) ocrInputRef.current.value = '';
+}
+} // <-- FINE handleOCR
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
