@@ -8,12 +8,6 @@ import { Pencil, Trash2, Camera } from 'lucide-react';
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
 
-/* ====================== Feature toggles / safety ====================== */
-// Se l’OCR / vocale trova il prodotto ma non capisce le quantità,
-// crea 1 confezione di default (come funzionava prima).
-const DEFAULT_PACKS_IF_MISSING = true;
-
-
 // —— Cloud sync (Supabase) — opzionale, auto-noop se non presente
 const CLOUD_SYNC = true;                       // lascia true: prova a sincronizzare se /lib/supabaseClient esiste
 const CLOUD_TABLE = 'jarvis_liste_state';      // { user_id text, state jsonb, updated_at timestamptz default now() }
@@ -28,11 +22,16 @@ const API_FINANCES_INGEST = '/api/finances/ingest';
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
 
-/* ====================== Feature toggles / safety ====================== */
-// Se l’OCR / vocale trova il prodotto ma non capisce le quantità,
-// crea 1 confezione di default (come funzionava prima).
-const DEFAULT_PACKS_IF_MISSING = true;
-
+// chiave univoca per nome+marca
+function normKey(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
@@ -1576,11 +1575,6 @@ if (!Array.isArray(purchases) || purchases.length === 0) {
   return;
 }
 
-// Rimuovi righe non-merce (shopper, busta, cauzioni, vuoti, ecc.)
-const DISCARD_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
-purchases = (Array.isArray(purchases) ? purchases : []).filter(
-  p => p && p.name && !DISCARD_RE.test(String(p.name))
-);
 
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
