@@ -2177,27 +2177,27 @@ async function processVoiceInventory() {
           }
         }
 
-        // ⬅ NORMALIZZAZIONE FINALE:
-        // per ogni prodotto aggiornato a UNITÀ, ricalcola "packs" da residueUnits se UPP è noto.
-        if (unitsUpdated.size > 0) {
-          for (let k = 0; k < arr.length; k++) {
-            const row = arr[k];
-            if (!row || !unitsUpdated.has(normKey(row.name))) continue;
+     // ⬅ NORMALIZZAZIONE FINALE:
+if (unitsUpdated.size > 0) {
+  for (let k = 0; k < arr.length; k++) {
+    const row = arr[k];
+    if (!row || !unitsUpdated.has(normKey(row.name))) continue;
 
-            const upp = Math.max(1, Number(row.unitsPerPack || 1));
-            if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
-              const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
-              // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
-              const newPacks =
-                ruInt === 0 ? 0 :
-                (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
+    const upp = Math.max(1, Number(row.unitsPerPack || 1));
+    if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
+      const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
+      // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
+      const newPacks =
+        ruInt === 0 ? 0 :
+        (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
 
-              if (newPacks !== Number(row.packs || 0)) {
-                arr[k] = { ...row, packs: newPacks };
-              }
-            }
-          }
-        }
+      if (newPacks !== Number(row.packs || 0)) {
+        arr[k] = { ...row, packs: newPacks };
+      }
+    }
+  }
+}
+
 
         return arr;
       });
