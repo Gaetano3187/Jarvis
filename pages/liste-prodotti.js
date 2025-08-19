@@ -1580,7 +1580,6 @@ purchases = (Array.isArray(purchases) ? purchases : []).filter(
   p => p && p.name && !DISCARD_RE.test(String(p.name))
 );
 
-}
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
       setLists(prev => decrementAcrossBothLists(prev, purchases));
