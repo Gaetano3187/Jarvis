@@ -102,8 +102,9 @@ function hasAbsoluteKeywords(text) {
   return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/.test(t);
 }
 // Sinonimi ampi per UNITA' e per CONFEZIONI (packs)
-const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz|pezzi|pezzo|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|compresse?|pastiglie?|pillol(?:a|e)|monouso|fogli(?:o|i)|rotol(?:o|i)|bicchier(?:e|i)|capsul(?:a|e))';
+const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|compresse?|pastiglie?|pillol(?:a|e)|monouso|fogli(?:o|i)|rotol(?:o|i)|bicchier(?:e|i)|capsul(?:a|e))';
 const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+
 
 /* ====================== Parser liste rapide ====================== */
 function extractPackInfo(str){
