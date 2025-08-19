@@ -329,7 +329,9 @@ async function readJsonSafe(res) {
   try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
   catch { return { ok: res.ok, data: null, error: raw.slice(0,200) || `HTTP ${res.status}` }; }
 }
+
 function ensureArray(x) { return Array.isArray(x) ? x : []; }
+
 function timeoutFetch(url, opts={}, ms=25000) {
   if (DEBUG) console.log('[fetch] →', url, opts);
   const ctrl = new AbortController();
@@ -338,6 +340,35 @@ function timeoutFetch(url, opts={}, ms=25000) {
     .then(r => { if (DEBUG) console.log('[fetch] ←', url, r.status); return r; })
     .finally(()=>clearTimeout(t));
 }
+
+/* === NEW: helper per errori chiari e JSON rigoroso === */
+async function readTextSafe(res){
+  try { return await res.text(); } catch { return ''; }
+}
+
+async function fetchJSONStrict(url, opts={}, timeoutMs=40000){
+  const r = await timeoutFetch(url, opts, timeoutMs);
+  const ct = (r.headers.get?.('content-type') || '').toLowerCase();
+  const raw = await readTextSafe(r);
+
+  if (!r.ok) {
+    let msg = raw;
+    if (ct.includes('application/json')) {
+      try {
+        const j = JSON.parse(raw);
+        msg = j.error || j.message || JSON.stringify(j);
+      } catch {}
+    }
+    throw new Error(`HTTP ${r.status} ${r.statusText || ''} — ${String(msg).slice(0,250)}`);
+  }
+
+  if (!raw.trim()) return {};
+  if (ct.includes('application/json')) {
+    try { return JSON.parse(raw); } catch (e) { throw new Error(`JSON parse error: ${e?.message||e}`); }
+  }
+  try { return JSON.parse(raw); } catch { return { data: raw }; }
+}
+
 // ——— Helpers robusti per immagini/Blob (usati da handleOCR e OCR riga) ———
 function isBlobish(v){
   try {
@@ -348,6 +379,7 @@ function isBlobish(v){
       && typeof v.slice === 'function');
   } catch { return false; }
 }
+
 function dataUrlToBlob(dataUrl) {
   try {
     const [head, base64] = String(dataUrl || '').split(',');
@@ -360,6 +392,7 @@ function dataUrlToBlob(dataUrl) {
     return new Blob([u8], { type: mime });
   } catch { return null; }
 }
+
 function guessExt(mime='') {
   const m = (mime || '').toLowerCase();
   if (m.includes('pdf')) return 'pdf';
@@ -369,6 +402,7 @@ function guessExt(mime='') {
   if (m.includes('heic')) return 'heic';
   return 'bin';
 }
+
 async function collectImageBlobs(input) {
   const list = Array.from(input || []);
   const out = [];
