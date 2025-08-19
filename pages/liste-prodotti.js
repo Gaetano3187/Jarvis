@@ -566,34 +566,55 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
 
 /* ====================== Parser fallback OCR ====================== */
 function parseReceiptPurchases(ocrText) {
-  const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  const ignore = /(totale|iva|bancomat|contanti|resto|scontrino|cassa|cliente|sconto|subtotale|pagato|euro)/i;
+  const lines = String(ocrText||'')
+    .split(/\r?\n/)
+    .map(s => s.replace(/\s{2,}/g,' ').trim())
+    .filter(Boolean);
+
+  // ⬅️ NIENTE 'euro'/'€' qui: ignoriamo solo intestazioni vere
+  const ignoreHeader = /^\s*(totale|subtotale|sconto|iva|pagato|resto|contanti|bancomat|carta|cassa|cliente|scontrino|documento|fiscale|operatore|numero|n\.?|nr\.?)\b/i;
 
   const out = [];
   for (let raw of lines) {
-    if (ignore.test(raw)) continue;
-    let name = raw;
+    if (ignoreHeader.test(raw)) continue;
+
+    // scarta codici puramente numerici (PLU, barcode isolati)
+    if (/^\d{6,}$/.test(raw)) continue;
+
+    // 🔧 togli SOLO la coda prezzo (ma NON scartare la riga!)
+    // esempi gestiti: "... € 1,29", "... EUR 3.50", "... 2,99", "... 1,29 x2"
+    let work = raw
+      .replace(/(?:€|eur|euro)\s*\d+(?:[.,]\d{2})?(?:\s*x\s*\d+)?\s*$/i, '')
+      .replace(/\s+\d+(?:[.,]\d{2})\s*(?:x\s*\d+)?\s*$/i, '')
+      .trim();
+
+    // brand alla fine in Maiuscolo (come facevi tu, ma sulla riga “pulita”)
+    let name = work;
     let brand = '';
     const parts = name.split(' ');
-    if (parts.length>1 && /^[A-ZÀ-ÖØ-Þ]/.test(parts[parts.length-1])) {
+    if (parts.length > 1 && /^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9-]*$/.test(parts[parts.length-1])) {
       brand = parts.pop();
       name = parts.join(' ');
     }
+
+    // normalizzazioni leggere
     name = name
-      .replace(/\b(\d+[gG]|kg|ml|l|cl)\b/g,'')
+      .replace(/\b(\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt))\b/gi,'') // pesi/volumi
       .replace(/\s{2,}/g, ' ')
       .trim()
       .toLowerCase()
       .replace(/\buht\b/g,'')
-      .replace(/spaghetti|penne|fusilli|rigatoni/, 'pasta')
-      .replace(/passata\b.*pomodoro|passata\b/, 'passata di pomodoro')
-      .replace(/latte\b.*/, 'latte')
-      .replace(/yogurt\b.*/, 'yogurt')
-      .replace(/\bcaffe\b/g,'caffè');
+      .replace(/spaghetti|penne|fusilli|rigatoni/gi, 'pasta')
+      .replace(/passata\b.*pomodoro|passata\b/i, 'passata di pomodoro')
+      .replace(/latte\b.*/i, 'latte')
+      .replace(/yogurt\b.*/i, 'yogurt')
+      .replace(/\bcaffe\b/gi,'caffè');
 
-    if (!name || name.length<2) continue;
+    if (!name || name.length < 2) continue;
 
-    const pack = extractPackInfo(raw);
+    // 📦 quantità/pezzi: estrai dal testo già ripulito
+    const pack = extractPackInfo(work);
+
     out.push({
       name,
       brand: brand || '',
@@ -604,6 +625,8 @@ function parseReceiptPurchases(ocrText) {
     });
   }
   return out;
+}
+
 }
 function coerceNum(x){
   if (x == null) return 0;
