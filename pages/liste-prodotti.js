@@ -1466,25 +1466,65 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // 4) Invia alle FINANZE (best-effort)
+ // 4) Invia alle FINANZE (best-effort, schema robusto + fail-safe)
 try {
-  await fetch(API_FINANCES_INGEST, {
+  // Normalizza righe acquisto in un formato ricco
+  const itemsForIngest = purchases.map(p => ({
+    name: String(p.name || '').trim(),
+    brand: String(p.brand || '').trim(),
+    // qty = n. confezioni acquistate
+    qty: Math.max(1, Number(p.packs || 1)),
+    unitsPerPack: Math.max(1, Number(p.unitsPerPack || 1)),
+    unitLabel: p.unitLabel || 'unità',
+    // prezzi (se non deducibili restano 0)
+    priceEach: Number.isFinite(Number(p.priceEach)) ? Number(p.priceEach) : 0,
+    priceTotal: Number.isFinite(Number(p.priceTotal)) ? Number(p.priceTotal) : 0,
+    currency: (p.currency || 'EUR'),
+    // scadenza eventuale
+    expiresAt: toISODate(p.expiresAt || '')
+  })).filter(r => r.name);
+
+  const total_amount = itemsForIngest.reduce((acc, it) => acc + (Number(it.priceTotal) || 0), 0);
+
+  const payload = {
+    user_id: userIdRef.current || null,
+    category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc', // opzionale
+    store: store || '',
+    purchaseDate: purchaseDate || new Date().toISOString().slice(0, 10),
+    payment_method: 'cash',
+    card_label: null,
+    currency: 'EUR',
+    total_amount,
+    source: 'receipt-ocr',
+    receipt_text: (typeof ocrText === 'string' ? ocrText.slice(0, 12000) : ''),
+    // invia entrambe per compatibilità con handler diversi
+    items: itemsForIngest,
+    purchases: itemsForIngest
+  };
+
+  const resp = await timeoutFetch(API_FINANCES_INGEST, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: userIdRef.current,                           // dall'auth Supabase
-      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',  // opzionale: categoria "casa"
-      store,
-      purchaseDate,
-      payment_method: 'cash',                                // o 'card'
-      card_label: null,                                      // es. 'Visa'
-      items: purchases                                       // array che hai già costruito
-    })
-  });
+    body: JSON.stringify(payload)
+  }, 25000);
+
+  const jr = await readJsonSafe(resp);
+  if (!resp.ok) {
+    const msg = (jr && (jr.error || jr.message)) ? `: ${jr.error || jr.message}` : ` (HTTP ${resp.status})`;
+    // Non bloccare il flusso dell’app: logga e prosegui
+    console.warn('[FINANCES_INGEST] Fallito', msg, jr);
+    if (String(msg).toLowerCase().includes('supabase') && String(msg).toLowerCase().includes('env')) {
+      // env mancanti lato server
+      showToast('Finanze non configurate (env Supabase mancanti)', 'err');
+    } else if (DEBUG) {
+      showToast(`Ingest finanze: ${msg}`, 'err');
+    }
+  } else if (DEBUG) {
+    console.log('[FINANCES_INGEST] OK', jr);
+  }
 } catch (e) {
   if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
 }
-
 
     showToast('OCR scorte completato ✓', 'ok');
   } catch (e) {
