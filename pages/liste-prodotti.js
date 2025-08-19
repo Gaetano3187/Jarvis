@@ -2085,25 +2085,34 @@ async function processVoiceInventory() {
           const j = arr.findIndex(s => isSimilar(s.name, u.name));
           const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
 
-          if (j < 0) {
-            // Crea riga nuova
-            if (u.mode === 'packs') {
-              const packs = Math.max(0, Number(u.value || u._packs || 0));
-              if (u.explicit && u._upp > 1) {
-                const up = Math.max(1, Number(u._upp || 1));
-                const row = {
-                  name: u.name, brand: '', packs,
-                  unitsPerPack: up, unitLabel: 'unità',
-                  expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly: false
-                };
-                arr.unshift(withRememberedImage(row, imagesIndex));
-              } else {
-                const row = makePacksOnly({
-                  name: u.name, brand: '', packs,
-                  expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
-                });
-                arr.unshift(withRememberedImage(row, imagesIndex));
-              }
+      if (u.mode === 'packs') {
+  const packs = Math.max(0, Number(u.value || u._packs || 0));
+  const upVoice = Math.max(1, Number(u._upp || 0));
+  const isExplicit = (u && u.explicit === true) || (upVoice > 1);
+
+  if (isExplicit) {
+    const up = upVoice > 1 ? upVoice : 1;
+    const row = {
+      name: u.name, brand: '',
+      packs,
+      unitsPerPack: up,
+      unitLabel: 'unità',
+      expiresAt: '',
+      ...restockTouch(packs, todayISO, up),
+      avgDailyUnits: 0,
+      packsOnly: false
+    };
+    arr.unshift(withRememberedImage(row, imagesIndex));
+  } else {
+    // Solo pacchi → packsOnly (UPP ignoto)
+    const row = makePacksOnly({
+      name: u.name, brand: '', packs,
+      expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
+    });
+    arr.unshift(withRememberedImage(row, imagesIndex));
+  }
+}
+
             } else {
               // mode: 'units' → imposta residuo unità
               const units = Math.max(0, Number(u.value || 1));
