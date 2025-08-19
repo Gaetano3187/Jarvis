@@ -1574,12 +1574,18 @@ if (!Array.isArray(purchases) || purchases.length === 0) {
   showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
   return;
 }
+// Rimuovi righe non-merce (shopper, busta, cauzioni, vuoti, ecc.)
+const DISCARD_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+purchases = (Array.isArray(purchases) ? purchases : []).filter(
+  p => p && p.name && !DISCARD_RE.test(String(p.name))
+);
 
-
+}
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
       setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
+    
 
     // 3) Aggiorna SCORTE (flag rosso se mancano quantità)
 setStock(prev => {
