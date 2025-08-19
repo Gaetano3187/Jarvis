@@ -5,6 +5,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { Pencil, Trash2, Camera } from 'lucide-react';
+import { Plus, CalendarDays } from 'lucide-react';
+
 
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
@@ -2399,15 +2401,28 @@ async function processVoiceInventory() {
             <div style={styles.sectionHeaderRow}>
               <h3 style={styles.h3}>🏠 Stato Scorte</h3>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-                  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
-                </button>
-                <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
-                  {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
-                </button>
-                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.primaryBtn}>
-                  {showExpiryForm ? '– Chiudi scadenze manuali' : '🗓️ Inserisci scadenza manuale'}
-                </button>
+               <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
+</button>
+
+{/* ➕ solo icona: apre/chiude “Aggiungi scorta manualmente” */}
+<button
+  onClick={() => setShowStockForm(v => !v)}
+  title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+  style={{ ...styles.iconSquareBase, ...styles.iconGreen }}
+>
+  <Plus size={18} />
+</button>
+
+{/* 🗓️ solo icona: apre/chiude “Inserisci scadenza manuale” */}
+<button
+  onClick={() => setShowExpiryForm(v => !v)}
+  title={showExpiryForm ? 'Chiudi scadenze manuali' : 'Inserisci scadenza manuale'}
+  style={{ ...styles.iconSquareBase }}
+>
+  <CalendarDays size={18} />
+</button>
+
               </div>
             </div>
 
@@ -3063,5 +3078,11 @@ const styles = {
   iconDanger: {
     color: '#f87171'
   }
+  iconGreen: {
+  background: 'linear-gradient(180deg,#16a34a,#15803d)',
+  border: '1px solid #166534',
+  color: '#f0fdf4'
+},
+
 
 }; // ⬅️ chiusura dell’oggetto styles
