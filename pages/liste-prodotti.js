@@ -631,6 +631,9 @@ export default function ListeProdotti() {
 
   // Vocale lista
   theMediaWorkaround();
+
+const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
+
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
