@@ -3026,7 +3026,7 @@ const styles = {
 
   formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
   formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
-  input:{
+   input:{
     flex:1,
     minWidth:120,
     padding:'8px 10px',
@@ -3034,20 +3034,21 @@ const styles = {
     border:'1px solid #475569',
     background:'rgba(15,23,42,.65)',
     color:'#f1f5f9'
-  }
+  }, // ⬅️ VIRGOLA QUI
+
+  // === NUOVI STILI PER LE ICONE ===
   iconSquareBase: {
-  width: 38, height: 38, minWidth: 38,
-  display: 'grid', placeItems: 'center',
-  borderRadius: 12,
-  border: '1px solid #4b5563',
-  background: 'linear-gradient(180deg,#1f2937,#111827)',
-  color: '#e5e7eb',
-  boxShadow: '0 2px 8px rgba(0,0,0,.35)',
-  cursor: 'pointer'
-},
-iconDanger: {
-  color: '#f87171'
-},
+    width: 38, height: 38, minWidth: 38,
+    display: 'grid', placeItems: 'center',
+    borderRadius: 12,
+    border: '1px solid #4b5563',
+    background: 'linear-gradient(180deg,#1f2937,#111827)',
+    color: '#e5e7eb',
+    boxShadow: '0 2px 8px rgba(0,0,0,.35)',
+    cursor: 'pointer'
+  },
+  iconDanger: {
+    color: '#f87171'
+  }
 
-
-}; 
+}; // ⬅️ chiusura dell’oggetto styles
