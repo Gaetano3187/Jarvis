@@ -2227,9 +2227,12 @@ async function processVoiceInventory() {
         multiple
         hidden
         onChange={async (e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (!files.length) return;
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  await handleOCR(files);
+}}
+
 
           // Chi è la riga target? (lista o scorte)
           let itemName = '';
