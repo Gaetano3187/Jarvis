@@ -1296,13 +1296,19 @@ async function collectImageBlobs(input) {
     setBusy(true);
 
     // 1) OCR immagini
-    const fdOcr = new FormData();
-    files.forEach((f) => fdOcr.append('images', f));
-    const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 45000);
-    const ocrJson = await readJsonSafe(ocrRes);
-    if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
-    const ocrText = String(ocrJson?.text || '').trim();
-    if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
+ const fdOcr = new FormData();
+const entries = await collectImageBlobs(files);
+let appended = 0;
+for (let i = 0; i < entries.length; i++) {
+  const it = entries[i];
+  if (it && isBlobish(it.blob)) {
+    const fname = it.name || `upload_${i}.${guessExt(it.blob.type)}`;
+    fdOcr.append('images', it.blob, fname);   // <-- ora SEMPRE un vero Blob
+    appended++;
+  }
+}
+if (!appended) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
+
 
     // 2) Prova parsing SCONTRINO
     const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
