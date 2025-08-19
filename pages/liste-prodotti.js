@@ -1576,6 +1576,11 @@ if (!Array.isArray(purchases) || purchases.length === 0) {
   return;
 }
 
+// Rimuovi righe non-merce (shopper, busta, cauzioni, vuoti, ecc.)
+const DISCARD_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+purchases = (Array.isArray(purchases) ? purchases : []).filter(
+  p => p && p.name && !DISCARD_RE.test(String(p.name))
+);
 
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
