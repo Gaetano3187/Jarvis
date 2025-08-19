@@ -363,8 +363,8 @@ function dataUrlToBlob(dataUrl) {
 }
 function guessExt(mime='') {
   const m = (mime || '').toLowerCase();
-  if (m.includes('pdf')) return 'pdf';
-  if (m.includes('png')) return 'png';
+  if (m.includes('pdf'))  return 'pdf';
+  if (m.includes('png'))  return 'png';
   if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
   if (m.includes('webp')) return 'webp';
   if (m.includes('heic')) return 'heic';
