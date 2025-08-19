@@ -96,65 +96,80 @@ function wantsAbsoluteSet(text) {
 
 /* ====================== Parser liste rapide ====================== */
 function extractPackInfo(str){
-  const s = normKey(str);
+  const raw = normKey(str);
+
+  // parole → numeri (un|uno|una = 1, ecc.)
+  const WORD_MAP = { un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
+  const s = raw.replace(/\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/g, (w)=>String(WORD_MAP[w]||w));
+
   let packs = 1;
   let unitsPerPack = 1;
   let unitLabel = 'unità';
 
-  const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
+  // include anche 'unit' senza accento per tollerare "unit"
+  const UNIT_TERMS = '(?:pz|pezzi|unit(?:a|à)?|unit\\b|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
 
-  // classico: "2 confezioni da 6 bottiglie"
-  let m = s.match(new RegExp(String.raw`(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:${UNIT_TERMS})?`, 'i'));
+  let m;
+
+  // "2 confezioni da 6 bottiglie" / "1 confezione da 6 unità"
+  m = s.match(new RegExp(`(\\d+)\\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\\s*(?:da|x)\\s*(\\d+)\\s*(${UNIT_TERMS})?`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
-    return { packs, unitsPerPack, unitLabel, explicit:true };
+    const lab = (m[3] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/,'unità');
+    unitLabel = /bottigl/i.test(lab) ? 'bottiglie' : 'unità';
+    return { packs, unitsPerPack, unitLabel, explicit: true };
   }
 
-  // nuovo: "aggiungendo 2 a confezioni 6 a unità" / "2 confezioni 6 unità"
-  m = s.match(new RegExp(String.raw`(?:aggiungendo\s*)?(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\b.*?\b(\d+)\s*(?:${UNIT_TERMS}|unit[aà]|u\/conf|unit[aà]\s*\/\s*conf)?`, 'i'));
+  // "2 confezioni 6 bottiglie" / "2 confezioni 6 unità"
+  m = s.match(new RegExp(`(\\d+)\\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\\b.*?\\b(\\d+)\\s*(${UNIT_TERMS})?`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    return { packs, unitsPerPack, unitLabel, explicit:true };
+    const lab = (m[3] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/,'unità');
+    unitLabel = /bottigl/i.test(lab) ? 'bottiglie' : 'unità';
+    return { packs, unitsPerPack, unitLabel, explicit: true };
   }
 
-  // "4x125"
+  // "4x125" → prendo 4 come unitsPerPack
   m = s.match(/(\d+)\s*[x×]\s*\d+/i);
   if (m){
     packs = 1;
     unitsPerPack = Number(m[1]);
-    return { packs, unitsPerPack, unitLabel, explicit:true };
+    return { packs, unitsPerPack, unitLabel, explicit: true };
   }
 
-  // "... 6 bottiglie"
-  m = s.match(new RegExp(String.raw`(\d+)\s*(?:${UNIT_TERMS})\b`, 'i'));
+  // "... 6 bottiglie" | "... 6 unit"
+  m = s.match(new RegExp(`(\\d+)\\s*(${UNIT_TERMS})\\b`, 'i'));
   if (m){
     packs = 1;
     unitsPerPack = Number(m[1]);
-    return { packs, unitsPerPack, unitLabel, explicit:false };
+    const lab = (m[2] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/,'unità');
+    unitLabel = /bottigl/i.test(lab) ? 'bottiglie' : 'unità';
+    return { packs, unitsPerPack, unitLabel, explicit: false };
   }
 
-  // "... 2 confezioni"
-  m = s.match(new RegExp(String.raw`(\d+)\s*(?:bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
+  // "... 2 confezioni" (solo pacchi)
+  m = s.match(new RegExp(`(\\d+)\\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
   if (m){
     packs = Number(m[1]);
     unitsPerPack = 1;
-    unitLabel = (/^bott/i.test(m[2]||'') ? 'bottiglie' : 'unità');
-    return { packs, unitsPerPack, unitLabel, explicit:false };
+    const tok = m[2] || '';
+    unitLabel = /^bott/i.test(tok) ? 'bottiglie' : 'unità';
+    return { packs, unitsPerPack, unitLabel, explicit: false };
   }
 
-  // "2 kg zucchero"
-  m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
+  // "2 kg zucchero" → tratta come pacchi=2
+  m = s.match(/^(\d+(?:[.,]\d+)?)(?=\s+[a-z])/i);
   if (m){
     packs = Number(String(m[1]).replace(',','.')) || 1;
     unitsPerPack = 1;
-    return { packs, unitsPerPack, unitLabel, explicit:false };
+    return { packs, unitsPerPack, unitLabel, explicit: false };
   }
 
-  return { packs, unitsPerPack, unitLabel, explicit:false };
+  return { packs, unitsPerPack, unitLabel, explicit: false };
 }
+
 function parseLinesToItems(text) {
   const chunks = String(text || '')
     .split(/[\n,;]+/g)
@@ -165,14 +180,19 @@ function parseLinesToItems(text) {
   for (const raw of chunks) {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) continue;
-    const packInfo = extractPackInfo(s);
-    let packs = Number(packInfo.packs || 1);
 
+    const packInfo = extractPackInfo(s);
+    const packs = Number(packInfo.packs || 1);
+
+    // ripulisci eventuale quantità iniziale “2 latte …”
     let rest = s;
     const mQtyLead = rest.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
     if (mQtyLead) rest = mQtyLead[2].trim();
 
-    let name = rest, brand = '';
+    // name / brand (se l’ultima parola è Capitalized la tratto come brand)
+    let name = rest;
+    let brand = '';
+
     const marca = rest.match(/\b(?:marca|brand)\s+([^\s].*)$/i);
     if (marca) {
       brand = marca[1].trim();
@@ -181,26 +201,31 @@ function parseLinesToItems(text) {
       const parts = rest.split(' ');
       if (parts.length > 1) {
         const last = parts[parts.length - 1];
-        if (/^[A-ZÀ-ÖØ-Þ]/.test(last)) { brand = last; name = parts.slice(0, -1).join(' '); }
+        if (/^[A-ZÀ-ÖØ-Þ]/.test(last)) {
+          brand = last;
+          name = parts.slice(0, -1).join(' ');
+        }
       }
     }
+
     name = name.replace(/\s{2,}/g, ' ').trim();
     brand = brand.replace(/\s{2,}/g, ' ').trim();
+    if (!name) continue;
 
-    if (name) {
-      items.push({
-        id: 'tmp-' + Math.random().toString(36).slice(2),
-        name,
-        brand: brand || '',
-        qty: Number.isFinite(packs) && packs > 0 ? packs : 1,
-        unitsPerPack: Number(packInfo.unitsPerPack || 1),
-        unitLabel: packInfo.unitLabel || 'unità',
-        purchased: false,
-      });
-    }
+    items.push({
+      id: 'tmp-' + Math.random().toString(36).slice(2),
+      name,
+      brand: brand || '',
+      qty: Number.isFinite(packs) && packs > 0 ? packs : 1,
+      unitsPerPack: Number(packInfo.unitsPerPack || 1),
+      unitLabel: packInfo.unitLabel || 'unità',
+      purchased: false,
+    });
   }
+
   return items;
 }
+
 
 /* ====================== Scadenze utils ====================== */
 function toISODate(any) {
