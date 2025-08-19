@@ -4,6 +4,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
+// Blob helpers (TOP-LEVEL, UNA SOLA VOLTA)"
+function isBlobish(v) { /* ... */ }
+function dataUrlToBlob(dataUrl) { /* ... */ }
+function guessExt(mime='') { /* ... */ }
+async function collectImageBlobs(input) { /* ... */ }
+
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
