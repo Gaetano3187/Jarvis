@@ -627,7 +627,7 @@ function parseReceiptPurchases(ocrText) {
   return out;
 }
 
-}
+
 function coerceNum(x){
   if (x == null) return 0;
   const s = String(x).trim().replace(',', '.');
