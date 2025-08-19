@@ -7,14 +7,20 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.warn('[finances/ingest] missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-}
+const admin = (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { 'x-application-name': 'jarvis-assistant/finances-ingest' } },
+    })
+  : null;
 
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-  global: { headers: { 'x-application-name': 'jarvis-assistant/finances-ingest' } },
-});
+// ——— CORS helper ———
+function setCors(res, origin) {
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
 
 const toNum = (v) => {
   if (v == null || v === '') return null;
@@ -81,12 +87,24 @@ function mapItemsToRows({ user_id, category_id, store_name, spent_at, payment_me
 }
 
 export default async function handler(req, res) {
+  // CORS per tutte le richieste
+  setCors(res, req.headers.origin);
+
+  // Gestisci preflight OPTIONS (evita 405)
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+    res.setHeader('Allow', ['POST', 'OPTIONS']);
+    return res.status(405).json({ ok:false, error:'Method Not Allowed', method: req.method });
   }
 
   try {
+    if (!admin) {
+      return res.status(500).json({ ok:false, error:'Supabase env vars mancanti' });
+    }
+
     const {
       user_id,
       category_id = null,
