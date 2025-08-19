@@ -2085,34 +2085,41 @@ async function processVoiceInventory() {
           const j = arr.findIndex(s => isSimilar(s.name, u.name));
           const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
 
-     if (u.mode === 'packs') {
+    if (u.mode === 'packs') {
   const packs = Math.max(0, Number(u.value || u._packs || 0));
   const upVoice = Math.max(1, Number(u._upp || 0));
   const isExplicit = (u && u.explicit === true) || (upVoice > 1);
 
   if (isExplicit) {
     const up = upVoice > 1 ? upVoice : 1;
+    // niente spread: ricavo i campi da restockTouch
+    const touch = restockTouch(packs, todayISO, up);
     const row = {
       name: u.name,
       brand: '',
-      packs,
+      packs: packs,
       unitsPerPack: up,
       unitLabel: 'unità',
       expiresAt: '',
-      ...restockTouch(packs, todayISO, up),
+      baselinePacks: touch.baselinePacks,
+      lastRestockAt: touch.lastRestockAt,
+      residueUnits: touch.residueUnits,
       avgDailyUnits: 0,
-      packsOnly: false,
+      packsOnly: false
     };
     arr.unshift(withRememberedImage(row, imagesIndex));
   } else {
     // Solo pacchi → packsOnly (UPP ignoto)
+    const touch = restockTouch(packs, todayISO, 1);
     const row = makePacksOnly({
       name: u.name,
       brand: '',
-      packs,
+      packs: packs,
       expiresAt: '',
-      ...restockTouch(packs, todayISO, 1),
-      avgDailyUnits: 0,
+      baselinePacks: touch.baselinePacks,
+      lastRestockAt: touch.lastRestockAt,
+      residueUnits: touch.residueUnits,
+      avgDailyUnits: 0
     });
     arr.unshift(withRememberedImage(row, imagesIndex));
   }
@@ -2130,12 +2137,13 @@ async function processVoiceInventory() {
     lastRestockAt: todayISO,
     avgDailyUnits: 0,
     residueUnits: units,
-    packsOnly: false,
+    packsOnly: false
   };
   arr.unshift(withRememberedImage(base, imagesIndex));
   unitsUpdated.add(normKey(u.name));
 }
 continue;
+
 
           }
 
