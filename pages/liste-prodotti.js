@@ -1824,6 +1824,10 @@ if (hasPurchases && financesOk) {
       return arr;
     });
   }
+  function deleteStockRow(index){
+  setStock(prev => prev.filter((_, i) => i !== index));
+}
+
 
   /* =================== Gestione immagine riga scorte =================== */
   async function handleRowImage(files, idx) {
