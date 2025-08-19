@@ -2397,12 +2397,33 @@ async function processVoiceInventory() {
                 <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
                   {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
                 </button>
-                <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
-                  {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
+                <button
+  onClick={() => setShowStockForm(v => !v)}
+  style={{ ...styles.iconSquareBase, ...(showStockForm ? styles.iconBtnGreen : {}) }}
+  title={showStockForm ? "Chiudi scorte manuali" : "Aggiungi scorta manuale"}
+  aria-label={showStockForm ? "Chiudi scorte manuali" : "Aggiungi scorta manuale"}
+>
+  ＋
+</button>
+
                 </button>
-                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.primaryBtn}>
-                  {showExpiryForm ? '– Chiudi scadenze manuali' : '🗓️ Inserisci scadenza manuale'}
-                </button>
+               <button
+  onClick={() => setShowExpiryForm(v => !v)}
+  style={{ ...styles.iconSquareBase, ...(showExpiryForm ? styles.iconBtnGreen : {}) }}
+  title={showExpiryForm ? "Chiudi scadenze manuali" : "Inserisci scadenza"}
+  aria-label={showExpiryForm ? "Chiudi scadenze manuali" : "Inserisci scadenza"}
+>
+  {/* calendario in SVG inline: nessuna dipendenza */}
+  <span aria-hidden="true" style={{display:'inline-block', width:20, height:20, lineHeight:0}}>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+      <line x1="16" y1="2" x2="16" y2="6"></line>
+      <line x1="8"  y1="2" x2="8"  y2="6"></line>
+      <line x1="3"  y1="10" x2="21" y2="10"></line>
+    </svg>
+  </span>
+</button>
+
               </div>
             </div>
 
