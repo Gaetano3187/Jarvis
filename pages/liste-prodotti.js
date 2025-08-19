@@ -566,61 +566,93 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
 
 /* ====================== Parser fallback OCR ====================== */
 function parseReceiptPurchases(ocrText) {
-  const lines = String(ocrText||'')
+  const rawLines = String(ocrText || '')
     .split(/\r?\n/)
-    .map(s => s.replace(/\s{2,}/g,' ').trim())
+    .map(s => s.replace(/\s{2,}/g, ' ').trim())
     .filter(Boolean);
 
-  // ⬅️ NIENTE 'euro'/'€' qui: ignoriamo solo intestazioni vere
-  const ignoreHeader = /^\s*(totale|subtotale|sconto|iva|pagato|resto|contanti|bancomat|carta|cassa|cliente|scontrino|documento|fiscale|operatore|numero|n\.?|nr\.?)\b/i;
+  // unisci righe "quantità" tipo "2 X 3,60 7,20" alla riga precedente
+  const lines = [];
+  for (const ln of rawLines) {
+    if (/^\d+\s*[xX]\s*\d+(?:[.,]\d{2})(?:\s+\d+(?:[.,]\d{2}))?\s*$/i.test(ln)) {
+      if (lines.length) lines[lines.length - 1] += ' ' + ln;
+      else lines.push(ln);
+      continue;
+    }
+    lines.push(ln);
+  }
+
+  const HEADER_RE = /^\s*(totale|subtotale|di\s*cui\s*iva|iva\b|pagamento|resto|importo|pezz[i]?|cassa|cassiere|transaz|documento|negozio|art\b|rt\b)/i;
+  const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
 
   const out = [];
   for (let raw of lines) {
-    if (ignoreHeader.test(raw)) continue;
+    if (HEADER_RE.test(raw)) continue;
+    if (/^\d{6,}$/.test(raw)) continue; // codici a barre/plu isolati
 
-    // scarta codici puramente numerici (PLU, barcode isolati)
-    if (/^\d{6,}$/.test(raw)) continue;
+    // togli marcatori iniziali e trattini
+    let work = raw.replace(/^[T*+\-]+\s*/, '').trim();
+    if (!work) continue;
 
-    // 🔧 togli SOLO la coda prezzo (ma NON scartare la riga!)
-    // esempi gestiti: "... € 1,29", "... EUR 3.50", "... 2,99", "... 1,29 x2"
-    let work = raw
-      .replace(/(?:€|eur|euro)\s*\d+(?:[.,]\d{2})?(?:\s*x\s*\d+)?\s*$/i, '')
-      .replace(/\s+\d+(?:[.,]\d{2})\s*(?:x\s*\d+)?\s*$/i, '')
+    // quantità su coda "N x prezzo [totale]"
+    let packsFromTail = null;
+    const tailQty = work.match(/(\d+)\s*[xX]\s*\d+(?:[.,]\d{2})(?:\s+\d+(?:[.,]\d{2}))?\s*$/);
+    if (tailQty) {
+      packsFromTail = parseInt(tailQty[1], 10);
+      work = work.replace(tailQty[0], '').trim();
+    }
+
+    // rimuovi coda "IVA% prezzo", oppure "€ prezzo", oppure solo "prezzo"
+    work = work
+      .replace(/\s+\d{1,2}%\s+\d+(?:[.,]\d{2})\s*$/i, '')
+      .replace(/(?:€|eur|euro)\s*\d+(?:[.,]\d{2})\s*$/i, '')
+      .replace(/\s+\d+(?:[.,]\d{2})\s*$/i, '')
       .trim();
 
-    // brand alla fine in Maiuscolo (come facevi tu, ma sulla riga “pulita”)
-    let name = work;
-    let brand = '';
+    if (IGNORE_RE.test(work)) continue;
+
+    // quantità inline "X6"
+    let packsInline = null;
+    const mInline = work.match(/\b[xX]\s*(\d+)\b/);
+    if (mInline) {
+      packsInline = parseInt(mInline[1], 10);
+      work = work.replace(mInline[0], '').trim();
+    }
+
+    // rimuovi pesi/volumi "250 g", "1,5 L", ecc.
+    work = work.replace(/\b(\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt))\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+
+    // brand = ultima parola in MAIUSCOLO
+    let name = work, brand = '';
     const parts = name.split(' ');
-    if (parts.length > 1 && /^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9-]*$/.test(parts[parts.length-1])) {
+    if (parts.length > 1 && /^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-'.]*$/.test(parts[parts.length - 1])) {
       brand = parts.pop();
       name = parts.join(' ');
     }
 
-    // normalizzazioni leggere
-    name = name
-      .replace(/\b(\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt))\b/gi,'') // pesi/volumi
-      .replace(/\s{2,}/g, ' ')
-      .trim()
-      .toLowerCase()
-      .replace(/\buht\b/g,'')
-      .replace(/spaghetti|penne|fusilli|rigatoni/gi, 'pasta')
-      .replace(/passata\b.*pomodoro|passata\b/i, 'passata di pomodoro')
-      .replace(/latte\b.*/i, 'latte')
-      .replace(/yogurt\b.*/i, 'yogurt')
-      .replace(/\bcaffe\b/gi,'caffè');
+    const txt = name.toLowerCase();
 
-    if (!name || name.length < 2) continue;
+    // normalizzazioni "intelligenti" per i casi visti
+    if (/prezzemol/.test(txt)) name = 'prezzemolo';
+    else if (/pane\s+e\s+pizza/.test(txt)) name = 'farina pane e pizza';
+    else if (/pecor.*igt/.test(txt)) name = 'vino pecorino igt';
+    else if (/pan\s+bauletto/.test(txt)) name = 'pan bauletto bianco';
+    else if (/yo-?yo/.test(txt)) name = 'merendine yo-yo';
+    else if (/lacca\b/i.test(name)) name = 'lacca per capelli';
+    else if (/pantene.*shampoo/i.test(name)) name = 'shampoo';
+    else if (/latte\s+zymil/i.test(name)) name = 'latte';
+    else if (/salsiccia/i.test(name)) name = 'salsiccia';
+    else if (/candeggin/i.test(name) || /ace/i.test(brand)) name = 'candeggina';
+    else if (/\bcaff[eè]\b/.test(txt)) name = 'caffè';
 
-    // 📦 quantità/pezzi: estrai dal testo già ripulito
-    const pack = extractPackInfo(work);
+    const packs = packsFromTail || packsInline || 1;
 
     out.push({
-      name,
+      name: name.trim(),
       brand: brand || '',
-      packs: Number(pack.packs || 1),
-      unitsPerPack: Number(pack.unitsPerPack || 1),
-      unitLabel: pack.unitLabel || 'unità',
+      packs: Math.max(1, packs),
+      unitsPerPack: 1,
+      unitLabel: 'unità',
       expiresAt: ''
     });
   }
