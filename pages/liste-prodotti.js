@@ -1390,20 +1390,22 @@ async function collectImageBlobs(input) {
   try {
     setBusy(true);
 
-    // 1) Normalizza input in veri Blob/File
-    const entries = await collectImageBlobs(files);
-    if (entries.length === 0) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
+    // 1) OCR immagini
+ const fdOcr = new FormData();
+const entries = await collectImageBlobs(files);
+let appended = 0;
+for (let i = 0; i < entries.length; i++) {
+  const it = entries[i];
+  if (it && isBlobish(it.blob)) {
+    const fname = it.name || `upload_${i}.${guessExt(it.blob.type)}`;
+    fdOcr.append('images', it.blob, fname);   // <-- ora SEMPRE un vero Blob
+    appended++;
+  }
+}
+if (!appended) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
 
-    // 2) OCR → testo
-    const fdOcr = new FormData();
-    entries.forEach((it, i) => fdOcr.append('images', it.blob, it.name || `upload_${i}.${guessExt(it.blob.type)}`));
-    const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fdOcr }, 40000);
-    const ocr = await readJsonSafe(ocrRes);
-    if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
-    const ocrText = String(ocr.text || '').trim();
-    if (!ocrText) throw new Error('Nessun testo riconosciuto');
 
-    // 3) Prova PARSER SCONTRINO (con AI)
+    // 2) Prova parsing SCONTRINO
     const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
     let parsed = null;
     try {
@@ -1414,12 +1416,11 @@ async function collectImageBlobs(input) {
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
       parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
-    } catch {}
+    } catch(e) {}
 
     const meta = parseReceiptMeta(ocrText);
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
-
     let purchases = ensureArray(parsed?.purchases).map(p => ({
       name: String(p?.name||'').trim(),
       brand: String(p?.brand||'').trim(),
@@ -1432,7 +1433,7 @@ async function collectImageBlobs(input) {
       expiresAt: toISODate(p?.expiresAt || '')
     })).filter(p => p.name);
 
-    // 4) Se non è uno scontrino -> PARSER BUSTA/ETICHETTE
+    // 3) Se non è un vero scontrino (niente righe) → prova parsing "BUSTA/ETICHETTE"
     if (!purchases.length) {
       const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
       try {
@@ -1455,57 +1456,22 @@ async function collectImageBlobs(input) {
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
         purchases = items;
-        // store/purchaseDate non applicabili in questo caso
-      } catch {}
+        // nessun store/data per busta
+      } catch(e) {}
     }
 
-    // 5) Fallback brutale riga-per-riga se ancora vuoto
-    if (!purchases.length) {
-      purchases = parseReceiptPurchases(ocrText).map(p => ({
-        name: p.name,
-        brand: p.brand || '',
-        packs: p.packs || 0,
-        unitsPerPack: p.unitsPerPack || 0,
-        unitLabel: normalizeUnitLabel(p.unitLabel || ''),
-        priceEach: 0,
-        priceTotal: 0,
-        currency: 'EUR',
-        expiresAt: ''
-      }));
-    }
+    // Se ancora vuoto → fallback brutale (riga per riga)
+    if (!purchases.length) purchases = parseReceiptPurchases(ocrText).map(p => ({
+      name: p.name, brand: p.brand || '', packs: p.packs||0, unitsPerPack: p.unitsPerPack||0,
+      unitLabel: normalizeUnitLabel(p.unitLabel||''), priceEach:0, priceTotal:0, currency:'EUR', expiresAt:''
+    }));
 
-    // 6) Decrementa le LISTE (supermercato/online) sugli acquisti
+    // 4) Aggiorna LISTE (decrementa dove combacia)
     if (purchases.length) {
-      setLists(prev => {
-        const next = { ...prev };
-        const dec = (listKey) => {
-          const arr = [...(next[listKey] || [])];
-          for (const p of purchases) {
-            const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-            const brand = (p.brand || '').trim();
-            const upp = Number(p.unitsPerPack ?? 1);
-            let idx = arr.findIndex(i =>
-              isSimilar(i.name, p.name) &&
-              (!brand || isSimilar(i.brand || '', brand)) &&
-              Number(i.unitsPerPack || 1) === upp
-            );
-            if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
-            if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
-            if (idx >= 0) {
-              const cur = arr[idx];
-              const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-              arr[idx] = { ...cur, qty: newQty, purchased: true };
-            }
-          }
-          next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-        };
-        dec(LIST_TYPES.SUPERMARKET);
-        dec(LIST_TYPES.ONLINE);
-        return next;
-      });
+      setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
 
-    // 7) Aggiorna SCORTE (crea + flag rosso quando mancano quantità)
+    // 5) Aggiorna SCORTE
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
@@ -1518,10 +1484,12 @@ async function collectImageBlobs(input) {
 
         if (idx >= 0) {
           const old = arr[idx];
+
           if (hasCounts) {
+            // Restock esplicito
             const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
             const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
+            const next = {
               ...old,
               packs: newPacks,
               unitsPerPack: nextUpp,
@@ -1531,11 +1499,13 @@ async function collectImageBlobs(input) {
               needsUpdate: false,
               ...restockTouch(newPacks, todayISO, nextUpp)
             };
+            arr[idx] = next;
           } else {
-            // niente quantità sullo scontrino → evidenzia da aggiornare
+            // Mancano counts → NON altero i quantitativi; flaggo da verificare
             arr[idx] = { ...old, needsUpdate: true };
           }
         } else {
+          // Nuova scorta
           if (hasCounts) {
             const u = Math.max(1, upp || 1);
             const row = {
@@ -1553,62 +1523,27 @@ async function collectImageBlobs(input) {
             };
             arr.unshift(withRememberedImage(row, imagesIndex));
           } else {
-            // scheda "stub": trattini e flag rosso
+            // Creo scheda "stub" con campi base e richiesta aggiornamento
             const row = {
               name: p.name, brand: p.brand || '',
               packs: 0,
               unitsPerPack: 1,
-              unitLabel: '-',     // come richiesto
+              unitLabel: '-',             // trattino come richiesto
               expiresAt: p.expiresAt || '',
               baselinePacks: 0,
               lastRestockAt: '',
               avgDailyUnits: 0,
               residueUnits: 0,
-              packsOnly: true,
+              packsOnly: true,            // così UI mostra "–" in unità/residuo
               needsUpdate: true
             };
             arr.unshift(withRememberedImage(row, imagesIndex));
           }
         }
       }
+
       return arr;
     });
-
-    // 8) Invia a FINANZE / SPESE-CASA
-    try {
-      await fetch(API_FINANCES_INGEST, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          store,
-          purchaseDate,
-          items: purchases.map(p => ({
-            name: p.name,
-            brand: p.brand || '',
-            packs: p.packs || 0,
-            unitsPerPack: p.unitsPerPack || 0,
-            unitLabel: p.unitLabel || '',
-            priceEach: p.priceEach || 0,
-            priceTotal: p.priceTotal || 0,
-            currency: p.currency || 'EUR',
-            expiresAt: p.expiresAt || ''
-          }))
-        })
-      });
-    } catch(e) {
-      if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
-    }
-
-    showToast('OCR scorte completato ✓', 'ok');
-  } catch (e) {
-    console.error('[OCR scorte] error', e);
-    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
-  }
-}
-
 
     // 6) Invia a FINANZE / SPESE-CASA
     try {
