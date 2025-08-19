@@ -1455,6 +1455,14 @@ async function handleOCR(files) {
       showToast(`OCR errore: ${err.message}`, 'err');
       throw err; // interrompe il flusso in caso di 400/500 OCR
     }
+    // TAP console: ispeziona cosa arriva dall’OCR
+try {
+  if (typeof window !== 'undefined') {
+    window.__jarvisLastOCR = { len: ocrText.length, text: ocrText };
+  }
+  console.info('[OCR len]', ocrText.length, 'preview:', ocrText.slice(0, 300));
+} catch {}
+
 
     // -------- PARSER SCONTRINO (AI) --------
     let parsed = null;
