@@ -2235,9 +2235,16 @@ async function processVoiceInventory() {
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
-            <button onClick={() => setShowListForm(v => !v)} style={styles.primaryBtn}>
-              {showListForm ? '– Chiudi form lista' : '➕ Aggiungi manualmente alla lista corrente'}
-            </button>
+            <button
+  onClick={() => setShowListForm(v => !v)}
+  style={{ ...styles.iconSquareBase, ...(showListForm ? styles.iconBtnGreen : {}) }}
+  title={showListForm ? "Chiudi form lista" : "Aggiungi manualmente"}
+  aria-label={showListForm ? "Chiudi form lista" : "Aggiungi manualmente"}
+>
+  {/* plus testuale già usato nel progetto */}
+  ＋
+</button>
+
           </div>
 
           {/* Form aggiunta manuale Lista */}
