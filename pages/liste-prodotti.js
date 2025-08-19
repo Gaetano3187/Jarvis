@@ -2624,10 +2624,33 @@ async function processVoiceInventory() {
                               </div>
 
                               {/* Azioni riga */}
-                             <div style={styles.rowActionsRight}>
-  <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-  <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-  <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                            <div style={styles.rowActionsRight}>
+  {/* Modifica (matita) */}
+  <button
+    title="Modifica"
+    onClick={() => startRowEdit(idx, s)}
+    style={{ ...styles.iconSquareBase }}
+  >
+    <Pencil size={18} />
+  </button>
+
+  {/* Elimina definitivamente (cestino) */}
+  <button
+    title="Elimina definitivamente"
+    onClick={() => deleteStockRow(idx)}
+    style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+  >
+    <Trash2 size={18} />
+  </button>
+
+  {/* OCR riga (fotocamera) */}
+  <button
+    title="OCR riga"
+    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+    style={{ ...styles.iconSquareBase }}
+  >
+    <Camera size={18} />
+  </button>
 </div>
 
                             </div>
