@@ -3035,5 +3035,19 @@ const styles = {
     background:'rgba(15,23,42,.65)',
     color:'#f1f5f9'
   }
+  iconSquareBase: {
+  width: 38, height: 38, minWidth: 38,
+  display: 'grid', placeItems: 'center',
+  borderRadius: 12,
+  border: '1px solid #4b5563',
+  background: 'linear-gradient(180deg,#1f2937,#111827)',
+  color: '#e5e7eb',
+  boxShadow: '0 2px 8px rgba(0,0,0,.35)',
+  cursor: 'pointer'
+},
+iconDanger: {
+  color: '#f87171'
+},
+
 
 }; 
