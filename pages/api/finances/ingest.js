@@ -1,55 +1,71 @@
-// app/api/finances/ingest/route.ts
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// pages/api/finances/ingest.js
+export const config = { api: { bodyParser: true }, runtime: 'nodejs' };
 
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// ---- Supabase admin (server only) ----
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.warn('[finances/ingest] missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+}
+
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
-  global: { headers: { 'x-application-name': 'jarvis-assistant/finances-ingest' } }
+  global: { headers: { 'x-application-name': 'jarvis-assistant/finances-ingest' } },
 });
 
-const toNum = (v:any) => {
+// ---- utils (JS puro, niente tipi TS) ----
+const toNum = (v) => {
   if (v == null || v === '') return null;
   const n = Number(String(v).replace(',', '.'));
   return Number.isFinite(n) ? n : null;
 };
-const toDate = (s?:string|null) => {
+
+const toDate = (s) => {
   if (!s) return null;
   const t = String(s).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
   const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
   if (m) {
-    const d = String(m[1]).padStart(2,'0'), M = String(m[2]).padStart(2,'0');
-    let y = String(m[3]); if (y.length===2) y = (Number(y)>=70?'19':'20')+y;
+    const d = String(m[1]).padStart(2, '0');
+    const M = String(m[2]).padStart(2, '0');
+    let y = String(m[3]);
+    if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
     return `${y}-${M}-${d}`;
   }
   return null;
 };
-const todayISO = () => new Date().toISOString().slice(0,10);
 
-function mapItemsToRows(payload:any) {
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+// Map “items” OCR → righe tabella `public.finances`
+function mapItemsToRows(payload) {
   const { user_id, category_id, store_name, spent_at, payment_method, card_label, items } = payload;
-  const out:any[] = [];
-  for (const p of (Array.isArray(items)?items:[])) {
-    const name  = (p?.name||'').trim();
-    const brand = (p?.brand||'').trim();
-    const packs = toNum(p?.packs) ?? 0;
-    const upp   = toNum(p?.unitsPerPack) ?? 0;
-    let qty:any = 1;
+  const out = [];
+  for (const p of (Array.isArray(items) ? items : [])) {
+    const name = (p && p.name ? String(p.name) : '').trim();
+    const brand = (p && p.brand ? String(p.brand) : '').trim();
+    const packs = toNum(p && p.packs) ?? 0;
+    const upp = toNum(p && p.unitsPerPack) ?? 0;
+
+    let qty = 1;
     if (packs && upp) qty = packs * upp;
-    else if (packs)   qty = packs;
-    else if (upp)     qty = upp;
+    else if (packs) qty = packs;
+    else if (upp) qty = upp;
 
-    const priceTotal = toNum(p?.priceTotal);
-    const priceEach  = toNum(p?.priceEach);
-    const amount = (priceTotal!=null) ? priceTotal
-                 : (priceEach!=null && qty!=null) ? Number((priceEach*qty).toFixed(2))
-                 : 0;
+    const priceTotal = toNum(p && p.priceTotal);
+    const priceEach = toNum(p && p.priceEach);
+    const amount =
+      priceTotal != null
+        ? priceTotal
+        : priceEach != null && qty != null
+        ? Number((priceEach * qty).toFixed(2))
+        : 0;
 
-    const currency = (p?.currency||'EUR').trim() || 'EUR';
+    const currency = (p && p.currency ? String(p.currency) : 'EUR').trim() || 'EUR';
     const description = brand ? `${name} (${brand})` : name;
 
     out.push({
@@ -61,9 +77,10 @@ function mapItemsToRows(payload:any) {
       description,
       store_name,
       spent_at,
-      payment_method: (payment_method || 'cash'),
+      payment_method: payment_method || 'cash',
       card_label: card_label || null,
-      product_id: p?.product_id || null,
+      product_id: p && p.product_id ? p.product_id : null,
+      // colonne duplicate presenti nello schema
       categoria: null,
       descrizione: description || null,
       importo: amount,
@@ -74,9 +91,15 @@ function mapItemsToRows(payload:any) {
   return out;
 }
 
-export async function POST(req: Request) {
+// ---- handler ----
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
+  }
+
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = req.body || {};
     const {
       user_id,
       category_id = null,
@@ -84,41 +107,42 @@ export async function POST(req: Request) {
       purchaseDate = '',
       items = [],
       payment_method = 'cash',
-      card_label = null
-    } = body as any;
+      card_label = null,
+    } = body;
 
-    if (!user_id) return Response.json({ ok:false, error:'user_id obbligatorio' }, { status:400 });
-    if (!Array.isArray(items) || items.length===0) {
-      return Response.json({ ok:false, error:'items deve essere un array non vuoto' }, { status:400 });
+    if (!user_id) return res.status(400).json({ ok: false, error: 'user_id obbligatorio' });
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ ok: false, error: 'items deve essere un array non vuoto' });
     }
 
     const spent_at = toDate(purchaseDate) || todayISO();
     const rows = mapItemsToRows({
       user_id,
       category_id,
-      store_name: (store||'').trim() || null,
+      store_name: (store || '').trim() || null,
       spent_at,
       payment_method,
       card_label,
-      items
+      items,
     });
 
+    // Upsert sulla unique naturale: user_id,category_id,spent_at,description,amount,qty
     const { error } = await admin
       .from('finances')
       .upsert(rows, {
         onConflict: 'user_id,category_id,spent_at,description,amount,qty',
         ignoreDuplicates: false,
-        defaultToNull: true
+        defaultToNull: true,
       });
 
-    if (error) return Response.json({ ok:false, error:error.message }, { status:500 });
-    return Response.json({ ok:true, count: rows.length }, { status:200 });
-  } catch (e:any) {
-    console.error('[finances/ingest] fatal', e);
-    return Response.json({ ok:false, error: e?.message || 'Server error' }, { status:500 });
-  }
-}
+    if (error) {
+      console.error('[finances/ingest] upsert error:', error);
+      return res.status(500).json({ ok: false, error: error.message });
+    }
 
-export async function GET() {
-  return Response.json({ ok:false, error:'Method Not Allowed' }, { status:405 });
+    return res.status(200).json({ ok: true, count: rows.length });
+  } catch (e) {
+    console.error('[finances/ingest] fatal', e);
+    return res.status(500).json({ ok: false, error: e && e.message ? e.message : 'Server error' });
+  }
 }
