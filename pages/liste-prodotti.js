@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { Pencil, Trash2, Camera } from 'lucide-react';
 
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
@@ -1822,6 +1823,10 @@ if (hasPurchases && financesOk) {
       return arr;
     });
   }
+  function deleteStockRow(index){
+  setStock(prev => prev.filter((_, i) => i !== index));
+}
+
 
   /* =================== Gestione immagine riga scorte =================== */
   async function handleRowImage(files, idx) {
@@ -2505,17 +2510,36 @@ async function processVoiceInventory() {
                     const w = Math.round(pct*100);
                     return (
                       <div key={i} style={styles.critRow}>
-                        <div style={styles.critName}>
-                          {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                        </div>
-                        <div style={styles.progressOuterCrit}>
-                          <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                        </div>
-                        <div style={styles.critMeta}>
-                          {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                          {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                        </div>
-                      </div>
+  <div style={styles.critName}>
+    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+  </div>
+
+  <div style={styles.progressOuterCrit}>
+    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+  </div>
+
+  <div style={styles.critMeta}>
+    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+    {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+  </div>
+
+  {/* Azione elimina */}
+  <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
+    <button
+      title="Elimina definitivamente"
+      onClick={() => {
+        const idx = stock.findIndex(
+          ss => isSimilar(ss.name, s.name) && ((ss.brand||'') === (s.brand||''))
+        );
+        if (idx >= 0) deleteStockRow(idx);
+      }}
+      style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+    >
+      <Trash2 size={18} />
+    </button>
+  </div>
+</div>
+
                     );
                   })}
                 </div>
@@ -2618,11 +2642,35 @@ async function processVoiceInventory() {
                               </div>
 
                               {/* Azioni riga */}
-                              <div style={styles.rowActionsRight}>
-                                <button onClick={()=>startRowEdit(idx, s)} style={styles.smallGhostBtn}>Modifica</button>
-                                <button onClick={() => applyDeltaToStock(idx, { setUnits: 0 })} style={styles.smallDangerBtn} title="Imposta residuo a 0">Svuota</button>
-                                <button title="OCR (etichetta+scontrino) per questa riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
-                              </div>
+                            <div style={styles.rowActionsRight}>
+  {/* Modifica (matita) */}
+  <button
+    title="Modifica"
+    onClick={() => startRowEdit(idx, s)}
+    style={{ ...styles.iconSquareBase }}
+  >
+    <Pencil size={18} />
+  </button>
+
+  {/* Elimina definitivamente (cestino) */}
+  <button
+    title="Elimina definitivamente"
+    onClick={() => deleteStockRow(idx)}
+    style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+  >
+    <Trash2 size={18} />
+  </button>
+
+  {/* OCR riga (fotocamera) */}
+  <button
+    title="OCR riga"
+    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+    style={{ ...styles.iconSquareBase }}
+  >
+    <Camera size={18} />
+  </button>
+</div>
+
                             </div>
                           </>
                         )}
@@ -2977,7 +3025,7 @@ const styles = {
 
   formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
   formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
-  input:{
+   input:{
     flex:1,
     minWidth:120,
     padding:'8px 10px',
@@ -2985,6 +3033,21 @@ const styles = {
     border:'1px solid #475569',
     background:'rgba(15,23,42,.65)',
     color:'#f1f5f9'
+  }, // ⬅️ VIRGOLA QUI
+
+  // === NUOVI STILI PER LE ICONE ===
+  iconSquareBase: {
+    width: 38, height: 38, minWidth: 38,
+    display: 'grid', placeItems: 'center',
+    borderRadius: 12,
+    border: '1px solid #4b5563',
+    background: 'linear-gradient(180deg,#1f2937,#111827)',
+    color: '#e5e7eb',
+    boxShadow: '0 2px 8px rgba(0,0,0,.35)',
+    cursor: 'pointer'
+  },
+  iconDanger: {
+    color: '#f87171'
   }
 
-}; 
+}; // ⬅️ chiusura dell’oggetto styles
