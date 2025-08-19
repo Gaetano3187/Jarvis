@@ -634,6 +634,31 @@ function coerceNum(x){
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
+function parseByLexicon(ocrText, lexicon = []) {
+  const s = normKey(ocrText);
+  const counts = Object.create(null);
+
+  for (const term of lexicon) {
+    const k = normKey(term);
+    if (!k) continue;
+    const re = new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`, 'g');
+    const m = s.match(re);
+    if (m) counts[term] = (counts[term] || 0) + m.length;
+  }
+
+  return Object.entries(counts).map(([name, count]) => ({
+    name,
+    brand: '',
+    packs: Math.max(1, count), // se appare 2 volte, metto 2 confezioni
+    unitsPerPack: 1,
+    unitLabel: 'unità',
+    priceEach: 0,
+    priceTotal: 0,
+    currency: 'EUR',
+    expiresAt: ''
+  }));
+}
+
 
 function parseReceiptMeta(ocrText) {
   const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
