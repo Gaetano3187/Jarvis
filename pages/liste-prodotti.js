@@ -1357,40 +1357,52 @@ async function handleOCR(files) {
     for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // 1) OCR → testo
+    // 1) OCR → testo (invio con ALIAS multipli per massima compatibilità)
     const fdOcr = new FormData();
     for (const f of picked) {
       const ext = (f.type || '').split('/')[1] || 'jpg';
-      fdOcr.append('images', f, f.name || `upload.${ext}`);
+      const name = f.name || `upload.${ext}`;
+      fdOcr.append('images', f, name);
+      fdOcr.append('files',  f, name);
+      fdOcr.append('file',   f, name);
+      fdOcr.append('image',  f, name);
     }
 
-    const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
-    const ocr = await readJsonSafe(ocrRes);
-    if (!ocr.ok) throw new Error(ocr.error || `Errore OCR (HTTP ${ocrRes.status})`);
+    let ocrText = '';
+    try {
+      const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 45000);
+      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
+    } catch (err) {
+      showToast(`OCR errore: ${err.message}`, 'err');
+      throw err; // interrompe il flusso in caso di 400/500 OCR
+    }
 
-    const ocrText = String(ocr.text || '').trim();
-    // anche se ocrText è vuoto, proseguiamo (il parser "busta/etichetta" AI può ancora estrarre qualcosa)
     // -------- PARSER SCONTRINO (AI) --------
     let parsed = null;
     if (ocrText) {
       const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
       try {
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ prompt: promptTicket })
         }, 35000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
         parsed = typeof answer === 'string'
-          ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })()
+          ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
           : answer;
-      } catch {}
+      } catch (e) {
+        if (DEBUG) console.warn('[ASSISTANT ticket parse] fallito', e);
+      }
     }
 
+    // Meta da OCR grezzo (fallback per store/data)
     const meta = parseReceiptMeta(ocrText || '');
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
 
+    // Righe acquisto parse AI
     let purchases = ensureArray(parsed?.purchases).map(p => ({
       name: String(p?.name||'').trim(),
       brand: String(p?.brand||'').trim(),
@@ -1413,7 +1425,10 @@ async function handleOCR(files) {
         }, 35000);
         const safe2 = await readJsonSafe(r2);
         const answer2 = safe2?.answer || safe2?.data || safe2;
-        const parsed2 = typeof answer2 === 'string' ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })() : answer2;
+        const parsed2 = typeof answer2 === 'string'
+          ? (() => { try { return JSON.parse(answer2); } catch { return null; } })()
+          : answer2;
+
         purchases = ensureArray(parsed2?.items).map(p => ({
           name: String(p?.name||'').trim(),
           brand: String(p?.brand||'').trim(),
@@ -1423,7 +1438,9 @@ async function handleOCR(files) {
           priceEach: 0, priceTotal: 0, currency: 'EUR',
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
-      } catch {}
+      } catch (e) {
+        if (DEBUG) console.warn('[ASSISTANT bag parse] fallito', e);
+      }
     }
 
     // -------- Fallback locale riga-per-riga --------
@@ -1434,6 +1451,10 @@ async function handleOCR(files) {
         unitLabel: normalizeUnitLabel(p.unitLabel || ''),
         priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
       }));
+    }
+
+    if (!purchases.length) {
+      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
     }
 
     // 2) Decrementa le LISTE acquisti
@@ -1499,6 +1520,52 @@ async function handleOCR(files) {
       }
       return arr;
     });
+
+    // 4) Invia alle FINANZE (best-effort, ma con errori visibili)
+    try {
+      const itemsSafe = purchases.map(p => ({
+        name: p.name,
+        brand: p.brand || '',
+        packs: Number.isFinite(p.packs) ? p.packs : 0,
+        unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
+        unitLabel: p.unitLabel || '',
+        priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
+        priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
+        currency: p.currency || 'EUR',
+        expiresAt: p.expiresAt || ''
+      }));
+
+      const payload = {
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(store ? { store } : {}),
+        ...(purchaseDate ? { purchaseDate } : {}),
+        payment_method: 'cash',
+        card_label: null,
+        items: itemsSafe
+      };
+
+      const r = await fetchJSONStrict(API_FINANCES_INGEST, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }, 30000);
+
+      if (DEBUG) console.log('[FINANCES_INGEST OK]', r);
+    } catch (e) {
+      console.warn('[FINANCES_INGEST] fail', e);
+      showToast(`Finanze: ${e.message}`, 'err');
+    }
+
+    showToast('OCR scorte completato ✓', 'ok');
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+}
+
 
     // 4) Invia alle FINANZE (best-effort)
 try {
