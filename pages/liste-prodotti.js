@@ -1139,8 +1139,70 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     decList(LIST_TYPES.SUPERMARKET);
     decList(LIST_TYPES.ONLINE);
     return next;
+    function dataUrlToBlob(dataUrl) {
+  try {
+    const [head, base64] = String(dataUrl || '').split(',');
+    const m = head.match(/data:(.*?);base64/i);
+    const mime = m ? m[1] : 'application/octet-stream';
+    const bin = atob(base64 || '');
+    const len = bin.length;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: mime });
+  } catch {
+    return null;
   }
-  async function handleOCR(files) {
+}
+
+function guessExt(mime='') {
+  const m = mime.toLowerCase();
+  if (m.includes('pdf')) return 'pdf';
+  if (m.includes('png')) return 'png';
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+  if (m.includes('webp')) return 'webp';
+  if (m.includes('heic')) return 'heic';
+  return 'bin';
+}
+
+async function normalizeToBlobs(list) {
+  const out = [];
+  for (const f of (Array.isArray(list) ? list : [])) {
+    // Caso 1: già File/Blob
+    if (f instanceof Blob) {
+      out.push({ blob: f, name: (f.name || `upload.${guessExt(f.type)}`) });
+      continue;
+    }
+    // Caso 2: data URL string
+    if (typeof f === 'string' && f.startsWith('data:')) {
+      const b = dataUrlToBlob(f);
+      if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+      continue;
+    }
+    // Caso 3: wrapper noti (es. {file: Blob} o {blob: Blob})
+    if (f && typeof f === 'object') {
+      const maybe = f.file || f.blob;
+      if (maybe instanceof Blob) {
+        out.push({ blob: maybe, name: (f.name || `upload.${guessExt(maybe.type)}`) });
+        continue;
+      }
+      // Caso 4: preview/url (blob:, data:, http)
+      const url = f.preview || f.uri || f.url;
+      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
+        try {
+          const resp = await fetch(url);
+          const b = await resp.blob();
+          out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+          continue;
+        } catch {}
+      }
+    }
+    // Altrimenti ignora
+  }
+  return out;
+}
+
+  }
+    async function handleOCR(files) {
   if (!files?.length) return;
   try {
     setBusy(true);
