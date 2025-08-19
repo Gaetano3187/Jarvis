@@ -1334,7 +1334,6 @@ function decrementAcrossBothLists(prevLists, purchases) {
   decList(LIST_TYPES.ONLINE);
   return next;
 }
-
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
 async function handleOCR(files) {
   if (!files) return;
@@ -1565,39 +1564,6 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
-
-    // 4) Invia alle FINANZE (best-effort)
-try {
-  await fetch(API_FINANCES_INGEST, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: userIdRef.current,                           // dall'auth Supabase
-      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',  // opzionale: categoria "casa"
-      store,
-      purchaseDate,
-      payment_method: 'cash',                                // o 'card'
-      card_label: null,                                      // es. 'Visa'
-      items: purchases                                       // array che hai già costruito
-    })
-  });
-} catch (e) {
-  if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
-}
-
-
-    showToast('OCR scorte completato ✓', 'ok');
-  } catch (e) {
-    console.error('[OCR scorte] error', e);
-    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
-  }
-}
-
-
-
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
     const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
