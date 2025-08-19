@@ -2250,21 +2250,46 @@ async function processVoiceInventory() {
 {showListForm && (
   <div style={styles.sectionLarge}>
     <form onSubmit={addManualItem} style={styles.formRow}>
-      <input placeholder="Prodotto (es. latte)" value={form.name}
-            onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-      <input placeholder="Marca (es. Parmalat)" value={form.brand}
-            onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-      <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
-            onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
-      <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
-            onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
-      <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
-            onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
+      <input
+        placeholder="Prodotto (es. latte)"
+        value={form.name}
+        onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+        style={styles.input}
+        required
+      />
+      <input
+        placeholder="Marca (es. Parmalat)"
+        value={form.brand}
+        onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+        style={styles.input}
+      />
+      <input
+        placeholder="Confezioni"
+        inputMode="decimal"
+        value={form.packs}
+        onChange={e => setForm(f => ({ ...f, packs: e.target.value }))}
+        style={{ ...styles.input, width: 140 }}
+        required
+      />
+      <input
+        placeholder="Unità/conf."
+        inputMode="decimal"
+        value={form.unitsPerPack}
+        onChange={e => setForm(f => ({ ...f, unitsPerPack: e.target.value }))}
+        style={{ ...styles.input, width: 140 }}
+        required
+      />
+      <input
+        placeholder="Etichetta (es. bottiglie)"
+        value={form.unitLabel}
+        onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
+        style={{ ...styles.input, width: 170 }}
+      />
       {/* was: primaryBtn con testo → ora icona Plus */}
       <button
         type="submit"
         disabled={busy}
-        style={{ ...styles.iconSquareBase, ...(busy ? { opacity:.6 } : {}) }}
+        style={{ ...styles.iconSquareBase, ...(busy ? { opacity: .6 } : {}) }}
         title="Aggiungi alla lista"
         aria-label="Aggiungi alla lista"
       >
@@ -2277,13 +2302,16 @@ async function processVoiceInventory() {
 {/* Lista corrente */}
 <div style={styles.sectionLarge}>
   <h3 style={styles.h3}>
-    Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+    Lista corrente:{" "}
+    <span style={{ opacity: 0.85 }}>
+      {currentList === LIST_TYPES.ONLINE ? "Spesa Online" : "Supermercato"}
+    </span>
   </h3>
 
   {(lists[currentList] || []).length === 0 ? (
     <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
   ) : (
-    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {(lists[currentList] || []).map((it) => {
         const isBought = !!it.purchased;
         return (
@@ -2292,20 +2320,20 @@ async function processVoiceInventory() {
             role="button"
             tabIndex={0}
             onClick={() => {
-              setLists(prev => {
+              setLists((prev) => {
                 const next = { ...prev };
-                next[currentList] = (prev[currentList] || []).map(i =>
+                next[currentList] = (prev[currentList] || []).map((i) =>
                   i.id === it.id ? { ...i, purchased: !i.purchased } : i
                 );
                 return next;
               });
             }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                setLists(prev => {
+                setLists((prev) => {
                   const next = { ...prev };
-                  next[currentList] = (prev[currentList] || []).map(i =>
+                  next[currentList] = (prev[currentList] || []).map((i) =>
                     i.id === it.id ? { ...i, purchased: !i.purchased } : i
                   );
                   return next;
@@ -2314,51 +2342,93 @@ async function processVoiceInventory() {
             }}
             style={{
               ...styles.listCardRed,
-              ...(isBought ? styles.listCardRedBought : null)
+              ...(isBought ? styles.listCardRedBought : null),
             }}
           >
             <div style={styles.rowLeft}>
               <div style={styles.rowName}>
-                {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
+                {it.name}
+                {it.brand ? (
+                  <span style={styles.rowBrand}> · {it.brand}</span>
+                ) : null}
               </div>
               <div style={styles.rowMeta}>
                 {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
-                {isBought ? <span style={styles.badgeBought}>preso</span> : <span style={styles.badgeToBuy}>da prendere</span>}
+                {isBought ? (
+                  <span style={styles.badgeBought}>preso</span>
+                ) : (
+                  <span style={styles.badgeToBuy}>da prendere</span>
+                )}
               </div>
             </div>
 
-            <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
+            <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
               {/* ✓ conferma: scala 1 conf. e aggiorna scorte */}
               <button
                 title="Segna come comprato (–1 conf. e aggiorna scorte)"
                 onClick={() => {
                   const item = it;
                   const movePacks = 1;
-                  setLists(prev => {
+                  setLists((prev) => {
                     const next = { ...prev };
                     next[currentList] = (prev[currentList] || [])
-                      .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
-                      .filter(r => Number(r.qty || 0) > 0);
+                      .map((r) =>
+                        r.id === item.id
+                          ? {
+                              ...r,
+                              qty: Math.max(
+                                0,
+                                Number(r.qty || 0) - movePacks
+                              ),
+                              purchased: true,
+                            }
+                          : r
+                      )
+                      .filter((r) => Number(r.qty || 0) > 0);
                     return next;
                   });
-                  setStock(prev => {
+                  setStock((prev) => {
                     const arr = [...prev];
                     const todayISO = new Date().toISOString().slice(0, 10);
                     const idx = arr.findIndex(
-                      s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+                      (s) =>
+                        isSimilar(s.name, item.name) &&
+                        (!item.brand || isSimilar(s.brand || "", item.brand))
                     );
-                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-                    const moveLabel = item.unitLabel || 'unità';
+                    const moveUPP = Math.max(
+                      1,
+                      Number(item.unitsPerPack || 1)
+                    );
+                    const moveLabel = item.unitLabel || "unità";
                     if (idx >= 0) {
                       const old = arr[idx];
-                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                      arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, packsOnly:false, ...restockTouch(newPacks, todayISO, upp) };
+                      const upp = Math.max(
+                        1,
+                        Number(old.unitsPerPack || moveUPP)
+                      );
+                      const newPacks = Math.max(
+                        0,
+                        Number(old.packs || 0) + movePacks
+                      );
+                      arr[idx] = {
+                        ...old,
+                        packs: newPacks,
+                        unitsPerPack: upp,
+                        unitLabel: old.unitLabel || moveLabel,
+                        packsOnly: false,
+                        ...restockTouch(newPacks, todayISO, upp),
+                      };
                     } else {
                       const row = {
-                        name: item.name, brand: item.brand || '',
-                        packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                        expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0, packsOnly:false
+                        name: item.name,
+                        brand: item.brand || "",
+                        packs: movePacks,
+                        unitsPerPack: moveUPP,
+                        unitLabel: moveLabel,
+                        expiresAt: "",
+                        ...restockTouch(movePacks, todayISO, moveUPP),
+                        avgDailyUnits: 0,
+                        packsOnly: false,
                       };
                       arr.unshift(withRememberedImage(row, imagesIndex));
                     }
@@ -2366,22 +2436,45 @@ async function processVoiceInventory() {
                   });
                 }}
                 style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
-              >✓</button>
+              >
+                ✓
+              </button>
 
-              <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
-              <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
+              <button
+                title="–1"
+                onClick={() => incQty(it.id, -1)}
+                style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}
+              >
+                −
+              </button>
+              <button
+                title="+1"
+                onClick={() => incQty(it.id, +1)}
+                style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}
+              >
+                +
+              </button>
 
               {/* was: pill “OCR riga” → icona Camera */}
               <button
                 title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
-                onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
+                onClick={() => {
+                  setTargetRowIdx(it.id);
+                  rowOcrInputRef.current?.click();
+                }}
                 style={styles.iconSquareBase}
                 aria-label="OCR riga"
               >
                 <Camera size={18} />
               </button>
 
-              <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
+              <button
+                title="Elimina"
+                onClick={() => removeItem(it.id)}
+                style={styles.trashBtn}
+              >
+                🗑
+              </button>
             </div>
           </div>
         );
@@ -2393,7 +2486,7 @@ async function processVoiceInventory() {
 {/* OCR Scontrino globale */}
 <div style={styles.sectionLarge}>
   <h3 style={styles.h3}>📸 OCR Scontrino</h3>
-  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
     {/* was: primaryBtn con testo → icona Camera */}
     <button
       onClick={() => ocrInputRef.current?.click()}
@@ -2404,7 +2497,9 @@ async function processVoiceInventory() {
     >
       <Camera size={20} />
     </button>
-    <p style={{ opacity:.8, margin:0 }}>Riconosce acquisti, riduce la lista e aggiorna le scorte.</p>
+    <p style={{ opacity: .8, margin: 0 }}>
+      Riconosce acquisti, riduce la lista e aggiorna le scorte.
+    </p>
   </div>
 </div>
 
@@ -2412,9 +2507,9 @@ async function processVoiceInventory() {
 <div style={styles.sectionLifted}>
   <div style={styles.sectionHeaderRow}>
     <h3 style={styles.h3}>🏠 Stato Scorte</h3>
-    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-        {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
+        {invRecBusy ? "⏹️ Stop" : "🎙 Vocale Scorte"}
       </button>
       {/* was: primaryBtn con testo → icona Plus */}
       <button
@@ -2439,68 +2534,113 @@ async function processVoiceInventory() {
 
   {/* Form scorte manuali */}
   {showStockForm && (
-    <form onSubmit={(e)=>{e.preventDefault();
-      const name = stockForm.name.trim();
-      if (!name) return;
-      const brand = (stockForm.brand || '').trim();
-      const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
-      const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',', '.')) || 1);
-      const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
-      const ex = toISODate(stockForm.expiresAt || '');
-      const todayISO = new Date().toISOString().slice(0,10);
-      setStock(prev => {
-        const arr = [...prev];
-        const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
-        if (idx >= 0) {
-          const old = arr[idx];
-          const newPacks = Number(old.packs || 0) + packs;
-          const upp = Math.max(1, Number(old.unitsPerPack || unitsPerPack));
-          arr[idx] = {
-            ...old,
-            packs: newPacks,
-            unitsPerPack: upp,
-            unitLabel: old.unitLabel || unitLabel,
-            expiresAt: ex || old.expiresAt || '',
-            packsOnly:false,
-            ...restockTouch(newPacks, todayISO, upp)
-          };
-        } else {
-          const row = {
-            name, brand,
-            packs, unitsPerPack, unitLabel,
-            expiresAt: ex || '',
-            baselinePacks: packs,
-            lastRestockAt: todayISO,
-            avgDailyUnits: 0,
-            residueUnits: packs * unitsPerPack,
-            image: '',
-            packsOnly:false
-          };
-          arr.unshift(withRememberedImage(row, imagesIndex));
-        }
-        return arr;
-      });
-      setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
-      setShowStockForm(false);
-      showToast('Scorta aggiunta ✓', 'ok');
-    }} style={styles.formRow}>
-      <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
-             onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
-      <input style={styles.input} placeholder="Marca" value={stockForm.brand}
-             onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
-      <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
-             onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
-      <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
-             onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
-      <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
-             onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
-      <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
-             onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const name = stockForm.name.trim();
+        if (!name) return;
+        const brand = (stockForm.brand || "").trim();
+        const packs =
+          Math.max(0, Number(String(stockForm.packs).replace(",", ".")) || 0);
+        const unitsPerPack =
+          Math.max(1, Number(String(stockForm.unitsPerPack).replace(",", ".")) || 1);
+        const unitLabel = (stockForm.unitLabel || "unità").trim() || "unità";
+        const ex = toISODate(stockForm.expiresAt || "");
+        const todayISO = new Date().toISOString().slice(0, 10);
+        setStock((prev) => {
+          const arr = [...prev];
+          const idx = arr.findIndex(
+            (s) => isSimilar(s.name, name) && (!brand || isSimilar(s.brand || "", brand))
+          );
+          if (idx >= 0) {
+            const old = arr[idx];
+            const newPacks = Number(old.packs || 0) + packs;
+            const upp = Math.max(1, Number(old.unitsPerPack || unitsPerPack));
+            arr[idx] = {
+              ...old,
+              packs: newPacks,
+              unitsPerPack: upp,
+              unitLabel: old.unitLabel || unitLabel,
+              expiresAt: ex || old.expiresAt || "",
+              packsOnly: false,
+              ...restockTouch(newPacks, todayISO, upp),
+            };
+          } else {
+            const row = {
+              name,
+              brand,
+              packs,
+              unitsPerPack,
+              unitLabel,
+              expiresAt: ex || "",
+              baselinePacks: packs,
+              lastRestockAt: todayISO,
+              avgDailyUnits: 0,
+              residueUnits: packs * unitsPerPack,
+              image: "",
+              packsOnly: false,
+            };
+            arr.unshift(withRememberedImage(row, imagesIndex));
+          }
+          return arr;
+        });
+        setStockForm({
+          name: "",
+          brand: "",
+          packs: "1",
+          unitsPerPack: "1",
+          unitLabel: "unità",
+          expiresAt: "",
+        });
+        setShowStockForm(false);
+        showToast("Scorta aggiunta ✓", "ok");
+      }}
+      style={styles.formRow}
+    >
+      <input
+        style={styles.input}
+        placeholder="Prodotto"
+        value={stockForm.name}
+        onChange={(e) => setStockForm((s) => ({ ...s, name: e.target.value }))}
+        required
+      />
+      <input
+        style={styles.input}
+        placeholder="Marca"
+        value={stockForm.brand}
+        onChange={(e) => setStockForm((s) => ({ ...s, brand: e.target.value }))}
+      />
+      <input
+        style={{ ...styles.input, width: 120 }}
+        inputMode="decimal"
+        placeholder="Confezioni"
+        value={stockForm.packs}
+        onChange={(e) => setStockForm((s) => ({ ...s, packs: e.target.value }))}
+      />
+      <input
+        style={{ ...styles.input, width: 140 }}
+        inputMode="decimal"
+        placeholder="Unità/conf."
+        value={stockForm.unitsPerPack}
+        onChange={(e) => setStockForm((s) => ({ ...s, unitsPerPack: e.target.value }))}
+      />
+      <input
+        style={{ ...styles.input, width: 160 }}
+        placeholder="Etichetta (es. bottiglie)"
+        value={stockForm.unitLabel}
+        onChange={(e) => setStockForm((s) => ({ ...s, unitLabel: e.target.value }))}
+      />
+      <input
+        style={{ ...styles.input, width: 170 }}
+        placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)"
+        value={stockForm.expiresAt}
+        onChange={(e) => setStockForm((s) => ({ ...s, expiresAt: e.target.value }))}
+      />
       {/* was: primaryBtn con testo → icona Plus */}
       <button
         type="submit"
         disabled={busy}
-        style={{ ...styles.iconSquareBase, ...(busy ? { opacity:.6 } : {}) }}
+        style={{ ...styles.iconSquareBase, ...(busy ? { opacity: .6 } : {}) }}
         title="Aggiungi scorta"
         aria-label="Aggiungi scorta"
       >
@@ -2511,43 +2651,74 @@ async function processVoiceInventory() {
 
   {/* Form scadenze manuali */}
   {showExpiryForm && (
-    <form onSubmit={(e)=>{e.preventDefault();
-      const name = (expiryForm.name || '').trim();
-      const iso  = toISODate(expiryForm.expiresAt || '');
-      if (!name || !iso) { showToast('Nome o data non validi', 'err'); return; }
-      let updated = false;
-      setStock(prev => {
-        const arr = [...prev];
-        const i = arr.findIndex(s => isSimilar(s.name, name));
-        if (i >= 0) {
-          arr[i] = { ...arr[i], expiresAt: iso };
-          updated = true;
-        } else {
-          arr.unshift(withRememberedImage({
-            name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-            expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
-          }, imagesIndex));
-          updated = true;
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const name = (expiryForm.name || "").trim();
+        const iso = toISODate(expiryForm.expiresAt || "");
+        if (!name || !iso) {
+          showToast("Nome o data non validi", "err");
+          return;
         }
-        return arr;
-      });
-      if (updated) {
-        showToast('Scadenza impostata ✓', 'ok');
-        setExpiryForm({ name:'', expiresAt:'' });
-        setShowExpiryForm(false);
-      } else {
-        showToast('Scadenza non aggiornata', 'err');
-      }
-    }} style={styles.formRow}>
-      <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
-             onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
-      <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
-             onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
+        let updated = false;
+        setStock((prev) => {
+          const arr = [...prev];
+          const i = arr.findIndex((s) => isSimilar(s.name, name));
+          if (i >= 0) {
+            arr[i] = { ...arr[i], expiresAt: iso };
+            updated = true;
+          } else {
+            arr.unshift(
+              withRememberedImage(
+                {
+                  name,
+                  brand: "",
+                  packs: 0,
+                  unitsPerPack: 1,
+                  unitLabel: "unità",
+                  expiresAt: iso,
+                  baselinePacks: 0,
+                  lastRestockAt: "",
+                  avgDailyUnits: 0,
+                  residueUnits: 0,
+                  packsOnly: false,
+                },
+                imagesIndex
+              )
+            );
+            updated = true;
+          }
+          return arr;
+        });
+        if (updated) {
+          showToast("Scadenza impostata ✓", "ok");
+          setExpiryForm({ name: "", expiresAt: "" });
+          setShowExpiryForm(false);
+        } else {
+          showToast("Scadenza non aggiornata", "err");
+        }
+      }}
+      style={styles.formRow}
+    >
+      <input
+        style={styles.input}
+        placeholder="Prodotto"
+        value={expiryForm.name}
+        onChange={(e) => setExpiryForm((f) => ({ ...f, name: e.target.value }))}
+        required
+      />
+      <input
+        style={{ ...styles.input, width: 220 }}
+        placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)"
+        value={expiryForm.expiresAt}
+        onChange={(e) => setExpiryForm((f) => ({ ...f, expiresAt: e.target.value }))}
+        required
+      />
       {/* was: primaryBtn con testo → icona CalendarDays */}
       <button
         type="submit"
         disabled={busy}
-        style={{ ...styles.iconSquareBase, ...(busy ? { opacity:.6 } : {}) }}
+        style={{ ...styles.iconSquareBase, ...(busy ? { opacity: .6 } : {}) }}
         title="Imposta scadenza"
         aria-label="Imposta scadenza"
       >
