@@ -2111,8 +2111,6 @@ async function processVoiceInventory() {
     });
     arr.unshift(withRememberedImage(row, imagesIndex));
   }
-}
-
             } else {
               // mode: 'units' → imposta residuo unità
               const units = Math.max(0, Number(u.value || 1));
