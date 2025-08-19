@@ -192,27 +192,33 @@ export default async function handler(req, res) {
       if (r.qty == null || Number.isNaN(r.qty)) r.qty = 1;
     }
 
-    const { error } = await admin.from('finances').upsert(rows, {
-      onConflict: 'user_id,category_id,spent_at,description,amount,qty',
-      ignoreDuplicates: false,
-      defaultToNull: true,
-    });
+   // ⬇️ upsert con ritorno righe effettivamente scritte/aggiornate
+const { data, error } = await admin
+  .from('finances')
+  .upsert(rows, {
+    // Conflitto più realistico: stai tracciando movimenti giornalieri per descrizione
+    // (evita amount/qty nella chiave di conflitto, altrimenti l'update non scatta mai)
+    onConflict: 'user_id,category_id,spent_at,description',
+    ignoreDuplicates: false,
+    defaultToNull: true,
+  })
+  .select('id'); // importantissimo per sapere cosa è stato scritto
 
-    if (error) {
-      return res.status(500).json({
-        ok: false,
-        error: error.message || 'DB error',
-        code: error.code || null,
-        details: error.details || null,
-        hint: error.hint || null,
-      });
-    }
-
-    return res.status(200).json({ ok: true, count: rows.length });
-  } catch (e) {
-    console.error('[finances/ingest] fatal', e);
-    return res
-      .status(500)
-      .json({ ok: false, error: e?.message || 'Server error' });
-  }
+if (error) {
+  return res.status(500).json({
+    ok: false,
+    error: error.message || 'DB error',
+    code: error.code || null,
+    details: error.details || null,
+    hint: error.hint || null,
+  });
 }
+
+// data può essere [] se nessuna riga è stata toccata
+const saved = Array.isArray(data) ? data.length : 0;
+return res.status(200).json({
+  ok: true,
+  saved,
+  insertedIds: (Array.isArray(data) ? data.map(r => r.id) : []),
+});
+
