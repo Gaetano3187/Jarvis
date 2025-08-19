@@ -1414,7 +1414,7 @@ async function handleOCR(files) {
       currency: String(p?.currency||'').trim() || 'EUR',
       expiresAt: toISODate(p?.expiresAt || '')
     })).filter(p => p.name);
-}
+
     // -------- PARSER "BUSTA/ETICHETTA" (AI) se scontrino vuoto --------
     if (!purchases.length) {
       const promptBag = buildOcrStockBagPrompt(ocrText || '(immagine senza testo)', GROCERY_LEXICON);
@@ -1565,7 +1565,6 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
-
 
     // 4) Invia alle FINANZE (best-effort)
 try {
