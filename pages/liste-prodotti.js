@@ -93,6 +93,14 @@ function wantsAbsoluteSet(text) {
   const t = normKey(text);
   return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
 }
+// Rileva frasi che indicano un valore ASSOLUTO (SET) invece di sommare
+function hasAbsoluteKeywords(text) {
+  const t = normKey(text);
+  // esempi supportati:
+  // "sono 6 bottiglie", "restano 2 pacchi", "rimangono 4",
+  // "ci sono ancora 3", "ancora 5"
+  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/.test(t);
+}
 
 /* ====================== Parser liste rapide ====================== */
 function extractPackInfo(str){
