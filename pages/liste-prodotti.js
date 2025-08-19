@@ -785,6 +785,23 @@ function withRememberedImage(row, imagesIdx) {
   if (img) return { ...row, image: img };
   return row;
 }
+// [AGGIUNGERE UNA SOLA VOLTA, FUORI DAL COMPONENTE]
+const userIdRef = { current: null };
+
+async function ensureUserId() {
+  if (userIdRef.current) return userIdRef.current;
+  if (typeof window === 'undefined') return null; // evita problemi SSR
+
+  // import dinamico: carica il client solo nel browser
+  const mod = await import('@/lib/supabaseClient');
+  const supabase = mod.default || mod.supabase;
+
+  // session è più affidabile al primo paint
+  const { data: { session } } = await supabase.auth.getSession();
+  userIdRef.current = session?.user?.id ?? null;
+  return userIdRef.current;
+}
+
 
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
