@@ -1184,10 +1184,8 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
 /* =================== OCR scontrini (globale) =================== */
 const decrementAcrossBothLists = (prevLists, purchases) => {
   const next = { ...prevLists };
-
   const decList = (listKey) => {
     const arr = [...(next[listKey] || [])];
-
     for (const p of (purchases || [])) {
       const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1) || 1);
       const brand = String(p.brand || '').trim();
@@ -1198,69 +1196,20 @@ const decrementAcrossBothLists = (prevLists, purchases) => {
         (!brand || isSimilar(i.brand || '', brand)) &&
         Number(i.unitsPerPack || 1) === upp
       );
-      if (idx < 0) {
-        idx = arr.findIndex(i =>
-          isSimilar(i.name, p.name) &&
-          (!brand || isSimilar(i.brand || '', brand))
-        );
-      }
-      if (idx < 0) {
-        idx = arr.findIndex(i => isSimilar(i.name, p.name));
-      }
+      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand || '', brand)));
+      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
+
       if (idx >= 0) {
         const cur = arr[idx];
         const newQty = Math.max(0, Number(cur.qty || 0) - dec);
         arr[idx] = { ...cur, qty: newQty, purchased: true };
       }
     }
-
     next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
   };
-
   decList(LIST_TYPES.SUPERMARKET);
   decList(LIST_TYPES.ONLINE);
   return next;
-};
-
-// Coercion numerica sicura
-const coerceNum = (x) => {
-  if (x == null) return 0;
-  const s = String(x).trim().replace(',', '.');
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-};
-
-// Heuristica: meta da testo OCR (store + data)
-const parseReceiptMeta = (ocrText) => {
-  const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  let purchaseDate = '';
-  for (const ln of lines) {
-    const iso = toISODate(ln);
-    if (iso) { purchaseDate = iso; break; }
-  }
-  const bad = /(totale|iva|imp|euro|€|tel|cassa|scontrino|fiscale|subtot|pagamento|contanti|resto)/i;
-  let store = '';
-  for (const ln of lines) {
-    const hasLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln);
-    if (hasLetters && !bad.test(ln) && ln.length >= 3) { store = ln.replace(/\s{2,}/g,' ').trim(); break; }
-  }
-  return { store, purchaseDate };
-};
-
-// Normalizzazione etichette unità
-const normalizeUnitLabel = (lbl='') => {
-  const s = normKey(lbl);
-  if (/bottigl/.test(s)) return 'bottiglie';
-  if (/(?:pz|pezz|unit\b|unita?)/.test(s)) return 'pezzi';
-  if (/bust/.test(s)) return 'buste';
-  if (/lattin/.test(s)) return 'lattine';
-  if (/vasett/.test(s)) return 'vasetti';
-  if (/barattol/.test(s)) return 'barattoli';
-  if (/vaschett/.test(s)) return 'vaschette';
-  if (/rotol/.test(s)) return 'rotoli';
-  if (/fogli?/.test(s)) return 'fogli';
-  if (/capsul/.test(s)) return 'capsule';
-  return 'unità';
 };
 
 const handleOCR = async (files) => {
@@ -1299,7 +1248,7 @@ const handleOCR = async (files) => {
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
       parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
-    } catch(e) {}
+    } catch (e) {}
 
     const meta = parseReceiptMeta(ocrText);
     let store = (parsed?.store || meta.store || '').trim();
@@ -1317,7 +1266,7 @@ const handleOCR = async (files) => {
       expiresAt: toISODate(p?.expiresAt || '')
     })).filter(p => p.name);
 
-    // 3) Se non ci sono righe, prova parsing BUSTA/ETICHETTE
+    // 3) Fallback: BUSTA/ETICHETTE se niente righe
     if (!purchases.length) {
       const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
       try {
@@ -1340,7 +1289,7 @@ const handleOCR = async (files) => {
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
         purchases = items;
-      } catch(e) {}
+      } catch (e) {}
     }
 
     // 4) Fallback minimale
@@ -1350,9 +1299,7 @@ const handleOCR = async (files) => {
     }));
 
     // 5) Decrementa liste
-    if (purchases.length) {
-      setLists(prev => decrementAcrossBothLists(prev, purchases));
-    }
+    if (purchases.length) setLists(prev => decrementAcrossBothLists(prev, purchases));
 
     // 6) Aggiorna scorte
     setStock(prev => {
@@ -1416,7 +1363,6 @@ const handleOCR = async (files) => {
           }
         }
       }
-
       return arr;
     });
 
@@ -1441,7 +1387,7 @@ const handleOCR = async (files) => {
           }))
         })
       });
-    } catch(e) {
+    } catch (e) {
       if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
     }
 
