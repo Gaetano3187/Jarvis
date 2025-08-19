@@ -496,7 +496,8 @@ function parseStockUpdateText(text) {
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-  const absolute = wantsAbsoluteSet(text);
+const absoluteGlobal = wantsAbsoluteSet(text) || hasAbsoluteKeywords(text);
+
 
   for (let rawChunk of parts) {
     if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
