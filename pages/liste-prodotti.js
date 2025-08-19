@@ -28,6 +28,12 @@ const API_FINANCES_INGEST = '/api/finances/ingest';
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
 
+/* ====================== Feature toggles / safety ====================== */
+// Se l’OCR/vocale trova il prodotto ma non capisce le quantità,
+// crea 1 confezione di default (come funzionava prima).
+const DEFAULT_PACKS_IF_MISSING = true;
+
+
 // chiave univoca per nome+marca
 function normKey(str) {
   return String(str || '')
