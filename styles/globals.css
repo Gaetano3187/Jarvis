@@ -1677,5 +1677,19 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
   0%   { opacity:.74; transform: scale(0.985); }
   100% { opacity:1;   transform: scale(1.065); }
 }
+iconSquareBase: {
+  width: 38, height: 38, minWidth: 38,
+  display: 'grid', placeItems: 'center',
+  borderRadius: 12,
+  border: '1px solid #4b5563',                   // come trashBtn
+  background: 'linear-gradient(180deg,#1f2937,#111827)',
+  color: '#e5e7eb',
+  boxShadow: '0 2px 8px rgba(0,0,0,.35)',
+  cursor: 'pointer'
+},
+iconDanger: {
+  color: '#f87171'                                // accento rosso come il trashBtn di lista
+}
+
 
 /* opzionale: se vuoi ancora più “respiro”, porta scale max a 1.08 */
