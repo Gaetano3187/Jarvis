@@ -1105,102 +1105,48 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     });
   }
 
-  /* =================== OCR scontrini (globale) =================== */
-  function decrementAcrossBothLists(prevLists, purchases) {
-    const next = { ...prevLists };
-    const decList = (listKey) => {
-      const arr = [...(next[listKey] || [])];
-      for (const p of purchases) {
-        const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-        const brand = (p.brand || '').trim();
-        const upp = Number(p.unitsPerPack ?? 1);
-        let idx = arr.findIndex(i =>
+/* =================== OCR scontrini (globale) =================== */
+function decrementAcrossBothLists(prevLists, purchases) {
+  const next = { ...prevLists };
+
+  const decList = (listKey) => {
+    const arr = [...(next[listKey] || [])];
+
+    for (const p of purchases) {
+      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+      const brand = (p.brand || '').trim();
+      const upp = Number(p.unitsPerPack ?? 1);
+
+      let idx = arr.findIndex(i =>
+        isSimilar(i.name, p.name) &&
+        (!brand || isSimilar(i.brand || '', brand)) &&
+        Number(i.unitsPerPack || 1) === upp
+      );
+      if (idx < 0) {
+        idx = arr.findIndex(i =>
           isSimilar(i.name, p.name) &&
-          (!brand || isSimilar(i.brand || '', brand)) &&
-          Number(i.unitsPerPack || 1) === upp
+          (!brand || isSimilar(i.brand || '', brand))
         );
-        if (idx < 0) {
-          idx = arr.findIndex(i =>
-            isSimilar(i.name, p.name) &&
-            (!brand || isSimilar(i.brand || '', brand))
-          );
-        }
-        if (idx < 0) {
-          idx = arr.findIndex(i => isSimilar(i.name, p.name));
-        }
-        if (idx >= 0) {
-          const cur = arr[idx];
-          const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-          arr[idx] = { ...cur, qty: newQty, purchased: true };
-        }
       }
-      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-    };
-    decList(LIST_TYPES.SUPERMARKET);
-    decList(LIST_TYPES.ONLINE);
-    return next;
-    function dataUrlToBlob(dataUrl) {
-  try {
-    const [head, base64] = String(dataUrl || '').split(',');
-    const m = head.match(/data:(.*?);base64/i);
-    const mime = m ? m[1] : 'application/octet-stream';
-    const bin = atob(base64 || '');
-    const len = bin.length;
-    const u8 = new Uint8Array(len);
-    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
-    return new Blob([u8], { type: mime });
-  } catch {
-    return null;
-  }
+      if (idx < 0) {
+        idx = arr.findIndex(i => isSimilar(i.name, p.name));
+      }
+      if (idx >= 0) {
+        const cur = arr[idx];
+        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+        arr[idx] = { ...cur, qty: newQty, purchased: true };
+      }
+    }
+
+    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+  };
+
+  decList(LIST_TYPES.SUPERMARKET);
+  decList(LIST_TYPES.ONLINE);
+  return next;
 }
 
-function guessExt(mime='') {
-  const m = mime.toLowerCase();
-  if (m.includes('pdf')) return 'pdf';
-  if (m.includes('png')) return 'png';
-  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
-  if (m.includes('webp')) return 'webp';
-  if (m.includes('heic')) return 'heic';
-  return 'bin';
-}
-
-async function normalizeToBlobs(list) {
-  const out = [];
-  for (const f of (Array.isArray(list) ? list : [])) {
-    // Caso 1: già File/Blob
-    if (f instanceof Blob) {
-      out.push({ blob: f, name: (f.name || `upload.${guessExt(f.type)}`) });
-      continue;
-    }
-    // Caso 2: data URL string
-    if (typeof f === 'string' && f.startsWith('data:')) {
-      const b = dataUrlToBlob(f);
-      if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-      continue;
-    }
-    // Caso 3: wrapper noti (es. {file: Blob} o {blob: Blob})
-    if (f && typeof f === 'object') {
-      const maybe = f.file || f.blob;
-      if (maybe instanceof Blob) {
-        out.push({ blob: maybe, name: (f.name || `upload.${guessExt(maybe.type)}`) });
-        continue;
-      }
-      // Caso 4: preview/url (blob:, data:, http)
-      const url = f.preview || f.uri || f.url;
-      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
-        try {
-          const resp = await fetch(url);
-          const b = await resp.blob();
-          out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-          continue;
-        } catch {}
-      }
-    }
-    // Altrimenti ignora
-  }
-  return out;
-}
-// ——— Robust helpers per creare FormData con *veri* Blob/File ———
+/* ==== Helpers robusti per costruire FormData con veri Blob/File ==== */
 function isBlobish(v){
   try {
     return !!(v && typeof v === 'object'
@@ -1234,25 +1180,25 @@ function guessExt(mime='') {
   return 'bin';
 }
 
-// Converte *qualsiasi* input (FileList/array/obj/url/dataURL) in veri Blob pronti per append
+// Converte FileList/array/obj/url/dataURL in veri Blob appendibili
 async function collectImageBlobs(input) {
   const list = Array.from(input || []);
   const out = [];
 
   for (const f of list) {
-    // 1) Già Blob/File
+    // 1) File/Blob nativo
     if (isBlobish(f)) {
       out.push({ blob: f, name: (f.name || `upload.${guessExt(f.type)}`) });
       continue;
     }
-    // 2) data URL string
+
+    // 2) stringa data URL o URL http(s)/blob:
     if (typeof f === 'string') {
       if (f.startsWith('data:')) {
         const b = dataUrlToBlob(f);
-        if (b) { out.push({ blob: b, name: `upload.${guessExt(b.type)}` }); }
+        if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
         continue;
       }
-      // URL http(s) o blob:
       if (/^(blob:|https?:)/i.test(f)) {
         try {
           const resp = await fetch(f);
@@ -1262,7 +1208,8 @@ async function collectImageBlobs(input) {
         continue;
       }
     }
-    // 3) wrapper noti { file|blob|preview|url|uri }
+
+    // 3) wrapper { file|blob|preview|url|uri }
     if (f && typeof f === 'object') {
       const maybe = f.file || f.blob;
       if (isBlobish(maybe)) {
@@ -1284,10 +1231,12 @@ async function collectImageBlobs(input) {
         continue;
       }
     }
-    // altrimenti ignora l’elemento non valido
+    // altro → ignora
   }
+
   return out;
 }
+
 
   }
     async function handleOCR(files) {
