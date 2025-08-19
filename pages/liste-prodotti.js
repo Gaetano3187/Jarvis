@@ -1582,63 +1582,93 @@ if (!Array.isArray(purchases) || purchases.length === 0) {
     }
 
     // 3) Aggiorna SCORTE (flag rosso se mancano quantità)
-    setStock(prev => {
-      const arr = [...prev];
-      const todayISO = new Date().toISOString().slice(0,10);
+setStock(prev => {
+  const arr = [...prev];
+  const todayISO = new Date().toISOString().slice(0,10);
 
-      for (const p of purchases) {
-        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
-        const packs = coerceNum(p.packs);
-        const upp   = coerceNum(p.unitsPerPack);
-        const hasCounts = packs > 0 || upp > 0;
+  for (const p of purchases) {
+    const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+    const packs = coerceNum(p.packs);
+    const upp   = coerceNum(p.unitsPerPack);
+    const hasCounts = packs > 0 || upp > 0;
 
-        if (idx >= 0) {
-          const old = arr[idx];
-          if (hasCounts) {
-            const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
-            const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
-              ...old,
-              packs: newPacks,
-              unitsPerPack: nextUpp,
-              unitLabel: old.unitLabel || p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(newPacks, todayISO, nextUpp)
-            };
-          } else {
-            arr[idx] = { ...old, needsUpdate: true };
-          }
+    if (idx >= 0) {
+      const old = arr[idx];
+      if (hasCounts) {
+        const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
+        const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
+        arr[idx] = {
+          ...old,
+          packs: newPacks,
+          unitsPerPack: nextUpp,
+          unitLabel: old.unitLabel || p.unitLabel || 'unità',
+          expiresAt: p.expiresAt || old.expiresAt || '',
+          packsOnly: false,
+          needsUpdate: false,
+          ...restockTouch(newPacks, todayISO, nextUpp)
+        };
+      } else {
+        // ✅ Nessuna quantità dall’OCR: se attivo, aggiungi 1 conf. di default
+        if (DEFAULT_PACKS_IF_MISSING) {
+          const uppOld   = Math.max(1, Number(old.unitsPerPack || 1));
+          const newPacks = Math.max(0, Number(old.packs || 0) + 1);
+          arr[idx] = {
+            ...old,
+            packs: newPacks,
+            unitsPerPack: uppOld,
+            unitLabel: old.unitLabel || 'unità',
+            packsOnly: false,
+            needsUpdate: false,
+            ...restockTouch(newPacks, todayISO, uppOld)
+          };
         } else {
-          if (hasCounts) {
-            const u = Math.max(1, upp || 1);
-            const row = {
-              name: p.name, brand: p.brand || '',
-              packs: Math.max(0, packs || 1),
-              unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: Math.max(0, packs || 1),
-              lastRestockAt: todayISO, avgDailyUnits: 0,
-              residueUnits: Math.max(0, (packs || 1) * u),
-              packsOnly: false, needsUpdate: false
-            };
-            arr.unshift(withRememberedImage(row, imagesIndex));
-          } else {
-            const row = {
-              name: p.name, brand: p.brand || '',
-              packs: 0, unitsPerPack: 1, unitLabel: '-',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: 0, lastRestockAt: '',
-              avgDailyUnits: 0, residueUnits: 0,
-              packsOnly: true, needsUpdate: true
-            };
-            arr.unshift(withRememberedImage(row, imagesIndex));
-          }
+          arr[idx] = { ...old, needsUpdate: true };
         }
       }
-      return arr;
-    });
+    } else {
+      if (hasCounts) {
+        const u = Math.max(1, upp || 1);
+        const row = {
+          name: p.name, brand: p.brand || '',
+          packs: Math.max(0, packs || 1),
+          unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
+          expiresAt: p.expiresAt || '',
+          baselinePacks: Math.max(0, packs || 1),
+          lastRestockAt: todayISO, avgDailyUnits: 0,
+          residueUnits: Math.max(0, (packs || 1) * u),
+          packsOnly: false, needsUpdate: false
+        };
+        arr.unshift(withRememberedImage(row, imagesIndex));
+      } else {
+        // ✅ Nuova riga senza quantità: se attivo, crea con 1 conf. di default
+        if (DEFAULT_PACKS_IF_MISSING) {
+          const row = {
+            name: p.name, brand: p.brand || '',
+            packs: 1, unitsPerPack: 1, unitLabel: 'unità',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: 1,
+            lastRestockAt: todayISO, avgDailyUnits: 0,
+            residueUnits: 1,
+            packsOnly: false, needsUpdate: false
+          };
+          arr.unshift(withRememberedImage(row, imagesIndex));
+        } else {
+          const row = {
+            name: p.name, brand: p.brand || '',
+            packs: 0, unitsPerPack: 1, unitLabel: '-',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: 0, lastRestockAt: '',
+            avgDailyUnits: 0, residueUnits: 0,
+            packsOnly: true, needsUpdate: true
+          };
+          arr.unshift(withRememberedImage(row, imagesIndex));
+        }
+      }
+    }
+  }
+  return arr;
+});
+
   // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
 const hasPurchases = Array.isArray(purchases) && purchases.length > 0;
 let financesOk = true;
