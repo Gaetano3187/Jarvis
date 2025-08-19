@@ -1361,7 +1361,7 @@ async function handleOCR(files) {
     if (!ocr.ok) throw new Error(ocr.error || `Errore OCR (HTTP ${ocrRes.status})`);
     const ocrText = String(ocr.text || '').trim();
     if (!ocrText) throw new Error('Nessun testo riconosciuto');
-    }
+    };
     // Parser SCONTRINO
     const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
     let parsed = null;
