@@ -1,3 +1,4 @@
+
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -1607,23 +1608,7 @@ if (!Array.isArray(purchases) || purchases.length === 0) {
               ...restockTouch(newPacks, todayISO, nextUpp)
             };
           } else {
-  if (DEFAULT_PACKS_IF_MISSING) {
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const newPacks = Math.max(0, Number(old.packs || 0) + 1);
-    arr[idx] = {
-      ...old,
-      packs: newPacks,
-      unitsPerPack: uppOld,
-      unitLabel: old.unitLabel || 'unità',
-      packsOnly: false,
-      needsUpdate: false,
-      ...restockTouch(newPacks, todayISO, uppOld)
-    };
-  } else {
-    arr[idx] = { ...old, needsUpdate: true };
-  }
-}
-
+            arr[idx] = { ...old, needsUpdate: true };
           }
         } else {
           if (hasCounts) {
