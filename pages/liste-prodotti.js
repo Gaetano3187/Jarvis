@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { Pencil, Trash2, Camera } from 'lucide-react';
-import { Pencil, Trash2, Camera, Calendar, Plus } from 'lucide-react';
+
 
 
 /* ====================== Costanti / Config ====================== */
@@ -2237,9 +2237,14 @@ async function processVoiceInventory() {
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
-            <button onClick={() => setShowListForm(v => !v)} style={styles.primaryBtn}>
-              {showListForm ? '– Chiudi form lista' : '➕ Aggiungi manualmente alla lista corrente'}
-            </button>
+           <button 
+  onClick={() => setShowListForm(v => !v)} 
+  style={{ ...styles.iconSquareBase, ...(showListForm ? styles.iconBtnGreen : {}) }}
+  title={showListForm ? "Chiudi form lista" : "Aggiungi manualmente"}
+>
+  <Plus size={20} />
+</button>
+
           </div>
 
           {/* Form aggiunta manuale Lista */}
