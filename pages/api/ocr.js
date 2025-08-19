@@ -1,182 +1,97 @@
 // pages/api/ocr.js
-import { IncomingForm } from 'formidable';
-import fs from 'fs';
-import path from 'path';
+import OpenAI from 'openai';
+import formidable from 'formidable';
+import fs from 'fs/promises';
 
-export const config = {
-  api: { bodyParser: false },   // necessario per multipart
-  runtime: 'nodejs',            // evita Edge
-};
-
-const OCR_ENDPOINT = 'https://api.ocr.space/parse/image';
-
-/* ===================== helpers ===================== */
-
-/** parse multipart (Pages API) */
-function parseForm(req) {
-  return new Promise((resolve, reject) => {
-    const form = new IncomingForm({
-      multiples: true,
-      keepExtensions: true,
-      maxFileSize: 15 * 1024 * 1024,   // 15MB per file
-      maxTotalFileSize: 60 * 1024 * 1024,
-    });
-    form.parse(req, (err, fields, files) => {
-      if (err) return reject(err);
-      resolve({ fields, files });
-    });
-  });
-}
-
-/** fetch con timeout */
-async function fetchWithTimeout(url, opts = {}, ms = 45000) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...opts, signal: ctrl.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-/** opzionale: HEIC → JPEG (se 'sharp' presente) */
-async function maybeConvertHeic(filepath, mimetype, originalFilename) {
-  const isHeic =
-    /heic|heif/i.test(mimetype || '') || /\.hei[cf]$/i.test(originalFilename || '');
-  if (!isHeic) return { filepath, mimetype, originalFilename };
-
-  try {
-    const sharp = (await import('sharp')).default;
-    const buf = await fs.promises.readFile(filepath);
-    const out = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
-    const outPath = filepath + '.jpg';
-    await fs.promises.writeFile(outPath, out);
-
-    try { await fs.promises.unlink(filepath); } catch {}
-    const outName =
-      (originalFilename ? path.parse(originalFilename).name : 'upload') + '.jpg';
-
-    return { filepath: outPath, mimetype: 'image/jpeg', originalFilename: outName };
-  } catch {
-    // se fallisce, proseguiamo col file originale
-    return { filepath, mimetype, originalFilename };
-  }
-}
-
-/** invio singolo file a OCR.space (mai throw hard: ritorna {text:'' , error}) */
-async function ocrOneFile(localFile) {
-  const stream = fs.createReadStream(localFile.filepath);
-  const fd = new FormData();
-
-  const apiKey = process.env.OCRSPACE_API_KEY || 'helloworld'; // demo key: molto limitata
-  fd.append('apikey', apiKey);
-  fd.append('language', 'ita');
-  fd.append('isOverlayRequired', 'false');
-  fd.append('OCREngine', '2');
-
-  const filename = localFile.originalFilename || 'upload.jpg';
-  fd.append('file', stream, filename);
-
-  let resp;
-  let raw;
-  try {
-    resp = await fetchWithTimeout(OCR_ENDPOINT, { method: 'POST', body: fd }, 45000);
-    raw = await resp.text();
-  } catch (e) {
-    return { name: filename, text: '', error: `OCR fetch error: ${e?.message || e}` };
-  }
-
-  if (!resp.ok) {
-    // NON alziamo eccezione: lasciamo al chiamante gestire il fallback
-    return { name: filename, text: '', error: `HTTP ${resp.status} ${resp.statusText} — ${raw?.slice(0, 200) || ''}` };
-  }
-
-  let json;
-  try {
-    json = JSON.parse(raw);
-  } catch {
-    return { name: filename, text: '', error: raw?.slice(0, 200) || 'Risposta non JSON dal servizio OCR' };
-  }
-
-  if (json?.IsErroredOnProcessing) {
-    const msg = Array.isArray(json.ErrorMessage)
-      ? json.ErrorMessage.join(' | ')
-      : json.ErrorMessage || 'Errore durante l’elaborazione OCR';
-    return { name: filename, text: '', error: msg };
-  }
-
-  const text = (json?.ParsedResults || [])
-    .map((r) => r?.ParsedText || '')
-    .join('\n')
-    .trim();
-
-  return { name: filename, text };
-}
-
-/* ===================== handler ===================== */
+export const config = { api: { bodyParser: false } }; // indispensabile per form-data
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: 'OPENAI_API_KEY non configurata' });
   }
 
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   try {
-    const { files } = await parseForm(req);
+    // --- parse multipart form ---
+    const { files } = await new Promise((resolve, reject) => {
+      const form = formidable({ multiples: true, keepExtensions: true });
+      form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
+    });
 
-    // accetta "images" (array) e/o "file" singolo
-    const candidates = [];
-    const img = files?.images;
-    const single = files?.file;
-    if (Array.isArray(img)) candidates.push(...img);
-    else if (img) candidates.push(img);
-    if (Array.isArray(single)) candidates.push(...single);
-    else if (single) candidates.push(single);
+    // raccogli TUTTI i possibili campi di file
+    const pick = (k) => {
+      const v = files?.[k];
+      return v ? (Array.isArray(v) ? v : [v]) : [];
+    };
+    let fileList = [
+      ...pick('images'),
+      ...pick('files'),
+      ...pick('file'),
+      ...pick('image'),
+    ];
 
-    if (!candidates.length) {
-      // ritorna comunque 200 per non far fallire il client
-      return res.status(200).json({ ok: true, text: '' });
+    // se l’uploader usa altri nomi, prendi comunque tutto
+    if (!fileList.length) {
+      fileList = Object.values(files || {}).flat().filter(Boolean);
+    }
+    if (!fileList.length) {
+      return res.status(400).json({ error: 'Nessun file ricevuto' });
     }
 
-    // normalizza + HEIC→JPEG se possibile
-    const prepared = [];
-    for (const f of candidates) {
-      const base = {
-        filepath: f.filepath,
-        mimetype: f.mimetype || 'application/octet-stream',
-        originalFilename: f.originalFilename || 'upload',
-      };
-      prepared.push(await maybeConvertHeic(base.filepath, base.mimetype, base.originalFilename));
-    }
+    const texts = [];
 
-    // OCR tutti i file (non interrompere su errori)
-    const results = [];
-    for (const f of prepared) {
-      try {
-        const r = await ocrOneFile(f);
-        results.push(r);
-      } finally {
-        // pulizia temp
-        if (f?.filepath) fs.unlink(f.filepath, () => {});
+    for (const f of fileList) {
+      const filepath = f.filepath || f.path;
+      const mimetype = (f.mimetype || '').toLowerCase();
+      const orig = f.originalFilename || '';
+
+      const buf = await fs.readFile(filepath);
+
+      // --- PDF: usa pdf-parse ---
+      if (mimetype.includes('pdf') || /\.pdf$/i.test(orig)) {
+        const pdfParse = (await import('pdf-parse')).default;
+        const parsed = await pdfParse(buf);
+        const t = String(parsed?.text || '').trim();
+        if (t) texts.push(t);
+        continue;
       }
+
+      // --- Immagini: OpenAI Vision ---
+      const b64 = buf.toString('base64');
+      const dataUrl = `data:${mimetype || 'image/jpeg'};base64,${b64}`;
+
+      const resp = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text:
+                  'Trascrivi esattamente tutto il testo leggibile nello scontrino. ' +
+                  'Mantieni l’ordine riga-per-riga. Nessuna spiegazione, solo testo puro.',
+              },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+      });
+
+      const t = String(resp?.choices?.[0]?.message?.content || '').trim();
+      if (t) texts.push(t);
     }
 
-    const okAny = results.some((r) => r.text);
-    if (!okAny) {
-      const firstErr = results.find((r) => r.error)?.error || 'OCR: nessun testo';
-      console.warn('[api/ocr] nessun testo estratto:', firstErr);
-      // mai 502: il client farà fallback (AI parsing “busta” ecc.)
-      return res.status(200).json({ ok: true, text: '', results, warning: firstErr });
-    }
-
-    const joined = results
-      .map((r) => (r.error ? '' : `### ${r.name}\n${r.text}`))
-      .filter(Boolean)
-      .join('\n\n');
-
-    return res.status(200).json({ ok: true, text: joined, results });
+    const text = texts.join('\n').trim();
+    return res.status(200).json({ ok: true, text });
   } catch (err) {
-    console.error('OCR handler error:', err);
-    return res.status(200).json({ ok: true, text: '', error: String(err?.message || err) });
+    console.error('[OCR] fail', err);
+    return res.status(500).json({ error: err?.message || String(err) });
   }
 }
