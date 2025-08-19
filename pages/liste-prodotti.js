@@ -1200,24 +1200,7 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     });
   }
 
- /* ====================== Prompt builder OCR Riga ====================== */
-function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-  return [
-    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
-    'RISPONDI SOLO JSON con schema esatto:',
-    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
-    '',
-    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
-    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
-    '- Scadenza in formato YYYY-MM-DD se presente',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
-
+ 
 /* ====================== Decrementa liste da scontrino ====================== */
 function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
