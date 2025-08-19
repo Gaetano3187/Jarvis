@@ -1303,6 +1303,7 @@ function decrementAcrossBothLists(prevLists, purchases) {
 }
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
+// ⬇⬇ REPLACE the whole handleOCR with this ⬇⬇
 async function handleOCR(files) {
   if (!files?.length) return;
   try {
@@ -1320,13 +1321,13 @@ async function handleOCR(files) {
     };
 
     const uploads = [];
-    // Prima: se arrivano da <input type="file"> sono già File
+    // a) FileList standard dell'input
     for (const f of (Array.from(files) || [])) {
       if (isFileLike(f)) {
         uploads.push({ blob: f, name: f.name || `upload.${guessExt(f.type)}` });
       }
     }
-    // Se ancora vuoto, prova la routine generica (url/dataURL/oggetti vari)
+    // b) fallback generico (dataURL/url/wrapper)
     if (uploads.length === 0) {
       const extra = await collectImageBlobs(files);
       for (const it of extra) {
@@ -1340,13 +1341,11 @@ async function handleOCR(files) {
     // 1) OCR → testo (append SOLO Blob/File reali)
     const fdOcr = new FormData();
     for (const it of uploads) {
-      // guardie extra per evitare "parameter 2 is not of type 'Blob'"
-      if (!(it?.blob instanceof Blob)) continue;
+      if (!(it?.blob instanceof Blob)) continue;                 // guardia extra
       const filename = String(it.name || 'upload.bin');
       fdOcr.append('images', it.blob, filename);
     }
-    // se per qualsiasi motivo non è stato appeso nulla:
-    // (es. browser buggato) fallback sull'array originale di File
+    // fallback estremo se non c’è nessuna entry (browser edge case)
     if (!Array.from(fdOcr.entries()).length) {
       for (const f of (Array.from(files) || [])) {
         if (isFileLike(f)) fdOcr.append('images', f, f.name || `upload.${guessExt(f.type)}`);
@@ -1361,8 +1360,8 @@ async function handleOCR(files) {
     if (!ocr.ok) throw new Error(ocr.error || `Errore OCR (HTTP ${ocrRes.status})`);
     const ocrText = String(ocr.text || '').trim();
     if (!ocrText) throw new Error('Nessun testo riconosciuto');
-    };
-    // Parser SCONTRINO
+
+    // 2) Parser SCONTRINO (AI)
     const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
     let parsed = null;
     try {
@@ -1372,13 +1371,17 @@ async function handleOCR(files) {
       }, 35000);
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
-      parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+      parsed = typeof answer === 'string'
+        ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })()
+        : answer;
     } catch {}
 
+    // meta fallback (negozio/data)
     const meta = parseReceiptMeta(ocrText);
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
 
+    // righe acquisto
     let purchases = ensureArray(parsed?.purchases).map(p => ({
       name: String(p?.name||'').trim(),
       brand: String(p?.brand||'').trim(),
@@ -1391,7 +1394,7 @@ async function handleOCR(files) {
       expiresAt: toISODate(p?.expiresAt || '')
     })).filter(p => p.name);
 
-    // Se non è scontrino → BUSTA/ETICHETTE
+    // 3) Se non sembra scontrino → BUSTA/ETICHETTE (AI)
     if (!purchases.length) {
       const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
       try {
@@ -1401,7 +1404,9 @@ async function handleOCR(files) {
         }, 35000);
         const safe2 = await readJsonSafe(r2);
         const answer2 = safe2?.answer || safe2?.data || safe2;
-        const parsed2 = typeof answer2 === 'string' ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })() : answer2;
+        const parsed2 = typeof answer2 === 'string'
+          ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })()
+          : answer2;
         purchases = ensureArray(parsed2?.items).map(p => ({
           name: String(p?.name||'').trim(),
           brand: String(p?.brand||'').trim(),
@@ -1414,7 +1419,7 @@ async function handleOCR(files) {
       } catch {}
     }
 
-    // Fallback riga-per-riga
+    // 4) Fallback brutale riga-per-riga
     if (!purchases.length) {
       purchases = parseReceiptPurchases(ocrText).map(p => ({
         name: p.name, brand: p.brand || '',
@@ -1424,12 +1429,12 @@ async function handleOCR(files) {
       }));
     }
 
-    // Decrementa le liste
+    // 5) Decrementa le LISTE acquisto
     if (purchases.length) {
       setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
 
-    // Aggiorna scorte
+    // 6) Aggiorna SCORTE (+ flag rosso se mancano quantità)
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
@@ -1456,7 +1461,7 @@ async function handleOCR(files) {
               ...restockTouch(newPacks, todayISO, nextUpp)
             };
           } else {
-            arr[idx] = { ...old, needsUpdate: true };
+            arr[idx] = { ...old, needsUpdate: true }; // evidenzia “da aggiornare”
           }
         } else {
           if (hasCounts) {
@@ -1488,7 +1493,7 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // Invia a FINANZE
+    // 7) Invia a FINANZE (best-effort)
     try {
       await fetch(API_FINANCES_INGEST, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -1503,7 +1508,9 @@ async function handleOCR(files) {
           }))
         })
       });
-    } catch(e) { if (DEBUG) console.warn('[FINANCES_INGEST] skip', e); }
+    } catch(e) {
+      if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
+    }
 
     showToast('OCR scorte completato ✓', 'ok');
   } catch (e) {
@@ -1514,6 +1521,7 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
+// ⬆⬆ END handleOCR ⬆⬆
 
 
   /* =================== Edit riga scorte =================== */
