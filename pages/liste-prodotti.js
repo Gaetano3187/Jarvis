@@ -1486,16 +1486,16 @@ async function processVoiceInventory() {
     // 1) Scadenze dal parlato
     const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
 
-    // 2) Aggiornamenti quantità (parser vocali)
+    // 2) Aggiornamenti quantità (parser vocale)
     const updates = parseStockUpdateText(text);
     const todayISO = new Date().toISOString().slice(0, 10);
 
-    // "SET assoluto" globale se il testo contiene parole chiave
+    // "SET assoluto" globale se il testo contiene parole chiave (sono / restano / ci sono ancora / ecc.)
     const absoluteGlobal =
       wantsAbsoluteSet(text) ||
       (typeof hasAbsoluteKeywords === 'function'
         ? hasAbsoluteKeywords(text)
-        : /\b(sono|restan[oaie]?|rimangono|rimasto|rimasti|rimaste|resta|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
+        : /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
 
     // Applica scadenze
     if (expPairs.length) {
@@ -1554,13 +1554,13 @@ async function processVoiceInventory() {
                 arr.unshift(withRememberedImage(row, imagesIndex));
               }
             } else {
-              // mode: 'units' → imposta residuo unità
+              // mode: 'units' → imposta residuo unità (UPP sconosciuto → non ricalcolo pacchi)
               const units = Math.max(0, Number(u.value || 1));
               const base = {
                 name: u.name, brand: '', packs: 1,
                 unitsPerPack: 1, unitLabel: 'unità',
                 expiresAt: '', baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
-                residueUnits: Math.max(0, Math.min(units, 1)), packsOnly: false
+                residueUnits: units, packsOnly: false
               };
               arr.unshift(withRememberedImage(base, imagesIndex));
             }
@@ -1596,14 +1596,24 @@ async function processVoiceInventory() {
               });
             }
           } else {
-            // Aggiornamento a unità → residuo unità
+            // Aggiornamento a unità → residuo unità (e RICALCOLO PACCHI se UPP noto)
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const baseline = baselineUnitsOf(old) || upp;
             const current = residueUnitsOf(old);
             const targetUnits = abs
               ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
               : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
-            arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
+
+            let nextRow = { ...old, packsOnly: false, residueUnits: targetUnits };
+
+            // 🔁 Ricalcolo confezioni: se UPP noto e residuo è multiplo intero → packs = residuo/UPP, altrimenti packs = 1
+            if (upp > 1 && Number.isFinite(targetUnits)) {
+              const tu = Math.round(targetUnits); // lavoriamo a interi
+              const packsFromRU = tu > 0 && tu % upp === 0 ? Math.max(1, tu / upp) : 1;
+              nextRow.packs = packsFromRU;
+            }
+
+            arr[j] = nextRow;
           }
         }
         return arr;
@@ -1624,6 +1634,7 @@ async function processVoiceInventory() {
     invStreamRef.current = null;
   }
 }
+
   /* =================== Render =================== */
   return (
     <>
