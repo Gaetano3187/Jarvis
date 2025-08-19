@@ -1308,19 +1308,60 @@ async function handleOCR(files) {
   try {
     setBusy(true);
 
-    // Normalizza input
-    const entries = await collectImageBlobs(files);
-    if (!entries.length) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
+    // 0) Normalizza: ottieni SEMPRE veri Blob/File
+    const isFileLike = (v) => {
+      try {
+        return !!(v && typeof v === 'object' &&
+                  typeof v.type === 'string' &&
+                  typeof v.size === 'number' &&
+                  typeof v.arrayBuffer === 'function' &&
+                  typeof v.slice === 'function');
+      } catch { return false; }
+    };
 
-    // OCR → testo
+    const uploads = [];
+    // Prima: se arrivano da <input type="file"> sono già File
+    for (const f of (Array.from(files) || [])) {
+      if (isFileLike(f)) {
+        uploads.push({ blob: f, name: f.name || `upload.${guessExt(f.type)}` });
+      }
+    }
+    // Se ancora vuoto, prova la routine generica (url/dataURL/oggetti vari)
+    if (uploads.length === 0) {
+      const extra = await collectImageBlobs(files);
+      for (const it of extra) {
+        if (it?.blob instanceof Blob) uploads.push(it);
+      }
+    }
+    if (uploads.length === 0) {
+      throw new Error('Nessuna immagine valida (Blob/File) selezionata');
+    }
+
+    // 1) OCR → testo (append SOLO Blob/File reali)
     const fdOcr = new FormData();
-    entries.forEach((it, i) => fdOcr.append('images', it.blob, it.name || `upload_${i}.${guessExt(it.blob.type)}`));
-    const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fdOcr }, 40000);
+    for (const it of uploads) {
+      // guardie extra per evitare "parameter 2 is not of type 'Blob'"
+      if (!(it?.blob instanceof Blob)) continue;
+      const filename = String(it.name || 'upload.bin');
+      fdOcr.append('images', it.blob, filename);
+    }
+    // se per qualsiasi motivo non è stato appeso nulla:
+    // (es. browser buggato) fallback sull'array originale di File
+    if (!Array.from(fdOcr.entries()).length) {
+      for (const f of (Array.from(files) || [])) {
+        if (isFileLike(f)) fdOcr.append('images', f, f.name || `upload.${guessExt(f.type)}`);
+      }
+    }
+    if (!Array.from(fdOcr.entries()).length) {
+      throw new Error('Impossibile preparare i file per l’OCR');
+    }
+
+    const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
     const ocr = await readJsonSafe(ocrRes);
-    if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
+    if (!ocr.ok) throw new Error(ocr.error || `Errore OCR (HTTP ${ocrRes.status})`);
     const ocrText = String(ocr.text || '').trim();
     if (!ocrText) throw new Error('Nessun testo riconosciuto');
-
+    }
     // Parser SCONTRINO
     const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
     let parsed = null;
