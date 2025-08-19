@@ -3,17 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import supabase from '@/lib/supabaseClient';
 
-// cache locale dell’user_id
-const userIdRef = { current: null };
-
-async function ensureUserId() {
-  if (userIdRef.current) return userIdRef.current;
-  const { data: { user } } = await supabase.auth.getUser();
-  userIdRef.current = user?.id || null;
-  return userIdRef.current;
-}
 
 
 /* ====================== Costanti / Config ====================== */
