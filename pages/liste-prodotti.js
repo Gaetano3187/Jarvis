@@ -1498,6 +1498,17 @@ async function handleOCR(files) {
         unitLabel: normalizeUnitLabel(p.unitLabel || ''),
         priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
       }));
+      // ---- Super-fallback a lessico (ultimo tentativo) ----
+if (!purchases.length && ocrText) {
+  purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
+}
+
+// Se ancora vuoto => esci senza fare finti aggiornamenti
+if (!purchases.length) {
+  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+  return; // il finally chiude busy e reset input
+}
+
     }
 
     if (!purchases.length) {
