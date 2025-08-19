@@ -384,61 +384,55 @@ function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
   const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
   return [
-    'Sei Jarvis, estrattore strutturato di scontrini.',
-    'DEVI rispondere SOLO in JSON con questo schema ESATTO:',
-    '{ "purchases":[{ "name":"", "brand":"", "packs":1, "unitsPerPack":1, "unitLabel":"unità", "expiresAt":"" }], "expiries":[], "stock":[] }',
+    'Sei Jarvis, estrattore strutturato di SCONTRINI. RISPONDI SOLO JSON con lo schema ESATTO sotto.',
+    '{',
+    '  "store":"",                 // punto vendita (anche ragione sociale)',
+    '  "purchaseDate":"",          // YYYY-MM-DD se presente',
+    '  "purchases":[               // RIGHE ARTICOLO',
+    '    {',
+    '      "name":"",              // prodotto normalizzato usando il lessico',
+    '      "brand":"",             // marca breve, altrimenti ""',
+    '      "packs":0,              // n. confezioni (se indicato) - default 0',
+    '      "unitsPerPack":0,       // n. unità per confezione (se indicato) - default 0',
+    '      "unitLabel":"",         // "unità", "bottiglie", "pezzi", "buste", ...',
+    '      "priceEach":0,          // prezzo unitario se deducibile, altrimenti 0',
+    '      "priceTotal":0,         // totale riga, altrimenti 0',
+    '      "currency":"",          // es. "EUR" se deducibile',
+    '      "expiresAt":""          // YYYY-MM-DD se compare una scadenza',
+    '    }',
+    '  ]',
+    '}',
     '',
     'REGOLE:',
-    '- Estrai SOLO righe che indicano prodotti acquistati.',
-    '- IGNORA intestazioni, reparti, subtotali, TOTALE, IVA, sconti globali, contanti/bancomat, resto, numeri ordine, casse.',
-    '- Normalizza i nomi usando questo lessico come guida (se simili, scegli la forma del lessico):',
-    LEX,
-    '- brand: stringa breve se deducibile (es. “Barilla”, “Parmalat”), altrimenti "".',
-    '- packs: n. confezioni acquistate (default 1).',
-    '- unitsPerPack: n. unità per confezione (se leggibile, es. 4X125 → 4).',
-    '- unitLabel: etichetta unità (es. "unità", "bottiglie", "vasetti").',
-    '- expiresAt: YYYY-MM-DD se presente; altrimenti "". ',
-    '- Niente commenti, niente testo fuori dal JSON.',
+    `- Normalizza i nomi prodotti rispetto a questo LESSICO: ${LEX}`,
+    '- Ignora intestazioni generiche, subtotali, IVA, metodi di pagamento, resto, numeri d’ordine.',
+    '- Se non trovi un campo, metti valore "vuoto": stringa vuota "", numeri 0.',
+    '- Riconosci unità tipiche: unità, pz/pezzo/pezzi, bottiglia/e, busta/e, lattina/e, vasetto/i, barattolo/i, vaschetta/e, foglio/i, rotolo/i, capsula/e…',
+    '- packs/unitsPerPack: usa pattern tipo "2x6", "2 conf da 6", "2 confezioni 6 pezzi", "6 bottiglie" (=> packs=1, unitsPerPack=6).',
+    '- purchaseDate: usa la data stampata sullo scontrino (NON la data/ora attuali).',
     '',
-    'ESEMPI:',
-    'Input OCR:',
-    '----------------------------------------',
-    'IPER',
-    'YOGURT FRAGOLA MULLER 4X125 1,99',
-    'BURRO LURPAK 250G 2,39',
-    'LATTE PS 1L SCAD 15/07/2025 1,29',
-    '----------------------------------------',
-    'Output JSON:',
-    '{ "purchases":[',
-    '  { "name":"yogurt", "brand":"Muller", "packs":1, "unitsPerPack":4, "unitLabel":"unità", "expiresAt":"" },',
-    '  { "name":"burro", "brand":"Lurpak", "packs":1, "unitsPerPack":1, "unitLabel":"unità", "expiresAt":"" },',
-    '  { "name":"latte", "brand":"", "packs":1, "unitsPerPack":1, "unitLabel":"unità", "expiresAt":"2025-07-15" }',
-    '], "expiries":[{"name":"latte","expiresAt":"2025-07-15"}], "stock":[] }',
-    '',
-    'ADESSO ESTRARRE DAL TESTO OCR QUI SOTTO. RISPONDI SOLO CON IL JSON FINALE.',
     '--- TESTO OCR INIZIO ---',
     ocrText,
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
-function buildUnifiedRowPrompt(ocrText, { name, brand }) {
-  const target = brand ? `${name} (marca ${brand})` : name;
+function buildOcrStockBagPrompt(ocrText, lexicon = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
   return [
-    'Sei Jarvis. Unifica informazioni (scadenza ET/OU quantità) da una o più foto (etichetta/scontrino).',
-    'Rispondi SOLO in JSON con schema ESATTO:',
-    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":1, "unitLabel":"unità", "expiresAt":"" }',
+    'Sei Jarvis, estrattore da FOTO DI PRODOTTI (busta della spesa, etichette, pacchi).',
+    'RISPONDI SOLO JSON con questo schema:',
+    '{ "items":[ { "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" } ] }',
     '',
-    `PRODOTTO TARGET: "${target}"`,
+    `LESSICO di riferimento: ${LEX}`,
     'REGOLE:',
-    '- Se dallo scontrino vedi “2 conf da 6”, allora packs=2, unitsPerPack=6, unitLabel appropriata ("unità"/"bottiglie"/ecc.).',
-    '- Se la foto è solo etichetta, estrai solo expiresAt se presente.',
-    '- Normalizza name al prodotto comune (latte, yogurt, pasta, ...).',
-    '- brand breve (es. Barilla, Parmalat) se deducibile; altrimenti stringa vuota.',
-    '- expiresAt nel formato YYYY-MM-DD; se non presente, stringa vuota.',
-    '- Nessun testo fuori JSON.',
+    '- Se vedi quantità tipo "2x6", "2 conf da 6", "6 bottiglie" compila packs/unitsPerPack/unitLabel.',
+    '- Se non ricavi packs/unitsPerPack lascia 0 e unitLabel "".',
+    '- Scadenza (YYYY-MM-DD) se presente sull’etichetta.',
+    '- Se non vedi nulla di utile, restituisci items: [].',
     '',
-    'TESTO OCR (concatenato):',
-    ocrText
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
   ].join('\n');
 }
 
@@ -483,6 +477,46 @@ function parseReceiptPurchases(ocrText) {
   }
   return out;
 }
+function coerceNum(x){
+  if (x == null) return 0;
+  const s = String(x).trim().replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseReceiptMeta(ocrText) {
+  const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  // Data
+  let purchaseDate = '';
+  for (const ln of lines) {
+    const iso = toISODate(ln);
+    if (iso) { purchaseDate = iso; break; }
+  }
+  // Store
+  const bad = /(totale|iva|imp|euro|€|tel|cassa|scontrino|fiscale|subtot|pagamento|contanti|resto)/i;
+  let store = '';
+  for (const ln of lines) {
+    const hasLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln);
+    if (hasLetters && !bad.test(ln) && ln.length >= 3) { store = ln.replace(/\s{2,}/g,' ').trim(); break; }
+  }
+  return { store, purchaseDate };
+}
+
+function normalizeUnitLabel(lbl=''){
+  const s = normKey(lbl);
+  if (/bottigl/.test(s)) return 'bottiglie';
+  if (/(?:pz|pezz|unit\b|unita?)/.test(s)) return 'pezzi';          // uniformo "unità/pz/pezzi" → "pezzi"
+  if (/bust/.test(s)) return 'buste';
+  if (/lattin/.test(s)) return 'lattine';
+  if (/vasett/.test(s)) return 'vasetti';
+  if (/barattol/.test(s)) return 'barattoli';
+  if (/vaschett/.test(s)) return 'vaschette';
+  if (/rotol/.test(s)) return 'rotoli';
+  if (/fogli?/.test(s)) return 'fogli';
+  if (/capsul/.test(s)) return 'capsule';
+  return 'unità';
+}
+
 function guessProductName(chunk) {
   let best = '';
   let bestLen = 0;
