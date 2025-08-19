@@ -1521,49 +1521,56 @@ async function handleOCR(files) {
     });
 
     // 4) Invia alle FINANZE (best-effort, ma con errori visibili)
-    try {
-      const itemsSafe = purchases.map(p => ({
-        name: p.name,
-        brand: p.brand || '',
-        packs: Number.isFinite(p.packs) ? p.packs : 0,
-        unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
-        unitLabel: p.unitLabel || '',
-        priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
-        priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
-        currency: p.currency || 'EUR',
-        expiresAt: p.expiresAt || ''
-      }));
+   // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
+const hasPurchases = Array.isArray(purchases) && purchases.length > 0;
+let financesOk = true;
 
-      const payload = {
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(store ? { store } : {}),
-        ...(purchaseDate ? { purchaseDate } : {}),
-        payment_method: 'cash',
-        card_label: null,
-        items: itemsSafe
-      };
+if (hasPurchases) {
+  try {
+    const itemsSafe = purchases.map(p => ({
+      name: p.name,
+      brand: p.brand || '',
+      packs: Number.isFinite(p.packs) ? p.packs : 0,
+      unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
+      unitLabel: p.unitLabel || '',
+      priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
+      priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
+      currency: p.currency || 'EUR',
+      expiresAt: p.expiresAt || ''
+    }));
 
-      const r = await fetchJSONStrict(API_FINANCES_INGEST, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }, 30000);
+    const payload = {
+      ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+      ...(store ? { store } : {}),
+      ...(purchaseDate ? { purchaseDate } : {}),
+      payment_method: 'cash',
+      card_label: null,
+      items: itemsSafe
+    };
 
-      if (DEBUG) console.log('[FINANCES_INGEST OK]', r);
-    } catch (e) {
-      console.warn('[FINANCES_INGEST] fail', e);
-      showToast(`Finanze: ${e.message}`, 'err');
-    }
+    if (DEBUG) console.log('[FINANCES_INGEST] payload', payload);
 
-    showToast('OCR scorte completato ✓', 'ok');
+    const r = await fetchJSONStrict(API_FINANCES_INGEST, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 30000);
+
+    if (DEBUG) console.log('[FINANCES_INGEST OK]', r);
   } catch (e) {
-    console.error('[OCR scorte] error', e);
-    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
+    financesOk = false;
+    console.warn('[FINANCES_INGEST] fail', e);
+    showToast(`Finanze: ${e.message}`, 'err');
   }
+} else {
+  if (DEBUG) console.log('[FINANCES_INGEST] skipped: no items');
 }
+
+// ✅ Mostra il successo SOLO se abbiamo davvero aggiornato le scorte e la chiamata Finanze non è fallita
+if (hasPurchases && financesOk) {
+  showToast('OCR scorte completato ✓', 'ok');
+}
+
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
     const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
