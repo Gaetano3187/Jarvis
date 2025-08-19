@@ -1525,10 +1525,13 @@ async function processVoiceInventory() {
       residueUnits: Math.max(0, Number(base.packs || 0)), // barra sui pacchi
     });
 
-    // Applica quantità (pacchi / unità)
+    // Applica quantità (pacchi / unità) con normalizzazione finale per gli aggiornamenti a unità
     if (updates.length) {
       setStock(prev => {
         const arr = [...prev];
+
+        // ⬅ traccia di quali prodotti sono stati aggiornati a UNITÀ (per normalizzare a fine ciclo)
+        const unitsUpdated = new Set();
 
         for (const u of updates) {
           const j = arr.findIndex(s => isSimilar(s.name, u.name));
@@ -1554,7 +1557,7 @@ async function processVoiceInventory() {
                 arr.unshift(withRememberedImage(row, imagesIndex));
               }
             } else {
-              // mode: 'units' → imposta residuo unità (UPP sconosciuto → non ricalcolo pacchi)
+              // mode: 'units' → imposta residuo unità
               const units = Math.max(0, Number(u.value || 1));
               const base = {
                 name: u.name, brand: '', packs: 1,
@@ -1563,6 +1566,7 @@ async function processVoiceInventory() {
                 residueUnits: units, packsOnly: false
               };
               arr.unshift(withRememberedImage(base, imagesIndex));
+              unitsUpdated.add(normKey(u.name));
             }
             continue;
           }
@@ -1596,7 +1600,7 @@ async function processVoiceInventory() {
               });
             }
           } else {
-            // Aggiornamento a unità → residuo unità (e RICALCOLO PACCHI se UPP noto)
+            // Aggiornamento a unità → residuo unità (ricalcolo confezioni dopo il loop)
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const baseline = baselineUnitsOf(old) || upp;
             const current = residueUnitsOf(old);
@@ -1604,18 +1608,33 @@ async function processVoiceInventory() {
               ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
               : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
 
-            let nextRow = { ...old, packsOnly: false, residueUnits: targetUnits };
-
-            // 🔁 Ricalcolo confezioni: se UPP noto e residuo è multiplo intero → packs = residuo/UPP, altrimenti packs = 1
-            if (upp > 1 && Number.isFinite(targetUnits)) {
-              const tu = Math.round(targetUnits); // lavoriamo a interi
-              const packsFromRU = tu > 0 && tu % upp === 0 ? Math.max(1, tu / upp) : 1;
-              nextRow.packs = packsFromRU;
-            }
-
-            arr[j] = nextRow;
+            arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
+            unitsUpdated.add(normKey(u.name));
           }
         }
+
+        // ⬅ NORMALIZZAZIONE FINALE:
+        // per ogni prodotto aggiornato a UNITÀ, ricalcola "packs" da residueUnits se UPP è noto.
+        if (unitsUpdated.size > 0) {
+          for (let k = 0; k < arr.length; k++) {
+            const row = arr[k];
+            if (!row || !unitsUpdated.has(normKey(row.name))) continue;
+
+            const upp = Math.max(1, Number(row.unitsPerPack || 1));
+            if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
+              const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
+              // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
+              const newPacks =
+                ruInt === 0 ? 0 :
+                (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
+
+              if (newPacks !== Number(row.packs || 0)) {
+                arr[k] = { ...row, packs: newPacks };
+              }
+            }
+          }
+        }
+
         return arr;
       });
     }
@@ -1634,6 +1653,7 @@ async function processVoiceInventory() {
     invStreamRef.current = null;
   }
 }
+
 
   /* =================== Render =================== */
   return (
