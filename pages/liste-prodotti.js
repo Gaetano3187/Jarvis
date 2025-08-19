@@ -1468,29 +1468,24 @@ async function handleOCR(files) {
     });
 
     // 4) Invia alle FINANZE (best-effort)
-    try {
-      await fetch(API_FINANCES_INGEST, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          store,
-          purchaseDate,
-          items: purchases.map(p => ({
-            name: p.name,
-            brand: p.brand || '',
-            packs: p.packs || 0,
-            unitsPerPack: p.unitsPerPack || 0,
-            unitLabel: p.unitLabel || '',
-            priceEach: p.priceEach || 0,
-            priceTotal: p.priceTotal || 0,
-            currency: p.currency || 'EUR',
-            expiresAt: p.expiresAt || ''
-          }))
-        })
-      });
-    } catch(e) {
-      if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
-    }
+try {
+  await fetch(API_FINANCES_INGEST, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: userIdRef.current,                           // dall'auth Supabase
+      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',  // opzionale: categoria "casa"
+      store,
+      purchaseDate,
+      payment_method: 'cash',                                // o 'card'
+      card_label: null,                                      // es. 'Visa'
+      items: purchases                                       // array che hai già costruito
+    })
+  });
+} catch (e) {
+  if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
+}
+
 
     showToast('OCR scorte completato ✓', 'ok');
   } catch (e) {
