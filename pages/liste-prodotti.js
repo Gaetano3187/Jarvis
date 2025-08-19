@@ -1467,37 +1467,38 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // 4) Invia alle FINANZE (best-effort)
+   // 4) Invia alle FINANZE (best-effort, solo se abbiamo items)
 try {
-  await fetch(API_FINANCES_INGEST, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: userIdRef.current,                           // dall'auth Supabase
-      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',  // opzionale: categoria "casa"
-      store,
-      purchaseDate,
-      payment_method: 'cash',                                // o 'card'
-      card_label: null,                                      // es. 'Visa'
-      items: purchases                                       // array che hai già costruito
-    })
-  });
+  if (purchases.length > 0) {
+    const payload = {
+      user_id: userIdRef.current || null,                 // ok anche null
+      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',// opzionale
+      store: store || '',
+      purchaseDate: purchaseDate || null,                 // accetta null
+      payment_method: 'cash',
+      card_label: null,
+      items: purchases                                    // array già pronto
+    };
+
+    const resp = await fetch(API_FINANCES_INGEST, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    // Leggi sempre il body come testo, poi prova JSON
+    const text = await resp.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    if (!resp.ok) {
+      console.error('[FINANCES_INGEST] HTTP', resp.status, text || json);
+    } else {
+      if (DEBUG) console.log('[FINANCES_INGEST] OK', json || text);
+    }
+  }
 } catch (e) {
   if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
 }
-
-
-    showToast('OCR scorte completato ✓', 'ok');
-  } catch (e) {
-    console.error('[OCR scorte] error', e);
-    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
-  }
-}
-
-
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
