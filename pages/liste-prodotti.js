@@ -5,8 +5,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { Pencil, Trash2, Camera } from 'lucide-react';
-import { Plus, CalendarDays } from 'lucide-react';
-
 
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
@@ -2238,8 +2236,7 @@ async function processVoiceInventory() {
           </div>
 
           {/* Comandi Lista */}
-          <div style={styles.toolsRow}>
-           <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
+<button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
   {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
 </button>
 
@@ -2251,7 +2248,6 @@ async function processVoiceInventory() {
 >
   <Plus size={18} />
 </button>
-
           </div>
 
           {/* Form aggiunta manuale Lista */}
@@ -2401,28 +2397,15 @@ async function processVoiceInventory() {
             <div style={styles.sectionHeaderRow}>
               <h3 style={styles.h3}>🏠 Stato Scorte</h3>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-               <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
-</button>
-
-{/* ➕ solo icona: apre/chiude “Aggiungi scorta manualmente” */}
-<button
-  onClick={() => setShowStockForm(v => !v)}
-  title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-  style={{ ...styles.iconSquareBase, ...styles.iconGreen }}
->
-  <Plus size={18} />
-</button>
-
-{/* 🗓️ solo icona: apre/chiude “Inserisci scadenza manuale” */}
-<button
-  onClick={() => setShowExpiryForm(v => !v)}
-  title={showExpiryForm ? 'Chiudi scadenze manuali' : 'Inserisci scadenza manuale'}
-  style={{ ...styles.iconSquareBase }}
->
-  <CalendarDays size={18} />
-</button>
-
+                <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
+                  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
+                </button>
+                <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
+                  {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
+                </button>
+                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.primaryBtn}>
+                  {showExpiryForm ? '– Chiudi scadenze manuali' : '🗓️ Inserisci scadenza manuale'}
+                </button>
               </div>
             </div>
 
@@ -2671,27 +2654,33 @@ async function processVoiceInventory() {
                               </div>
 
                               {/* Azioni riga */}
-      <div style={styles.rowActionsRight}>
+                            <div style={styles.rowActionsRight}>
+  {/* Modifica (matita) */}
   <button
-    onClick={()=>startRowEdit(idx, s)}
-    style={{ ...styles.iconSquareBase, ...styles.iconBtnEdit }}
     title="Modifica"
-    aria-label="Modifica"
-  >✏️</button>
+    onClick={() => startRowEdit(idx, s)}
+    style={{ ...styles.iconSquareBase }}
+  >
+    <Pencil size={18} />
+  </button>
 
+  {/* Elimina definitivamente (cestino) */}
   <button
-    onClick={()=>deleteStockRow(idx)}
-    style={{ ...styles.iconSquareBase, ...styles.iconBtnTrash }}
     title="Elimina definitivamente"
-    aria-label="Elimina definitivamente"
-  >🗑</button>
+    onClick={() => deleteStockRow(idx)}
+    style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+  >
+    <Trash2 size={18} />
+  </button>
 
+  {/* OCR riga (fotocamera) */}
   <button
-    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-    style={{ ...styles.iconSquareBase, ...styles.iconBtnCamera }}
     title="OCR riga"
-    aria-label="OCR riga"
-  >📷</button>
+    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+    style={{ ...styles.iconSquareBase }}
+  >
+    <Camera size={18} />
+  </button>
 </div>
 
                             </div>
@@ -2989,49 +2978,13 @@ const styles = {
     color:'#fde68a',
     fontWeight:700
   },
- trashBtn:{
-  padding:'8px 10px',
-  borderRadius:12,
-  border:'1px solid #4b5563',
-  background:'linear-gradient(180deg,#1f2937,#111827)',
-  color:'#f87171',
-  fontWeight:700
-},
-
-/* ——— Icon-buttons compatti ——— */
-iconSquareBase:{
-  width:38, height:38, minWidth:38,
-  display:'grid', placeItems:'center',
-  borderRadius:12,
-  border:'1px solid rgba(255,255,255,.20)',
-  background:'rgba(17,24,39,.60)',
-  color:'#e5e7eb',
-  boxShadow:'0 2px 8px rgba(0,0,0,.35)',
-  cursor:'pointer',
-  lineHeight:1, fontSize:'1.05rem', fontWeight:800
-},
-iconBtnEdit:{ borderColor:'#60a5fa', color:'#93c5fd' },
-iconBtnTrash:{
-  borderColor:'#7f1d1d',
-  background:'linear-gradient(180deg,#991b1b,#7f1d1d)',
-  color:'#fecaca'
-},
-iconBtnCamera:{
-  borderColor:'#0ea5e9',
-  background:'linear-gradient(180deg,#0ea5e9,#0284c7)',
-  color:'#05243a'
-},
-iconBtnPlus:{
-  borderColor:'#166534',
-  background:'linear-gradient(180deg,#16a34a,#15803d)',
-  color:'#f0fdf4'
-},
-iconBtnCalendar:{
-  borderColor:'#6d28d9',
-  background:'linear-gradient(180deg,#7c3aed,#6d28d9)',
-  color:'#ede9fe'
-},
-
+  trashBtn:{
+    padding:'8px 10px',
+    borderRadius:12,
+    border:'1px solid #4b5563',
+    background:'linear-gradient(180deg,#1f2937,#111827)',
+    color:'#f87171',
+    fontWeight:700
   },
 
   // LISTA — testo
@@ -3108,11 +3061,5 @@ iconBtnCalendar:{
   iconDanger: {
     color: '#f87171'
   }
-  iconGreen: {
-  background: 'linear-gradient(180deg,#16a34a,#15803d)',
-  border: '1px solid #166534',
-  color: '#f0fdf4'
-},
-
 
 }; // ⬅️ chiusura dell’oggetto styles
