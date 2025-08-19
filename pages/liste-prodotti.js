@@ -1522,14 +1522,7 @@ async function handleOCR(files) {
   }, 0);
 }
 
-  // ⛔️ Niente righe? Non chiamare l’API (evita 400)
-  if (!itemsForIngest.length) {
-    if (DEBUG) {
-      console.warn('[FINANCES_INGEST] Skip: nessuna riga estratta dall’OCR');
-      showToast('Nessuna riga acquisto trovata — salto finanze', 'err');
-    }
-    // esci dal try senza fare la fetch
-  } else {
+   } else {
     const total_amount = itemsForIngest.reduce((acc, it) => acc + (Number(it.priceTotal) || 0), 0);
 
     const payload = {
