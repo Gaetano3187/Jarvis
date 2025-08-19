@@ -1141,90 +1141,194 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     return next;
   }
   async function handleOCR(files) {
-    if (!files?.length) return;
-    try {
-      setBusy(true);
-      const fdOcr = new FormData();
-      files.forEach((f) => fdOcr.append('images', f));
-      const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
-      const ocrJson = await readJsonSafe(ocrRes);
-      if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
-      const ocrText = String(ocrJson?.text || '').trim();
-      if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
+  if (!files?.length) return;
+  try {
+    setBusy(true);
 
-      const prompt = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+    // 1) OCR immagini
+    const fdOcr = new FormData();
+    files.forEach((f) => fdOcr.append('images', f));
+    const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 45000);
+    const ocrJson = await readJsonSafe(ocrRes);
+    if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
+    const ocrText = String(ocrJson?.text || '').trim();
+    if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
+
+    // 2) Prova parsing SCONTRINO
+    const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+    let parsed = null;
+    try {
       const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ prompt })
-      }, 30000);
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ prompt: promptTicket })
+      }, 35000);
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
-      const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+      parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+    } catch(e) {}
 
-      let purchases = ensureArray(parsed?.purchases);
-      if (!purchases.length) purchases = parseReceiptPurchases(ocrText);
+    const meta = parseReceiptMeta(ocrText);
+    let store = (parsed?.store || meta.store || '').trim();
+    let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
+    let purchases = ensureArray(parsed?.purchases).map(p => ({
+      name: String(p?.name||'').trim(),
+      brand: String(p?.brand||'').trim(),
+      packs: coerceNum(p?.packs),
+      unitsPerPack: coerceNum(p?.unitsPerPack),
+      unitLabel: normalizeUnitLabel(p?.unitLabel||''),
+      priceEach: coerceNum(p?.priceEach),
+      priceTotal: coerceNum(p?.priceTotal),
+      currency: String(p?.currency||'').trim() || 'EUR',
+      expiresAt: toISODate(p?.expiresAt || '')
+    })).filter(p => p.name);
 
-      if (purchases.length) {
-        setLists(prev => decrementAcrossBothLists(prev, purchases));
-        setStock(prev => {
-          const arr = [...prev];
-          const todayISO = new Date().toISOString().slice(0,10);
-          for (const p of purchases) {
-            const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
-            const pack = {
-              packs: Number(p.packs ?? p.qty ?? 1),
-              unitsPerPack: Math.max(1, Number(p.unitsPerPack ?? 1)),
-              unitLabel: p.unitLabel || 'unità'
+    // 3) Se non è un vero scontrino (niente righe) → prova parsing "BUSTA/ETICHETTE"
+    if (!purchases.length) {
+      const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
+      try {
+        const r2 = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ prompt: promptBag })
+        }, 35000);
+        const safe2 = await readJsonSafe(r2);
+        const answer2 = safe2?.answer || safe2?.data || safe2;
+        const parsed2 = typeof answer2 === 'string' ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })() : answer2;
+        const items = ensureArray(parsed2?.items).map(p => ({
+          name: String(p?.name||'').trim(),
+          brand: String(p?.brand||'').trim(),
+          packs: coerceNum(p?.packs),
+          unitsPerPack: coerceNum(p?.unitsPerPack),
+          unitLabel: normalizeUnitLabel(p?.unitLabel||''),
+          priceEach: 0,
+          priceTotal: 0,
+          currency: 'EUR',
+          expiresAt: toISODate(p?.expiresAt || '')
+        })).filter(p => p.name);
+        purchases = items;
+        // nessun store/data per busta
+      } catch(e) {}
+    }
+
+    // Se ancora vuoto → fallback brutale (riga per riga)
+    if (!purchases.length) purchases = parseReceiptPurchases(ocrText).map(p => ({
+      name: p.name, brand: p.brand || '', packs: p.packs||0, unitsPerPack: p.unitsPerPack||0,
+      unitLabel: normalizeUnitLabel(p.unitLabel||''), priceEach:0, priceTotal:0, currency:'EUR', expiresAt:''
+    }));
+
+    // 4) Aggiorna LISTE (decrementa dove combacia)
+    if (purchases.length) {
+      setLists(prev => decrementAcrossBothLists(prev, purchases));
+    }
+
+    // 5) Aggiorna SCORTE
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0,10);
+
+      for (const p of purchases) {
+        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+        const packs = coerceNum(p.packs);
+        const upp   = coerceNum(p.unitsPerPack);
+        const hasCounts = packs > 0 || upp > 0;
+
+        if (idx >= 0) {
+          const old = arr[idx];
+
+          if (hasCounts) {
+            // Restock esplicito
+            const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
+            const next = {
+              ...old,
+              packs: newPacks,
+              unitsPerPack: nextUpp,
+              unitLabel: old.unitLabel || p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || old.expiresAt || '',
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(newPacks, todayISO, nextUpp)
             };
-            if (idx >= 0) {
-              const old = arr[idx];
-              const newPacks = Number(old.packs || 0) + pack.packs;
-              const upp = Math.max(1, Number(old.unitsPerPack || pack.unitsPerPack));
-              arr[idx] = {
-                ...old,
-                packs: newPacks,
-                unitsPerPack: upp,
-                unitLabel: old.unitLabel || pack.unitLabel,
-                packsOnly: false,
-                ...restockTouch(newPacks, todayISO, upp)
-              };
-            } else {
-              const row = {
-                name: p.name, brand: p.brand || '',
-                packs: pack.packs,
-                unitsPerPack: pack.unitsPerPack,
-                unitLabel: pack.unitLabel,
-                expiresAt: '',
-                baselinePacks: pack.packs,
-                lastRestockAt: todayISO,
-                avgDailyUnits: 0,
-                residueUnits: pack.packs * (pack.unitsPerPack || 1),
-                packsOnly: false
-              };
-              arr.unshift(withRememberedImage(row, imagesIndex));
-            }
+            arr[idx] = next;
+          } else {
+            // Mancano counts → NON altero i quantitativi; flaggo da verificare
+            arr[idx] = { ...old, needsUpdate: true };
           }
-          return arr;
-        });
-        try {
-          await fetch(API_FINANCES_INGEST, {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ purchases })
-          });
-        } catch (e) {}
+        } else {
+          // Nuova scorta
+          if (hasCounts) {
+            const u = Math.max(1, upp || 1);
+            const row = {
+              name: p.name, brand: p.brand || '',
+              packs: Math.max(0, packs || 1),
+              unitsPerPack: u,
+              unitLabel: p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || '',
+              baselinePacks: Math.max(0, packs || 1),
+              lastRestockAt: todayISO,
+              avgDailyUnits: 0,
+              residueUnits: Math.max(0, (packs || 1) * u),
+              packsOnly: false,
+              needsUpdate: false
+            };
+            arr.unshift(withRememberedImage(row, imagesIndex));
+          } else {
+            // Creo scheda "stub" con campi base e richiesta aggiornamento
+            const row = {
+              name: p.name, brand: p.brand || '',
+              packs: 0,
+              unitsPerPack: 1,
+              unitLabel: '-',             // trattino come richiesto
+              expiresAt: p.expiresAt || '',
+              baselinePacks: 0,
+              lastRestockAt: '',
+              avgDailyUnits: 0,
+              residueUnits: 0,
+              packsOnly: true,            // così UI mostra "–" in unità/residuo
+              needsUpdate: true
+            };
+            arr.unshift(withRememberedImage(row, imagesIndex));
+          }
+        }
       }
 
-      showToast('OCR scontrino elaborato ✓', 'ok');
-    } catch (e) {
-      console.error('[OCR] error', e);
-      showToast(`Errore OCR: ${e?.message || e}`, 'err');
-    } finally {
-      setBusy(false);
-      if (ocrInputRef.current) ocrInputRef.current.value = '';
+      return arr;
+    });
+
+    // 6) Invia a FINANZE / SPESE-CASA
+    try {
+      await fetch(API_FINANCES_INGEST, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          store,
+          purchaseDate,
+          items: purchases.map(p => ({
+            name: p.name,
+            brand: p.brand || '',
+            packs: p.packs || 0,
+            unitsPerPack: p.unitsPerPack || 0,
+            unitLabel: p.unitLabel || '',
+            priceEach: p.priceEach || 0,
+            priceTotal: p.priceTotal || 0,
+            currency: p.currency || 'EUR',
+            expiresAt: p.expiresAt || ''
+          }))
+        })
+      });
+    } catch(e) {
+      if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
     }
+
+    showToast('OCR scorte completato ✓', 'ok');
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
+}
+
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
