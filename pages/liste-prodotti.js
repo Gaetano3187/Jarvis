@@ -2085,7 +2085,7 @@ async function processVoiceInventory() {
           const j = arr.findIndex(s => isSimilar(s.name, u.name));
           const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
 
-      if (u.mode === 'packs') {
+     if (u.mode === 'packs') {
   const packs = Math.max(0, Number(u.value || u._packs || 0));
   const upVoice = Math.max(1, Number(u._upp || 0));
   const isExplicit = (u && u.explicit === true) || (upVoice > 1);
@@ -2093,37 +2093,50 @@ async function processVoiceInventory() {
   if (isExplicit) {
     const up = upVoice > 1 ? upVoice : 1;
     const row = {
-      name: u.name, brand: '',
+      name: u.name,
+      brand: '',
       packs,
       unitsPerPack: up,
       unitLabel: 'unità',
       expiresAt: '',
       ...restockTouch(packs, todayISO, up),
       avgDailyUnits: 0,
-      packsOnly: false
+      packsOnly: false,
     };
     arr.unshift(withRememberedImage(row, imagesIndex));
   } else {
     // Solo pacchi → packsOnly (UPP ignoto)
     const row = makePacksOnly({
-      name: u.name, brand: '', packs,
-      expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
+      name: u.name,
+      brand: '',
+      packs,
+      expiresAt: '',
+      ...restockTouch(packs, todayISO, 1),
+      avgDailyUnits: 0,
     });
     arr.unshift(withRememberedImage(row, imagesIndex));
   }
-            } else {
-              // mode: 'units' → imposta residuo unità
-              const units = Math.max(0, Number(u.value || 1));
-              const base = {
-                name: u.name, brand: '', packs: 1,
-                unitsPerPack: 1, unitLabel: 'unità',
-                expiresAt: '', baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
-                residueUnits: units, packsOnly: false
-              };
-              arr.unshift(withRememberedImage(base, imagesIndex));
-              unitsUpdated.add(normKey(u.name));
-            }
-            continue;
+} else {
+  // mode: 'units' → imposta residuo unità
+  const units = Math.max(0, Number(u.value || 1));
+  const base = {
+    name: u.name,
+    brand: '',
+    packs: 1,
+    unitsPerPack: 1,
+    unitLabel: 'unità',
+    expiresAt: '',
+    baselinePacks: 1,
+    lastRestockAt: todayISO,
+    avgDailyUnits: 0,
+    residueUnits: units,
+    packsOnly: false,
+  };
+  arr.unshift(withRememberedImage(base, imagesIndex));
+  unitsUpdated.add(normKey(u.name));
+}
+continue;
+
           }
 
           // Aggiorna riga esistente
