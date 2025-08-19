@@ -4,12 +4,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
-// Blob helpers (TOP-LEVEL, UNA SOLA VOLTA)"
-function isBlobish(v) { /* ... */ }
-function dataUrlToBlob(dataUrl) { /* ... */ }
-function guessExt(mime='') { /* ... */ }
-async function collectImageBlobs(input) { /* ... */ }
-
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
@@ -18,75 +12,6 @@ const DEBUG = false;
 const CLOUD_SYNC = true;                       // lascia true: prova a sincronizzare se /lib/supabaseClient esiste
 const CLOUD_TABLE = 'jarvis_liste_state';      // { user_id text, state jsonb, updated_at timestamptz default now() }
 let __supabase = null;
-
-// DOPO (incolla QUI il blocco helpers, a livello di modulo)
-import React, { useEffect, useRef, useState } from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
-
-// ================== Image → Blob helpers (TOP-LEVEL, UNA SOLA VOLTA) ==================
-function isBlobish(v) {
-  try {
-    return !!(v && typeof v === 'object'
-      && typeof v.type === 'string'
-      && typeof v.size === 'number'
-      && typeof v.arrayBuffer === 'function'
-      && typeof v.slice === 'function');
-  } catch { return false; }
-}
-function dataUrlToBlob(dataUrl) {
-  try {
-    const [head, base64] = String(dataUrl || '').split(',');
-    const m = head.match(/data:(.*?);base64/i);
-    const mime = m ? m[1] : 'application/octet-stream';
-    const bin = atob(base64 || '');
-    const len = bin.length;
-    const u8 = new Uint8Array(len);
-    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
-    return new Blob([u8], { type: mime });
-  } catch { return null; }
-}
-function guessExt(mime = '') {
-  const m = (mime || '').toLowerCase();
-  if (m.includes('pdf')) return 'pdf';
-  if (m.includes('png')) return 'png';
-  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
-  if (m.includes('webp')) return 'webp';
-  if (m.includes('heic')) return 'heic';
-  return 'bin';
-}
-/** Converte FileList/Array/String(URL|data:) / Wrapper {file|blob|preview|url|uri}
- * in [{ blob, name }] appendibili in FormData.
- */
-async function collectImageBlobs(input) {
-  const list = Array.from(input || []);
-  const out = [];
-  for (const f of list) {
-    if (isBlobish(f)) { out.push({ blob: f, name: f.name || `upload.${guessExt(f.type)}` }); continue; }
-    if (typeof f === 'string') {
-      if (f.startsWith('data:')) { const b = dataUrlToBlob(f); if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` }); continue; }
-      if (/^(blob:|https?:)/i.test(f)) { try { const resp = await fetch(f); const b = await resp.blob(); out.push({ blob: b, name: `upload.${guessExt(b.type)}` }); } catch {} continue; }
-    }
-    if (f && typeof f === 'object') {
-      const maybe = f.file || f.blob;
-      if (isBlobish(maybe)) { out.push({ blob: maybe, name: f.name || `upload.${guessExt(maybe.type)}` }); continue; }
-      const url = f.preview || f.uri || f.url;
-      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
-        try {
-          if (url.startsWith('data:')) { const b = dataUrlToBlob(url); if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` }); }
-          else { const resp = await fetch(url); const b = await resp.blob(); out.push({ blob: b, name: `upload.${guessExt(b.type)}` }); }
-        } catch {}
-        continue;
-      }
-    }
-  }
-  return out;
-}
-
-// (da qui in poi il tuo codice rimane invariato)
- /* ====================== Costanti / Config ====================== */
-const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
-
 
 /* ====================== Endpoints esistenti ====================== */
 const API_ASSISTANT_TEXT = '/api/assistant';
@@ -413,85 +338,6 @@ function timeoutFetch(url, opts={}, ms=25000) {
   return fetch(url, { ...opts, signal: ctrl.signal })
     .then(r => { if (DEBUG) console.log('[fetch] ←', url, r.status); return r; })
     .finally(()=>clearTimeout(t));
-  // ——— Helpers robusti per immagini/Blob (usati da handleOCR e OCR riga) ———
-function isBlobish(v){
-  try {
-    return !!(v && typeof v === 'object'
-      && typeof v.type === 'string'
-      && typeof v.size === 'number'
-      && typeof v.arrayBuffer === 'function'
-      && typeof v.slice === 'function');
-  } catch { return false; }
-}
-function dataUrlToBlob(dataUrl) {
-  try {
-    const [head, base64] = String(dataUrl || '').split(',');
-    const m = head.match(/data:(.*?);base64/i);
-    const mime = m ? m[1] : 'application/octet-stream';
-    const bin = atob(base64 || '');
-    const len = bin.length;
-    const u8 = new Uint8Array(len);
-    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
-    return new Blob([u8], { type: mime });
-  } catch { return null; }
-}
-function guessExt(mime='') {
-  const m = (mime || '').toLowerCase();
-  if (m.includes('pdf')) return 'pdf';
-  if (m.includes('png')) return 'png';
-  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
-  if (m.includes('webp')) return 'webp';
-  if (m.includes('heic')) return 'heic';
-  return 'bin';
-}
-async function collectImageBlobs(input) {
-  const list = Array.from(input || []);
-  const out = [];
-  for (const f of list) {
-    if (isBlobish(f)) {
-      out.push({ blob: f, name: (f.name || `upload.${guessExt(f.type)}`) });
-      continue;
-    }
-    if (typeof f === 'string') {
-      if (f.startsWith('data:')) {
-        const b = dataUrlToBlob(f);
-        if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-        continue;
-      }
-      if (/^(blob:|https?:)/i.test(f)) {
-        try {
-          const resp = await fetch(f);
-          const b = await resp.blob();
-          out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-        } catch {}
-        continue;
-      }
-    }
-    if (f && typeof f === 'object') {
-      const maybe = f.file || f.blob;
-      if (isBlobish(maybe)) {
-        out.push({ blob: maybe, name: (f.name || `upload.${guessExt(maybe.type)}`) });
-        continue;
-      }
-      const url = f.preview || f.uri || f.url;
-      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
-        try {
-          if (url.startsWith('data:')) {
-            const b = dataUrlToBlob(url);
-            if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-          } else {
-            const resp = await fetch(url);
-            const b = await resp.blob();
-            out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
-          }
-        } catch {}
-        continue;
-      }
-    }
-  }
-  return out;
-}
-
 }
 
 /* ====================== Calcoli scorte ====================== */
@@ -1260,63 +1106,212 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     });
   }
 
-/* =================== OCR scontrini (globale) =================== */
-const decrementAcrossBothLists = (prevLists, purchases) => {
-  const next = { ...prevLists };
-  const decList = (listKey) => {
-    const arr = [...(next[listKey] || [])];
-    for (const p of (purchases || [])) {
-      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1) || 1);
-      const brand = String(p.brand || '').trim();
-      const upp = Number(p.unitsPerPack ?? 1) || 1;
+  /* =================== OCR scontrini (globale) =================== */
+  function decrementAcrossBothLists(prevLists, purchases) {
+    const next = { ...prevLists };
+    const decList = (listKey) => {
+      const arr = [...(next[listKey] || [])];
+      for (const p of purchases) {
+        const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+        const brand = (p.brand || '').trim();
+        const upp = Number(p.unitsPerPack ?? 1);
+        let idx = arr.findIndex(i =>
+          isSimilar(i.name, p.name) &&
+          (!brand || isSimilar(i.brand || '', brand)) &&
+          Number(i.unitsPerPack || 1) === upp
+        );
+        if (idx < 0) {
+          idx = arr.findIndex(i =>
+            isSimilar(i.name, p.name) &&
+            (!brand || isSimilar(i.brand || '', brand))
+          );
+        }
+        if (idx < 0) {
+          idx = arr.findIndex(i => isSimilar(i.name, p.name));
+        }
+        if (idx >= 0) {
+          const cur = arr[idx];
+          const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+          arr[idx] = { ...cur, qty: newQty, purchased: true };
+        }
+      }
+      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+    };
+    decList(LIST_TYPES.SUPERMARKET);
+    decList(LIST_TYPES.ONLINE);
+    return next;
+    function dataUrlToBlob(dataUrl) {
+  try {
+    const [head, base64] = String(dataUrl || '').split(',');
+    const m = head.match(/data:(.*?);base64/i);
+    const mime = m ? m[1] : 'application/octet-stream';
+    const bin = atob(base64 || '');
+    const len = bin.length;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: mime });
+  } catch {
+    return null;
+  }
+}
 
-      let idx = arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        (!brand || isSimilar(i.brand || '', brand)) &&
-        Number(i.unitsPerPack || 1) === upp
-      );
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand || '', brand)));
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
+function guessExt(mime='') {
+  const m = mime.toLowerCase();
+  if (m.includes('pdf')) return 'pdf';
+  if (m.includes('png')) return 'png';
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+  if (m.includes('webp')) return 'webp';
+  if (m.includes('heic')) return 'heic';
+  return 'bin';
+}
 
-      if (idx >= 0) {
-        const cur = arr[idx];
-        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-        arr[idx] = { ...cur, qty: newQty, purchased: true };
+async function normalizeToBlobs(list) {
+  const out = [];
+  for (const f of (Array.isArray(list) ? list : [])) {
+    // Caso 1: già File/Blob
+    if (f instanceof Blob) {
+      out.push({ blob: f, name: (f.name || `upload.${guessExt(f.type)}`) });
+      continue;
+    }
+    // Caso 2: data URL string
+    if (typeof f === 'string' && f.startsWith('data:')) {
+      const b = dataUrlToBlob(f);
+      if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+      continue;
+    }
+    // Caso 3: wrapper noti (es. {file: Blob} o {blob: Blob})
+    if (f && typeof f === 'object') {
+      const maybe = f.file || f.blob;
+      if (maybe instanceof Blob) {
+        out.push({ blob: maybe, name: (f.name || `upload.${guessExt(maybe.type)}`) });
+        continue;
+      }
+      // Caso 4: preview/url (blob:, data:, http)
+      const url = f.preview || f.uri || f.url;
+      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
+        try {
+          const resp = await fetch(url);
+          const b = await resp.blob();
+          out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+          continue;
+        } catch {}
       }
     }
-    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-  };
-  decList(LIST_TYPES.SUPERMARKET);
-  decList(LIST_TYPES.ONLINE);
-  return next;
-};
+    // Altrimenti ignora
+  }
+  return out;
+}
+// ——— Robust helpers per creare FormData con *veri* Blob/File ———
+function isBlobish(v){
+  try {
+    return !!(v && typeof v === 'object'
+      && typeof v.type === 'string'
+      && typeof v.size === 'number'
+      && typeof v.arrayBuffer === 'function'
+      && typeof v.slice === 'function');
+  } catch { return false; }
+}
 
-const handleOCR = async (files) => {
+function dataUrlToBlob(dataUrl) {
+  try {
+    const [head, base64] = String(dataUrl || '').split(',');
+    const m = head.match(/data:(.*?);base64/i);
+    const mime = m ? m[1] : 'application/octet-stream';
+    const bin = atob(base64 || '');
+    const len = bin.length;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: mime });
+  } catch { return null; }
+}
+
+function guessExt(mime='') {
+  const m = (mime || '').toLowerCase();
+  if (m.includes('pdf')) return 'pdf';
+  if (m.includes('png')) return 'png';
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+  if (m.includes('webp')) return 'webp';
+  if (m.includes('heic')) return 'heic';
+  return 'bin';
+}
+
+// Converte *qualsiasi* input (FileList/array/obj/url/dataURL) in veri Blob pronti per append
+async function collectImageBlobs(input) {
+  const list = Array.from(input || []);
+  const out = [];
+
+  for (const f of list) {
+    // 1) Già Blob/File
+    if (isBlobish(f)) {
+      out.push({ blob: f, name: (f.name || `upload.${guessExt(f.type)}`) });
+      continue;
+    }
+    // 2) data URL string
+    if (typeof f === 'string') {
+      if (f.startsWith('data:')) {
+        const b = dataUrlToBlob(f);
+        if (b) { out.push({ blob: b, name: `upload.${guessExt(b.type)}` }); }
+        continue;
+      }
+      // URL http(s) o blob:
+      if (/^(blob:|https?:)/i.test(f)) {
+        try {
+          const resp = await fetch(f);
+          const b = await resp.blob();
+          out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+        } catch {}
+        continue;
+      }
+    }
+    // 3) wrapper noti { file|blob|preview|url|uri }
+    if (f && typeof f === 'object') {
+      const maybe = f.file || f.blob;
+      if (isBlobish(maybe)) {
+        out.push({ blob: maybe, name: (f.name || `upload.${guessExt(maybe.type)}`) });
+        continue;
+      }
+      const url = f.preview || f.uri || f.url;
+      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)) {
+        try {
+          if (url.startsWith('data:')) {
+            const b = dataUrlToBlob(url);
+            if (b) out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+          } else {
+            const resp = await fetch(url);
+            const b = await resp.blob();
+            out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
+          }
+        } catch {}
+        continue;
+      }
+    }
+    // altrimenti ignora l’elemento non valido
+  }
+  return out;
+}
+
+  }
+    async function handleOCR(files) {
   if (!files?.length) return;
   try {
     setBusy(true);
 
-    // 1) OCR immagini → FormData robusto
-    const fdOcr = new FormData();
-    const entries = await collectImageBlobs(files);
-    let appended = 0;
-    for (let i = 0; i < entries.length; i++) {
-      const it = entries[i];
-      if (it && isBlobish(it.blob)) {
-        const fname = it.name || `upload_${i}.${guessExt(it.blob.type)}`;
-        fdOcr.append('images', it.blob, fname);
-        appended++;
-      }
-    }
-    if (!appended) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
+    // 1) OCR immagini
+ const fdOcr = new FormData();
+const entries = await collectImageBlobs(files);
+let appended = 0;
+for (let i = 0; i < entries.length; i++) {
+  const it = entries[i];
+  if (it && isBlobish(it.blob)) {
+    const fname = it.name || `upload_${i}.${guessExt(it.blob.type)}`;
+    fdOcr.append('images', it.blob, fname);   // <-- ora SEMPRE un vero Blob
+    appended++;
+  }
+}
+if (!appended) throw new Error('Nessuna immagine valida (Blob/File) selezionata');
 
-    const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 45000);
-    const ocrJson = await readJsonSafe(ocrRes);
-    if (!ocrJson.ok) throw new Error(ocrJson.error || `HTTP ${ocrRes.status}`);
-    const ocrText = String(ocrJson?.text || '').trim();
-    if (!ocrText) throw new Error('Risposta vuota dal servizio OCR');
 
-    // 2) Parsing SCONTRINO (store/date/righe)
+    // 2) Prova parsing SCONTRINO
     const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
     let parsed = null;
     try {
@@ -1327,12 +1322,11 @@ const handleOCR = async (files) => {
       const safe = await readJsonSafe(r);
       const answer = safe?.answer || safe?.data || safe;
       parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
-    } catch (e) {}
+    } catch(e) {}
 
     const meta = parseReceiptMeta(ocrText);
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
-
     let purchases = ensureArray(parsed?.purchases).map(p => ({
       name: String(p?.name||'').trim(),
       brand: String(p?.brand||'').trim(),
@@ -1345,7 +1339,7 @@ const handleOCR = async (files) => {
       expiresAt: toISODate(p?.expiresAt || '')
     })).filter(p => p.name);
 
-    // 3) Fallback: BUSTA/ETICHETTE se niente righe
+    // 3) Se non è un vero scontrino (niente righe) → prova parsing "BUSTA/ETICHETTE"
     if (!purchases.length) {
       const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
       try {
@@ -1368,19 +1362,22 @@ const handleOCR = async (files) => {
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
         purchases = items;
-      } catch (e) {}
+        // nessun store/data per busta
+      } catch(e) {}
     }
 
-    // 4) Fallback minimale
+    // Se ancora vuoto → fallback brutale (riga per riga)
     if (!purchases.length) purchases = parseReceiptPurchases(ocrText).map(p => ({
       name: p.name, brand: p.brand || '', packs: p.packs||0, unitsPerPack: p.unitsPerPack||0,
       unitLabel: normalizeUnitLabel(p.unitLabel||''), priceEach:0, priceTotal:0, currency:'EUR', expiresAt:''
     }));
 
-    // 5) Decrementa liste
-    if (purchases.length) setLists(prev => decrementAcrossBothLists(prev, purchases));
+    // 4) Aggiorna LISTE (decrementa dove combacia)
+    if (purchases.length) {
+      setLists(prev => decrementAcrossBothLists(prev, purchases));
+    }
 
-    // 6) Aggiorna scorte
+    // 5) Aggiorna SCORTE
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
@@ -1393,10 +1390,12 @@ const handleOCR = async (files) => {
 
         if (idx >= 0) {
           const old = arr[idx];
+
           if (hasCounts) {
+            // Restock esplicito
             const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
             const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
+            const next = {
               ...old,
               packs: newPacks,
               unitsPerPack: nextUpp,
@@ -1406,46 +1405,53 @@ const handleOCR = async (files) => {
               needsUpdate: false,
               ...restockTouch(newPacks, todayISO, nextUpp)
             };
+            arr[idx] = next;
           } else {
+            // Mancano counts → NON altero i quantitativi; flaggo da verificare
             arr[idx] = { ...old, needsUpdate: true };
           }
         } else {
+          // Nuova scorta
           if (hasCounts) {
-            const uPP = Math.max(1, upp || 1);
-            arr.unshift(withRememberedImage({
+            const u = Math.max(1, upp || 1);
+            const row = {
               name: p.name, brand: p.brand || '',
               packs: Math.max(0, packs || 1),
-              unitsPerPack: uPP,
+              unitsPerPack: u,
               unitLabel: p.unitLabel || 'unità',
               expiresAt: p.expiresAt || '',
               baselinePacks: Math.max(0, packs || 1),
               lastRestockAt: todayISO,
               avgDailyUnits: 0,
-              residueUnits: Math.max(0, (packs || 1) * uPP),
+              residueUnits: Math.max(0, (packs || 1) * u),
               packsOnly: false,
               needsUpdate: false
-            }, imagesIndex));
+            };
+            arr.unshift(withRememberedImage(row, imagesIndex));
           } else {
-            arr.unshift(withRememberedImage({
+            // Creo scheda "stub" con campi base e richiesta aggiornamento
+            const row = {
               name: p.name, brand: p.brand || '',
               packs: 0,
               unitsPerPack: 1,
-              unitLabel: '-',
+              unitLabel: '-',             // trattino come richiesto
               expiresAt: p.expiresAt || '',
               baselinePacks: 0,
               lastRestockAt: '',
               avgDailyUnits: 0,
               residueUnits: 0,
-              packsOnly: true,
+              packsOnly: true,            // così UI mostra "–" in unità/residuo
               needsUpdate: true
-            }, imagesIndex));
+            };
+            arr.unshift(withRememberedImage(row, imagesIndex));
           }
         }
       }
+
       return arr;
     });
 
-    // 7) Invia a FINANZE / SPESE-CASA
+    // 6) Invia a FINANZE / SPESE-CASA
     try {
       await fetch(API_FINANCES_INGEST, {
         method:'POST',
@@ -1466,7 +1472,7 @@ const handleOCR = async (files) => {
           }))
         })
       });
-    } catch (e) {
+    } catch(e) {
       if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
     }
 
@@ -1478,8 +1484,131 @@ const handleOCR = async (files) => {
     setBusy(false);
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
-};
+}
 
+
+  /* =================== Edit riga scorte =================== */
+  function startRowEdit(index, row){
+    const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
+    setEditingRow(index);
+    setEditDraft({
+      name: row.name || '',
+      brand: row.brand || '',
+      packs: String(Number(row.packs ?? 0)),
+      unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
+      unitLabel: row.unitLabel || 'unità',
+      expiresAt: row.expiresAt || '',
+      residueUnits: row.packsOnly ? String(Number(row.packs||0)) : (row.residueUnits ?? initRU),
+      _ruTouched: false,
+    });
+  }
+  function handleEditDraftChange(field, value){
+    setEditDraft(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'residueUnits' ? { _ruTouched: true } : null),
+    }));
+  }
+  function cancelRowEdit(){
+    setEditingRow(null);
+    setEditDraft({
+      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '', residueUnits: '0', _ruTouched:false
+    });
+  }
+  function saveRowEdit(index){
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[index];
+      if (!old) return prev;
+
+      const name = (editDraft.name || '').trim();
+      const brand = (editDraft.brand || '').trim();
+      const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
+      const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
+      const expiresAt = toISODate(editDraft.expiresAt || '');
+
+      const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
+
+      const todayISO = new Date().toISOString().slice(0,10);
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = old.packsOnly ? Number(old.packs||0) : Number(old.packs || 0) * uppOld;
+      const nowUnits = newPacks * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      let ru = residueUnitsOf(old);
+      const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
+      if (ruTouched) {
+        const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+        if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
+      }
+      const fullNow = Math.max(unitsPerPack, nowUnits);
+      if (!old.packsOnly) ru = Math.min(ru, fullNow);
+
+      const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+
+      let next = {
+        ...old,
+        name, brand,
+        packs: newPacks,
+        unitsPerPack, unitLabel,
+        expiresAt,
+        avgDailyUnits,
+        packsOnly: false
+      };
+
+      if (restock) {
+        next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
+      } else {
+        next.residueUnits = old.packsOnly ? Math.max(0, Number(newPacks)) : ru;
+      }
+
+      arr[index] = next;
+      return arr;
+    });
+
+    setEditingRow(null);
+  }
+  function applyDeltaToStock(index, { setUnits }) {
+    setStock(prev => {
+      const arr = [...prev];
+      const row = arr[index];
+      if (!row) return prev;
+      if (row.packsOnly) {
+        const baselinePacks = Math.max(1, Number(row.baselinePacks || row.packs || 1));
+        const clampedP = Math.max(0, Math.min(Number(setUnits || 0), baselinePacks));
+        arr[index] = { ...row, packs: clampedP };
+        return arr;
+      }
+      const baseline = baselineUnitsOf(row) || Math.max(1, Number(row.unitsPerPack || 1));
+      const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
+      arr[index] = { ...row, residueUnits: clamped, packsOnly:false };
+      return arr;
+    });
+  }
+
+  /* =================== Gestione immagine riga scorte =================== */
+  async function handleRowImage(files, idx) {
+    const file = (files && files[0]) || null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setStock(prev => {
+        const arr = [...prev];
+        if (!arr[idx]) return prev;
+        const updated = { ...arr[idx], image: dataUrl };
+        arr[idx] = updated;
+
+        // salva in indice immagini
+        const key = productKey(updated.name, updated.brand || '');
+        setImagesIndex(prevIdx => ({ ...prevIdx, [key]: dataUrl }));
+
+        return arr;
+      });
+      showToast('Immagine prodotto aggiornata ✓', 'ok');
+    };
+    reader.readAsDataURL(file);
+  }
 
   /* =================== Vocale LISTA =================== */
   async function toggleRecList() {
@@ -2306,12 +2435,9 @@ async function processVoiceInventory() {
         multiple
         hidden
         onChange={async (e) => {
-  const files = Array.from(e.target.files || []);
-  e.target.value = '';
-  if (!files.length) return;
-  await handleOCR(files);
-}}
-
+          const files = Array.from(e.target.files || []);
+          e.target.value = '';
+          if (!files.length) return;
 
           // Chi è la riga target? (lista o scorte)
           let itemName = '';
@@ -2344,22 +2470,15 @@ async function processVoiceInventory() {
             if (!ocrText) throw new Error('Nessun testo letto');
 
             // 2) Chiedi il pacchetto unificato
-        function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-  return [
-    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
-    'RISPONDI SOLO JSON con schema esatto:',
-    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
-    '',
-    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs (confezioni), unitsPerPack (unità per confezione), unitLabel (pezzi/bottiglie/...)',
-    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
-    '- Scadenza in formato YYYY-MM-DD se presente',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
+            const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
+            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ prompt })
+            }, 30000);
+            const safe = await readJsonSafe(r);
+            const answer = safe?.answer || safe?.data || safe;
+            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
 
             // 3) Applica ai dati di scorta
             const upd = {
