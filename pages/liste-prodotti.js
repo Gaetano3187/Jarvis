@@ -20,6 +20,11 @@ const API_ASSISTANT_TEXT = '/api/assistant';
 const API_OCR = '/api/ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
 
+/* === OCR defaults / critical === */
+const DEFAULT_PACKS_IF_MISSING = true;  // 1 conf. di default se l’OCR non dà quantità
+const CRITICAL_GRACE_DAYS = 2;          // escludi dai “critici” i riforniti negli ultimi N giorni
+
+
 /* ====================== Persistenza locale ====================== */
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
