@@ -798,6 +798,9 @@ function numberWordsToDigits(str) {
     /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
     (m) => String(MAP[m.toLowerCase()] ?? m)
   );
+  
+  // *** NEW: normalizzo i numeri in cifre per i match ***
+  const cN = numberWordsToDigits(chunk);
 }
       // 2) "2 confezioni 6 bottiglie"
       const mBoth = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}.*?\\b(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
