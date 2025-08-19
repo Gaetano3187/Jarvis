@@ -2,8 +2,9 @@
 import OpenAI from 'openai';
 import formidable from 'formidable';
 import fs from 'fs/promises';
+import crypto from 'crypto';
 
-export const config = { api: { bodyParser: false } }; // indispensabile per form-data
+export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -17,13 +18,13 @@ export default async function handler(req, res) {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   try {
-    // --- parse multipart form ---
+    // ——— Parse multipart
     const { files } = await new Promise((resolve, reject) => {
       const form = formidable({ multiples: true, keepExtensions: true });
       form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
     });
 
-    // raccogli TUTTI i possibili campi di file
+    // Raccogli TUTTI i campi possibili
     const pick = (k) => {
       const v = files?.[k];
       return v ? (Array.isArray(v) ? v : [v]) : [];
@@ -34,36 +35,40 @@ export default async function handler(req, res) {
       ...pick('file'),
       ...pick('image'),
     ];
-
-    // se l’uploader usa altri nomi, prendi comunque tutto
     if (!fileList.length) {
+      // fallback: prendi tutto quello che c'è
       fileList = Object.values(files || {}).flat().filter(Boolean);
     }
     if (!fileList.length) {
       return res.status(400).json({ error: 'Nessun file ricevuto' });
     }
 
-    const texts = [];
-
+    // Dedup per hash contenuto (evita doppie chiamate se hai inviato con alias multipli)
+    const seen = new Set();
+    const uniq = [];
     for (const f of fileList) {
-      const filepath = f.filepath || f.path;
-      const mimetype = (f.mimetype || '').toLowerCase();
-      const orig = f.originalFilename || '';
+      const p = f.filepath || f.path;
+      const buf = await fs.readFile(p);
+      const h = crypto.createHash('sha256').update(buf).digest('hex');
+      if (seen.has(h)) continue;
+      seen.add(h);
+      uniq.push({ buf, mime: (f.mimetype || '').toLowerCase(), name: f.originalFilename || '' });
+    }
 
-      const buf = await fs.readFile(filepath);
-
-      // --- PDF: usa pdf-parse ---
-      if (mimetype.includes('pdf') || /\.pdf$/i.test(orig)) {
+    const texts = [];
+    for (const f of uniq) {
+      // PDF via pdf-parse
+      if (f.mime.includes('pdf') || /\.pdf$/i.test(f.name)) {
         const pdfParse = (await import('pdf-parse')).default;
-        const parsed = await pdfParse(buf);
+        const parsed = await pdfParse(f.buf);
         const t = String(parsed?.text || '').trim();
         if (t) texts.push(t);
         continue;
       }
 
-      // --- Immagini: OpenAI Vision ---
-      const b64 = buf.toString('base64');
-      const dataUrl = `data:${mimetype || 'image/jpeg'};base64,${b64}`;
+      // Immagini via OpenAI Vision
+      const b64 = f.buf.toString('base64');
+      const dataUrl = `data:${f.mime || 'image/jpeg'};base64,${b64}`;
 
       const resp = await client.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -72,12 +77,7 @@ export default async function handler(req, res) {
           {
             role: 'user',
             content: [
-              {
-                type: 'text',
-                text:
-                  'Trascrivi esattamente tutto il testo leggibile nello scontrino. ' +
-                  'Mantieni l’ordine riga-per-riga. Nessuna spiegazione, solo testo puro.',
-              },
+              { type: 'text', text: 'Trascrivi esattamente tutto il testo dello scontrino, riga per riga. Solo testo.' },
               { type: 'image_url', image_url: { url: dataUrl } },
             ],
           },
@@ -89,6 +89,17 @@ export default async function handler(req, res) {
     }
 
     const text = texts.join('\n').trim();
+
+    if (!text) {
+      return res.status(422).json({
+        error: 'OCR_EMPTY',
+        info: {
+          files_received: uniq.length,
+          note: 'Verifica qualità immagine e che l’endpoint stia ricevendo correttamente il multipart.',
+        },
+      });
+    }
+
     return res.status(200).json({ ok: true, text });
   } catch (err) {
     console.error('[OCR] fail', err);
