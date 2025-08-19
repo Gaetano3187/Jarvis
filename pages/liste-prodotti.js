@@ -8,6 +8,12 @@ import { Pencil, Trash2, Camera } from 'lucide-react';
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
 
+/* ====================== Feature toggles / safety ====================== */
+// Se l’OCR / vocale trova il prodotto ma non capisce le quantità,
+// crea 1 confezione di default (come funzionava prima).
+const DEFAULT_PACKS_IF_MISSING = true;
+
+
 // —— Cloud sync (Supabase) — opzionale, auto-noop se non presente
 const CLOUD_SYNC = true;                       // lascia true: prova a sincronizzare se /lib/supabaseClient esiste
 const CLOUD_TABLE = 'jarvis_liste_state';      // { user_id text, state jsonb, updated_at timestamptz default now() }
