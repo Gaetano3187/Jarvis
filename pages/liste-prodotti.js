@@ -2344,15 +2344,22 @@ async function processVoiceInventory() {
             if (!ocrText) throw new Error('Nessun testo letto');
 
             // 2) Chiedi il pacchetto unificato
-            const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
-            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ prompt })
-            }, 30000);
-            const safe = await readJsonSafe(r);
-            const answer = safe?.answer || safe?.data || safe;
-            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+        function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
+  return [
+    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
+    'RISPONDI SOLO JSON con schema esatto:',
+    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
+    '',
+    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
+    '- Estrai quantità come: packs (confezioni), unitsPerPack (unità per confezione), unitLabel (pezzi/bottiglie/...)',
+    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
+    '- Scadenza in formato YYYY-MM-DD se presente',
+    '',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
 
             // 3) Applica ai dati di scorta
             const upd = {
