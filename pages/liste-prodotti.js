@@ -1558,6 +1558,21 @@ if (!purchases.length) {
   showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
   return; // <-- interrompe la funzione; il finally chiuderà busy
 }
+    // TAP console: cosa ha prodotto il parser
+try {
+  if (typeof window !== 'undefined') window.__jarvisPurchases = purchases;
+  console.table((Array.isArray(purchases) ? purchases : []).map(p => ({
+    name: p.name, brand: p.brand, packs: p.packs,
+    upp: p.unitsPerPack, lbl: p.unitLabel, desc: p._desc
+  })));
+} catch {}
+
+// Early exit se davvero vuoto (evita finto "completato")
+if (!Array.isArray(purchases) || purchases.length === 0) {
+  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+  return;
+}
+
 
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
