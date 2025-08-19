@@ -4,8 +4,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
-
-
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
@@ -785,23 +783,6 @@ function withRememberedImage(row, imagesIdx) {
   if (img) return { ...row, image: img };
   return row;
 }
-// [AGGIUNGERE UNA SOLA VOLTA, FUORI DAL COMPONENTE]
-const userIdRef = { current: null };
-
-async function ensureUserId() {
-  if (userIdRef.current) return userIdRef.current;
-  if (typeof window === 'undefined') return null; // evita problemi SSR
-
-  // import dinamico: carica il client solo nel browser
-  const mod = await import('@/lib/supabaseClient');
-  const supabase = mod.default || mod.supabase;
-
-  // session è più affidabile al primo paint
-  const { data: { session } } = await supabase.auth.getSession();
-  userIdRef.current = session?.user?.id ?? null;
-  return userIdRef.current;
-}
-
 
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
@@ -1331,17 +1312,12 @@ async function handleOCR(files) {
     const toArray = (x) => Array.from(x || []);
     const isFileLike = (v) => {
       try {
-        return !!(
-          v &&
-          typeof v === 'object' &&
+        return !!(v && typeof v === 'object' &&
           typeof v.type === 'string' &&
           typeof v.size === 'number' &&
           typeof v.arrayBuffer === 'function' &&
-          typeof v.slice === 'function'
-        );
-      } catch {
-        return false;
-      }
+          typeof v.slice === 'function');
+      } catch { return false; }
     };
 
     const picked = [];
@@ -1361,100 +1337,22 @@ async function handleOCR(files) {
 
     const ocrText = String(ocr.text || '').trim();
     // anche se ocrText è vuoto, proseguiamo (il parser "busta/etichetta" AI può ancora estrarre qualcosa)
-
     // -------- PARSER SCONTRINO (AI) --------
     let parsed = null;
     if (ocrText) {
       const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
       try {
-        const r = await timeoutFetch(
-          API_ASSISTANT_TEXT,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptTicket }),
-          },
-          35000
-        );
+        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ prompt: promptTicket })
+        }, 35000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
-        parsed =
-          typeof answer === 'string'
-            ? (() => {
-                try { return JSON.parse(answer); } catch { return null; }
-              })()
-            : answer;
+        parsed = typeof answer === 'string'
+          ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })()
+          : answer;
       } catch {}
     }
-
-    const meta = parseReceiptMeta(ocrText || '');
-    let store = (parsed?.store || meta.store || '').trim();
-    let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
-
-    let purchases = ensureArray(parsed?.purchases)
-      .map((p) => ({
-        name: String(p?.name || '').trim(),
-        brand: String(p?.brand || '').trim(),
-        packs: coerceNum(p?.packs),
-        unitsPerPack: coerceNum(p?.unitsPerPack),
-        unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
-        priceEach: coerceNum(p?.priceEach),
-        priceTotal: coerceNum(p?.priceTotal),
-        currency: String(p?.currency || '').trim() || 'EUR',
-        expiresAt: toISODate(p?.expiresAt || ''),
-      }))
-      .filter((p) => p.name);
-
-    // —— USER ID necessario per l’ingest ——
-    const uid = await ensureUserId();
-    if (!uid) {
-      console.warn('Nessun utente loggato: blocco invio a finances.');
-      setBusy(false);
-      return;
-    }
-
-    // (opzionale) fallback store/data se vuoti
-    if (!store) store = 'Sconosciuto';
-    if (!purchaseDate) purchaseDate = new Date().toISOString().slice(0,10);
-
-    // —— INVIO a finances/ingest ——
-    const payload = {
-      user_id: uid,
-      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc', // opzionale
-      store,
-      purchaseDate,
-      payment_method: 'cash',
-      card_label: null,
-      items: purchases,
-    };
-
-    console.log('INGEST payload →', payload);
-
-    const resp = await fetch('/api/finances/ingest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const json = await resp.json().catch(() => ({}));
-    console.log('INGEST response →', resp.status, json);
-
-    // …se hai altra logica di aggiornamento scorte, continua qui…
-
-    setBusy(false);
-  } catch (err) {
-    console.error('Errore handleOCR:', err);
-    setBusy(false);
-  }
-}
-
-
-    setBusy(false);
-  } catch (err) {
-    console.error('Errore handleOCR:', err);
-    setBusy(false);
-  }
-}
 
     const meta = parseReceiptMeta(ocrText || '');
     let store = (parsed?.store || meta.store || '').trim();
