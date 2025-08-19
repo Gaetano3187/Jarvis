@@ -786,7 +786,19 @@ function parseStockUpdateText(text) {
         res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
         continue;
       }
-
+      // Trasforma parole-numeri italiane in cifre (globale)
+function numberWordsToDigits(str) {
+  if (!str) return '';
+  const MAP = {
+    un:1, uno:1, una:1,
+    due:2, tre:3, quattro:4, cinque:5,
+    sei:6, sette:7, otto:8, nove:9, dieci:10
+  };
+  return String(str).replace(
+    /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
+    (m) => String(MAP[m.toLowerCase()] ?? m)
+  );
+}
       // 2) "2 confezioni 6 bottiglie"
       const mBoth = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}.*?\\b(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
       if (mBoth) {
