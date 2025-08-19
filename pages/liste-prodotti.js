@@ -1303,85 +1303,61 @@ function decrementAcrossBothLists(prevLists, purchases) {
 }
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
-// ⬇⬇ REPLACE the whole handleOCR with this ⬇⬇
 async function handleOCR(files) {
-  if (!files?.length) return;
+  if (!files) return;
   try {
     setBusy(true);
 
-    // 0) Normalizza: ottieni SEMPRE veri Blob/File
+    // accetta SOLO FileList/Array<File> dall'input
+    const toArray = (x) => Array.from(x || []);
     const isFileLike = (v) => {
       try {
         return !!(v && typeof v === 'object' &&
-                  typeof v.type === 'string' &&
-                  typeof v.size === 'number' &&
-                  typeof v.arrayBuffer === 'function' &&
-                  typeof v.slice === 'function');
+          typeof v.type === 'string' &&
+          typeof v.size === 'number' &&
+          typeof v.arrayBuffer === 'function' &&
+          typeof v.slice === 'function');
       } catch { return false; }
     };
 
-    const uploads = [];
-    // a) FileList standard dell'input
-    for (const f of (Array.from(files) || [])) {
-      if (isFileLike(f)) {
-        uploads.push({ blob: f, name: f.name || `upload.${guessExt(f.type)}` });
-      }
-    }
-    // b) fallback generico (dataURL/url/wrapper)
-    if (uploads.length === 0) {
-      const extra = await collectImageBlobs(files);
-      for (const it of extra) {
-        if (it?.blob instanceof Blob) uploads.push(it);
-      }
-    }
-    if (uploads.length === 0) {
-      throw new Error('Nessuna immagine valida (Blob/File) selezionata');
-    }
+    const picked = [];
+    for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
+    if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // 1) OCR → testo (append SOLO Blob/File reali)
+    // 1) OCR → testo
     const fdOcr = new FormData();
-    for (const it of uploads) {
-      if (!(it?.blob instanceof Blob)) continue;                 // guardia extra
-      const filename = String(it.name || 'upload.bin');
-      fdOcr.append('images', it.blob, filename);
-    }
-    // fallback estremo se non c’è nessuna entry (browser edge case)
-    if (!Array.from(fdOcr.entries()).length) {
-      for (const f of (Array.from(files) || [])) {
-        if (isFileLike(f)) fdOcr.append('images', f, f.name || `upload.${guessExt(f.type)}`);
-      }
-    }
-    if (!Array.from(fdOcr.entries()).length) {
-      throw new Error('Impossibile preparare i file per l’OCR');
+    for (const f of picked) {
+      const ext = (f.type || '').split('/')[1] || 'jpg';
+      fdOcr.append('images', f, f.name || `upload.${ext}`);
     }
 
     const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fdOcr }, 40000);
     const ocr = await readJsonSafe(ocrRes);
     if (!ocr.ok) throw new Error(ocr.error || `Errore OCR (HTTP ${ocrRes.status})`);
+
     const ocrText = String(ocr.text || '').trim();
-    if (!ocrText) throw new Error('Nessun testo riconosciuto');
-
-    // 2) Parser SCONTRINO (AI)
-    const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+    // anche se ocrText è vuoto, proseguiamo (il parser "busta/etichetta" AI può ancora estrarre qualcosa)
+    // -------- PARSER SCONTRINO (AI) --------
     let parsed = null;
-    try {
-      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ prompt: promptTicket })
-      }, 35000);
-      const safe = await readJsonSafe(r);
-      const answer = safe?.answer || safe?.data || safe;
-      parsed = typeof answer === 'string'
-        ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })()
-        : answer;
-    } catch {}
+    if (ocrText) {
+      const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+      try {
+        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ prompt: promptTicket })
+        }, 35000);
+        const safe = await readJsonSafe(r);
+        const answer = safe?.answer || safe?.data || safe;
+        parsed = typeof answer === 'string'
+          ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })()
+          : answer;
+      } catch {}
+    }
 
-    // meta fallback (negozio/data)
-    const meta = parseReceiptMeta(ocrText);
+    const meta = parseReceiptMeta(ocrText || '');
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
 
-    // righe acquisto
     let purchases = ensureArray(parsed?.purchases).map(p => ({
       name: String(p?.name||'').trim(),
       brand: String(p?.brand||'').trim(),
@@ -1394,9 +1370,9 @@ async function handleOCR(files) {
       expiresAt: toISODate(p?.expiresAt || '')
     })).filter(p => p.name);
 
-    // 3) Se non sembra scontrino → BUSTA/ETICHETTE (AI)
+    // -------- PARSER "BUSTA/ETICHETTA" (AI) se scontrino vuoto --------
     if (!purchases.length) {
-      const promptBag = buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON);
+      const promptBag = buildOcrStockBagPrompt(ocrText || '(immagine senza testo)', GROCERY_LEXICON);
       try {
         const r2 = await timeoutFetch(API_ASSISTANT_TEXT, {
           method:'POST', headers:{'Content-Type':'application/json'},
@@ -1404,9 +1380,7 @@ async function handleOCR(files) {
         }, 35000);
         const safe2 = await readJsonSafe(r2);
         const answer2 = safe2?.answer || safe2?.data || safe2;
-        const parsed2 = typeof answer2 === 'string'
-          ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })()
-          : answer2;
+        const parsed2 = typeof answer2 === 'string' ? (()=>{ try { return JSON.parse(answer2);} catch { return null; } })() : answer2;
         purchases = ensureArray(parsed2?.items).map(p => ({
           name: String(p?.name||'').trim(),
           brand: String(p?.brand||'').trim(),
@@ -1419,8 +1393,8 @@ async function handleOCR(files) {
       } catch {}
     }
 
-    // 4) Fallback brutale riga-per-riga
-    if (!purchases.length) {
+    // -------- Fallback locale riga-per-riga --------
+    if (!purchases.length && ocrText) {
       purchases = parseReceiptPurchases(ocrText).map(p => ({
         name: p.name, brand: p.brand || '',
         packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
@@ -1429,12 +1403,12 @@ async function handleOCR(files) {
       }));
     }
 
-    // 5) Decrementa le LISTE acquisto
+    // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
       setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
 
-    // 6) Aggiorna SCORTE (+ flag rosso se mancano quantità)
+    // 3) Aggiorna SCORTE (flag rosso se mancano quantità)
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
@@ -1461,7 +1435,7 @@ async function handleOCR(files) {
               ...restockTouch(newPacks, todayISO, nextUpp)
             };
           } else {
-            arr[idx] = { ...old, needsUpdate: true }; // evidenzia “da aggiornare”
+            arr[idx] = { ...old, needsUpdate: true };
           }
         } else {
           if (hasCounts) {
@@ -1493,18 +1467,24 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // 7) Invia a FINANZE (best-effort)
+    // 4) Invia alle FINANZE (best-effort)
     try {
       await fetch(API_FINANCES_INGEST, {
-        method:'POST', headers:{'Content-Type':'application/json'},
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          store, purchaseDate,
+          store,
+          purchaseDate,
           items: purchases.map(p => ({
-            name: p.name, brand: p.brand || '',
-            packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
+            name: p.name,
+            brand: p.brand || '',
+            packs: p.packs || 0,
+            unitsPerPack: p.unitsPerPack || 0,
             unitLabel: p.unitLabel || '',
-            priceEach: p.priceEach || 0, priceTotal: p.priceTotal || 0,
-            currency: p.currency || 'EUR', expiresAt: p.expiresAt || ''
+            priceEach: p.priceEach || 0,
+            priceTotal: p.priceTotal || 0,
+            currency: p.currency || 'EUR',
+            expiresAt: p.expiresAt || ''
           }))
         })
       });
@@ -1521,7 +1501,7 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
-// ⬆⬆ END handleOCR ⬆⬆
+
 
 
   /* =================== Edit riga scorte =================== */
