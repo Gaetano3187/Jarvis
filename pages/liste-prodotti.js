@@ -521,7 +521,7 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
     '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
     '',
     `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs (confezioni), unitsPerPack (unità per confezione), unitLabel (pezzi/bottiglie/...)',
+    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
     '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
     '- Scadenza in formato YYYY-MM-DD se presente',
     '',
@@ -530,6 +530,7 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
+
 
 /* ====================== Parser fallback OCR ====================== */
 function parseReceiptPurchases(ocrText) {
