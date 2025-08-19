@@ -1407,78 +1407,120 @@ async function handleOCR(files) {
       setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
 
-    // 3) Aggiorna SCORTE (flag rosso se mancano quantità)
-    setStock(prev => {
-      const arr = [...prev];
-      const todayISO = new Date().toISOString().slice(0,10);
+   // 3) Aggiorna SCORTE (flag rosso se mancano quantità) — versione con deduzione packs e conteggio modifiche
+{
+  let added = 0;
+  let updated = 0;
 
-      for (const p of purchases) {
-        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
-        const packs = coerceNum(p.packs);
-        const upp   = coerceNum(p.unitsPerPack);
-        const hasCounts = packs > 0 || upp > 0;
+  setStock(prev => {
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0,10);
 
-        if (idx >= 0) {
-          const old = arr[idx];
-          if (hasCounts) {
-            const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
-            const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
-              ...old,
-              packs: newPacks,
-              unitsPerPack: nextUpp,
-              unitLabel: old.unitLabel || p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(newPacks, todayISO, nextUpp)
-            };
-          } else {
+    for (const p of purchases) {
+      // 🔧 deduzione intelligente:
+      // se UPP > 0 ma packs è 0 → assumi 1 confezione
+      const rawPacks = coerceNum(p.packs);
+      const rawUPP   = coerceNum(p.unitsPerPack);
+      const packs = rawPacks > 0 ? rawPacks : (rawUPP > 0 ? 1 : 0);
+      const upp   = rawUPP > 0 ? rawUPP : 1;
+      const unitLabel = p.unitLabel || (upp > 1 ? 'unità' : 'unità');
+
+      const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+
+      if (idx >= 0) {
+        const old = arr[idx];
+
+        // Se non abbiamo nessuna quantità deducibile → metti "needsUpdate" (non alterare i numeri)
+        if (packs === 0 && rawUPP === 0) {
+          if (!old.needsUpdate) {
             arr[idx] = { ...old, needsUpdate: true };
+            updated++;
           }
+          continue;
+        }
+
+        // Altrimenti aggiorna i pacchi e (se utile) l’UPP
+        const nextUPP = Math.max(1, Number(old.unitsPerPack || upp || 1));
+        const newPacks = Math.max(0, Number(old.packs || 0) + packs);
+        const wasUnits = old.packsOnly
+          ? Math.max(0, Number(old.packs || 0))
+          : Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
+        const nowUnits = newPacks * nextUPP;
+
+        let next = {
+          ...old,
+          packs: newPacks,
+          unitsPerPack: nextUPP,
+          unitLabel: old.unitLabel || unitLabel,
+          expiresAt: p.expiresAt || old.expiresAt || '',
+          packsOnly: false,
+          needsUpdate: false,
+        };
+
+        // touch restock se effettivo aumento
+        if (nowUnits > wasUnits) {
+          next = { ...next, ...restockTouch(newPacks, todayISO, nextUPP) };
+        }
+
+        // incrementa contatore solo se è realmente cambiato qualcosa
+        const changed = (
+          newPacks !== Number(old.packs || 0) ||
+          nextUPP !== Number(old.unitsPerPack || 1) ||
+          (p.expiresAt && p.expiresAt !== old.expiresAt) ||
+          old.needsUpdate
+        );
+        if (changed) updated++;
+
+        arr[idx] = next;
+      } else {
+        // Riga nuova
+        if (packs > 0) {
+          const row = {
+            name: p.name, brand: p.brand || '',
+            packs, unitsPerPack: upp, unitLabel,
+            expiresAt: p.expiresAt || '',
+            baselinePacks: packs,
+            lastRestockAt: todayISO,
+            avgDailyUnits: 0,
+            residueUnits: packs * upp,
+            packsOnly: false,
+            needsUpdate: false,
+          };
+          arr.unshift(withRememberedImage(row, imagesIndex));
+          added++;
         } else {
-          if (hasCounts) {
-            const u = Math.max(1, upp || 1);
-            const row = {
-              name: p.name, brand: p.brand || '',
-              packs: Math.max(0, packs || 1),
-              unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: Math.max(0, packs || 1),
-              lastRestockAt: todayISO, avgDailyUnits: 0,
-              residueUnits: Math.max(0, (packs || 1) * u),
-              packsOnly: false, needsUpdate: false
-            };
-            arr.unshift(withRememberedImage(row, imagesIndex));
-          } else {
-            const row = {
-              name: p.name, brand: p.brand || '',
-              packs: 0, unitsPerPack: 1, unitLabel: '-',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: 0, lastRestockAt: '',
-              avgDailyUnits: 0, residueUnits: 0,
-              packsOnly: true, needsUpdate: true
-            };
-            arr.unshift(withRememberedImage(row, imagesIndex));
-          }
+          // senza quantità: crea placeholder che chiede integrazione
+          const row = {
+            name: p.name, brand: p.brand || '',
+            packs: 0, unitsPerPack: 1, unitLabel: '-',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: 0, lastRestockAt: '',
+            avgDailyUnits: 0, residueUnits: 0,
+            packsOnly: true, needsUpdate: true
+          };
+          arr.unshift(withRememberedImage(row, imagesIndex));
+          added++;
         }
       }
-      return arr;
-    });
+    }
+    // salva counters su una proprietà “fantasma” per usarli fuori
+    arr.__lastDelta = { added, updated };
+    return arr;
+  });
 
-// 4) Invia alle FINANZE (best-effort, con guard se items è vuoto)
-try {
-  const itemsForIngest = purchases.map(p => ({
-    name: String(p.name || '').trim(),
-    brand: String(p.brand || '').trim(),
-    qty: Math.max(1, Number(p.packs || 1)),
-    unitsPerPack: Math.max(1, Number(p.unitsPerPack || 1)),
-    unitLabel: p.unitLabel || 'unità',
-    priceEach: Number.isFinite(Number(p.priceEach)) ? Number(p.priceEach) : 0,
-    priceTotal: Number.isFinite(Number(p.priceTotal)) ? Number(p.priceTotal) : 0,
-    currency: (p.currency || 'EUR'),
-    expiresAt: toISODate(p.expiresAt || '')
-  })).filter(r => r.name);
+  // Leggi i contatori e mostra un esito realistico
+  setTimeout(() => {
+    const delta = (typeof stock?.__lastDelta === 'object') ? stock.__lastDelta : null;
+    const a = delta?.added || added;
+    const u = delta?.updated || updated;
+
+    if ((a + u) > 0) {
+      showToast(`Scorte aggiornate: +${a} nuove, ${u} modificate ✓`, 'ok');
+    } else {
+      showToast('Nessuna scorta aggiornata (quantità non riconosciute)', 'err');
+    }
+  }, 0);
+}
 
   // ⛔️ Niente righe? Non chiamare l’API (evita 400)
   if (!itemsForIngest.length) {
