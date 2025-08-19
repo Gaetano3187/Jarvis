@@ -1,4 +1,3 @@
-
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -363,8 +362,8 @@ function dataUrlToBlob(dataUrl) {
 }
 function guessExt(mime='') {
   const m = (mime || '').toLowerCase();
-  if (m.includes('pdf'))  return 'pdf';
-  if (m.includes('png'))  return 'png';
+  if (m.includes('pdf')) return 'pdf';
+  if (m.includes('png')) return 'png';
   if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
   if (m.includes('webp')) return 'webp';
   if (m.includes('heic')) return 'heic';
@@ -521,7 +520,7 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
     '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
     '',
     `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
+    '- Estrai quantità come: packs (confezioni), unitsPerPack (unità per confezione), unitLabel (pezzi/bottiglie/...)',
     '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
     '- Scadenza in formato YYYY-MM-DD se presente',
     '',
@@ -530,7 +529,6 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
-
 
 /* ====================== Parser fallback OCR ====================== */
 function parseReceiptPurchases(ocrText) {
@@ -1201,7 +1199,74 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     });
   }
 
- 
+ /* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
+function isBlobish(v){ 
+  try { 
+    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function'); 
+  } catch { return false; } 
+}
+function dataUrlToBlob(dataUrl){ 
+  try { 
+    const [head, base64]=String(dataUrl||'').split(','); 
+    const m=head.match(/data:(.*?);base64/i); 
+    const mime=m?m[1]:'application/octet-stream'; 
+    const bin=atob(base64||''); 
+    const u8=new Uint8Array(bin.length); 
+    for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); 
+    return new Blob([u8],{type:mime}); 
+  } catch { return null; } 
+}
+function guessExt(mime=''){ 
+  const m=(mime||'').toLowerCase(); 
+  if(m.includes('pdf'))return'pdf'; 
+  if(m.includes('png'))return'png'; 
+  if(m.includes('jpeg')||m.includes('jpg'))return'jpg'; 
+  if(m.includes('webp'))return'webp'; 
+  if(m.includes('heic'))return'heic'; 
+  return'bin'; 
+}
+async function collectImageBlobs(input){
+  const list = Array.from(input || []); 
+  const out=[];
+  for (const f of list){
+    if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
+    if (typeof f === 'string'){
+      if (f.startsWith('data:')){ const b=dataUrlToBlob(f); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); continue; }
+      if (/^(blob:|https?:)/i.test(f)){ try { const resp=await fetch(f); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); } catch {} continue; }
+    }
+    if (f && typeof f === 'object'){
+      const maybe=f.file || f.blob;
+      if (isBlobish(maybe)){ out.push({ blob:maybe, name:f.name || `upload.${guessExt(maybe.type)}` }); continue; }
+      const url=f.preview || f.uri || f.url;
+      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)){
+        try {
+          if (url.startsWith('data:')){ const b=dataUrlToBlob(url); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
+          else { const resp=await fetch(url); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
+        } catch {}
+      }
+    }
+  }
+  return out;
+}
+
+/* ====================== Prompt builder OCR Riga ====================== */
+function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
+  return [
+    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
+    'RISPONDI SOLO JSON con schema esatto:',
+    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
+    '',
+    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
+    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
+    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
+    '- Scadenza in formato YYYY-MM-DD se presente',
+    '',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
 /* ====================== Decrementa liste da scontrino ====================== */
 function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
@@ -1401,38 +1466,37 @@ async function handleOCR(files) {
       return arr;
     });
 
-   // 4) Invia alle FINANZE (best-effort, solo se abbiamo items)
+    // 4) Invia alle FINANZE (best-effort)
 try {
-  if (purchases.length > 0) {
-    const payload = {
-      user_id: userIdRef.current || null,                 // ok anche null
-      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',// opzionale
-      store: store || '',
-      purchaseDate: purchaseDate || null,                 // accetta null
-      payment_method: 'cash',
-      card_label: null,
-      items: purchases                                    // array già pronto
-    };
-
-    const resp = await fetch(API_FINANCES_INGEST, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    // Leggi sempre il body come testo, poi prova JSON
-    const text = await resp.text();
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch {}
-    if (!resp.ok) {
-      console.error('[FINANCES_INGEST] HTTP', resp.status, text || json);
-    } else {
-      if (DEBUG) console.log('[FINANCES_INGEST] OK', json || text);
-    }
-  }
+  await fetch(API_FINANCES_INGEST, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: userIdRef.current,                           // dall'auth Supabase
+      category_id: '4cfaac74-aab4-4d96-b335-6cc64de59afc',  // opzionale: categoria "casa"
+      store,
+      purchaseDate,
+      payment_method: 'cash',                                // o 'card'
+      card_label: null,                                      // es. 'Visa'
+      items: purchases                                       // array che hai già costruito
+    })
+  });
 } catch (e) {
   if (DEBUG) console.warn('[FINANCES_INGEST] skip', e);
 }
+
+
+    showToast('OCR scorte completato ✓', 'ok');
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+}
+
+
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
@@ -2697,4 +2761,4 @@ const styles = {
     color:'#f1f5f9'
   }
 
-};
+}; 
