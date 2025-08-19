@@ -1358,157 +1358,169 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
   }
 
   /* =================== Vocale UNIFICATO INVENTARIO =================== */
-  async function toggleVoiceInventory() {
-    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch (e) {} return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      invStreamRef.current = stream;
-      invMediaRef.current = new MediaRecorder(stream);
-      invChunksRef.current = [];
-      invMediaRef.current.ondataavailable = (e) => { if (e.data?.size) invChunksRef.current.push(e.data); };
-      invMediaRef.current.onstop = processVoiceInventory;
-      invMediaRef.current.start();
-      setInvRecBusy(true);
-    } catch (e) {
-      alert('Microfono non disponibile');
-    }
+async function toggleVoiceInventory() {
+  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch(e) {} return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    invStreamRef.current = stream;
+
+    const { mime, ext } = pickAudioMime();
+    recMimeRef.current = { mime, ext };
+
+    invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    invChunksRef.current = [];
+    invMediaRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) invChunksRef.current.push(e.data); };
+    invMediaRef.current.onstop = processVoiceInventory;
+    invMediaRef.current.start(500);
+    setInvRecBusy(true);
+  } catch (e) {
+    alert('Microfono non disponibile');
   }
-  async function processVoiceInventory() {
-    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
-    try {
-      setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
-      const { text } = await res.json();
-      if (!text) throw new Error('Testo non riconosciuto');
+}
 
-      // 1) Scadenze dal parlato (se presenti)
-      const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+async function processVoiceInventory() {
+  try {
+    try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch(e) {}
+    setInvRecBusy(false);
 
-      // 2) Aggiornamenti quantità / set residuo
-      const updates = parseStockUpdateText(text);
-      const todayISO = new Date().toISOString().slice(0,10);
-      const absolute = wantsAbsoluteSet(text);
+    if (!invChunksRef.current.length) {
+      if (DEBUG) console.warn('[STT inventory] Nessun chunk audio');
+      showToast('Nessun audio catturato', 'err');
+      return;
+    }
 
-      // Applica scadenze
-      if (expPairs.length) {
-        setStock(prev => {
-          const arr = [...prev];
-          for (const ex of expPairs) {
-            const i = arr.findIndex(s => isSimilar(s.name, ex.name));
-            if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
-            else arr.unshift(withRememberedImage({
-              name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-              expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
-            }, imagesIndex));
-          }
-          return arr;
+    const { mime, ext } = recMimeRef.current || { mime: 'audio/webm', ext: 'webm' };
+    const blob = new Blob(invChunksRef.current, { type: mime || 'audio/webm' });
+    invChunksRef.current = [];
+
+    const fd = new FormData();
+    fd.append('audio', blob, `inventory.${ext}`);
+
+    setBusy(true);
+    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+
+    const ok = res.ok;
+    let payload = {};
+    try { payload = await res.json(); } catch(e) {}
+    const text = String(payload?.text || '').trim();
+
+    if (!ok) {
+      const raw = await res.text().catch(()=> '');
+      throw new Error(`STT HTTP ${res.status} ${raw.slice(0,120)}`);
+    }
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    if (DEBUG) console.log('[STT inventory text]', text);
+
+    // 1) Scadenze
+    const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s=>s.name));
+
+    // 2) Aggiornamenti quantità
+    const updates = parseStockUpdateText(text);
+    const todayISO = new Date().toISOString().slice(0,10);
+    const absolute = wantsAbsoluteSet(text);
+
+    if (expPairs.length) {
+      setStock(prev => {
+        const arr = [...prev];
+        for (const ex of expPairs) {
+          const i = arr.findIndex(s => isSimilar(s.name, ex.name));
+          if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+          else arr.unshift(withRememberedImage({
+            name: ex.name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
+            expiresAt: ex.expiresAt, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
+          }, imagesIndex));
+        }
+        return arr;
+      });
+    }
+
+    if (updates.length) {
+      setStock(prev => {
+        const arr = [...prev];
+        const makePacksOnly = (base) => ({
+          ...base, unitsPerPack: 1, unitLabel: 'conf.', packsOnly: true,
+          residueUnits: Math.max(0, Number(base.packs || 0)),
         });
-      }
 
-      // Applica quantità
-      if (updates.length) {
-        setStock(prev => {
-          const arr = [...prev];
-          for (const u of updates) {
-            const j = arr.findIndex(s => isSimilar(s.name, u.name));
-
-            // helper packsOnly
-            const makePacksOnly = (base) => ({
-              ...base,
-              unitsPerPack: 1,
-              unitLabel: 'conf.',
-              packsOnly: true,
-              residueUnits: Math.max(0, Number(base.packs || 0)),
-            });
-
-            if (j < 0) {
-              if (u.mode === 'packs') {
-                const packs = Math.max(0, Number(u.value||u._packs||0));
-                if (u.explicit && u._upp > 1) {
-                  const up = Math.max(1, Number(u._upp||1));
-                  const row = {
-                    name: u.name, brand:'', packs,
-                    unitsPerPack: up, unitLabel:'unità',
-                    expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly:false
-                  };
-                  arr.unshift(withRememberedImage(row, imagesIndex));
-                } else {
-                  const row = makePacksOnly({
-                    name: u.name, brand:'', packs,
-                    expiresAt:'', ...restockTouch(packs, todayISO, 1), avgDailyUnits:0
-                  });
-                  arr.unshift(withRememberedImage(row, imagesIndex));
-                }
-              } else {
-                const units = Math.max(0, Number(u.value||1));
-                const base = {
-                  name: u.name, brand:'', packs: 1,
-                  unitsPerPack: 1, unitLabel:'unità',
-                  expiresAt:'', baselinePacks:1, lastRestockAt: todayISO, avgDailyUnits:0,
-                  residueUnits: Math.max(0, Math.min(units, 1)),
-                  packsOnly:false
+        for (const u of updates) {
+          const j = arr.findIndex(s => isSimilar(s.name, u.name));
+          if (j < 0) {
+            if (u.mode === 'packs') {
+              const packs = Math.max(0, Number(u.value||u._packs||0));
+              if (u.explicit && u._upp > 1) {
+                const up = Math.max(1, Number(u._upp||1));
+                const row = {
+                  name: u.name, brand:'', packs,
+                  unitsPerPack: up, unitLabel:'unità',
+                  expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly:false
                 };
-                arr.unshift(withRememberedImage(base, imagesIndex));
-              }
-              continue;
-            }
-
-            const old = arr[j];
-
-            if (u.op === 'restockExplicit' || u.mode === 'packs') {
-              const uppFromVoice = Math.max(1, Number(u._upp || 1));
-              const packsNew = absolute
-                ? Math.max(0, Number(u.value||u._packs||0))
-                : Math.max(0, Number(old.packs||0) + Number(u.value||u._packs||0));
-
-              if (u.explicit && uppFromVoice > 1) {
-                arr[j] = {
-                  ...old,
-                  packs: packsNew,
-                  unitsPerPack: uppFromVoice,
-                  unitLabel: old.unitLabel || 'unità',
-                  packsOnly: false,
-                  ...restockTouch(packsNew, todayISO, uppFromVoice)
-                };
+                arr.unshift(withRememberedImage(row, imagesIndex));
               } else {
-                arr[j] = makePacksOnly({
-                  ...old,
-                  packs: packsNew,
-                  ...restockTouch(packsNew, todayISO, 1)
+                const row = makePacksOnly({
+                  name: u.name, brand:'', packs,
+                  expiresAt:'', ...restockTouch(packs, todayISO, 1), avgDailyUnits:0
                 });
+                arr.unshift(withRememberedImage(row, imagesIndex));
               }
             } else {
-              const upp = Math.max(1, Number(old.unitsPerPack || 1));
-              const baseline = baselineUnitsOf(old) || upp;
-              const current = residueUnitsOf(old);
-              const targetUnits = absolute
-                ? Math.max(0, Math.min(Number(u.value||0), baseline))
-                : Math.max(0, Math.min(current + Number(u.value||0), baseline));
-              arr[j] = { ...old, packsOnly:false, residueUnits: targetUnits };
+              const units = Math.max(0, Number(u.value||1));
+              const base = {
+                name: u.name, brand:'', packs: 1,
+                unitsPerPack: 1, unitLabel:'unità',
+                expiresAt:'', baselinePacks:1, lastRestockAt: todayISO, avgDailyUnits:0,
+                residueUnits: Math.max(0, Math.min(units, 1)), packsOnly:false
+              };
+              arr.unshift(withRememberedImage(base, imagesIndex));
             }
+            continue;
           }
-          return arr;
-        });
-      }
 
-      if (!expPairs.length && !updates.length) {
-        showToast('Nessun dato inventario riconosciuto', 'err');
-      } else {
-        showToast('Inventario aggiornato da Vocale ✓', 'ok');
-      }
-    } catch (e) {
-      console.error('[voice inventory] error', e);
-      showToast('Errore vocale inventario', 'err');
-    } finally {
-      setInvRecBusy(false);
-      setBusy(false);
-      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
-      invMediaRef.current = null;
-      invStreamRef.current = null;
-      invChunksRef.current = [];
+          const old = arr[j];
+          if (u.op === 'restockExplicit' || u.mode === 'packs') {
+            const uppFromVoice = Math.max(1, Number(u._upp || 1));
+            const packsNew = absolute
+              ? Math.max(0, Number(u.value||u._packs||0))
+              : Math.max(0, Number(old.packs||0) + Number(u.value||u._packs||0));
+
+            if (u.explicit && uppFromVoice > 1) {
+              arr[j] = {
+                ...old, packs: packsNew, unitsPerPack: uppFromVoice,
+                unitLabel: old.unitLabel || 'unità', packsOnly: false,
+                ...restockTouch(packsNew, todayISO, uppFromVoice)
+              };
+            } else {
+              arr[j] = makePacksOnly({ ...old, packs: packsNew, ...restockTouch(packsNew, todayISO, 1) });
+            }
+          } else {
+            const upp = Math.max(1, Number(old.unitsPerPack || 1));
+            const baseline = baselineUnitsOf(old) || upp;
+            const current = residueUnitsOf(old);
+            const targetUnits = absolute
+              ? Math.max(0, Math.min(Number(u.value||0), baseline))
+              : Math.max(0, Math.min(current + Number(u.value||0), baseline));
+            arr[j] = { ...old, packsOnly:false, residueUnits: targetUnits };
+          }
+        }
+        return arr;
+      });
     }
+
+    if (!expPairs.length && !updates.length) {
+      showToast('Nessun dato inventario riconosciuto', 'err');
+    } else {
+      showToast('Inventario aggiornato da Vocale ✓', 'ok');
+    }
+  } catch (e) {
+    console.error('[voice inventory] error', e);
+    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    invMediaRef.current = null;
+    invStreamRef.current = null;
   }
+}
+
 
   /* =================== Render =================== */
   return (
