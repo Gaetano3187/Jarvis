@@ -101,79 +101,51 @@ function extractPackInfo(str){
   let unitsPerPack = 1;
   let unitLabel = 'unità';
 
-  // Include anche "bott" abbreviato
-  const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bott(?:iglie)?|merendine?|bustin[ae]|monouso)';
-  const PACK_TERMS = '(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])';
-  const NUM_WORDS = '(?:\\d+|un(?:a)?|uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici)';
+  const UNIT_TERMS = '(?:pz|pezzi|unit[aà]|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
 
-  const wordToNum = (t) => {
-    const x = String(t || '').trim();
-    if (/^\d+$/.test(x)) return Number(x);
-    const map = {
-      un:1, una:1, uno:1, due:2, tre:3, quattro:4, cinque:5, sei:6,
-      sette:7, otto:8, nove:9, dieci:10, undici:11, dodici:12
-    };
-    return map[x] ?? NaN;
-  };
-
-  // classico/esteso: "2 confezioni da 6 bottiglie" / "due confezioni di 6 bottiglie" / "2 conf x 6 bottiglie"
-  let m = s.match(new RegExp(
-    `(${NUM_WORDS})\\s*${PACK_TERMS}\\s*(?:di\\s+|da\\s+|x\\s*)?(${NUM_WORDS})\\s*(${UNIT_TERMS})?`,
-    'i'
-  ));
+  // classico: "2 confezioni da 6 bottiglie"
+  let m = s.match(new RegExp(String.raw`(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\s*(?:da|x)\s*(\d+)\s*(?:${UNIT_TERMS})?`, 'i'));
   if (m){
-    packs = wordToNum(m[1]) || 1;
-    unitsPerPack = wordToNum(m[2]) || 1;
-    unitLabel = (m[3] || 'unità').replace(/^(?:pz|pezzi)$/i,'unità');
+    packs = Number(m[1]);
+    unitsPerPack = Number(m[2]);
+    unitLabel = (m[3] || 'unità').replace(/pz|pezzi/i,'unità');
     return { packs, unitsPerPack, unitLabel, explicit:true };
   }
 
-  // variante libera: "2 confezioni 6 unità" / "aggiungendo 2 confezioni 6 bottiglie"
-  m = s.match(new RegExp(
-    `(?:aggiungendo\\s*)?(${NUM_WORDS})\\s*${PACK_TERMS}\\b.*?(${NUM_WORDS})\\s*(?:(${UNIT_TERMS})|unit[aà](?:\\s*\\/\\s*conf)?|u\\s*\\/\\s*conf)?`,
-    'i'
-  ));
+  // nuovo: "aggiungendo 2 a confezioni 6 a unità" / "2 confezioni 6 unità"
+  m = s.match(new RegExp(String.raw`(?:aggiungendo\s*)?(\d+)\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\b.*?\b(\d+)\s*(?:${UNIT_TERMS}|unit[aà]|u\/conf|unit[aà]\s*\/\s*conf)?`, 'i'));
   if (m){
-    packs = wordToNum(m[1]) || 1;
-    unitsPerPack = wordToNum(m[2]) || 1;
-    unitLabel = (m[3] || unitLabel).replace(/^(?:pz|pezzi)$/i,'unità');
+    packs = Number(m[1]);
+    unitsPerPack = Number(m[2]);
     return { packs, unitsPerPack, unitLabel, explicit:true };
   }
 
-  // "2x6" = 2 confezioni da 6 (se senza g/ml), oppure "4x125g" = 1 conf da 4 unità (etichetta non rilevante)
-  m = s.match(/(\d+)\s*[x×]\s*(\d+)\s*(g|kg|ml|cl|l|lt)?/i);
-  if (m){
-    if (m[3]) {
-      // tipo "4x125g" → 1 confezione da 4 unità
-      packs = 1;
-      unitsPerPack = Number(m[1]);
-    } else {
-      // "2x6" → 2 confezioni da 6
-      packs = Number(m[1]);
-      unitsPerPack = Number(m[2]);
-    }
-    return { packs, unitsPerPack, unitLabel, explicit:true };
-  }
-
-  // "... 6 bottiglie" → 1 conf da 6 unità (label catturata)
-  m = s.match(new RegExp(`(${NUM_WORDS})\\s*(${UNIT_TERMS})\\b`, 'i'));
+  // "4x125"
+  m = s.match(/(\d+)\s*[x×]\s*\d+/i);
   if (m){
     packs = 1;
-    unitsPerPack = wordToNum(m[1]) || 1;
-    unitLabel = (m[2] || unitLabel).replace(/^(?:pz|pezzi)$/i,'unità');
-    return { packs, unitsPerPack, unitLabel, explicit:false };
+    unitsPerPack = Number(m[1]);
+    return { packs, unitsPerPack, unitLabel, explicit:true };
   }
 
-  // "... 2 confezioni" (senza specifica UPP)
-  m = s.match(new RegExp(`(${NUM_WORDS})\\s*(bott(?:iglie)?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
+  // "... 6 bottiglie"
+  m = s.match(new RegExp(String.raw`(\d+)\s*(?:${UNIT_TERMS})\b`, 'i'));
   if (m){
-    packs = wordToNum(m[1]) || 1;
-    unitsPerPack = 1;
-    unitLabel = /^bott/i.test(m[2]||'') ? 'bottiglie' : 'unità';
+    packs = 1;
+    unitsPerPack = Number(m[1]);
     return { packs, unitsPerPack, unitLabel, explicit:false };
   }
 
-  // "2 kg zucchero" → interpreta 2 come quantità confezioni (fallback)
+  // "... 2 confezioni"
+  m = s.match(new RegExp(String.raw`(\d+)\s*(?:bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
+  if (m){
+    packs = Number(m[1]);
+    unitsPerPack = 1;
+    unitLabel = (/^bott/i.test(m[2]||'') ? 'bottiglie' : 'unità');
+    return { packs, unitsPerPack, unitLabel, explicit:false };
+  }
+
+  // "2 kg zucchero"
   m = s.match(/^(\d+(?:[.,]\d+)?)\s+[a-z]/i);
   if (m){
     packs = Number(String(m[1]).replace(',','.')) || 1;
@@ -183,7 +155,6 @@ function extractPackInfo(str){
 
   return { packs, unitsPerPack, unitLabel, explicit:false };
 }
-
 function parseLinesToItems(text) {
   const chunks = String(text || '')
     .split(/[\n,;]+/g)
@@ -230,7 +201,6 @@ function parseLinesToItems(text) {
   }
   return items;
 }
-
 
 /* ====================== Scadenze utils ====================== */
 function toISODate(any) {
@@ -755,7 +725,8 @@ export default function ListeProdotti() {
             { onConflict: 'user_id' }
           );
       } catch (e) {
-        const msg = (e?.message || '').toLowerCase?.() || '';
+        // fix parser: niente optional chaining su call
+        const msg = (e?.message || '').toLowerCase();
         if (DEBUG && !(msg.includes('column') && msg.includes('does not exist'))) {
           console.warn('[cloud upsert] fail', e);
         }
@@ -1120,7 +1091,7 @@ export default function ListeProdotti() {
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ purchases })
           });
-        } catch {}
+        } catch (e) {}
       }
 
       showToast('OCR scontrino elaborato ✓', 'ok');
@@ -1258,7 +1229,7 @@ export default function ListeProdotti() {
 
   /* =================== Vocale LISTA =================== */
   async function toggleRecList() {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
+    if (recBusy) { try { mediaRecRef.current?.stop(); } catch (e) {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -1268,7 +1239,7 @@ export default function ListeProdotti() {
       mediaRecRef.current.onstop = processVoiceList;
       mediaRecRef.current.start();
       setRecBusy(true);
-    } catch {
+    } catch (e) {
       alert('Microfono non disponibile');
     }
   }
@@ -1328,7 +1299,7 @@ export default function ListeProdotti() {
           });
           appended = true;
         }
-      } catch {}
+      } catch (e) {}
       if (!appended) {
         const local = parseLinesToItems(text);
         if (local.length) {
@@ -1352,12 +1323,12 @@ export default function ListeProdotti() {
         }
       }
       showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
-    } catch {
+    } catch (e) {
       alert('Errore nel riconoscimento vocale');
     } finally {
       setRecBusy(false);
       setBusy(false);
-      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
       mediaRecRef.current = null;
       streamRef.current = null;
       recordedChunks.current = [];
@@ -1366,7 +1337,7 @@ export default function ListeProdotti() {
 
   /* =================== Vocale UNIFICATO INVENTARIO =================== */
   async function toggleVoiceInventory() {
-    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
+    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch (e) {} return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       invStreamRef.current = stream;
@@ -1376,7 +1347,7 @@ export default function ListeProdotti() {
       invMediaRef.current.onstop = processVoiceInventory;
       invMediaRef.current.start();
       setInvRecBusy(true);
-    } catch {
+    } catch (e) {
       alert('Microfono non disponibile');
     }
   }
@@ -1429,121 +1400,75 @@ export default function ListeProdotti() {
               residueUnits: Math.max(0, Number(base.packs || 0)),
             });
 
-        if (j < 0) { 
-  if (u.mode === 'packs') {
-    const packs = Math.max(0, Number(u.value ?? u._packs ?? 0));
-    const upHint = Math.max(1, Number(u._upp ?? 1));
+            if (j < 0) {
+              if (u.mode === 'packs') {
+                const packs = Math.max(0, Number(u.value||u._packs||0));
+                if (u.explicit && u._upp > 1) {
+                  const up = Math.max(1, Number(u._upp||1));
+                  const row = {
+                    name: u.name, brand:'', packs,
+                    unitsPerPack: up, unitLabel:'unità',
+                    expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly:false
+                  };
+                  arr.unshift(withRememberedImage(row, imagesIndex));
+                } else {
+                  const row = makePacksOnly({
+                    name: u.name, brand:'', packs,
+                    expiresAt:'', ...restockTouch(packs, todayISO, 1), avgDailyUnits:0
+                  });
+                  arr.unshift(withRememberedImage(row, imagesIndex));
+                }
+              } else {
+                const units = Math.max(0, Number(u.value||1));
+                const base = {
+                  name: u.name, brand:'', packs: 1,
+                  unitsPerPack: 1, unitLabel:'unità',
+                  expiresAt:'', baselinePacks:1, lastRestockAt: todayISO, avgDailyUnits:0,
+                  residueUnits: Math.max(0, Math.min(units, 1)),
+                  packsOnly:false
+                };
+                arr.unshift(withRememberedImage(base, imagesIndex));
+              }
+              continue;
+            }
 
-    if ((u.explicit && upHint > 1) || upHint > 1) {
-      // Confezioni con UPP noto → crea riga completa e incrementa anche residuo (packs*UPP)
-      const row = {
-        name: u.name, brand: '',
-        packs,
-        unitsPerPack: upHint,
-        unitLabel: u.unitLabel || 'unità',
-        expiresAt: '',
-        avgDailyUnits: 0,
-        packsOnly: false,
-        ...restockTouch(packs, todayISO, upHint),
-      };
-      arr.unshift(withRememberedImage(row, imagesIndex));
-    } else {
-      // UPP non noto → riga "solo pacchi" (UPP=1), residuo += packs
-      const row = makePacksOnly({
-        name: u.name, brand: '', packs,
-        expiresAt: '', avgDailyUnits: 0,
-        ...restockTouch(packs, todayISO, 1),
-      });
-      arr.unshift(withRememberedImage(row, imagesIndex));
-    }
-  } else {
-    // Creazione da "unità": baseline/residuo coerenti con le unità dichiarate
-    const units = Math.max(0, Number(u.value ?? 1));
-    const upp   = Math.max(1, Number(u._upp ?? 1));
-    const packs = Math.ceil(units / upp) || 1;
+            const old = arr[j];
 
-    const base = {
-      name: u.name, brand: '',
-      packs,
-      unitsPerPack: upp,
-      unitLabel: u.unitLabel || 'unità',
-      expiresAt: '',
-      avgDailyUnits: 0,
-      packsOnly: false,
-      ...restockTouch(packs, todayISO, upp),
-      residueUnits: units,                 // override per aderire alla misura
-      consumptionAnchorAt: todayISO,
-    };
-    arr.unshift(withRememberedImage(base, imagesIndex));
-  }
-  continue;
-}
+            if (u.op === 'restockExplicit' || u.mode === 'packs') {
+              const uppFromVoice = Math.max(1, Number(u._upp || 1));
+              const packsNew = absolute
+                ? Math.max(0, Number(u.value||u._packs||0))
+                : Math.max(0, Number(old.packs||0) + Number(u.value||u._packs||0));
 
-const old = arr[j];
-
-if (u.op === 'restockExplicit' || u.mode === 'packs') {
-  // Incremento a pacchi: aggiorna packs, baseline e residuo (+ deltaPacks * UPP)
-  const up         = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-  const addPacks   = Math.max(0, Number(u.value ?? u._packs ?? 0));
-  const oldPacks   = Math.max(0, Number(old.packs || 0));
-  const newPacks   = absolute ? addPacks : (oldPacks + addPacks);
-  const deltaPacks = absolute ? Math.max(0, newPacks - oldPacks) : addPacks;
-
-  const baselinePacks = Math.max(Number(old.baselinePacks || 0), newPacks);
-  const baselineUnits = Math.max(up, baselinePacks * up);
-
-  const prevResidue = residueUnitsOf(old);
-  const newResidue  = Math.min(baselineUnits, prevResidue + (deltaPacks * up));
-
-  const avg = computeNewAvgDailyUnits(old, newPacks);
-
-  arr[j] = {
-    ...old,
-    packs: newPacks,
-    baselinePacks,
-    unitsPerPack: up,
-    unitLabel: old.unitLabel || u.unitLabel || 'unità',
-    residueUnits: newResidue,
-    avgDailyUnits: avg,
-    lastRestockAt: todayISO,
-    consumptionAnchorAt: todayISO,
-    packsOnly: false,
-  };
-} else {
-  // Delta "unità": set/incremento residuo con auto-espansione baseline se necessario
-  const up       = Math.max(1, Number(old.unitsPerPack || u._upp || 1));
-  const current  = residueUnitsOf(old);
-  const desired  = absolute
-    ? Math.max(0, Number(u.value || 0))
-    : Math.max(0, current + Number(u.value || 0));
-
-  const baseline = baselineUnitsOf(old) || up;
-
-  if (desired > baseline) {
-    const packsNeeded = Math.ceil(desired / up);
-    const avg = updateAvgFromMeasurement(old, desired);
-    arr[j] = {
-      ...old,
-      packs: Math.max(Number(old.packs || 0), packsNeeded),
-      baselinePacks: Math.max(Number(old.baselinePacks || 0), packsNeeded),
-      unitsPerPack: up,
-      residueUnits: desired,
-      avgDailyUnits: avg,
-      lastRestockAt: todayISO,
-      consumptionAnchorAt: todayISO,
-      packsOnly: false,
-    };
-  } else {
-    const avg = updateAvgFromMeasurement(old, desired);
-    arr[j] = {
-      ...old,
-      residueUnits: desired,
-      avgDailyUnits: avg,
-      consumptionAnchorAt: todayISO,
-      packsOnly: false,
-    };
-  }
-}
+              if (u.explicit && uppFromVoice > 1) {
+                arr[j] = {
+                  ...old,
+                  packs: packsNew,
+                  unitsPerPack: uppFromVoice,
+                  unitLabel: old.unitLabel || 'unità',
+                  packsOnly: false,
+                  ...restockTouch(packsNew, todayISO, uppFromVoice)
+                };
+              } else {
+                arr[j] = makePacksOnly({
+                  ...old,
+                  packs: packsNew,
+                  ...restockTouch(packsNew, todayISO, 1)
+                });
+              }
+            } else {
+              const upp = Math.max(1, Number(old.unitsPerPack || 1));
+              const baseline = baselineUnitsOf(old) || upp;
+              const current = residueUnitsOf(old);
+              const targetUnits = absolute
+                ? Math.max(0, Math.min(Number(u.value||0), baseline))
+                : Math.max(0, Math.min(current + Number(u.value||0), baseline));
+              arr[j] = { ...old, packsOnly:false, residueUnits: targetUnits };
+            }
+          }
+          return arr;
+        });
+      }
 
       if (!expPairs.length && !updates.length) {
         showToast('Nessun dato inventario riconosciuto', 'err');
@@ -1556,7 +1481,7 @@ if (u.op === 'restockExplicit' || u.mode === 'packs') {
     } finally {
       setInvRecBusy(false);
       setBusy(false);
-      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+      try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
       invMediaRef.current = null;
       invStreamRef.current = null;
       invChunksRef.current = [];
@@ -1575,7 +1500,7 @@ if (u.op === 'restockExplicit' || u.mode === 'packs') {
             <h2 style={styles.title3d}>🛍 Lista Prodotti</h2>
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <button onClick={()=>{
-                try { localStorage.removeItem(LS_KEY); } catch {}
+                try { localStorage.removeItem(LS_KEY); } catch (e) {}
                 setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
                 setStock([]);
                 setCurrentList(LIST_TYPES.SUPERMARKET);
@@ -1774,7 +1699,7 @@ if (u.op === 'restockExplicit' || u.mode === 'packs') {
                 if (!name) return;
                 const brand = (stockForm.brand || '').trim();
                 const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
-                const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
+                const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',', '.')) || 1);
                 const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
                 const ex = toISODate(stockForm.expiresAt || '');
                 const todayISO = new Date().toISOString().slice(0,10);
@@ -2202,11 +2127,7 @@ if (u.op === 'restockExplicit' || u.mode === 'packs') {
   );
 }
 
-/* =================== Styles (segue identico all’originale) =================== */
-// Confermi che posso incollare qui sotto il blocco styles invariato?
-
-
-/* =================== Styles (completo con fix) =================== */
+/* =================== Styles (identici) =================== */
 const styles = {
   page: {
     minHeight:'100vh',
@@ -2297,7 +2218,7 @@ const styles = {
     color:'#fde68a',
     fontWeight:700
   },
-    trashBtn:{
+  trashBtn:{
     padding:'8px 10px',
     borderRadius:12,
     border:'1px solid #4b5563',
