@@ -2995,13 +2995,49 @@ const styles = {
     color:'#fde68a',
     fontWeight:700
   },
-  trashBtn:{
-    padding:'8px 10px',
-    borderRadius:12,
-    border:'1px solid #4b5563',
-    background:'linear-gradient(180deg,#1f2937,#111827)',
-    color:'#f87171',
-    fontWeight:700
+ trashBtn:{
+  padding:'8px 10px',
+  borderRadius:12,
+  border:'1px solid #4b5563',
+  background:'linear-gradient(180deg,#1f2937,#111827)',
+  color:'#f87171',
+  fontWeight:700
+},
+
+/* ——— Icon-buttons compatti ——— */
+iconSquareBase:{
+  width:38, height:38, minWidth:38,
+  display:'grid', placeItems:'center',
+  borderRadius:12,
+  border:'1px solid rgba(255,255,255,.20)',
+  background:'rgba(17,24,39,.60)',
+  color:'#e5e7eb',
+  boxShadow:'0 2px 8px rgba(0,0,0,.35)',
+  cursor:'pointer',
+  lineHeight:1, fontSize:'1.05rem', fontWeight:800
+},
+iconBtnEdit:{ borderColor:'#60a5fa', color:'#93c5fd' },
+iconBtnTrash:{
+  borderColor:'#7f1d1d',
+  background:'linear-gradient(180deg,#991b1b,#7f1d1d)',
+  color:'#fecaca'
+},
+iconBtnCamera:{
+  borderColor:'#0ea5e9',
+  background:'linear-gradient(180deg,#0ea5e9,#0284c7)',
+  color:'#05243a'
+},
+iconBtnPlus:{
+  borderColor:'#166534',
+  background:'linear-gradient(180deg,#16a34a,#15803d)',
+  color:'#f0fdf4'
+},
+iconBtnCalendar:{
+  borderColor:'#6d28d9',
+  background:'linear-gradient(180deg,#7c3aed,#6d28d9)',
+  color:'#ede9fe'
+},
+
   },
 
   // LISTA — testo
