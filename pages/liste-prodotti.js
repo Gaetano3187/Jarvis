@@ -1,6 +1,3 @@
-QUESTO è IL CODICE LISTA PRODOTTI HO PROBLEMI CON OCR SCONTRINO STATO SCORTE NEL BROWSE MI DA ERRORE _app-14038ba9e36dbf8c.js:8 
-tj @ _app-14038ba9e36dbf8c.js:8
-api/finances/ingest:1  Failed to load resource: the server responded with a status of 400 () 
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
