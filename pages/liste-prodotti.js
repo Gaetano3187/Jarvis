@@ -1435,11 +1435,11 @@ async function processVoiceInventory() {
     let payload = {};
     try { payload = await res.json(); } catch (e) {}
     if (!res.ok) {
-      const msg = payload?.error ? `: ${payload.error}` : '';
+      const msg = payload && payload.error ? `: ${payload.error}` : '';
       throw new Error(`STT HTTP ${res.status}${msg}`);
     }
 
-    const text = String(payload?.text || '').trim();
+    const text = String(payload && payload.text ? payload.text : '').trim();
     if (!text) throw new Error('Testo non riconosciuto');
 
     if (DEBUG) console.log('[STT inventory text]', text);
@@ -1452,7 +1452,11 @@ async function processVoiceInventory() {
     const todayISO = new Date().toISOString().slice(0, 10);
 
     // "SET assoluto" globale se il testo contiene parole chiave
-    const absoluteGlobal = wantsAbsoluteSet(text) || (typeof hasAbsoluteKeywords === 'function' && hasAbsoluteKeywords(text));
+    const absoluteGlobal =
+      wantsAbsoluteSet(text) ||
+      (typeof hasAbsoluteKeywords === 'function'
+        ? hasAbsoluteKeywords(text)
+        : /\b(sono|restan[oaie]?|rimangono|rimasto|rimasti|rimaste|resta|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
 
     // Applica scadenze
     if (expPairs.length) {
@@ -1460,11 +1464,14 @@ async function processVoiceInventory() {
         const arr = [...prev];
         for (const ex of expPairs) {
           const i = arr.findIndex(s => isSimilar(s.name, ex.name));
-          if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
-          else arr.unshift(withRememberedImage({
-            name: ex.name, brand: '', packs: 0, unitsPerPack: 1, unitLabel: 'unità',
-            expiresAt: ex.expiresAt, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0, packsOnly: false
-          }, imagesIndex));
+          if (i >= 0) {
+            arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+          } else {
+            arr.unshift(withRememberedImage({
+              name: ex.name, brand: '', packs: 0, unitsPerPack: 1, unitLabel: 'unità',
+              expiresAt: ex.expiresAt, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0, packsOnly: false
+            }, imagesIndex));
+          }
         }
         return arr;
       });
@@ -1508,7 +1515,7 @@ async function processVoiceInventory() {
                 arr.unshift(withRememberedImage(row, imagesIndex));
               }
             } else {
-              // mode: 'units' → imposta/residuo unità
+              // mode: 'units' → imposta residuo unità
               const units = Math.max(0, Number(u.value || 1));
               const base = {
                 name: u.name, brand: '', packs: 1,
@@ -1528,7 +1535,7 @@ async function processVoiceInventory() {
             // Aggiornamento a pacchi
             const uppFromVoice = Math.max(1, Number(u._upp || 1));
             const packsNew = abs
-              ? Math.max(0, Number(u.value || u._packs || 0))                      // SET
+              ? Math.max(0, Number(u.value || u._packs || 0))                          // SET
               : Math.max(0, Number(old.packs || 0) + Number(u.value || u._packs || 0)); // SOMMA
 
             if (u.explicit && uppFromVoice > 1) {
@@ -1555,8 +1562,8 @@ async function processVoiceInventory() {
             const baseline = baselineUnitsOf(old) || upp;
             const current = residueUnitsOf(old);
             const targetUnits = abs
-              ? Math.max(0, Math.min(Number(u.value || 0), baseline))                // SET
-              : Math.max(0, Math.min(current + Number(u.value || 0), baseline));     // SOMMA
+              ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
+              : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
             arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
           }
         }
@@ -1571,16 +1578,13 @@ async function processVoiceInventory() {
     }
   } catch (e) {
     console.error('[voice inventory] error', e);
-    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
+    showToast(`Errore vocale inventario: ${e && e.message ? e.message : String(e)}`, 'err');
   } finally {
     setBusy(false);
     invMediaRef.current = null;
     invStreamRef.current = null;
   }
 }
-
-
-
   /* =================== Render =================== */
   return (
     <>
