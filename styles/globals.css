@@ -1677,5 +1677,137 @@ html[data-titlefx] .app-shell :is(.custom-table thead th, .table-v thead th){
   0%   { opacity:.74; transform: scale(0.985); }
   100% { opacity:1;   transform: scale(1.065); }
 }
+/* ==========================================================
+   RESPONSIVE HARD-OVERRIDE — leggibilità mobile & sidebar
+   (incollare IN FONDO al file per avere priorità)
+   ========================================================== */
+
+/* 0) Base tipografia fluida e limiti */
+html{ font-size: clamp(14px, 1.3vw + 10px, 18px); }
+body{ line-height: 1.5 !important; }
+
+/* 1) Titoli: niente testo trasparente/gradient su mobile,
+      riduzione dimensioni con clamp per evitare a capo “brutti” */
+:root{
+  --t-h1: clamp(20px, 4.5vw, 34px);
+  --t-h2: clamp(18px, 3.8vw, 28px);
+  --t-h3: clamp(16px, 3.2vw, 22px);
+}
+
+h1, h2, h3, .title{
+  line-height: 1.25 !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 820px){
+  h1, .title{ font-size: var(--t-h1) !important; }
+  h2{ font-size: var(--t-h2) !important; }
+  h3{ font-size: var(--t-h3) !important; }
+
+  /* Spegne gradient/shine sui titoli per massima leggibilità */
+  .app-shell :is(h1,h2,h3,.title,.title-glass,.title-lemon){
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: currentColor !important;
+    color: var(--text-1) !important;
+    text-shadow: none !important;
+    animation: none !important;
+  }
+}
+
+/* 2) Testo & contenitori: abilita il capo naturale ovunque */
+:where(p, label, span, a, li, div, td, th){
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* 3) Form: colonne → pila su schermi stretti, pulsanti full width */
+.input-section{
+  display: flex; flex-wrap: wrap; gap: 10px;
+}
+.input-section :is(input, select, textarea){ min-width: 220px; flex: 1 1 220px; }
+@media (max-width: 900px){
+  .input-section{ flex-direction: column; }
+  .input-section :is(input, select, textarea){ min-width: 100%; flex: 1 1 100%; }
+  .btn, .btn-vocale, .btn-ocr, .btn-manuale, .btn-danger, .btn-danger-outline{ width: 100%; }
+}
+
+/* 4) Tabelle: modalità “leggibile” by default (niente min-width forzate) */
+.table-container{ overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.custom-table, .table-v{
+  display: table !important;
+  width: 100%;
+  table-layout: auto !important;     /* lascia respirare le colonne */
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 0 !important;           /* disinnesca min-width 680/720 */
+  overflow-x: visible !important;
+}
+
+.custom-table thead, .table-v thead{
+  display: table-header-group !important;
+  position: sticky; top: 0; z-index: 2;
+}
+
+.custom-table tbody, .table-v tbody{ display: table-row-group !important; }
+
+.custom-table th, .custom-table td,
+.table-v th, .table-v td{
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  max-width: 1px;                    /* aiuta il browser a distribuire */
+  padding: clamp(8px, 2.4vw, 12px);
+  font-size: clamp(12px, 3.2vw, 14px);
+  line-height: 1.4;
+}
+
+/* 4b) XS fallback: “stacked” opzionale senza toccare l’HTML
+      — se puoi, aggiungi data-label ai <td>; se non c’è, resta tabellare */
+@media (max-width: 560px){
+  .custom-table.stack, .table-v.stack{ display:block !important; border:0; }
+  .custom-table.stack thead, .table-v.stack thead{ display:none !important; }
+  .custom-table.stack tbody, .table-v.stack tbody{ display:block !important; }
+  .custom-table.stack tr, .table-v.stack tr{
+    display:block; margin: 10px 0;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 12px; overflow: hidden;
+  }
+  .custom-table.stack td, .table-v.stack td{
+    display:grid; grid-template-columns: 42% 1fr; gap: 8px;
+    border: 0 !important; border-bottom: 1px solid rgba(255,255,255,.12) !important;
+  }
+  .custom-table.stack td:last-child, .table-v.stack td:last-child{ border-bottom: 0 !important; }
+  .custom-table.stack td::before, .table-v.stack td::before{
+    content: attr(data-label);
+    font-weight: 700; opacity: .95;
+  }
+}
+
+/* 5) Card/Wrapper: padding più stretto su mobile & sidebar */
+.page-container{ padding: clamp(12px, 3vw, 28px) !important; }
+.spese-casa-container1{ padding: clamp(12px, 3vw, 28px) !important; }
+.spese-casa-container2{ gap: clamp(12px, 3vw, 20px) !important; }
+
+/* 6) Riduci blur/ombre per non sfocare il testo su schermi piccoli */
+@media (max-width: 820px){
+  .glass, .glass-xl, .spese-casa-container2{
+    backdrop-filter: blur(8px) saturate(115%) !important;
+    -webkit-backdrop-filter: blur(8px) saturate(115%) !important;
+    box-shadow: 0 8px 18px rgba(0,0,0,.28) !important;
+  }
+}
+
+/* 7) Classi utili per colonne numeriche (non andare a capo) */
+.nowrap{ white-space: nowrap !important; }
+.text-right{ text-align: right; }
+
+/* 8) Accessibilità/motion: assicurati che gli effetti non disturbino */
+@media (prefers-reduced-motion: reduce){
+  *{ animation: none !important; transition: none !important; }
+}
 
 
