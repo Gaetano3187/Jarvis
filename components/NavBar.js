@@ -15,6 +15,120 @@ const links = [
   { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' },
 ];
 
+/* ===================== LOGO ANIMATO A FULMINI ===================== */
+function LightningLogo() {
+  return (
+    <svg className="bolt-svg" viewBox="0 0 900 200" aria-label="Logo JARVIS con fulmini" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        {/* Glow esterno forte */}
+        <filter id="outerGlow" x="-60%" y="-60%" width="220%" height="260%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b1"/>
+          <feGaussianBlur in="SourceGraphic" stdDeviation="16" result="b2"/>
+          <feColorMatrix in="b2" type="matrix"
+            values="
+              0 0 0 0 0.28
+              0 0 0 0 0.75
+              0 0 0 0 1
+              0 0 0 1 0" result="cyan"/>
+          <feMerge>
+            <feMergeNode in="cyan"/>
+            <feMergeNode in="b1"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+
+        {/* Rumore per tremolio elettrico */}
+        <filter id="electricDisplace" x="-20%" y="-40%" width="140%" height="220%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="12" result="noise">
+            <animate attributeName="baseFrequency" dur="4s" values="0.008;0.02;0.012;0.015;0.008" repeatCount="indefinite"/>
+            <animate attributeName="seed" dur="5s" values="12;42;18;33;12" repeatCount="indefinite"/>
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="12" />
+        </filter>
+
+        {/* alone interno delicato */}
+        <filter id="innerGlow" x="-60%" y="-60%" width="220%" height="260%">
+          <feGaussianBlur stdDeviation="2" result="b1"/>
+          <feComposite in="SourceGraphic" in2="b1" operator="over" />
+        </filter>
+
+        {/* gradiente neon */}
+        <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%"  stopColor="#a5f3fc"/>
+          <stop offset="50%" stopColor="#60a5fa"/>
+          <stop offset="100%" stopColor="#38bdf8"/>
+        </linearGradient>
+
+        {/* maschera per far passare i fulmini attraverso le lettere */}
+        <mask id="textMask">
+          <rect width="100%" height="100%" fill="black"/>
+          <text x="50%" y="50%" dy="24" textAnchor="middle"
+                fontFamily="Orbitron, system-ui, sans-serif"
+                fontWeight="900" fontSize="122" fill="white"
+                style={{letterSpacing:'10px'}}>JARVIS</text>
+        </mask>
+
+        <style>{`
+          .txt-stroke{ fill:transparent; stroke:url(#neon); stroke-width:6; filter:url(#outerGlow); }
+          .txt-core{ fill:url(#neon); filter:url(#innerGlow); opacity:.92; }
+          .bolt{ fill:none; stroke:#b3ecff; stroke-width:3.2; stroke-linecap:round; filter:url(#outerGlow); }
+          .bolt2{ stroke-width:1.8; opacity:.85; }
+          .spark{ stroke:#e0f2fe; stroke-width:1.2; opacity:.9; }
+        `}</style>
+      </defs>
+
+      {/* contorno neon deformato dal rumore */}
+      <g filter="url(#electricDisplace)">
+        <text x="50%" y="50%" dy="24" textAnchor="middle"
+              fontFamily="Orbitron, system-ui, sans-serif" fontWeight="900" fontSize="122"
+              className="txt-stroke" style={{letterSpacing:'10px'}}>JARVIS</text>
+      </g>
+
+      {/* riempimento luminoso */}
+      <text x="50%" y="50%" dy="24" textAnchor="middle"
+            fontFamily="Orbitron, system-ui, sans-serif" fontWeight="900" fontSize="122"
+            className="txt-core" style={{letterSpacing:'10px'}}>JARVIS</text>
+
+      {/* fulmini interni (attraversano il testo) */}
+      <g mask="url(#textMask)">
+        {/* ramo 1 */}
+        <path className="bolt"
+          d="M 60 120 C 130 60, 220 140, 300 90 S 440 80, 520 120 S 660 100, 820 80">
+          <animate attributeName="stroke-dasharray" dur="1.2s" values="0 900; 450 900; 0 900" repeatCount="indefinite"/>
+          <animate attributeName="opacity" dur="1.2s" values="0;1;0" repeatCount="indefinite"/>
+        </path>
+
+        {/* ramo 2 (ritardo per effetto stroboscopico) */}
+        <path className="bolt bolt2"
+          d="M 80 80 C 150 110, 210 70, 320 120 S 480 60, 600 110 S 700 70, 840 120">
+          <animate attributeName="stroke-dasharray" dur="1.55s" values="0 900; 470 900; 0 900" repeatCount="indefinite"/>
+          <animate attributeName="opacity" dur="1.55s" values="0;1;0" repeatCount="indefinite" begin=".25s"/>
+        </path>
+
+        {/* scintille laterali */}
+        <path className="spark" d="M160 70 L150 60 M166 72 L172 56 M520 68 L530 52 M525 70 L515 58">
+          <animate attributeName="opacity" dur="0.9s" values="0;1;0" repeatCount="indefinite" begin=".1s"/>
+        </path>
+        <path className="spark" d="M360 132 L350 148 M366 126 L372 144 M680 126 L690 144 M686 120 L676 138">
+          <animate attributeName="opacity" dur="1.1s" values="0;1;0" repeatCount="indefinite" begin=".35s"/>
+        </path>
+      </g>
+
+      {/* colpi che “escono” sopra il testo */}
+      <g>
+        <path className="bolt bolt2" d="M 440 18 C 456 36, 472 22, 488 34">
+          <animate attributeName="stroke-dasharray" dur="1.3s" values="0 200; 110 200; 0 200" repeatCount="indefinite" begin=".12s"/>
+          <animate attributeName="opacity" dur="1.3s" values="0;1;0" repeatCount="indefinite"/>
+        </path>
+        <path className="bolt bolt2" d="M 620 14 C 642 30, 658 18, 674 28">
+          <animate attributeName="stroke-dasharray" dur="1.4s" values="0 200; 110 200; 0 200" repeatCount="indefinite" begin=".42s"/>
+          <animate attributeName="opacity" dur="1.4s" values="0;1;0" repeatCount="indefinite"/>
+        </path>
+      </g>
+    </svg>
+  );
+}
+
 export default function NavBar() {
   const { pathname } = useRouter();
   const modulo = links.length % 3;
@@ -31,103 +145,10 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* ===== LOGO: parola JARVIS creata dall'ECG, con picchi che escono sopra ===== */}
+          {/* ===== LOGO FULMINI ===== */}
           <Link href="/home" className="brand" aria-label="Jarvis Home">
-            <span className="ecg-logo" title="JARVIS">
-              <svg
-                className="ecg-svg"
-                viewBox="0 0 720 150"
-                aria-label="Logo JARVIS a forma di ECG"
-                preserveAspectRatio="xMidYMid meet"
-              >
-                <defs>
-                  {/* Gradiente luminoso */}
-                  <linearGradient id="ecgGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%"   stopColor="#12b7ff" />
-                    <stop offset="50%"  stopColor="#7b4dff" />
-                    <stop offset="100%" stopColor="#ff3aa6" />
-                  </linearGradient>
-
-                  {/* Glow morbido */}
-                  <filter id="ecgGlow" x="-50%" y="-150%" width="200%" height="400%">
-                    <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b1" />
-                    <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b2" />
-                    <feMerge>
-                      <feMergeNode in="b2" />
-                      <feMergeNode in="b1" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-
-                  {/* Maschera: mostra l'onda solo dentro JARVIS */}
-                  <mask id="jarvisMask">
-                    <rect width="100%" height="100%" fill="black" />
-                    <text
-                      x="50%" y="50%"
-                      dy="18"
-                      textAnchor="middle"
-                      fontFamily="Orbitron, system-ui, sans-serif"
-                      fontWeight="900"
-                      fontSize="84"
-                      fill="white"
-                      style={{ letterSpacing: '10px' }}
-                    >
-                      JARVIS
-                    </text>
-                  </mask>
-
-                  {/* Clip superiore: mostra solo la porzione di onda “sopra” le lettere */}
-                  <clipPath id="topClip">
-                    <rect x="0" y="0" width="720" height="48" />
-                  </clipPath>
-
-                  <style>{`
-                    .wave{
-                      fill: none;
-                      stroke: url(#ecgGrad);
-                      stroke-linecap: round;
-                      stroke-linejoin: round;
-                      filter: url(#ecgGlow);
-                    }
-                  `}</style>
-                </defs>
-
-                {/* Contorno nero: mantiene leggibilità della parola */}
-                <text
-                  x="50%" y="50%"
-                  dy="18"
-                  textAnchor="middle"
-                  fontFamily="Orbitron, system-ui, sans-serif"
-                  fontWeight="900"
-                  fontSize="84"
-                  fill="transparent"
-                  stroke="#000"
-                  strokeWidth="2.2"
-                  style={{ letterSpacing: '10px' }}
-                >
-                  JARVIS
-                </text>
-
-                {/* ONDA DENTRO le lettere */}
-                <g mask="url(#jarvisMask)">
-                  {/* base glow sotto (spessore maggiore) */}
-                  <g opacity=".45">
-                    <path className="wave w1 glow" d={genPath(0, 75, 720, 16, 22, 30)} />
-                    <path className="wave w2 glow" d={genPath(0, 75, 720, 20, 18, 24)} />
-                    <path className="wave w3 glow" d={genPath(0, 75, 720, 24, 14, 20)} />
-                  </g>
-                  {/* linee principali */}
-                  <path className="wave w1" d={genPath(0, 75, 720, 16, 22, 30)} />
-                  <path className="wave w2" d={genPath(0, 75, 720, 20, 18, 24)} />
-                  <path className="wave w3" d={genPath(0, 75, 720, 24, 14, 20)} />
-                </g>
-
-                {/* ONDA CHE “SFONDA” SOPRA */}
-                <g clipPath="url(#topClip)">
-                  <path className="wave w1 out" d={genPath(0, 75, 720, 16, 26, 30)} />
-                  <path className="wave w2 out" d={genPath(0, 75, 720, 20, 22, 24)} />
-                </g>
-              </svg>
+            <span className="bolt-logo" title="JARVIS">
+              <LightningLogo />
             </span>
           </Link>
 
@@ -171,24 +192,10 @@ export default function NavBar() {
         }
         .inner{ min-height: 74px; display:flex; align-items:center; gap:18px; padding:10px 16px; }
 
-        /* ===== LOGO ECG (più piccolo) ===== */
+        /* ===== LOGO fulmini ===== */
         .brand{ text-decoration:none; display:flex; align-items:center; }
-        .ecg-logo{ display:grid; place-items:center; padding:2px 4px; }
-        .ecg-svg{ width: min(360px, 60vw); height:auto; }
-
-        /* Onde: lente e con molti sali/scendi */
-        .w1{ stroke-width: 2.6; stroke-dasharray: 10 16; animation: flow 10s linear infinite, pulse 3.4s ease-in-out infinite; }
-        .w2{ stroke-width: 2.2; stroke-dasharray: 9 15;  animation: flow 7s linear infinite reverse,  pulse 3s ease-in-out infinite; opacity:.92; }
-        .w3{ stroke-width: 1.8; stroke-dasharray: 8 14;  animation: flow 5s linear infinite,        pulse 2.6s ease-in-out infinite; opacity:.96; }
-
-        .glow{ stroke-width: 6; opacity:.35; }
-        .out{ filter: url(#ecgGlow); opacity:.95; }
-
-        @keyframes flow { to { stroke-dashoffset: -420; } }
-        @keyframes pulse {
-          0%,100% { transform: translateY(0) scaleY(1); }
-          50%     { transform: translateY(-0.6px) scaleY(1.09); }
-        }
+        .bolt-logo{ display:grid; place-items:center; padding:0 2px; }
+        .bolt-svg{ width:min(420px, 70vw); height:auto; }
 
         /* ===== MENU ===== */
         .track{ display:flex; gap:12px; list-style:none; margin:0; padding:0; }
@@ -235,36 +242,16 @@ export default function NavBar() {
         @keyframes sheen { 0% { left:-60%; } 100% { left:160%; } }
 
         @media (prefers-reduced-motion: reduce) {
-          .ecg-svg, .w1, .w2, .w3, .label, .link::before { animation: none !important; }
+          .bolt-svg, .label, .link::before { animation: none !important; }
         }
         @media (max-width: 560px){
           .inner{ flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px 12px; }
           .brand{ justify-content: center; }
           .track{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; width:100%; }
           .link{ width:100%; padding:10px 12px; text-align:center; border-radius:14px; }
-          .ecg-svg{ width: min(300px, 86vw); }
+          .bolt-svg{ width: min(320px, 86vw); }
         }
       `}</style>
     </>
   );
-}
-
-/* ===== Helper: genera una traccia ECG fitta ===== */
-function genPath(startX, baseY, width, stepX, up, down) {
-  let x = startX;
-  const endX = startX + width;
-  const parts = [`M ${x} ${baseY}`];
-  let toggle = true;
-  while (x < endX) {
-    const mid = x + stepX * 0.5;
-    const next = x + stepX;
-    const yUp = baseY - (toggle ? up : Math.max(6, up * 0.6));
-    const yDown = baseY + (toggle ? down : Math.max(6, down * 0.6));
-    parts.push(`L ${x + stepX * 0.2} ${yUp}`);
-    parts.push(`L ${mid} ${yDown}`);
-    parts.push(`L ${next} ${baseY}`);
-    x = next;
-    toggle = !toggle;
-  }
-  return parts.join(' ');
 }
