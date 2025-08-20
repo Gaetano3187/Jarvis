@@ -2227,12 +2227,12 @@ if (unitsUpdated.size > 0) {
 
       <div style={styles.page}>
         <div style={styles.card}>
-                               {/* Header */}
-          <div className="lp2-wrap">
-            {/* Titolo neon stile Jarvis */}
-            <h1 className="lp2-title" aria-label="Lista Prodotti">
-              <span className="lp2-stroke">LISTA PRODOTTI</span>
-              <span className="lp2-fill">LISTA PRODOTTI</span>
+                                       {/* Header */}
+          <div className="lp3-wrap">
+            {/* Logo-titolo neon (stile Jarvis) */}
+            <h1 className="lp3-title" aria-label="Lista Prodotti">
+              <span className="lp3-stroke">LISTA PRODOTTI</span>
+              <span className="lp3-fill">LISTA PRODOTTI</span>
             </h1>
 
             {/* Pulsanti a destra: invariati */}
@@ -2250,21 +2250,15 @@ if (unitsUpdated.size > 0) {
 
             {/* Carrello reale che scorre e svela il testo */}
             <img
-              src="/img/cart.png"
+              src="/img/cart.png"   /* deve esistere! controlla /img/cart.png nel browser */
               alt=""
-              className="lp2-cart"
+              className="lp3-cart"
               aria-hidden="true"
-              onError={(e)=>{ // fallback se manca l’immagine
-                e.currentTarget.style.background = 'linear-gradient(#999,#777)';
-                e.currentTarget.style.borderRadius = '10px';
-                e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,.35)';
-                e.currentTarget.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
-              }}
             />
           </div>
 
           <style jsx>{`
-            .lp2-wrap{
+            .lp3-wrap{
               position:relative;
               display:flex;
               justify-content:space-between;
@@ -2273,19 +2267,21 @@ if (unitsUpdated.size > 0) {
               margin-bottom:8px;
               padding-top:6px;
               background:transparent; /* mostra il global */
-              overflow:hidden;        /* taglia il carrello in uscita */
+              overflow:hidden;
+              z-index: 0;
             }
 
-            /* ====== TITOLO NEON ====== */
-            .lp2-title{
+            /* ===== TITOLO NEON ===== */
+            .lp3-title{
               position:relative;
               margin:0; line-height:1;
               height:86px;
               display:flex; align-items:center;
               letter-spacing:.06em;
-              z-index:1; /* sotto al carrello che svela */
+              z-index:1;
+              isolation:isolate;
             }
-            .lp2-title > span{
+            .lp3-title > span{
               position:absolute; inset:0;
               display:flex; align-items:center;
               font-family:'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
@@ -2294,7 +2290,7 @@ if (unitsUpdated.size > 0) {
               white-space:nowrap;
               pointer-events:none;
             }
-            .lp2-stroke{
+            .lp3-stroke{
               color:transparent;
               -webkit-text-stroke:2px #8fe2ff;
               text-shadow:
@@ -2302,10 +2298,9 @@ if (unitsUpdated.size > 0) {
                 0 0 22px rgba(80,200,255,.6),
                 0 0 44px rgba(60,180,255,.35),
                 0 0 70px rgba(60,180,255,.25);
-              animation: lp2-flicker 5.2s linear infinite;
+              animation: lp3-flicker 5.2s linear infinite;
             }
-            .lp2-fill{
-              /* rivelazione guidata da --reveal (in sync col carrello) */
+            .lp3-fill{
               --reveal: 0%;
               background: linear-gradient(90deg,#dff8ff 0%,#94e8ff 40%,#2fb8ff 100%);
               -webkit-background-clip:text;
@@ -2315,40 +2310,42 @@ if (unitsUpdated.size > 0) {
               text-shadow:
                 0 0 8px rgba(160,235,255,.55),
                 0 0 16px rgba(110,220,255,.35);
-              /* ← sostituisce mask-image: funziona ovunque */
+              /* rivelazione compatibile (niente mask-image) */
               clip-path: inset(0 calc(100% - var(--reveal)) 0 0);
-              animation: lp2-reveal 5s cubic-bezier(.25,.1,.25,1) infinite;
+              animation: lp3-reveal 5s cubic-bezier(.25,.1,.25,1) infinite;
             }
-            @keyframes lp2-flicker{
-              0%,100% { opacity:1; filter:brightness(1) saturate(1); }
-              6%  { opacity:.97 } 7% { opacity:1 }
-              38% { opacity:.95 } 40%{ opacity:1 }
-              62% { opacity:.93 } 64%{ opacity:1 }
+            @keyframes lp3-flicker{
+              0%,100% { opacity:1; filter:brightness(1) }
+              6%{opacity:.97} 7%{opacity:1}
+              38%{opacity:.95} 40%{opacity:1}
+              62%{opacity:.93} 64%{opacity:1}
             }
 
-            /* ====== CARRELLO ====== */
-            .lp2-cart{
+            /* ===== CARRELLO ===== */
+            .lp3-cart{
               position:absolute;
               top:50%;
-              height: 88px; /* ~ altezza del titolo */
+              height: 88px;                 /* ~ altezza del titolo */
               transform: translateY(-58%) rotate(-1.5deg);
               left:-25%;
-              z-index:2;          /* sopra al testo */
+              z-index:2;                     /* sopra al testo */
               pointer-events:none; user-select:none;
+              object-fit: contain;           /* usa proporzioni reali */
               filter:
                 drop-shadow(0 0 10px rgba(160,235,255,.45))
                 drop-shadow(0 8px 22px rgba(0,0,0,.35));
-              animation: lp2-cart-move 5s cubic-bezier(.25,.1,.25,1) infinite;
+              animation: lp3-cart-move 5s cubic-bezier(.25,.1,.25,1) infinite;
             }
-            @keyframes lp2-cart-move{
+
+            /* movimento carrello + reveal sincronizzati */
+            @keyframes lp3-cart-move{
               0%   { left:-25%; transform:translateY(-58%) rotate(-1.5deg) }
               10%  { left:-10% }
               50%  { left: 75%; transform:translateY(-58%) rotate(.3deg) }
               82%  { left: 112%; }
               100% { left: 112%; }
             }
-            /* la rivelazione segue lo stesso tempo del carrello */
-            @keyframes lp2-reveal{
+            @keyframes lp3-reveal{
               0%   { --reveal: 0% }
               8%   { --reveal: 6% }
               50%  { --reveal: 100% }
@@ -2356,16 +2353,16 @@ if (unitsUpdated.size > 0) {
               100% { --reveal: 0% }
             }
 
-            /* riduci animazioni su preferenze utente */
+            /* Accessibilità: riduci animazioni se richiesto */
             @media (prefers-reduced-motion: reduce){
-              .lp2-cart{ animation:none; left:-9999px; }
-              .lp2-fill{ animation:none; clip-path:none; }
+              .lp3-cart{ animation:none; left:-9999px; }
+              .lp3-fill{ animation:none; clip-path:none; }
             }
-            /* responsive */
+            /* Responsive */
             @media (max-width: 560px){
-              .lp2-title{ height:72px; }
-              .lp2-title > span{ font-size:38px; }
-              .lp2-cart{ height:74px; }
+              .lp3-title{ height:72px; }
+              .lp3-title > span{ font-size:38px; }
+              .lp3-cart{ height:74px; }
             }
           `}</style>
 
