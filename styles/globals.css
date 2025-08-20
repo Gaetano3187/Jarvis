@@ -4008,6 +4008,82 @@ h1, h2, h3, .title{
     border-radius: 10px;
     font-size: 12px;
   }
+  /* ==========================================================
+   LIST CARDS • layout stabile (titolo+meta a sx | azioni a dx)
+   ========================================================== */
+
+/* Contenitore riga card */
+.list-row,
+.card.list-row,
+.list-item.list-row {
+  overflow: visible !important;                    /* evita tagli dei badge */
+  display: grid !important;
+  grid-template-columns: 1fr auto;                 /* sx testo | dx azioni */
+  grid-template-rows: auto auto;                   /* riga1 titolo, riga2 meta */
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
+}
+
+/* Colonna sinistra: testo elastico */
+.list-row .row-left { grid-column: 1 / 2; grid-row: 1 / span 2; min-width: 0; }
+.list-row .row-title {
+  display:block; min-width:0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* <<< una riga con … */
+}
+.list-row .row-meta {
+  display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;
+  white-space: normal; word-break: break-word; overflow-wrap: anywhere;
+  font-size: 13px; line-height: 1.28;
+}
+
+/* Colonna destra: azioni che non schiacciano il testo */
+.list-row .row-actions {
+  grid-column: 2 / 3; grid-row: 1 / span 2;
+  display: flex !important;
+  flex-wrap: wrap;                                  /* in portrait va su 2 righe */
+  gap: 8px; justify-content: flex-end;
+}
+
+/* Dimensioni pulsanti */
+.list-row .row-actions :is(button,[role="button"],.btn){
+  flex: 0 0 auto;
+  min-width: 36px; min-height: 36px;
+  padding: 6px 10px; border-radius: 10px; line-height: 1; font-size: 13px;
+}
+
+/* Portrait stretto: limita lo spazio azioni per lasciare aria al testo */
+@media (max-width: 480px){
+  .list-row .row-actions{ max-width: 44vw; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .list-row .row-actions :is(button,[role="button"],.btn){ min-width: 34px; min-height: 34px; padding: 6px 8px; font-size: 12px; }
+}
+
+/* Landscape basso: touch-target un filo più grande e tutto su 1 riga comoda */
+@media (orientation: landscape) and (max-height: 480px){
+  .list-row{ grid-template-rows: auto; }
+  .list-row .row-actions :is(button,[role="button"],.btn){
+    min-width: 40px; min-height: 40px; padding: 8px 12px; font-size: 14px;
+  }
+}
+
+/* Safety: disattiva qualsiasi overflow:hidden applicato altrove alle card */
+.card, .cards .cat-card, .list-item { overflow: visible !important; }
+
+/* Se per qualche card non puoi toccare il markup, applica il layout anche senza classi:
+   - primo figlio = titolo, altri = meta, l'elemento che contiene pulsanti = azioni */
+@supports(selector(:has(*))){
+  .card:not(.list-row), .list-item:not(.list-row) {
+    display: grid; grid-template-columns: 1fr auto; column-gap: 10px; row-gap: 6px;
+  }
+  .card > :not(:has(button,[role="button"])):first-child,
+  .list-item > :not(:has(button,[role="button"])):first-child {
+    min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .card > :has(button,[role="button"]), .list-item > :has(button,[role="button"]) {
+    display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end;
+  }
+}
+
 }
 
 }
