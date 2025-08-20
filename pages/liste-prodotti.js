@@ -2584,7 +2584,6 @@ if (unitsUpdated.size > 0) {
             `}</style>
           </div>
 
-      
           </div>
 
         <div style={styles.sectionLifted}>
