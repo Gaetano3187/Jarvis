@@ -4082,6 +4082,74 @@ h1, h2, h3, .title{
   .card > :has(button,[role="button"]), .list-item > :has(button,[role="button"]) {
     display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end;
   }
+  /* ==========================================================
+   NUCLEAR CARD FIX — liste prodotti (niente sovrapposizioni)
+   Incolla questo blocco IN FONDO al file THEME BASE
+   ========================================================== */
+
+.cards .cat-card{
+  /* evita che il contenuto venga tagliato */
+  overflow: visible !important;
+
+  /* layout stabile: testo | azioni */
+  display: grid !important;
+  grid-template-columns: 1fr auto !important;
+  grid-template-rows: auto auto;      /* riga1 titolo, riga2 meta */
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
+}
+
+/* --- TITOLO: primo figlio che NON contiene pulsanti --- */
+@supports(selector(:has(*))){
+  .cards .cat-card > :not(:has(button,[role="button"])):first-child{
+    min-width: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important; /* UNA riga con … */
+    grid-column: 1 / 2; grid-row: 1 / 2;
+  }
+
+  /* --- META: gli elementi testuali successivi vanno sotto il titolo --- */
+  .cards .cat-card > :not(:has(button,[role="button"])):not(:first-child){
+    grid-column: 1 / 2; grid-row: 2 / 3;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    white-space: normal !important; word-break: normal !important; overflow-wrap: anywhere !important;
+    font-size: 13px; line-height: 1.28;
+  }
+
+  /* --- AZIONI: qualunque figlio che CONTIENE pulsanti --- */
+  .cards .cat-card > :has(> button, > [role="button"]){
+    grid-column: 2 / 3; grid-row: 1 / span 2;
+    display: flex !important;
+    flex-wrap: wrap !important;          /* se manca spazio → 2 righe */
+    gap: 8px; justify-content: flex-end;
+    position: static !important;         /* annulla absolute */
+  }
+}
+
+/* Bottoni “compatti”, non comprimono il testo */
+.cards .cat-card :is(button,[role="button"]){
+  flex: 0 0 auto !important;
+  min-width: 36px; min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  line-height: 1; font-size: 13px;
+  position: static !important;          /* annulla absolute anche qui */
+}
+
+/* Portrait stretto: limita la colonna azioni e consenti scroll orizzontale solo lì */
+@media (max-width: 480px){
+  .cards .cat-card > :has(> button, > [role="button"]){
+    max-width: 44vw;                     /* lascia aria al testo */
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  .cards .cat-card :is(button,[role="button"]){
+    min-width: 34px; min-height: 34px; padding: 6px 8px; font-size: 12px;
+  }
+}
+
 }
 
 }
