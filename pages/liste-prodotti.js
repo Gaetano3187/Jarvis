@@ -2516,14 +2516,75 @@ if (unitsUpdated.size > 0) {
           </div>
 
           {/* OCR Scontrino globale */}
+                   {/* OCR Scontrino globale — VIDEO BUTTON */}
           <div style={styles.sectionLarge}>
-            <h3 style={styles.h3}>📸 OCR Scontrino</h3>
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-              <button onClick={() => ocrInputRef.current?.click()} style={styles.primaryBtn} disabled={busy}>
-                Carica foto scontrino
-              </button>
-              <p style={{ opacity:.8, margin:0 }}>Riconosce acquisti, riduce la lista e aggiorna le scorte.</p>
-            </div>
+            <button
+              onClick={() => ocrInputRef.current?.click()}
+              disabled={busy}
+              className="ocr-video-btn"
+              aria-label="Carica scontrino (OCR)"
+              title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+            >
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="ocr-video"
+              >
+                {/* Spazio nel nome file → URL-encode */}
+                <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+              </video>
+            </button>
+
+            <p style={{ opacity:.8, marginTop:8 }}>
+              Riconosce acquisti, riduce la lista e aggiorna le scorte.
+            </p>
+
+            {/* Stili scoped per il pulsante-video */}
+            <style jsx>{`
+              .ocr-video-btn{
+                all: unset;
+                cursor: pointer;
+                display: inline-block;
+                border-radius: 14px;
+                overflow: hidden;
+                box-shadow: 0 6px 18px rgba(0,0,0,.35);
+                background: rgba(255,255,255,.06);
+                border: 1px solid rgba(255,255,255,.12);
+                transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+              }
+              .ocr-video-btn:hover{
+                transform: translateY(-1px) scale(1.02);
+                box-shadow: 0 10px 24px rgba(0,0,0,.45);
+                border-color: rgba(148, 233, 255, .35);
+              }
+              .ocr-video-btn:active{
+                transform: translateY(0) scale(.99);
+              }
+              .ocr-video-btn[disabled]{
+                cursor: not-allowed;
+                opacity: .7;
+                transform: none;
+                box-shadow: 0 4px 14px rgba(0,0,0,.25);
+              }
+              .ocr-video{
+                display: block;
+                height: 84px;         /* altezza simile a un h3 “potenziato” */
+                width: auto;
+                object-fit: contain;
+                pointer-events: none; /* click passa al button */
+                filter:
+                  drop-shadow(0 0 10px rgba(120,220,255,.55))
+                  drop-shadow(0 0 24px rgba(80,200,255,.35));
+              }
+              @media (max-width: 560px){
+                .ocr-video{ height: 64px; }
+              }
+            `}</style>
+          </div>
+
+      
           </div>
 
         <div style={styles.sectionLifted}>
