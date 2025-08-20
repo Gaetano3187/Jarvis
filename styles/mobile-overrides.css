@@ -1,0 +1,133 @@
+/* ==========================================================
+   MOBILE OVERRIDES — iPhone portrait + layout card/tabelle
+   (questo file va importato per ULTIMO in _app.js)
+   ========================================================== */
+
+/* ---------- Tabelle: scroll X, niente per-lettera ---------- */
+@media (max-width: 480px){
+  .table-container{
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .custom-table, .table-v{
+    display: block !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .custom-table thead, .table-v thead{
+    display: table-header-group !important;
+    position: sticky; top: 0; z-index: 2;
+  }
+  .custom-table tbody, .table-v tbody{ display: table-row-group !important; }
+
+  /* annulla regole aggressive arrivate da altri fogli */
+  .custom-table th, .custom-table td,
+  .table-v th, .table-v td{
+    white-space: nowrap !important;    /* resta in riga */
+    word-break: normal !important;     /* no spezza-lettere */
+    overflow-wrap: normal !important;  /* no “anywhere” */
+    hyphens: manual !important;
+    max-width: none !important;        /* stop a max-width:1px */
+    padding: 8px 10px !important;
+    line-height: 1.35 !important;
+  }
+}
+
+/* ---------- Card/lista: layout stabile testo | azioni ---------- */
+/* Target più comuni nel tuo progetto: .cards .cat-card e .spese-casa-container2 .card */
+.cards .cat-card,
+.spese-casa-container2 .card,
+.card,
+.list-item{
+  overflow: visible !important;                    /* evita tagli bottoni/badge */
+  display: grid !important;
+  grid-template-columns: 1fr auto !important;      /* sx testo | dx azioni */
+  grid-auto-rows: min-content;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
+}
+
+/* Titolo: primo figlio “non-azioni” → una riga con ellissi */
+@supports(selector(:has(*))){
+  .cards .cat-card > :not(:has(button,[role="button"])):first-child,
+  .spese-casa-container2 .card > :not(:has(button,[role="button"])):first-child,
+  .card > :not(:has(button,[role="button"])):first-child,
+  .list-item > :not(:has(button,[role="button"])):first-child{
+    grid-column: 1 / 2;
+    min-width: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Meta: gli altri fratelli non-azioni vanno sotto */
+  .cards .cat-card > :not(:has(button,[role="button"])):not(:first-child),
+  .spese-casa-container2 .card > :not(:has(button,[role="button"])):not(:first-child),
+  .card > :not(:has(button,[role="button"])):not(:first-child),
+  .list-item > :not(:has(button,[role="button"])):not(:first-child){
+    grid-column: 1 / 2;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-width: 0;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    font-size: 13px; line-height: 1.28;
+  }
+
+  /* Azioni: qualunque figlio che CONTIENE pulsanti */
+  .cards .cat-card > :has(> button, > [role="button"]),
+  .spese-casa-container2 .card > :has(> button, > [role="button"]),
+  .card > :has(> button, > [role="button"]),
+  .list-item > :has(> button, > [role="button"]){
+    grid-column: 2 / 3;
+    display: flex !important;
+    flex-wrap: wrap !important;            /* wrappa se non c’è spazio */
+    gap: 8px; justify-content: flex-end;
+    position: static !important;           /* annulla absolute */
+  }
+}
+
+/* Fallback (se :has non fosse supportato) — azioni wrappano comunque */
+.cards .cat-card :is(button,[role="button"]),
+.spese-casa-container2 .card :is(button,[role="button"]),
+.card :is(button,[role="button"]),
+.list-item :is(button,[role="button"]){
+  position: static !important;
+}
+.cards .cat-card :is(button,[role="button"]) + :is(button,[role="button"]),
+.spese-casa-container2 .card :is(button,[role="button"]) + :is(button,[role="button"]),
+.card :is(button,[role="button"]) + :is(button,[role="button"]),
+.list-item :is(button,[role="button"]) + :is(button,[role="button"]){
+  /* forza il container a flex-wrap se i bottoni sono fratelli */
+  display: inline-flex;
+  flex-wrap: wrap;
+}
+
+/* Dimensioni pulsanti */
+.list-item :is(button,[role="button"],.btn),
+.card :is(button,[role="button"],.btn),
+.spese-casa-container2 .card :is(button,[role="button"],.btn),
+.cards .cat-card :is(button,[role="button"],.btn){
+  flex: 0 0 auto !important;
+  min-width: 36px; min-height: 36px;
+  padding: 6px 10px; border-radius: 10px; line-height: 1; font-size: 13px;
+}
+
+@media (max-width: 480px){
+  /* in portrait limita la colonna azioni e permetti scroll solo lì */
+  .cards .cat-card > :has(> button, > [role="button"]),
+  .spese-casa-container2 .card > :has(> button, > [role="button"]),
+  .card > :has(> button, > [role="button"]),
+  .list-item > :has(> button, > [role="button"]){
+    max-width: 44vw;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px;
+  }
+  .list-item :is(button,[role="button"],.btn),
+  .card :is(button,[role="button"],.btn),
+  .spese-casa-container2 .card :is(button,[role="button"],.btn),
+  .cards .cat-card :is(button,[role="button"],.btn){
+    min-width: 34px; min-height: 34px; padding: 6px 8px; font-size: 12px;
+  }
+}

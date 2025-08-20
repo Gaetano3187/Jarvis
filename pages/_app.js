@@ -1,6 +1,7 @@
 // /pages/app.js
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
+import "../styles/mobile-overrides.css";
 
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
@@ -17,6 +18,8 @@ const poppins = Poppins({
   weight: ['400', '600', '700'],
   variable: '--font-sans',
   display: 'swap',
+
+
 });
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
