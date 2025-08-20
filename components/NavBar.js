@@ -16,12 +16,12 @@ const links = [
 ];
 
 /* ===================== LOGO ANIMATO A FULMINI + GRADIENTE PULSANTE ===================== */
+/* ===================== LOGO ANIMATO A FULMINI + GRADIENTE PULSANTE ===================== */
 function LightningLogo({ text = 'JARVIS' }) {
   return (
-    <div className="logoAura" aria-hidden="true">
+    <div className="logoAura">
       <svg className="bolt-svg" viewBox="0 0 900 200" preserveAspectRatio="xMidYMid meet" aria-label={`${text} logo elettrico`}>
         <defs>
-          {/* Glow esterno forte */}
           <filter id="outerGlow" x="-60%" y="-60%" width="220%" height="260%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b1"/>
             <feGaussianBlur in="SourceGraphic" stdDeviation="16" result="b2"/>
@@ -37,7 +37,6 @@ function LightningLogo({ text = 'JARVIS' }) {
             </feMerge>
           </filter>
 
-          {/* Tremolio elettrico */}
           <filter id="electricDisplace" x="-20%" y="-40%" width="140%" height="220%">
             <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="12" result="noise">
               <animate attributeName="baseFrequency" dur="4s" values="0.008;0.02;0.012;0.015;0.008" repeatCount="indefinite"/>
@@ -46,88 +45,87 @@ function LightningLogo({ text = 'JARVIS' }) {
             <feDisplacementMap in="SourceGraphic" in2="noise" scale="12" />
           </filter>
 
-          {/* alone interno */}
           <filter id="innerGlow" x="-60%" y="-60%" width="220%" height="260%">
             <feGaussianBlur stdDeviation="2" result="b1"/>
             <feComposite in="SourceGraphic" in2="b1" operator="over" />
           </filter>
 
-          {/* gradiente neon testo */}
           <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%"  stopColor="#a5f3fc"/>
             <stop offset="50%" stopColor="#60a5fa"/>
             <stop offset="100%" stopColor="#38bdf8"/>
           </linearGradient>
 
-          {/* mask per far passare i fulmini dentro il testo */}
           <mask id="textMask">
             <rect width="100%" height="100%" fill="black"/>
             <text x="50%" y="50%" dy="24" textAnchor="middle"
-              fontFamily="Orbitron, system-ui, sans-serif" fontWeight="900" fontSize="122"
-              fill="white" style={{ letterSpacing: '10px' }}>{text}</text>
+              fontFamily="Orbitron, system-ui, sans-serif"
+              fontWeight="900" fontSize="122"
+              fill="white" className="maskText">{text}</text>
           </mask>
 
           <style>{`
-            .txt-stroke{ fill:transparent; stroke:url(#neon); stroke-width:6; filter:url(#outerGlow); }
-            .txt-core{ fill:url(#neon); filter:url(#innerGlow); opacity:.92; }
-            .bolt{ fill:none; stroke:#b3ecff; stroke-width:3.2; stroke-linecap:round; filter:url(#outerGlow); }
-            .bolt2{ stroke-width:1.8; opacity:.85; }
-            .spark{ stroke:#e0f2fe; stroke-width:1.2; opacity:.9; }
+            .txt-stroke {
+              fill: transparent;
+              stroke: url(#neon);
+              stroke-width: 6;
+              filter: url(#outerGlow);
+              letter-spacing: 10px;
+            }
+            .txt-core {
+              fill: url(#neon);
+              filter: url(#innerGlow);
+              opacity: .92;
+              letter-spacing: 10px;
+            }
+            .bolt { fill:none; stroke:#b3ecff; stroke-width:3.2; stroke-linecap:round; filter:url(#outerGlow); }
+            .bolt2 { stroke-width:1.8; opacity:.85; }
+            .spark { stroke:#e0f2fe; stroke-width:1.2; opacity:.9; }
           `}</style>
         </defs>
 
         {/* contorno neon + distorsione */}
         <g filter="url(#electricDisplace)">
           <text x="50%" y="50%" dy="24" textAnchor="middle"
-            fontFamily="Orbitron, system-ui, sans-serif" fontWeight="900" fontSize="122"
-            className="txt-stroke" style={{ letterSpacing: '10px' }}>{text}</text>
+            fontFamily="Orbitron, system-ui, sans-serif"
+            fontWeight="900" fontSize="122"
+            className="txt-stroke">{text}</text>
         </g>
 
         {/* riempimento */}
         <text x="50%" y="50%" dy="24" textAnchor="middle"
-          fontFamily="Orbitron, system-ui, sans-serif" fontWeight="900" fontSize="122"
-          className="txt-core" style={{ letterSpacing: '10px' }}>{text}</text>
+          fontFamily="Orbitron, system-ui, sans-serif"
+          fontWeight="900" fontSize="122"
+          className="txt-core">{text}</text>
 
-        {/* fulmini che attraversano il testo */}
+        {/* fulmini */}
         <g mask="url(#textMask)">
           <path className="bolt"
             d="M 60 120 C 130 60, 220 140, 300 90 S 440 80, 520 120 S 660 100, 820 80">
             <animate attributeName="stroke-dasharray" dur="1.2s" values="0 900; 450 900; 0 900" repeatCount="indefinite"/>
             <animate attributeName="opacity" dur="1.2s" values="0;1;0" repeatCount="indefinite"/>
           </path>
-
           <path className="bolt bolt2"
             d="M 80 80 C 150 110, 210 70, 320 120 S 480 60, 600 110 S 700 70, 840 120">
             <animate attributeName="stroke-dasharray" dur="1.55s" values="0 900; 470 900; 0 900" repeatCount="indefinite"/>
             <animate attributeName="opacity" dur="1.55s" values="0;1;0" repeatCount="indefinite" begin=".25s"/>
           </path>
-
-          {/* scintille */}
-          <path className="spark" d="M160 70 L150 60 M166 72 L172 56 M520 68 L530 52 M525 70 L515 58">
-            <animate attributeName="opacity" dur="0.9s" values="0;1;0" repeatCount="indefinite" begin=".1s"/>
-          </path>
-          <path className="spark" d="M360 132 L350 148 M366 126 L372 144 M680 126 L690 144 M686 120 L676 138">
-            <animate attributeName="opacity" dur="1.1s" values="0;1;0" repeatCount="indefinite" begin=".35s"/>
-          </path>
         </g>
       </svg>
 
-      {/* alone pulsante e caleidoscopico dietro il logo */}
       <style jsx>{`
-        .logoAura{
+        .logoAura {
           position: relative;
           display: grid;
           place-items: center;
         }
-        .logoAura::before{
+        .logoAura::before {
           content: "";
           position: absolute; inset: -14% -10%;
           border-radius: 50%;
           filter: blur(28px);
           opacity: .9;
           background:
-            radial-gradient(60% 60% at 50% 50%,
-              rgba(255,255,255,.18), transparent 62%),
             conic-gradient(from 0deg,
               #2dd4ff, #17b3a6, #ef4444, #2dd4ff);
           animation: kaleido 6.5s linear infinite, pulse 1.8s ease-in-out infinite;
@@ -139,6 +137,7 @@ function LightningLogo({ text = 'JARVIS' }) {
     </div>
   );
 }
+
 
 export default function NavBar() {
   const { pathname } = useRouter();
