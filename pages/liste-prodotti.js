@@ -2516,7 +2516,7 @@ if (unitsUpdated.size > 0) {
           </div>
 
           {/* OCR Scontrino globale */}
-                   {/* OCR Scontrino globale — VIDEO BUTTON */}
+                    {/* OCR Scontrino globale — VIDEO BUTTON */}
           <div style={styles.sectionLarge}>
             <button
               onClick={() => ocrInputRef.current?.click()}
@@ -2584,7 +2584,8 @@ if (unitsUpdated.size > 0) {
             `}</style>
           </div>
 
-          </div>
+          {/* Stato Scorte */}
+
 
         <div style={styles.sectionLifted}>
             <div style={styles.sectionHeaderRow}>
