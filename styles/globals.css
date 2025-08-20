@@ -3621,5 +3621,58 @@ h1, h2, h3, .title{
 @media (prefers-reduced-motion: reduce){
   *{ animation: none !important; transition: none !important; }
 }
+/* ==========================================================
+   NUCLEAR MOBILE FIX — testo orizzontale, no spezzature a lettera
+   (mettere IN FONDO al file)
+   ========================================================== */
 
+@media (max-width: 900px){
+
+  /* 0) Safe-guard contro layout verticali */
+  .app-shell, .app-shell *{
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+  }
+
+  /* 1) Reset globale: niente break aggressivi su mobile */
+  .app-shell *{
+    white-space: normal !important;
+    word-break: keep-all !important;       /* NON spezzare tra lettere */
+    overflow-wrap: normal !important;
+    hyphens: manual !important;
+  }
+
+  /* 2) Eccezione: nelle TABELLE continua a spezzare per non uscire */
+  .custom-table :is(th,td),
+  .table-v     :is(th,td){
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* 3) Righe lista prodotti: testo elastico + azioni fisse */
+  .list-row, .list-item, .card.row{
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* 4) Nome prodotto: UNA riga + ellissi */
+  .product-name, .item-name, .row-title, .name, .titlecell,
+  [class*="product-name"], [class*="item-name"], [class*="row-title"]{
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;               /* abilita ellissi in flex */
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* 5) Bottoni/Badge: non comprimono il testo */
+  .list-row .actions, .list-item .actions,
+  .list-row :is(button,[role="button"]), .list-item :is(button,[role="button"]),
+  .list-row .badge, .list-item .badge{
+    flex: 0 0 auto !important;
+  }
+}
 
