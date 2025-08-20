@@ -3887,6 +3887,54 @@ h1, h2, h3, .title{
   .table-container{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .custom-table, .table-v{ min-width: 760px; }
 }
+/* === LIST CARDS (evita tagli e sovrapposizioni) === */
+.cards .cat-card,
+.list-item.card,
+.card.row {
+  overflow: visible !important;     /* niente taglio dei badge ✓/OCR */
+}
+
+/* layout: testo elastico + azioni che possono andare a capo */
+.cards .cat-card,
+.list-item.card,
+.card.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+}
+
+.cards .cat-card > *:first-child,
+.list-item.card > *:first-child,
+.card.row > *:first-child {
+  min-width: 0;                     /* abilita ellissi */
+}
+
+.cards .cat-card .actions,
+.list-item.card .actions,
+.card.row .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* nome del prodotto: una riga con … */
+.cards .cat-card .name,
+.list-item.card .name,
+.card.row .name {
+  display:block; min-width:0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* pulsanti compatti in portrait */
+@media (max-width: 480px){
+  .cards .cat-card .actions :is(button,[role="button"],.btn),
+  .list-item.card .actions :is(button,[role="button"],.btn),
+  .card.row .actions :is(button,[role="button"],.btn){
+    min-width: 34px; min-height: 34px; padding: 6px 8px; border-radius: 10px; font-size: 12px;
+  }
+}
 
 
 
