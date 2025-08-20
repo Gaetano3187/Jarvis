@@ -3812,8 +3812,82 @@ h1, h2, h3, .title{
   .custom-table.stack td:last-child, .table-v.stack td:last-child{ border-bottom:0 !important; }
   .custom-table.stack td::before, .table-v.stack td::before{
     content: attr(data-label); font-weight:700; opacity:.95;
+      }
+}/* ==========================================================
+   KILL-SWITCH MOBILE (vince su tutto)
+   ========================================================== */
+@media (max-width: 900px){
+  /* 0) Ripristina comportamento del testo ovunque (niente spezza-lettere) */
+  .app-shell, .app-shell *{
+    word-break: keep-all !important;      /* non spezzare tra lettere */
+    overflow-wrap: normal !important;     /* no wrap “anywhere” globale */
+    -webkit-hyphens: none !important;
+    hyphens: none !important;
+    white-space: normal !important;
+  }
+
+  /* 1) Eccezione: SOLO nelle tabelle voglio il wrap */
+  .custom-table :is(th,td),
+  .table-v     :is(th,td){
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* 2) Riga lista prodotti: testo elastico + azioni a destra */
+  .list-row, .list-item, .card.row{
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    align-items: center;
+    column-gap: 10px;
+  }
+
+  /* 3) Nome prodotto: UNA riga + ellissi (serve min-width:0) */
+  .product-name, .item-name, .row-title, .name, .titlecell,
+  [class*="product-name"], [class*="item-name"], [class*="row-title"]{
+    display:block !important;
+    min-width: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* 4) Azioni: non schiacciano il testo; possono andare su 2 righe */
+  .actions{
+    display:flex !important;
+    gap:8px;
+    flex-wrap: wrap;            /* se manca spazio → 2 righe */
+    justify-content: flex-end;
+  }
+  .actions :is(button,[role="button"],.btn,.badge,.chip){
+    flex:0 0 auto !important;
+    min-width:34px; min-height:34px;
+    padding:6px 8px; font-size:12px; border-radius:10px;
+  }
+
+  /* 5) Tabella in portrait: densa e leggibile, senza tagli */
+  .table-container{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .custom-table, .table-v{
+    display: table !important;
+    table-layout: auto !important;
+    min-width: 0 !important;
+    overflow-x: visible !important;
+  }
+  .custom-table th, .custom-table td,
+  .table-v th, .table-v td{
+    padding: 8px 10px !important;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
   }
 }
+
+/* Landscape molto basso (telefono sdraiato): comandi più grandi e scroll X tabella */
+@media (orientation: landscape) and (max-height: 480px){
+  .actions :is(button,[role="button"],.btn){ min-width:40px; min-height:40px; padding:8px 12px; font-size:14px; }
+  .table-container{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .custom-table, .table-v{ min-width: 760px; }
+}
+
 
 
 
