@@ -3765,14 +3765,7 @@ h1, h2, h3, .title{
     grid-template-columns: 1fr auto;
     column-gap: 12px;
   }
-  .list-row .actions :is(button,[role="button"],.btn),
-  .list-item .actions :is(button,[role="button"],.btn){
-    min-width: 40px;
-    min-height: 40px;
-    padding: 8px 12px;
-    font-size: 14px;
-  }
-}
+ }
 
 /* ==========================================================
    TABELLE — ritaglio in verticale e lettura in orizzontale
