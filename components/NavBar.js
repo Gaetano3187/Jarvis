@@ -15,126 +15,182 @@ const links = [
   { href: '/varie',            label: 'Varie',          c1: '#a78bfa', c2: '#93c5fd' },
 ];
 
-/* ===================== LOGO ANIMATO A FULMINI + GRADIENTE PULSANTE ===================== */
-function LightningLogo({ text = 'JARVIS' }) {
-  return (
-    <div className="logoAura">
-      <svg className="bolt-svg" viewBox="0 0 900 200" preserveAspectRatio="xMidYMid meet" aria-label={`${text} logo elettrico`}>
-        <defs>
-          <filter id="outerGlow" x="-60%" y="-60%" width="220%" height="260%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b1"/>
-            <feGaussianBlur in="SourceGraphic" stdDeviation="16" result="b2"/>
-            <feColorMatrix in="b2" type="matrix" values="
-              0 0 0 0 0.28
-              0 0 0 0 0.75
-              0 0 0 0 1
-              0 0 0 1 0" result="cyan"/>
-            <feMerge>
-              <feMergeNode in="cyan"/>
-              <feMergeNode in="b1"/>
-              <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
+          {/* Header */}
+          <div className="np-wrap">
+            {/* Titolo neon a due layer: stroke + fill */}
+            <h1 className="np-title" aria-label="Lista Prodotti">
+              <span className="np-stroke">LISTA PRODOTTI</span>
+              <span className="np-fill">LISTA PRODOTTI</span>
+            </h1>
 
-          <filter id="electricDisplace" x="-20%" y="-40%" width="140%" height="220%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="12" result="noise">
-              <animate attributeName="baseFrequency" dur="4s" values="0.008;0.02;0.012;0.015;0.008" repeatCount="indefinite"/>
-              <animate attributeName="seed" dur="5s" values="12;42;18;33;12" repeatCount="indefinite"/>
-            </feTurbulence>
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="12" />
-          </filter>
+            {/* Pulsanti a destra: invariati */}
+            <div style={{display:'flex', gap:8, alignItems:'center'}}>
+              <button onClick={()=>{
+                try { localStorage.removeItem(LS_KEY); } catch (e) {}
+                setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
+                setStock([]);
+                setCurrentList(LIST_TYPES.SUPERMARKET);
+                setImagesIndex({});
+                showToast('Dati locali azzerati', 'ok');
+              }} style={styles.actionGhost} title="Cancella i dati locali">↺ Reset locale</button>
+              <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
+            </div>
 
-          <filter id="innerGlow" x="-60%" y="-60%" width="220%" height="260%">
-            <feGaussianBlur stdDeviation="2" result="b1"/>
-            <feComposite in="SourceGraphic" in2="b1" operator="over" />
-          </filter>
+            {/* Lampi dietro al testo */}
+            <svg className="np-bolts" viewBox="0 0 1200 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs>
+                {/* Glow morbido per i lampi */}
+                <filter id="np-glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3" result="blur"/>
+                  <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+                <linearGradient id="np-bolt-grad" x1="0" x2="1" y1="0" y2="0">
+                  <stop offset="0%"  stopColor="#7fd9ff"/>
+                  <stop offset="60%" stopColor="#34c3ff"/>
+                  <stop offset="100%" stopColor="#bff0ff"/>
+                </linearGradient>
+              </defs>
 
-          <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%"  stopColor="#a5f3fc"/>
-            <stop offset="50%" stopColor="#60a5fa"/>
-            <stop offset="100%" stopColor="#38bdf8"/>
-          </linearGradient>
+              {/* 3 scariche sfasate per effetto pseudo-random */}
+              <g filter="url(#np-glow)" stroke="url(#np-bolt-grad)" strokeWidth="3" strokeLinecap="round" fill="none">
+                <path className="bolt b1" d="M90,160 L210,120 260,140 330,80 420,120 520,70 610,95 720,55 820,85 910,60 1020,90 1100,70" />
+                <path className="bolt b2" d="M140,95 L230,70 300,105 370,60 450,85 520,55 600,78 690,48 780,68 860,52 950,75 1040,60 1130,80" />
+                <path className="bolt b3" d="M60,120 L170,85 240,110 320,75 410,95 500,68 590,90 680,66 770,88 860,70 950,92 1040,72 1130,100" />
+              </g>
+            </svg>
 
-          <mask id="textMask">
-            <rect width="100%" height="100%" fill="black"/>
-            <text x="50%" y="50%" dy="24" textAnchor="middle"
-              fontFamily="Orbitron, system-ui, sans-serif"
-              fontWeight="900" fontSize="122"
-              fill="white" className="maskText">{text}</text>
-          </mask>
+            {/* Flash schermo (breve) */}
+            <div className="np-flash" aria-hidden="true" />
+          </div>
 
-          <style>{`
-            .txt-stroke {
-              fill: transparent;
-              stroke: url(#neon);
-              stroke-width: 6;
-              filter: url(#outerGlow);
-              letter-spacing: 10px;
+          <style jsx>{`
+            /* Layout header */
+            .np-wrap{
+              position:relative;
+              display:flex;
+              justify-content:space-between;
+              align-items:center;
+              gap:12px;
+              margin-bottom:8px;
+              padding-top:6px;
+              /* nessun background per lasciare visibile il globale */
+              background: transparent;
             }
-            .txt-core {
-              fill: url(#neon);
-              filter: url(#innerGlow);
-              opacity: .92;
-              letter-spacing: 10px;
+
+            /* Titolo neon */
+            .np-title{
+              position:relative;
+              margin:0;
+              line-height:1;
+              height:72px;
+              display:flex;
+              align-items:center;
+              letter-spacing:.06em;
             }
-            .bolt { fill:none; stroke:#b3ecff; stroke-width:3.2; stroke-linecap:round; filter:url(#outerGlow); }
-            .bolt2 { stroke-width:1.8; opacity:.85; }
-            .spark { stroke:#e0f2fe; stroke-width:1.2; opacity:.9; }
+            .np-title > span{
+              position:absolute; inset:0;
+              display:flex; align-items:center;
+              font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+              font-weight:900;
+              font-size:48px;
+              white-space:nowrap;
+              pointer-events:none;
+            }
+
+            /* Outline forte come nel reference */
+            .np-stroke{
+              color: transparent;
+              -webkit-text-stroke: 2px #7fd9ff;
+              text-shadow:
+                0 0 8px rgba(111,220,255,.9),
+                0 0 16px rgba(111,220,255,.6),
+                0 0 28px rgba(60,190,255,.45),
+                0 0 48px rgba(60,190,255,.35);
+              animation: np-flicker 4.5s linear infinite;
+            }
+
+            /* Riempimento tenue + alone interno */
+            .np-fill{
+              background: linear-gradient(90deg, #bff0ff 0%, #76dcff 40%, #2fb8ff 100%);
+              -webkit-background-clip: text;
+              -webkit-text-fill-color: transparent;
+              background-clip: text;
+              color: transparent;
+              text-shadow:
+                0 0 6px rgba(140,230,255,.55),
+                0 0 14px rgba(80,210,255,.35);
+              animation: np-flicker-soft 5s ease-in-out infinite;
+            }
+
+            /* Sfarfallio leggero (no fastidio) */
+            @keyframes np-flicker {
+              0%, 100% { opacity: 1; filter: saturate(1) brightness(1); }
+              8%  { opacity: .96; }
+              9%  { opacity: 1;   }
+              38% { opacity: .94; }
+              40% { opacity: 1;   }
+              63% { opacity: .92; }
+              66% { opacity: 1;   }
+            }
+            @keyframes np-flicker-soft {
+              0%, 100% { filter: brightness(1); }
+              50%      { filter: brightness(1.08); }
+            }
+
+            /* SVG lampi, dietro al testo */
+            .np-bolts{
+              position:absolute;
+              inset: -10px 0 auto 0;
+              height: 90px;
+              z-index: 0;
+              opacity:.0;     /* default spenti */
+              pointer-events:none;
+            }
+            .bolt{ opacity:0; }
+            .bolt.b1{ animation: np-bolt 5.6s infinite; }
+            .bolt.b2{ animation: np-bolt 6.3s infinite 1.2s; }
+            .bolt.b3{ animation: np-bolt 7.1s infinite 2.1s; }
+
+            /* flash dei lampi */
+            @keyframes np-bolt {
+              0%, 94%, 100% { opacity:0; }
+              95% { opacity:.95; }
+              96% { opacity:.2; }
+              97% { opacity:.8; }
+              98% { opacity:.15; }
+              99% { opacity:.7; }
+            }
+
+            /* bagliore sullo schermo in sincrono (breve) */
+            .np-flash{
+              position:absolute;
+              inset:-12px -8px;
+              background: radial-gradient(70% 60% at 30% 40%, rgba(160,230,255,.22), rgba(160,230,255,0) 60%);
+              mix-blend-mode: screen;
+              opacity:0;
+              pointer-events:none;
+              animation: np-flash 6.3s infinite 1s;
+            }
+            @keyframes np-flash{
+              0%, 94%, 100% { opacity:0; }
+              95% { opacity:.35; }
+              96% { opacity:.08; }
+              97% { opacity:.25; }
+              98% { opacity:.05; }
+              99% { opacity:.18; }
+            }
+
+            /* Responsivo */
+            @media (max-width: 560px){
+              .np-title > span { font-size:34px; }
+              .np-title { height:60px; }
+              .np-bolts { height:76px; }
+            }
           `}</style>
-        </defs>
 
-        {/* contorno neon + distorsione */}
-        <g filter="url(#electricDisplace)">
-          <text x="50%" y="50%" dy="24" textAnchor="middle"
-            fontFamily="Orbitron, system-ui, sans-serif"
-            fontWeight="900" fontSize="122"
-            className="txt-stroke">{text}</text>
-        </g>
-
-        {/* riempimento */}
-        <text x="50%" y="50%" dy="24" textAnchor="middle"
-          fontFamily="Orbitron, system-ui, sans-serif"
-          fontWeight="900" fontSize="122"
-          className="txt-core">{text}</text>
-
-        {/* fulmini */}
-        <g mask="url(#textMask)">
-          <path className="bolt"
-            d="M 60 120 C 130 60, 220 140, 300 90 S 440 80, 520 120 S 660 100, 820 80">
-            <animate attributeName="stroke-dasharray" dur="1.2s" values="0 900; 450 900; 0 900" repeatCount="indefinite"/>
-            <animate attributeName="opacity" dur="1.2s" values="0;1;0" repeatCount="indefinite"/>
-          </path>
-          <path className="bolt bolt2"
-            d="M 80 80 C 150 110, 210 70, 320 120 S 480 60, 600 110 S 700 70, 840 120">
-            <animate attributeName="stroke-dasharray" dur="1.55s" values="0 900; 470 900; 0 900" repeatCount="indefinite"/>
-            <animate attributeName="opacity" dur="1.55s" values="0;1;0" repeatCount="indefinite" begin=".25s"/>
-          </path>
-        </g>
-      </svg>
-
-      <style jsx>{`
-        .logoAura {
-          position: relative;
-          display: grid;
-          place-items: center;
-        }
-        .logoAura::before {
-          content: "";
-          position: absolute; inset: -14% -10%;
-          border-radius: 50%;
-          filter: blur(28px);
-          opacity: .9;
-          background:
-            conic-gradient(from 0deg,
-              #2dd4ff, #17b3a6, #ef4444, #2dd4ff);
-          animation: kaleido 6.5s linear infinite, pulse 1.8s ease-in-out infinite;
-          z-index: -1;
-        }
-        @keyframes kaleido { to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%,100%{ transform: scale(1); opacity:.75 } 50%{ transform: scale(1.12); opacity:1 } }
-      `}</style>
-    </div>
-  );
 }
 
 
