@@ -2227,9 +2227,9 @@ if (unitsUpdated.size > 0) {
 
       <div style={styles.page}>
         <div style={styles.card}>
-                       {/* Header */}
+                               {/* Header */}
           <div className="lp2-wrap">
-            {/* Titolo neon: stroke + fill (stile Jarvis) */}
+            {/* Titolo neon stile Jarvis */}
             <h1 className="lp2-title" aria-label="Lista Prodotti">
               <span className="lp2-stroke">LISTA PRODOTTI</span>
               <span className="lp2-fill">LISTA PRODOTTI</span>
@@ -2248,12 +2248,18 @@ if (unitsUpdated.size > 0) {
               <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
             </div>
 
-            {/* Carrello reale che svela il titolo */}
+            {/* Carrello reale che scorre e svela il testo */}
             <img
               src="/img/cart.png"
               alt=""
               className="lp2-cart"
               aria-hidden="true"
+              onError={(e)=>{ // fallback se manca l’immagine
+                e.currentTarget.style.background = 'linear-gradient(#999,#777)';
+                e.currentTarget.style.borderRadius = '10px';
+                e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,.35)';
+                e.currentTarget.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+              }}
             />
           </div>
 
@@ -2266,18 +2272,18 @@ if (unitsUpdated.size > 0) {
               gap:12px;
               margin-bottom:8px;
               padding-top:6px;
-              background:transparent; /* lascia visibile il global */
-              overflow:hidden;
+              background:transparent; /* mostra il global */
+              overflow:hidden;        /* taglia il carrello in uscita */
             }
 
-            /* ==== TITOLO NEON (come Jarvis) ==== */
+            /* ====== TITOLO NEON ====== */
             .lp2-title{
               position:relative;
               margin:0; line-height:1;
-              height:82px; /* spazio per glow */
+              height:86px;
               display:flex; align-items:center;
               letter-spacing:.06em;
-              isolation:isolate; /* per mask su fill */
+              z-index:1; /* sotto al carrello che svela */
             }
             .lp2-title > span{
               position:absolute; inset:0;
@@ -2288,8 +2294,6 @@ if (unitsUpdated.size > 0) {
               white-space:nowrap;
               pointer-events:none;
             }
-
-            /* contorno forte + bagliore esterno */
             .lp2-stroke{
               color:transparent;
               -webkit-text-stroke:2px #8fe2ff;
@@ -2300,10 +2304,9 @@ if (unitsUpdated.size > 0) {
                 0 0 70px rgba(60,180,255,.25);
               animation: lp2-flicker 5.2s linear infinite;
             }
-
-            /* riempimento luminoso con gradiente brand */
             .lp2-fill{
-              --reveal: 0%; /* animata in sync con il carrello */
+              /* rivelazione guidata da --reveal (in sync col carrello) */
+              --reveal: 0%;
               background: linear-gradient(90deg,#dff8ff 0%,#94e8ff 40%,#2fb8ff 100%);
               -webkit-background-clip:text;
               -webkit-text-fill-color:transparent;
@@ -2312,65 +2315,57 @@ if (unitsUpdated.size > 0) {
               text-shadow:
                 0 0 8px rgba(160,235,255,.55),
                 0 0 16px rgba(110,220,255,.35);
-              /* maschera orizzontale che cresce da sinistra verso destra */
-              -webkit-mask-image: linear-gradient(90deg, #000 0 var(--reveal), transparent var(--reveal) 100%);
-              mask-image: linear-gradient(90deg, #000 0 var(--reveal), transparent var(--reveal) 100%);
+              /* ← sostituisce mask-image: funziona ovunque */
+              clip-path: inset(0 calc(100% - var(--reveal)) 0 0);
               animation: lp2-reveal 5s cubic-bezier(.25,.1,.25,1) infinite;
             }
-
-            /* lieve flicker, non fastidioso */
             @keyframes lp2-flicker{
               0%,100% { opacity:1; filter:brightness(1) saturate(1); }
-              6%  { opacity:.97 }
-              7%  { opacity:1 }
-              38% { opacity:.95 }
-              40% { opacity:1 }
-              62% { opacity:.93 }
-              64% { opacity:1 }
+              6%  { opacity:.97 } 7% { opacity:1 }
+              38% { opacity:.95 } 40%{ opacity:1 }
+              62% { opacity:.93 } 64%{ opacity:1 }
             }
 
-            /* ==== CARRELLO REALE CHE SCORRE ==== */
+            /* ====== CARRELLO ====== */
             .lp2-cart{
               position:absolute;
-              height: 84px;           /* ~ altezza del titolo: puoi rifinire */
-              left:-20%;
-              top: 50%;
-              transform: translateY(-56%) rotate(-2deg);
+              top:50%;
+              height: 88px; /* ~ altezza del titolo */
+              transform: translateY(-58%) rotate(-1.5deg);
+              left:-25%;
+              z-index:2;          /* sopra al testo */
+              pointer-events:none; user-select:none;
               filter:
                 drop-shadow(0 0 10px rgba(160,235,255,.45))
                 drop-shadow(0 8px 22px rgba(0,0,0,.35));
               animation: lp2-cart-move 5s cubic-bezier(.25,.1,.25,1) infinite;
-              pointer-events:none;
-              user-select:none;
             }
-
-            /* movimento carrello e reveal in sync (stessa durata) */
             @keyframes lp2-cart-move{
-              0%   { left:-20%; transform:translateY(-56%) rotate(-2deg) }
-              6%   { left:-10% }
-              50%  { left: 72%; transform:translateY(-56%) rotate(.5deg) }
-              80%  { left: 110%; }
-              100% { left: 110%; }
+              0%   { left:-25%; transform:translateY(-58%) rotate(-1.5deg) }
+              10%  { left:-10% }
+              50%  { left: 75%; transform:translateY(-58%) rotate(.3deg) }
+              82%  { left: 112%; }
+              100% { left: 112%; }
             }
+            /* la rivelazione segue lo stesso tempo del carrello */
             @keyframes lp2-reveal{
               0%   { --reveal: 0% }
-              5%   { --reveal: 5% }
+              8%   { --reveal: 6% }
               50%  { --reveal: 100% }
-              80%  { --reveal: 100% }
+              82%  { --reveal: 100% }
               100% { --reveal: 0% }
             }
 
-            /* riduci movimento se l’utente lo preferisce */
+            /* riduci animazioni su preferenze utente */
             @media (prefers-reduced-motion: reduce){
-              .lp2-cart{ animation: none; left:-9999px; }
-              .lp2-fill{ animation: none; -webkit-mask-image:none; mask-image:none; }
+              .lp2-cart{ animation:none; left:-9999px; }
+              .lp2-fill{ animation:none; clip-path:none; }
             }
-
             /* responsive */
             @media (max-width: 560px){
-              .lp2-title{ height:70px; }
+              .lp2-title{ height:72px; }
               .lp2-title > span{ font-size:38px; }
-              .lp2-cart{ height:72px; }
+              .lp2-cart{ height:74px; }
             }
           `}</style>
 
