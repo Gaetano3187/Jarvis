@@ -2515,12 +2515,12 @@ if (unitsUpdated.size > 0) {
             )}
           </div>
 
-                  {/* OCR Scontrino globale — VIDEO BUTTON (no styled-jsx) */}
+                       {/* OCR Scontrino globale — VIDEO FULL-WIDTH BUTTON */}
           <div style={styles.sectionLarge}>
             <button
               onClick={() => ocrInputRef.current?.click()}
               disabled={busy}
-              style={styles.ocrVideoBtn}
+              style={styles.ocrVideoBtnXL}
               aria-label="Carica scontrino (OCR)"
               title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
             >
@@ -2529,13 +2529,17 @@ if (unitsUpdated.size > 0) {
                 loop
                 muted
                 playsInline
-                style={styles.ocrVideo}
+                style={styles.ocrVideoXL}
               >
-              <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+                <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
               </video>
+
+              <span style={styles.ocrVideoLabel}>
+                OCR Scontrino · clicca per caricare
+              </span>
             </button>
 
-            <p style={{ opacity:.8, marginTop:8 }}>
+            <p style={{ opacity:.8, marginTop:10 }}>
               Riconosce acquisti, riduce la lista e aggiorna le scorte.
             </p>
           </div>
@@ -3268,5 +3272,41 @@ const styles = {
   iconDanger: {
     color: '#f87171'
   }
+   // ===== VIDEO OCR "GRANDE" (full width, come titolo + tasto) =====
+   
+  ocrVideoBtnXL: {
+    all: 'unset',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    width: '100%',
+    minHeight: 84,
+    padding: '10px 14px',
+    borderRadius: 14,
+    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.12)',
+    boxShadow: '0 8px 20px rgba(0,0,0,.28)',
+    transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease',
+  },
+  ocrVideoXL: {
+    height: 64,
+    width: 'auto',
+    objectFit: 'contain',
+    pointerEvents: 'none',
+    filter: 'drop-shadow(0 0 10px rgba(120,220,255,.55)) drop-shadow(0 0 22px rgba(80,200,255,.35))',
+  },
+  ocrVideoLabel: {
+    flex: 1,
+    fontWeight: 800,
+    fontSize: '1.25rem',
+    letterSpacing: '.02em',
+    color: '#e6f7ff',
+    textShadow: '0 0 10px rgba(120,220,255,.55), 0 0 18px rgba(80,200,255,.35)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+
 
 }; // ⬅️ chiusura dell’oggetto styles
