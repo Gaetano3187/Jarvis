@@ -4149,6 +4149,49 @@ h1, h2, h3, .title{
     min-width: 34px; min-height: 34px; padding: 6px 8px; font-size: 12px;
   }
 }
+/* ==========================================================
+   MOBILE PAN MODE (iPhone portrait) — pagina “spostabile”
+   ========================================================== */
+
+@media (max-width: 430px) and (orientation: portrait){
+  /* 0) Abilita pan orizzontale a livello documento */
+  html, body{
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y !important;
+  }
+
+  /* 1) Estendi la larghezza utile solo dove serve (puoi variare 118vw/128vw) */
+  /* Liste Prodotti */
+  [data-route="/liste-prodotti"] .spese-casa-container2{
+    min-width: 118vw !important;   /* guadagna ~18% di spazio in più */
+  }
+  /* Spese */
+  [data-route="/spese"] .spese-casa-container2{
+    min-width: 118vw !important;
+  }
+  /* Stato Scorte (se la usi) */
+  [data-route="/stato-scorte"] .spese-casa-container2{
+    min-width: 118vw !important;
+  }
+  /* Spese Casa (se la usi) */
+  [data-route="/spese-casa"] .spese-casa-container2{
+    min-width: 118vw !important;
+  }
+
+  /* 2) Evita che altri wrapper “stringano” dentro */
+  .page-container{ min-width: inherit !important; }
+  .cards, .list, .table-container, .custom-table, .table-v{
+    max-width: none !important;
+  }
+
+  /* 3) Sfondo/blur più leggeri per fluidità durante il pan */
+  .spese-casa-container2{
+    backdrop-filter: blur(8px) saturate(115%) !important;
+    -webkit-backdrop-filter: blur(8px) saturate(115%) !important;
+  }
+}
+
 
 }
 
