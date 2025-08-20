@@ -2691,34 +2691,52 @@ if (unitsUpdated.size > 0) {
                               </div>
 
                               {/* Azioni riga */}
-                            <div style={styles.rowActionsRight}>
-  {/* Modifica (matita) */}
-  <button
-    title="Modifica"
-    onClick={() => startRowEdit(idx, s)}
-    style={{ ...styles.iconSquareBase }}
-  >
-    <Pencil size={18} />
-  </button>
+                                                         {/* Azioni riga */}
+                              <div style={styles.rowActionsRight}>
+                                {/* Modifica (matita) */}
+                                <button
+                                  title="Modifica"
+                                  onClick={() => startRowEdit(idx, s)}
+                                  style={styles.iconCircle}
+                                  aria-label="Modifica scorta"
+                                >
+                                  <Pencil size={18} />
+                                </button>
 
-  {/* Elimina definitivamente (cestino) */}
-  <button
-    title="Elimina definitivamente"
-    onClick={() => deleteStockRow(idx)}
-    style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
-  >
-    <Trash2 size={18} />
-  </button>
+                                {/* Imposta scadenza rapida (calendario) */}
+                                <button
+                                  title="Imposta scadenza"
+                                  onClick={() => {
+                                    setShowExpiryForm(true);
+                                    setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' });
+                                  }}
+                                  style={styles.iconCircle}
+                                  aria-label="Imposta scadenza"
+                                >
+                                  <Calendar size={18} />
+                                </button>
 
-  {/* OCR riga (fotocamera) */}
-  <button
-    title="OCR riga"
-    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-    style={{ ...styles.iconSquareBase }}
-  >
-    <Camera size={18} />
-  </button>
-</div>
+                                {/* OCR riga (fotocamera) */}
+                                <button
+                                  title="OCR riga"
+                                  onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                  style={styles.iconCircle}
+                                  aria-label="OCR riga"
+                                >
+                                  <Camera size={18} />
+                                </button>
+
+                                {/* Elimina definitivamente (cestino) */}
+                                <button
+                                  title="Elimina definitivamente"
+                                  onClick={() => deleteStockRow(idx)}
+                                  style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
+                                  aria-label="Elimina scorta"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+
 
                             </div>
                           </>
@@ -2926,13 +2944,15 @@ if (unitsUpdated.size > 0) {
 
 /* =================== Styles (identici) =================== */
 const styles = {
-  page: {
+    page: {
     minHeight:'100vh',
-    background:'radial-gradient(1200px 1200px at 10% -10%, rgba(90,130,160,.25), transparent), radial-gradient(1200px 1200px at 110% 10%, rgba(60,110,140,.25), transparent), linear-gradient(180deg, #0b1520, #0e1b27 60%, #0b1520)',
+    // completamente trasparente per mostrare lo sfondo globale
+    background:'transparent',
     padding:'24px 16px',
     color:'#f8f1dc',
     textShadow:'0 0 6px rgba(255,245,200,.15)'
   },
+
 
   // Card trasparente
   card: {
@@ -2977,17 +2997,16 @@ const styles = {
     boxShadow:'none'                           // niente ombra grigia
   },
   // —————————————————— Aggiungi questi nuovi stili ——————————————————
-  iconCircle: {
+    iconCircle: {
     width:38, height:38, minWidth:38,
     display:'grid', placeItems:'center',
     borderRadius:999,
     border:'1px solid rgba(255,255,255,.18)',
-    background:'rgba(15,23,42,.35)',          // vetro scuro trasparente
+    background:'rgba(15,23,42,.35)',   // vetro scuro trasparente
     color:'#e5e7eb',
     boxShadow:'0 2px 8px rgba(0,0,0,.35)',
     cursor:'pointer'
   },
-  sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
 
   h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
   h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },

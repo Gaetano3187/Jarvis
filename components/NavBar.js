@@ -16,7 +16,6 @@ const links = [
 ];
 
 /* ===================== LOGO ANIMATO A FULMINI + GRADIENTE PULSANTE ===================== */
-/* ===================== LOGO ANIMATO A FULMINI + GRADIENTE PULSANTE ===================== */
 function LightningLogo({ text = 'JARVIS' }) {
   return (
     <div className="logoAura">
