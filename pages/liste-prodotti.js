@@ -2227,9 +2227,34 @@ if (unitsUpdated.size > 0) {
 
       <div style={styles.page}>
         <div style={styles.card}>
-          {/* Header */}
-          <div style={styles.headerRow}>
-            <h2 style={styles.title3d}>🛍 Lista Prodotti</h2>
+             {/* Header */}
+          <div className="lp-title-wrap">
+            <div className="lp-title">
+              {/* Testo base attenuato (alone) */}
+              <span className="lp-title-dim">LISTA PRODOTTI</span>
+              {/* Testo rivelato dal passaggio del carrello */}
+              <span className="lp-title-reveal">LISTA PRODOTTI</span>
+
+              {/* Carrello animato */}
+              <svg className="lp-cart" viewBox="0 0 120 80" aria-hidden="true">
+                {/* Corpo carrello */}
+                <g className="body">
+                  <path d="M18 18 h16 l8 28 h52 l6-20 H48" fill="none" stroke="currentColor" strokeWidth="4" />
+                  <path d="M34 18 v-8 h14" fill="none" stroke="currentColor" strokeWidth="4" />
+                </g>
+                {/* Ruote */}
+                <g className="wheel" transform="translate(46,64)">
+                  <circle r="8" fill="currentColor" />
+                  <circle r="4" fill="none" stroke="#0ea5e9" strokeWidth="2" />
+                </g>
+                <g className="wheel" transform="translate(88,64)">
+                  <circle r="8" fill="currentColor" />
+                  <circle r="4" fill="none" stroke="#0ea5e9" strokeWidth="2" />
+                </g>
+              </svg>
+            </div>
+
+            {/* Pulsanti a destra: invariati */}
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <button onClick={()=>{
                 try { localStorage.removeItem(LS_KEY); } catch (e) {}
@@ -2242,6 +2267,93 @@ if (unitsUpdated.size > 0) {
               <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
             </div>
           </div>
+
+          <style jsx>{`
+            .lp-title-wrap{
+              display:flex; justify-content:space-between; align-items:center;
+              gap:12px; margin-bottom:8px;
+            }
+            .lp-title{
+              position:relative; height:64px; flex:1; color:#e5f3ff;
+              /* piccolo margine per non tagliare glow */
+              padding-right: 80px;
+            }
+            .lp-title-dim{
+              position:absolute; inset:0;
+              display:flex; align-items:center;
+              font-weight:900; font-size:42px; letter-spacing:.06em;
+              color:rgba(255,255,255,.22);
+              filter: blur(0.6px);
+              text-shadow:
+                0 0 16px rgba(120,200,255,.18),
+                0 0 28px rgba(120,200,255,.10);
+              white-space:nowrap;
+            }
+            .lp-title-reveal{
+  --w:0%;
+  position:absolute; inset:0;
+  display:flex; align-items:center;
+  font-weight:900; font-size:42px; letter-spacing:.06em;
+  white-space:nowrap;
+  
+  /* testo con gradiente */
+  background: linear-gradient(90deg, #00f 0%, #006666 60%, #33ffaa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+
+  /* glow extra */
+  text-shadow:
+    0 0 10px rgba(90,200,255,.85),
+    0 0 20px rgba(90,200,255,.55),
+    0 0 40px rgba(90,200,255,.35),
+    0 0 70px rgba(90,200,255,.20);
+
+  /* rivelazione progressiva con clip */
+  clip-path: inset(0 calc(100% - var(--w)) 0 0);
+  animation: lp-reveal 4s linear infinite;
+}
+
+
+            /* Carrello che attraversa, poi reset */
+            @keyframes lp-move {
+              0%   { left: 0%; }
+              49%  { left: calc(100% - 60px); }
+              50%  { left: -12%; }
+              100% { left: 0%; }
+            }
+
+            /* La porzione rivelata segue il carrello */
+            @keyframes lp-reveal {
+              0%   { --w:0%;   }
+              49%  { --w:100%; }
+              50%  { --w:0%;   }
+              100% { --w:0%;   }
+            }
+
+            /* Dettagli "camminata": ruote che girano e corpo che sobbalza */
+            .lp-cart .wheel {
+              transform-origin: center;
+              animation: lp-spin 1s linear infinite;
+            }
+            @keyframes lp-spin { to { transform: rotate(360deg); } }
+            .lp-cart .body {
+              transform-origin: 50% 100%;
+              animation: lp-bob .6s ease-in-out infinite;
+            }
+            @keyframes lp-bob {
+              0%,100% { transform: translateY(0); }
+              50%     { transform: translateY(-2px); }
+            }
+
+            /* Responsivo */
+            @media (max-width: 560px){
+              .lp-title{ height:56px; padding-right:64px; }
+              .lp-title-dim, .lp-title-reveal{ font-size:32px; }
+              .lp-cart{ width:48px; height:48px; }
+            }
+          `}</style>
 
           {/* Switch lista */}
           <div style={styles.switchRow}>
