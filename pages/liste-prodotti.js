@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { Pencil, Trash2, Camera } from 'lucide-react';
+import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
+
 
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
@@ -2259,10 +2260,18 @@ if (unitsUpdated.size > 0) {
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
               {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
             </button>
-            <button onClick={() => setShowListForm(v => !v)} style={styles.primaryBtn}>
-              {showListForm ? '– Chiudi form lista' : '➕ Aggiungi manualmente alla lista corrente'}
+
+            {/* ➕ Toggle form lista: solo icona */}
+            <button
+              onClick={() => setShowListForm(v => !v)}
+              style={styles.iconCircle}
+              title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+              aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+            >
+              <Plus size={18} />
             </button>
           </div>
+
 
           {/* Form aggiunta manuale Lista */}
           {showListForm && (
@@ -2406,19 +2415,33 @@ if (unitsUpdated.size > 0) {
             </div>
           </div>
 
-          {/* Stato Scorte */}
-          <div style={styles.sectionLifted}>
+        <div style={styles.sectionLifted}>
             <div style={styles.sectionHeaderRow}>
               <h3 style={styles.h3}>🏠 Stato Scorte</h3>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
                 <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
                   {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
                 </button>
-                <button onClick={() => setShowStockForm(v => !v)} style={styles.primaryBtn}>
-                  {showStockForm ? '– Chiudi scorte manuali' : '➕ Aggiungi scorta manualmente'}
+
+                {/* ➕ Aggiunta scorte manuali (toggle form) */}
+                <button
+                  onClick={() => setShowStockForm(v => !v)}
+                  style={styles.iconCircle}
+                  title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+                  aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+                >
+                  <Plus size={18} />
                 </button>
-                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.primaryBtn}>
-                  {showExpiryForm ? '– Chiudi scadenze manuali' : '🗓️ Inserisci scadenza manuale'}
+
+                {/* 🗓️ Scadenza manuale (toggle form) */}
+                <button
+                  onClick={() => setShowExpiryForm(v => !v)}
+                  style={styles.iconCircle}
+                  title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+                  aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+                >
+                  <Calendar size={18} />
                 </button>
               </div>
             </div>
@@ -2937,8 +2960,33 @@ const styles = {
   voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
   primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
 
-  sectionLarge:{ marginTop:18, padding:12, borderRadius:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.05)' },
-  sectionLifted:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(0,0,0,.25)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.35)' },
+    sectionLarge: {
+    marginTop:18,
+    padding:12,
+    borderRadius:14,
+    background:'transparent',                  // ← trasparente
+    border:'1px solid rgba(255,255,255,.06)',  // bordo leggero
+    boxShadow:'none'                           // niente ombra grigia
+  },
+  sectionLifted: {
+    marginTop:18,
+    padding:14,
+    borderRadius:16,
+    background:'transparent',                  // ← trasparente
+    border:'1px solid rgba(255,255,255,.08)',
+    boxShadow:'none'                           // niente ombra grigia
+  },
+  // —————————————————— Aggiungi questi nuovi stili ——————————————————
+  iconCircle: {
+    width:38, height:38, minWidth:38,
+    display:'grid', placeItems:'center',
+    borderRadius:999,
+    border:'1px solid rgba(255,255,255,.18)',
+    background:'rgba(15,23,42,.35)',          // vetro scuro trasparente
+    color:'#e5e7eb',
+    boxShadow:'0 2px 8px rgba(0,0,0,.35)',
+    cursor:'pointer'
+  },
   sectionHeaderRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, gap:8 },
 
   h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
