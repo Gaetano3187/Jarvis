@@ -2228,11 +2228,11 @@ if (unitsUpdated.size > 0) {
       <div style={styles.page}>
         <div style={styles.card}>
                {/* Header */}
-          <div className="lp4-wrap">
-            {/* Logo-titolo neon (stile Jarvis) */}
-            <h1 className="lp4-title" aria-label="Lista Prodotti">
-              <span className="lp4-stroke">LISTA PRODOTTI</span>
-              <span className="lp4-fill">LISTA PRODOTTI</span>
+          <div className="lp5-wrap">
+            {/* Titolo neon (stile Jarvis) */}
+            <h1 className="lp5-title" aria-label="Lista Prodotti">
+              <span className="lp5-stroke">LISTA PRODOTTI</span>
+              <span className="lp5-fill">LISTA PRODOTTI</span>
             </h1>
 
             {/* Pulsanti a destra: invariati */}
@@ -2248,14 +2248,15 @@ if (unitsUpdated.size > 0) {
               <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
             </div>
 
-            {/* Carrello reale */}
-            <img src="/img/cart.png" alt="" className="lp4-cart" aria-hidden="true" />
+            {/* Carrello reale (come background, niente <img>) */}
+            <div className="lp5-cart" aria-hidden="true" />
           </div>
 
+          {/* CSS scoped e indipendente da altri blocchi */}
           <style jsx>{`
-            /* Wrapper che anima la variabile --prog (0→100→0) */
-            .lp4-wrap{
-              --prog: 0; /* 0..100 */
+            /* Anima una sola variabile condivisa (--prog 0→100→0) */
+            .lp5-wrap{
+              --prog: 0;
               position:relative;
               display:flex;
               justify-content:space-between;
@@ -2263,11 +2264,12 @@ if (unitsUpdated.size > 0) {
               gap:12px;
               margin-bottom:8px;
               padding-top:6px;
-              background:transparent; /* mostra il global */
+              background:transparent; /* lascia visibile il global */
               overflow:hidden;
-              animation: lp4-prog 6s cubic-bezier(.25,.1,.25,1) infinite;
+              z-index:0;
+              animation: lp5-progress 6s cubic-bezier(.25,.1,.25,1) infinite;
             }
-            @keyframes lp4-prog{
+            @keyframes lp5-progress{
               0%   { --prog: 0; }
               8%   { --prog: 8; }
               50%  { --prog: 100; }
@@ -2275,19 +2277,26 @@ if (unitsUpdated.size > 0) {
               100% { --prog: 0; }
             }
 
-            /* ===== TITOLO NEON (come Jarvis) ===== */
-            .lp4-title{
-              position:relative; margin:0; line-height:1;
-              height:86px; display:flex; align-items:center;
-              letter-spacing:.06em; z-index:1; isolation:isolate;
+            /* ===== TITOLO NEON ===== */
+            .lp5-title{
+              position:relative;
+              margin:0; line-height:1;
+              height:90px;
+              display:flex; align-items:center;
+              letter-spacing:.06em;
+              isolation:isolate;
+              z-index:1;
             }
-            .lp4-title > span{
+            .lp5-title > span{
               position:absolute; inset:0;
               display:flex; align-items:center;
               font-family:'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-              font-weight:900; font-size:54px; white-space:nowrap; pointer-events:none;
+              font-weight:900;
+              font-size:54px;
+              white-space:nowrap;
+              pointer-events:none;
             }
-            .lp4-stroke{
+            .lp5-stroke{
               color:transparent;
               -webkit-text-stroke:2px #8fe2ff;
               text-shadow:
@@ -2295,17 +2304,17 @@ if (unitsUpdated.size > 0) {
                 0 0 22px rgba(80,200,255,.6),
                 0 0 44px rgba(60,180,255,.35),
                 0 0 70px rgba(60,180,255,.25);
-              animation: lp4-flicker 5.2s linear infinite;
+              animation: lp5-flicker 5.2s linear infinite;
             }
-            .lp4-fill{
+            .lp5-fill{
+              /* rivelazione robusta guidata da --prog */
               background: linear-gradient(90deg,#dff8ff 0%,#94e8ff 40%,#2fb8ff 100%);
               -webkit-background-clip:text; -webkit-text-fill-color:transparent;
               background-clip:text; color:transparent;
               text-shadow: 0 0 8px rgba(160,235,255,.55), 0 0 16px rgba(110,220,255,.35);
-              /* rivelazione robusta: clip-path cresce con --prog */
               clip-path: inset(0 calc(100% - (var(--prog) * 1%)) 0 0);
             }
-            @keyframes lp4-flicker{
+            @keyframes lp5-flicker{
               0%,100% { opacity:1 }
               6%{opacity:.97} 7%{opacity:1}
               38%{opacity:.95} 40%{opacity:1}
@@ -2313,32 +2322,37 @@ if (unitsUpdated.size > 0) {
             }
 
             /* ===== CARRELLO ===== */
-            .lp4-cart{
-              position:absolute; top:50%;
-              height: 90px; /* ~ altezza del titolo, regola se serve */
-              transform: translateY(-58%) rotate(-1.2deg);
-              /* parte fuori a sinistra e si muove con --prog (0..100) */
-              left: calc(-25% + (var(--prog) * 1.35%));
-              z-index:2; pointer-events:none; user-select:none; object-fit:contain;
+            .lp5-cart{
+              position:absolute;
+              top:50%;
+              height: 94px;                 /* ≈ altezza titolo; ritocca se serve */
+              aspect-ratio: 1.2;            /* proporzione indicativa del carrello */
+              transform: translateY(-60%) rotate(-1.2deg);
+              left: calc(-28% + (var(--prog) * 1.36%)); /* 0% fuori a sx → 100% oltre dx */
+              z-index:2;
+              pointer-events:none; user-select:none;
+              background-image: url('/img/cart.png');   /* <— percorso da verificare */
+              background-size: contain;
+              background-repeat: no-repeat;
+              background-position: left center;
               filter:
                 drop-shadow(0 0 10px rgba(160,235,255,.45))
                 drop-shadow(0 8px 22px rgba(0,0,0,.35));
             }
 
-            /* Accessibility */
+            /* Riduzione motion */
             @media (prefers-reduced-motion: reduce){
-              .lp4-wrap{ animation:none; }
-              .lp4-fill{ clip-path:none; }
-              .lp4-cart{ left:-9999px; }
+              .lp5-wrap{ animation:none; }
+              .lp5-fill{ clip-path:none; }
+              .lp5-cart{ left:-9999px; }
             }
             /* Responsive */
             @media (max-width: 560px){
-              .lp4-title{ height:72px; }
-              .lp4-title > span{ font-size:38px; }
-              .lp4-cart{ height:74px; }
+              .lp5-title{ height:74px; }
+              .lp5-title > span{ font-size:38px; }
+              .lp5-cart{ height:78px; }
             }
           `}</style>
-
 
           {/* Switch lista */}
           <div style={styles.switchRow}>
