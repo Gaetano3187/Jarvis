@@ -3934,6 +3934,82 @@ h1, h2, h3, .title{
   .card.row .actions :is(button,[role="button"],.btn){
     min-width: 34px; min-height: 34px; padding: 6px 8px; border-radius: 10px; font-size: 12px;
   }
+  /* ==========================================================
+   FIX DEFINITIVO MOBILE — tabelle e card
+   (incolla IN FONDO ai CSS)
+   ========================================================== */
+
+/* 1) Tabelle: niente per-lettera, scroll orizzontale se serve */
+@media (max-width: 480px){
+  .table-container{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+  .custom-table, .table-v{
+    display:block !important;
+    width:100%;
+    overflow-x:auto;                 /* abilita scroll X */
+    -webkit-overflow-scrolling:touch;
+  }
+
+  .custom-table thead, .table-v thead{
+    display:table-header-group !important;
+    position:sticky; top:0; z-index:2;
+  }
+  .custom-table tbody, .table-v tbody{ display:table-row-group !important; }
+
+  /* <<< ANNULLA le regole che ti rompono il layout */
+  .custom-table th, .custom-table td,
+  .table-v th, .table-v td{
+    white-space: nowrap !important;      /* NON andare a capo */
+    word-break: normal !important;       /* niente spezza-lettere */
+    overflow-wrap: normal !important;    /* niente “anywhere” */
+    hyphens: manual !important;
+    max-width: none !important;          /* <<< stop al 1px */
+    padding: 8px 10px !important;
+    line-height: 1.35 !important;
+  }
+}
+
+/* 2) Card rosse/lista: evita tagli e rendi elastica l’area bottoni */
+.cards .cat-card,
+.list-item.card,
+.card, .card.row {
+  overflow: visible !important;       /* i badge non vengono “mozzati” */
+  display: grid;
+  grid-template-columns: 1fr auto;    /* testo | azioni */
+  align-items: center;
+  column-gap: 10px;
+}
+
+.card > *:first-child,
+.list-item.card > *:first-child,
+.cards .cat-card > *:first-child{
+  min-width: 0;                        /* abilita ellissi sul titolo */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* qualunque contenitore che abbia pulsanti = area azioni a destra */
+.card :has(> button), .card :has(> [role="button"]),
+.list-item.card :has(> button), .list-item.card :has(> [role="button"]),
+.cards .cat-card :has(> button), .cards .cat-card :has(> [role="button"]){
+  display: flex !important;
+  flex-wrap: wrap;                     /* se manca spazio → va su 2 righe */
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 480px){
+  .card :is(button,[role="button"]), 
+  .list-item.card :is(button,[role="button"]),
+  .cards .cat-card :is(button,[role="button"]){
+    min-width: 34px; min-height: 34px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+}
+
 }
 
 
