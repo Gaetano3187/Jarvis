@@ -1,261 +1,77 @@
-/* ==============================
-   THEME BASE (Glass + Animations)
-   ============================== */
-:root{
-  --font: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 
-  /* Palette base */
-  --clr-text: #ffffff;
-  --clr-muted: rgba(255,255,255,.85);
-  --glass-bg: rgba(12, 20, 40, .35);
-  --glass-brd: rgba(255,255,255,.18);
-  --glass-shadow: 0 10px 30px rgba(0,0,0,.35);
+/* ==========================================================
+   OVERRIDE MIRATI (mettere IN FONDO a questo file)
+   Risolve: testo a colonna nelle tabelle + bottoni tagliati nelle card
+   ========================================================== */
 
-  /* Bottoni */
-  --btn-primary: #4f46e5; /* indigo */
-  --btn-accent:  #06b6d4; /* cyan */
-  --btn-danger:  #ef4444; /* red */
-  --btn-ok:      #22c55e; /* green */
+/* 1) Mobile portrait: tabella leggibile senza per-lettera */
+@media (max-width: 480px){
+  /* Niente soglia rigida a 680px e niente layout fixed */
+  .custom-table{ min-width: 0 !important; }
+  .custom-table thead,
+  .custom-table tbody{ table-layout: auto !important; }
 
-  /* Tabella */
-  --table-header-bg: rgba(255,255,255,.08);
-  --table-row-odd:   rgba(255,255,255,.06);
-  --table-row-even:  rgba(255,255,255,.12);
-  --table-border:    rgba(255,255,255,.16);
+  /* Celle: annulla qualsiasi wrap aggressivo proveniente dai global */
+  .custom-table th, .custom-table td{
+    white-space: nowrap !important;      /* resta su una riga */
+    word-break: normal !important;       /* no spezza-lettere */
+    overflow-wrap: normal !important;    /* no “anywhere” */
+    hyphens: manual !important;
+    max-width: none !important;          /* stop ai 1px che impilano */
+    padding: 8px 10px !important;
+    line-height: 1.35 !important;
+  }
 
-  /* Spaziatura e radius */
-  --pad-page: clamp(14px, 3vw, 28px);
-  --radius: 18px;
-}
-
-/* Gradiente di default (fallback) */
-body{
-  font-family: var(--font);
-  color: var(--clr-text);
-  background: linear-gradient(120deg, #0f172a 0%, #0b1020 60%, #0a0f1a 100%) fixed;
-  min-height: 100vh;
+  /* Se usi un wrapper per la tabella, consenti lo scroll X */
+  .table-container{
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
-/* =========
-   PER-PAGE GRADIENTS (in base al path) 
-   (arrivano da pages/_app.js con data-route)
-   ========= */
-[data-route="/entrate"]        body,
-[data-route="/entrate"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 20% 10%, #1ed760 0%, #0f172a 55%) fixed;
-}
-[data-route="/spese-casa"]     body,
-[data-route="/spese-casa"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 80% 10%, #3b82f6 0%, #0f172a 55%) fixed;
-}
-[data-route="/vestiti-ed-altro"] body,
-[data-route="/vestiti-ed-altro"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 20% 90%, #a855f7 0%, #0f172a 55%) fixed;
-}
-[data-route="/cene-aperitivi"] body,
-[data-route="/cene-aperitivi"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 80% 85%, #f59e0b 0%, #0f172a 55%) fixed;
-}
-[data-route="/varie"]          body,
-[data-route="/varie"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 50% 20%, #64748b 0%, #0f172a 55%) fixed;
-}
-[data-route="/spese"]          body,
-[data-route="/spese"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 10% 60%, #06b6d4 0%, #0f172a 55%) fixed;
-}
-[data-route="/liste-prodotti"] body,
-[data-route="/liste-prodotti"] .spese-casa-container1{
-  background: radial-gradient(1200px 900px at 85% 40%, #10b981 0%, #0f172a 55%) fixed;
-}
-[data-route="/finanze"]        body{
-  background: radial-gradient(1200px 900px at 50% 10%, #4f46e5 0%, #0f172a 55%) fixed;
-}
-
-/* =============
-   GLASS CONTAINERS
-   ============= */
-.spese-casa-container1{
-  width: 100%;
-  min-height: 100vh;
-  padding: var(--pad-page);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-}
-.spese-casa-container2,
-.wrap .tools-card,
+/* 2) Card/righe lista: evita il clipping dei badge/pulsanti e impila bene */
 .cards .cat-card,
-.total-box{
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-brd);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
-}
-
-/* Titoli animati (shimmer gradient) */
-.title, h1, h2, .animated-title{
-  font-weight: 800;
-  background: linear-gradient(90deg, #fff, #c7d2fe, #fff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: titleShine 3.2s linear infinite;
-}
-@keyframes titleShine {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
-}
-
-/* Meta righe info */
-.title-row, .periodo-row, .flex-line{
-  display: flex;
+.spese-casa-container2 .card,
+.card,
+.card.row,
+.list-item.card{
+  overflow: visible !important;          /* niente tagli ai bottoni */
+  display: grid;
+  grid-template-columns: 1fr auto;       /* testo | azioni */
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  column-gap: 10px;
 }
 
-/* Metriche grandi */
-.metric{ font-size: clamp(1.3rem, 4.2vw, 1.8rem); font-weight: 800; }
-.metric--saldo{ color: #22c55e; }
-.metric--pocket{ color: #06b6d4; }
-
-/* ===== Form ========= */
-.input-section{
-  display: flex; flex-wrap: wrap; gap: 10px;
-  margin: 10px 0 14px;
-}
-.input-section input, .input-section select, .input-section textarea{
-  flex: 1 1 220px;
-  min-width: 210px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.06);
-  color: var(--clr-text);
-  outline: none;
-  transition: box-shadow .2s ease, transform .08s ease;
-}
-.input-section input:focus,
-.input-section select:focus,
-.input-section textarea:focus{
-  box-shadow: 0 0 0 3px rgba(99,102,241,.35);
-  transform: translateY(-1px);
-}
-
-/* ===== Buttons (animated) ========= */
-.btn-vocale, .btn-ocr, .btn-manuale, .btn-danger, .btn-danger-outline{
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.16);
-  color: #fff;
-  cursor: pointer;
-  transition: transform .18s ease, box-shadow .25s ease, filter .2s ease;
-  will-change: transform, filter;
-}
-.btn-vocale, .btn-manuale{ background: linear-gradient(180deg, color-mix(in srgb, var(--btn-ok), #fff 14%), var(--btn-ok)); }
-.btn-ocr{ background: linear-gradient(180deg, color-mix(in srgb, var(--btn-accent), #fff 14%), var(--btn-accent)); }
-.btn-danger{ background: linear-gradient(180deg, color-mix(in srgb, var(--btn-danger), #fff 10%), var(--btn-danger)); }
-.btn-danger-outline{ background: transparent; color: var(--btn-danger); border-color: var(--btn-danger); }
-
-.btn-vocale::before, .btn-ocr::before, .btn-manuale::before, .btn-danger::before, .btn-danger-outline::before{
-  content:"";
-  position:absolute; inset:-30%;
-  background: conic-gradient(from 0deg, rgba(255,255,255,.2), rgba(255,255,255,.05), rgba(255,255,255,.2));
-  filter: blur(18px);
-  opacity: .45;
-  z-index: -1;
-  animation: spinGlow 6s linear infinite;
-}
-@keyframes spinGlow{ to{ transform: rotate(360deg); } }
-
-.btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover, .btn-danger:hover, .btn-danger-outline:hover{
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0,0,0,.25);
-}
-
-/* Micro-ripple */
-.btn-vocale:active, .btn-ocr:active, .btn-manuale:active, .btn-danger:active, .btn-danger-outline:active{
-  transform: translateY(0);
-}
-.btn-vocale:focus-visible, .btn-ocr:focus-visible, .btn-manuale:focus-visible, .btn-danger:focus-visible, .btn-danger-outline:focus-visible{
-  outline: 2px solid rgba(255,255,255,.4);
-  outline-offset: 2px;
-}
-
-/* ===== Total / KPI card ===== */
-.total-box{
-  padding: 16px;
-  margin: 12px 0;
-}
-.total-box h3{ margin: 0 0 6px; color: var(--clr-text); }
-
-/* ===== Tables (contrast + striped) ===== */
-.custom-table{
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-  display: block;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--table-border);
-  border-radius: 12px;
-}
-.custom-table thead{
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-  background: var(--table-header-bg);
-  backdrop-filter: blur(8px);
-}
-.custom-table tbody{
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-}
-.custom-table th, .custom-table td{
-  padding: 10px 12px;
+/* testo titolo: una riga con ellissi */
+.cards .cat-card > *:first-child,
+.spese-casa-container2 .card > *:first-child,
+.card > *:first-child,
+.list-item.card > *:first-child{
+  min-width: 0;
   white-space: nowrap;
-  border-bottom: 1px solid var(--table-border);
-  color: var(--clr-muted);
-}
-.custom-table th{
-  font-weight: 700;
-  color: #fff;
-}
-.custom-table tbody tr:nth-child(odd){ background: var(--table-row-odd); }
-.custom-table tbody tr:nth-child(even){ background: var(--table-row-even); }
-.custom-table tbody tr:hover{ filter: brightness(1.08); }
-
-/* Sticky header su mobile lungo */
-@supports (position: sticky){
-  .custom-table thead th{ position: sticky; top: 0; z-index: 2; }
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ===== Cards (Finanze) armonizzate ===== */
-.cards .cat-card{
-  transition: transform .25s ease, box-shadow .25s ease, filter .25s ease, background .25s ease;
-}
-.cards .cat-card:hover{ transform: translateY(-4px) scale(1.02); }
-
-/* Tools sticky glass */
-.tools-sticky .tools-card{
-  padding: 10px 12px;
-  border-radius: 14px;
-}
-
-/* ===== Responsive tweaks ===== */
-@media (max-width: 900px){
-  .input-section input, .input-section select, .input-section textarea{ flex: 1 1 100%; min-width: 100%; }
-}
-@media (max-width: 520px){
-  .custom-table{ min-width: 680px; } /* scroll orizzontale se necessario */
+/* area azioni: flessibile, può andare su 2 righe in portrait */
+.cards .cat-card :has(> button),
+.spese-casa-container2 .card :has(> button),
+.card :has(> button),
+.list-item.card :has(> button){
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
-/* ===== Error / Helpers ===== */
-.error{ color: #fca5a5; font-weight: 600; margin-top: 10px; }
+@media (max-width: 480px){
+  .cards .cat-card :is(button,[role="button"]),
+  .spese-casa-container2 .card :is(button,[role="button"]),
+  .card :is(button,[role="button"]),
+  .list-item.card :is(button,[role="button"]){
+    min-width: 34px; min-height: 34px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+}
