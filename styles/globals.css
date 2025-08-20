@@ -3675,4 +3675,152 @@ h1, h2, h3, .title{
     flex: 0 0 auto !important;
   }
 }
+.bolt-logo{ display:grid; place-items:center; }
+.jarvis-neon{ width:min(520px, 78vw); height:auto; }
+@media (max-width:560px){ .jarvis-neon{ width:min(360px, 90vw); } }
+
+/* ==========================================================
+   LISTE PRODOTTI — layout anti-sovrapposizione comandi
+   (incolla IN FONDO per override)
+   ========================================================== */
+
+/* Base: righe come griglia (nome/meta a sinistra, azioni a destra) */
+.list-row, .list-item, .card.row{
+  display: grid !important;
+  grid-template-columns: 1fr auto;
+  grid-auto-rows: min-content;
+  align-items: center;
+  column-gap: 10px;
+}
+
+/* Nome prodotto: una riga con ellissi (niente a capo) */
+.product-name, .item-name, .row-title, .name, .titlecell,
+[class*="product-name"], [class*="item-name"], [class*="row-title"]{
+  display:block !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  min-width: 0 !important;      /* abilita ellissi in grid/flex */
+}
+
+/* Zona azioni: flessibile ma non “spinge” il testo */
+.list-row .actions, .list-item .actions{
+  grid-column: 2 / 3;
+  display: flex !important;
+  flex-wrap: wrap;               /* se manca spazio va su 2 righe */
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Pulsanti/Badge di riga: dimensioni minime coerenti */
+.list-row .actions :is(button,[role="button"],.btn),
+.list-item .actions :is(button,[role="button"],.btn),
+.list-row .actions :is(.badge,.chip), .list-item .actions :is(.badge,.chip){
+  flex: 0 0 auto !important;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ====== VISTA STRETTA VERTICALE (iPhone portrait & finestre strette) ====== */
+@media (max-width: 420px), (max-width: 820px) and (orientation: portrait){
+
+  /* azioni: niente squeeze → micro-wrap o scroll orizzontale morbido */
+  .list-row .actions, .list-item .actions{
+    max-width: 48vw;                 /* metà card = spazio realistico per i bottoni */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;             /* evita tagli del shadow */
+    scrollbar-width: thin;
+  }
+
+  /* pulsanti più compatti */
+  .list-row .actions :is(button,[role="button"],.btn),
+  .list-item .actions :is(button,[role="button"],.btn){
+    min-width: 34px;
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+
+  /* testo della riga: prende tutto lo spazio disponibile */
+  .product-name, .item-name, .row-title, .name, .titlecell,
+  [class*="product-name"], [class*="item-name"], [class*="row-title"]{
+    margin-right: 6px;
+  }
+
+  /* card padding più stretto per guadagnare area utile */
+  .card, .list-item, .list-row{
+    padding: clamp(10px, 2.5vw, 14px) !important;
+  }
+}
+
+/* ====== ORIZZONTALE (landscape): tutto su una riga, touch-target più largo) ====== */
+@media (orientation: landscape) and (max-height: 480px){
+  .list-row, .list-item, .card.row{
+    grid-template-columns: 1fr auto;
+    column-gap: 12px;
+  }
+  .list-row .actions :is(button,[role="button"],.btn),
+  .list-item .actions :is(button,[role="button"],.btn){
+    min-width: 40px;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+}
+
+/* ==========================================================
+   TABELLE — ritaglio in verticale e lettura in orizzontale
+   ========================================================== */
+
+/* Portrait: tabella “densa” e scorrevole, senza tagli */
+@media (max-width: 420px), (max-width: 820px) and (orientation: portrait){
+  .table-container{ overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .custom-table, .table-v{
+    min-width: 0 !important;
+    display: table !important;
+    table-layout: auto !important;
+    overflow-x: visible !important;
+  }
+  .custom-table th, .custom-table td,
+  .table-v th, .table-v td{
+    padding: 8px 10px !important;
+    font-size: 12px !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+}
+
+/* Landscape stretto: non comprimere i comandi, consenti scroll X */
+@media (orientation: landscape) and (max-height: 480px){
+  .table-container{ overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .custom-table, .table-v{ min-width: 760px; } /* spazio per icone e testi */
+}
+
+/* Utility: se vuoi forzare la vista “stacked” su XS aggiungi class="stack" al <table> */
+@media (max-width: 560px){
+  .custom-table.stack, .table-v.stack{ display:block !important; border:0; }
+  .custom-table.stack thead, .table-v.stack thead{ display:none !important; }
+  .custom-table.stack tbody, .table-v.stack tbody{ display:block !important; }
+  .custom-table.stack tr, .table-v.stack tr{
+    display:block; margin:10px 0; border:1px solid rgba(255,255,255,.16);
+    border-radius:12px; overflow:hidden;
+  }
+  .custom-table.stack td, .table-v.stack td{
+    display:grid; grid-template-columns: 42% 1fr; gap:8px;
+    border:0 !important; border-bottom:1px solid rgba(255,255,255,.12) !important;
+  }
+  .custom-table.stack td:last-child, .table-v.stack td:last-child{ border-bottom:0 !important; }
+  .custom-table.stack td::before, .table-v.stack td::before{
+    content: attr(data-label); font-weight:700; opacity:.95;
+  }
+}
+
+
 
