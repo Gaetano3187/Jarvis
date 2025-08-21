@@ -2354,17 +2354,53 @@ if (unitsUpdated.size > 0) {
             }
           `}</style>
 
-          {/* Switch lista */}
-          <div style={styles.switchRow}>
-            <button onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
-                    style={currentList === LIST_TYPES.SUPERMARKET ? styles.switchBtnActive : styles.switchBtn}>
-              Lista Supermercato
-            </button>
-            <button onClick={() => setCurrentList(LIST_TYPES.ONLINE)}
-                    style={currentList === LIST_TYPES.ONLINE ? styles.switchBtnActive : styles.switchBtn}>
-              Lista Spesa Online
-            </button>
-          </div>
+          {/* Switch lista — PNG buttons */}
+<div style={styles.switchImgRow}>
+  {/* Supermercato */}
+  <button
+    type="button"
+    onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
+    aria-pressed={currentList === LIST_TYPES.SUPERMARKET}
+    style={styles.switchImgBtn}
+    title="Lista Supermercato"
+  >
+    <Image
+      src={
+        currentList === LIST_TYPES.SUPERMARKET
+          ? '/img/Button/lista%20supermercato%20accesa.png'
+          : '/img/Button/lista%20supermercato%20spenta.png'
+      }
+      alt="Lista Supermercato"
+      width={240}   // regola in base alla grafica
+      height={72}
+      priority
+      style={styles.switchImg}
+    />
+  </button>
+
+  {/* Online */}
+  <button
+    type="button"
+    onClick={() => setCurrentList(LIST_TYPES.ONLINE)}
+    aria-pressed={currentList === LIST_TYPES.ONLINE}
+    style={styles.switchImgBtn}
+    title="Lista Online"
+  >
+    <Image
+      src={
+        currentList === LIST_TYPES.ONLINE
+          ? '/img/Button/Lista%20on%20line%20acceso.png'
+          : '/img/Button/lista%20on%20line%20spenta.png'
+      }
+      alt="Lista Online"
+      width={240}   // regola in base alla grafica
+      height={72}
+      priority
+      style={styles.switchImg}
+    />
+  </button>
+</div>
+
 
           {/* Comandi Lista */}
           <div style={styles.toolsRow}>
@@ -3382,6 +3418,30 @@ const styles = {
     textShadow:
       '0 0 6px rgba(120,220,255,.45), 0 0 12px rgba(80,200,255,.25)',
     lineHeight: 1.4,
+  },
+  switchImgRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    flexWrap: 'wrap',
+    marginTop: 8,
+    marginBottom: 14,
+  },
+  switchImgBtn: {
+    all: 'unset',
+    cursor: 'pointer',
+    display: 'inline-grid',
+    placeItems: 'center',
+    borderRadius: 12,
+    background: 'rgba(255,255,255,.04)',
+    border: '1px solid rgba(255,255,255,.08)',
+    boxShadow: '0 6px 16px rgba(0,0,0,.28)',
+    transition: 'transform .18s ease, box-shadow .18s ease',
+  },
+  switchImg: {
+    display: 'block',
+    width: '100%',
+    height: 'auto',
   },
 
 
