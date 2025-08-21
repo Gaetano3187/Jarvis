@@ -2593,12 +2593,46 @@ if (unitsUpdated.size > 0) {
           {/* Stato Scorte */}
         <div style={styles.sectionLifted}>
             <div style={styles.sectionHeaderRow}>
-              <h3 style={styles.h3}>🏠 Stato Scorte</h3>
-
+        <video
+  autoPlay
+  loop
+  muted
+  playsInline
+  style={{
+    display: 'block',
+    width: '100%',
+    maxWidth: 320,        // 👈 regola la larghezza
+    margin: '0 auto 8px', // 👈 centrato con margine sotto
+    borderRadius: 12,     // 👈 angoli arrotondati
+    boxShadow: '0 4px 12px rgba(0,0,0,.35)'
+  }}
+>
+  <source src="/img/titolo/STATO%20SCORTE.mp4" type="video/mp4" />
+</video>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                <button onClick={toggleVoiceInventory} style={styles.voiceBtn} disabled={busy}>
-                  {invRecBusy ? '⏹️ Stop' : '🎙 Vocale Scorte'}
-                </button>
+                <button
+  onClick={toggleRecList}
+  disabled={busy}
+  style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+  aria-label="Vocale Lista"
+>
+  <video
+    autoPlay
+    loop
+    muted
+    playsInline
+    style={{
+      display: 'block',
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      borderRadius: 18, // 👈 angoli arrotondati
+      boxShadow: '0 4px 12px rgba(0,0,0,.35)'
+    }}
+  >
+    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+  </video>
+</button>
 
                 {/* ➕ Aggiunta scorte manuali (toggle form) */}
                 <button
