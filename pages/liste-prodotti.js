@@ -3311,6 +3311,31 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
+    ocrVideoBtn: {
+    all: 'unset',
+    cursor: 'pointer',
+    display: 'inline-block',
+    borderRadius: 12,
+    overflow: 'hidden',
+    width: 84,
+    height: 84,
+    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.12)',
+    boxShadow: '0 4px 12px rgba(0,0,0,.25)',
+    transition:
+      'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
+  },
+
+  ocrVideo: {
+    display: 'block',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    pointerEvents: 'none', // così il click passa al button
+    filter:
+      'drop-shadow(0 0 6px rgba(120,220,255,.45)) drop-shadow(0 0 14px rgba(80,200,255,.25))',
+  },
+
 }
 
 
