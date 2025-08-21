@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
 
 
