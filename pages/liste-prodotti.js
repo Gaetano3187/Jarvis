@@ -2591,26 +2591,51 @@ if (unitsUpdated.size > 0) {
 
 
           {/* Stato Scorte */}
-        <div style={styles.sectionLifted}>
-            <div style={styles.sectionHeaderRow}>
-<video
-  autoPlay
-  loop
-  muted
-  playsInline
-  style={{
-    display: 'block',
-    width: '100%',
-    maxWidth: 420,
-    margin: '0 auto 10px',
-    borderRadius: 14,
-    boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-    background: 'rgba(255,255,255,.06)',
-    minHeight: 80
-  }}
->
-  <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
-</video>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, width:'100%' }}>
+  {/* Titolo video robusto */}
+  <div style={{ flex:1, display:'flex', justifyContent:'center' }}>
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="auto"
+      poster="/img/titolo/poster-stato-scorte.jpg"   // opzionale: metti un jpg in /public/img/titolo/
+      onLoadedData={e => { e.currentTarget.style.opacity = '1'; }}
+      onPlay={e => { e.currentTarget.dataset.played = '1'; }}
+      onError={e => {
+        // fallback: se non si carica/decodifica, rimpiazza con un H3
+        const wrap = e.currentTarget.parentElement;
+        if (wrap) {
+          wrap.innerHTML = '<h3 style="margin:6px 0 10px;font-size:1.25rem;font-weight:700;color:#f9fafb;text-align:center">Stato Scorte</h3>';
+        }
+      }}
+      style={{
+        display:'block',
+        width:'100%',
+        maxWidth: 420,
+        margin:'0 auto 10px',
+        borderRadius: 14,
+        boxShadow:'0 6px 16px rgba(0,0,0,.35)',
+        background:'rgba(255,255,255,.06)',
+        minHeight: 84,
+        opacity: 0,
+        transition:'opacity .25s ease'
+      }}
+      onClick={e => {
+        // se l’autoplay fosse bloccato su qualche device, un tap avvia la riproduzione
+        const v = e.currentTarget;
+        if (v.paused) v.play().catch(()=>{});
+      }}
+    >
+      {/* usa il file H.264 ricodificato */}
+      <source src="/img/titolo/STATO-SCORTE-h264.mp4?v=1" type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+    </video>
+  </div>
+
+  {/* (Esempio) pulsante a destra: lasciato qui se serve */}
+  {/* <div>... tuoi bottoni ...</div> */}
+</div>
 
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
                 <button
