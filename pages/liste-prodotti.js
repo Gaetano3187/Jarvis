@@ -3443,6 +3443,48 @@ const styles = {
     width: '100%',
     height: 'auto',
   },
+    switchImgBtn: {
+    appearance: 'none',
+    border: 0,
+    padding: 0,
+    margin: 0,
+    cursor: 'pointer',
+    lineHeight: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+
+    /* --- Arrotondamento e maschera --- */
+    borderRadius: 16,
+    overflow: 'hidden',
+
+    /* --- Effetto rilievo / vetro --- */
+    background: 'rgba(255,255,255,0.06)',
+    backdropFilter: 'blur(4px)',
+    boxShadow:
+      'inset 0 1px 3px rgba(255,255,255,.25), ' +  // highlight interno
+      '0 4px 12px rgba(0,0,0,.35)',                 // ombra esterna
+    border: '1px solid rgba(255,255,255,.12)',
+
+    transition: 'transform .18s ease, box-shadow .18s ease',
+  },
+
+  switchImgBtnHover: {
+    transform: 'translateY(-2px) scale(1.02)',
+    boxShadow:
+      'inset 0 1px 3px rgba(255,255,255,.25), ' +
+      '0 8px 20px rgba(0,0,0,.45)',
+    borderColor: 'rgba(148,233,255,.35)',
+  },
+
+  switchImg: {
+    display: 'block',
+    width: '100%',
+    height: 'auto',
+    pointerEvents: 'none',   // clic solo sul button
+    borderRadius: 16,        // segue il contenitore
+  },
+
 
 }
 
