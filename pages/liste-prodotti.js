@@ -2398,22 +2398,17 @@ if (unitsUpdated.size > 0) {
 
           {/* Comandi Lista */}
 <div style={styles.toolsRow}>
-  <button
-    onClick={toggleRecList}
-    disabled={busy}
-    style={styles.voiceVideoBtn}
-    title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Avvia registrazione vocale')}
-  >
-    <video
-      autoPlay
-      loop
-      muted
-      playsInline
-      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '50%' }}
-    >
-      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-    </video>
-  </button>
+<button
+  onClick={toggleRecList}
+  disabled={busy}
+  style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+  aria-label="Vocale Lista"
+>
+  <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+    <source src="/img/Button/tasto vocale Liste.mp4" type="video/mp4" />
+  </video>
+</button>
+
             {/* ➕ Toggle form lista: solo icona */}
             <button
               onClick={() => setShowListForm(v => !v)}
@@ -3504,6 +3499,40 @@ voiceVideoBtn: {
   boxShadow: '0 4px 12px rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.12)',
   transition: 'transform .18s ease, box-shadow .18s ease',
 },
+  voiceVideoBtn: {
+    all: 'unset',
+    cursor: 'pointer',
+    display: 'inline-block',
+    width: 100,    // quadrato più grande
+    height: 100,
+    borderRadius: 18,     // angoli arrotondati ma forma quadrata
+    overflow: 'hidden',
+    background: 'linear-gradient(180deg,#1f2937,#111827)', // base scura
+    border: '1px solid rgba(255,255,255,.2)',
+    boxShadow:
+      'inset 0 1px 3px rgba(255,255,255,.25), ' + // highlight interno
+      '0 6px 14px rgba(0,0,0,.45)',               // ombra esterna
+    transition: 'transform .15s ease, box-shadow .15s ease',
+  },
+
+  voiceVideoBtnHover: {
+    transform: 'translateY(-2px) scale(1.02)',
+    boxShadow:
+      'inset 0 1px 3px rgba(255,255,255,.25), ' +
+      '0 10px 20px rgba(0,0,0,.55)',
+    borderColor: 'rgba(148,233,255,.35)',
+  },
+
+  voiceVideo: {
+    display: 'block',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    pointerEvents: 'none',
+    filter:
+      'drop-shadow(0 0 6px rgba(120,220,255,.45)) ' +
+      'drop-shadow(0 0 14px rgba(80,200,255,.25))',
+  },
 
 
 }
