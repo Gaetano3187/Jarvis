@@ -1,4 +1,3 @@
-
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -2356,6 +2355,7 @@ if (unitsUpdated.size > 0) {
           `}</style>
 
           {/* Switch lista — PNG buttons */}
+{/* Switch lista — PNG buttons ridotti */}
 <div style={styles.switchImgRow}>
   {/* Supermercato */}
   <button
@@ -2372,8 +2372,8 @@ if (unitsUpdated.size > 0) {
           : '/img/Button/lista%20supermercato%20spenta.png'
       }
       alt="Lista Supermercato"
-      width={240}   // regola in base alla grafica
-      height={72}
+      width={150}
+      height={45}
       priority
       style={styles.switchImg}
     />
@@ -2394,14 +2394,13 @@ if (unitsUpdated.size > 0) {
           : '/img/Button/lista%20on%20line%20spenta.png'
       }
       alt="Lista Online"
-      width={240}   // regola in base alla grafica
-      height={72}
+      width={150}
+      height={45}
       priority
       style={styles.switchImg}
     />
   </button>
 </div>
-
           {/* Comandi Lista */}
           <div style={styles.toolsRow}>
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
