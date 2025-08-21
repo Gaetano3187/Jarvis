@@ -2401,7 +2401,6 @@ if (unitsUpdated.size > 0) {
   </button>
 </div>
 
-
           {/* Comandi Lista */}
           <div style={styles.toolsRow}>
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
@@ -3443,7 +3442,6 @@ const styles = {
     width: '100%',
     height: 'auto',
   },
-
 
 }
 
