@@ -3491,6 +3491,20 @@ const styles = {
     pointerEvents: 'none',   // clic solo sul button
     borderRadius: 16,        // segue il contenitore
   },
+voiceVideoBtn: {
+  all: 'unset',
+  cursor: 'pointer',
+  display: 'inline-grid',
+  placeItems: 'center',
+  width: 96,
+  height: 96,
+  borderRadius: '50%',
+  overflow: 'hidden',
+  background: 'rgba(255,255,255,0.08)',
+  border: '1px solid rgba(255,255,255,0.18)',
+  boxShadow: '0 4px 12px rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.12)',
+  transition: 'transform .18s ease, box-shadow .18s ease',
+},
 
 
 }
