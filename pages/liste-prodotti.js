@@ -2397,7 +2397,6 @@ if (unitsUpdated.size > 0) {
 
 
           {/* Comandi Lista */}
-          {/* Comandi Lista */}
 <div style={styles.toolsRow}>
   <button
     onClick={toggleRecList}
