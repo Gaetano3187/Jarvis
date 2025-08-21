@@ -2608,14 +2608,12 @@ if (unitsUpdated.size > 0) {
   }}
 >
   <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
-</video>
-
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                <button
-  onClick={toggleRecList}
+<button
+  onClick={toggleVoiceInventory}
   disabled={busy}
-  style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-  aria-label="Vocale Lista"
+  style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+  aria-label="Vocale Scorte"
+  title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
 >
   <video
     autoPlay
@@ -2627,7 +2625,7 @@ if (unitsUpdated.size > 0) {
       width: '100%',
       height: '100%',
       objectFit: 'cover',
-      borderRadius: 18, // 👈 angoli arrotondati
+      borderRadius: 18,
       boxShadow: '0 4px 12px rgba(0,0,0,.35)'
     }}
   >
