@@ -4190,6 +4190,27 @@ h1, h2, h3, .title{
     backdrop-filter: blur(8px) saturate(115%) !important;
     -webkit-backdrop-filter: blur(8px) saturate(115%) !important;
   }
+  /* STOP animazioni pesanti ovunque */
+.app-shell, [data-route] .app-shell, .login-shell{
+  animation: none !important;
+}
+.app-shell::before, [data-route] .app-shell::before, .login-shell::before{
+  animation: none !important;
+}
+/* prima: blur(14px) saturate(120%) */
+.glass, .glass-xl, .spese-casa-container2{
+  backdrop-filter: blur(6px) saturate(110%) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(110%) !important;
+}
+
+/* su mobile: disattiva del tutto */
+@media (max-width: 900px){
+  .glass, .glass-xl, .spese-casa-container2{
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
 }
 
 

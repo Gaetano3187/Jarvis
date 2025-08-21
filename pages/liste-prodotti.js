@@ -2413,22 +2413,28 @@ if (unitsUpdated.size > 0) {
   </button>
 
   {/* ➕ Toggle form lista: immagine PNG */}
-  <button
-    onClick={() => setShowListForm(v => !v)}
-    style={styles.iconCircle}
-    title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-    aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-  >
-    <Image
+<button
+  onClick={() => setShowListForm(v => !v)}
+  style={styles.iconCircle}
+  title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+  aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+>
+  <Image
     src="/img/icone%20%2B%20-/segno%20piu.png"  // "+" -> %2B
-      alt="Aggiungi"
-      width={28}
-      height={28}
-      priority
-      style={{ display:'block', width:'100%', height:'100%', objectFit:'contain' }}
-    />
-  </button>
-</div>
+    alt="Aggiungi"
+    width={28}
+    height={28}
+    priority
+    style={{
+      display: 'block',
+      width: '100%',
+      height: '100%',
+      objectFit: 'contain',
+    }}
+  />
+</button>
+
+
 
           {/* Form aggiunta manuale Lista */}
           {showListForm && (
@@ -2588,75 +2594,78 @@ if (unitsUpdated.size > 0) {
     </p>
   </div>
 </div>
-          {/* Stato Scorte */}
-        <div style={styles.sectionLifted}>
-            <div style={styles.sectionHeaderRow}>
-<video
-  autoPlay
-  loop
-  muted
-  playsInline
-  style={{
-    display: 'block',
-    width: '100%',
-    maxWidth: 420,
-    margin: '0 auto 10px',
-    borderRadius: 14,
-    boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-    background: 'rgba(255,255,255,.06)',
-    minHeight: 80
-  }}
->
-  <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
-</video>
+{/* Stato Scorte */}
+<div style={styles.sectionLifted}>
+  <div style={styles.sectionHeaderRow}>
+    <div style={{ width: '100%' }}>
+      <video
+        key="/img/titolo/STATO-SCORTE.mp4?v=1"
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          display: 'block',
+          width: '100%',
+          maxWidth: 420,
+          margin: '0 auto 10px',
+          borderRadius: 14,
+          boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+          background: 'rgba(255,255,255,.06)',
+          minHeight: 80
+        }}
+      >
+        <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
+      </video>
+    </div>
 
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-               <button
-  onClick={toggleVoiceInventory}
-  disabled={busy}
-  style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-  aria-label="Vocale Scorte"
-  title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
->
-  <video
-    autoPlay
-    loop
-    muted
-    playsInline
-    style={{
-      display: 'block',
-      width: '100%',
-      height: '100%',
-      objectFit: 'cover',
-      borderRadius: 18,
-      boxShadow: '0 4px 12px rgba(0,0,0,.35)'
-    }}
-  >
-    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-  </video>
-</button>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+        aria-label="Vocale Scorte"
+        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
+      >
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderRadius: 18,
+            boxShadow: '0 4px 12px rgba(0,0,0,.35)'
+          }}
+        >
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
 
-                {/* ➕ Aggiunta scorte manuali (toggle form) */}
-                <button
-                  onClick={() => setShowStockForm(v => !v)}
-                  style={styles.iconCircle}
-                  title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-                  aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-                >
-                  <Plus size={18} />
-                </button>
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.iconCircle}
+        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+      >
+        <Plus size={18} />
+      </button>
 
-                {/* 🗓️ Scadenza manuale (toggle form) */}
-                <button
-                  onClick={() => setShowExpiryForm(v => !v)}
-                  style={styles.iconCircle}
-                  title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-                  aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-                >
-                  <Calendar size={18} />
-                </button>
-              </div>
-            </div>
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.iconCircle}
+        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+      >
+        <Calendar size={18} />
+      </button>
+    </div>
+  </div>
+</div>
+
 
             {/* Form scorte manuali */}
             {showStockForm && (
