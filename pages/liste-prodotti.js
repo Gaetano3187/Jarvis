@@ -2515,34 +2515,27 @@ if (unitsUpdated.size > 0) {
             )}
           </div>
 
-                       {/* OCR Scontrino globale — VIDEO FULL-WIDTH BUTTON */}
-          <div style={styles.sectionLarge}>
-            <button
-              onClick={() => ocrInputRef.current?.click()}
-              disabled={busy}
-              style={styles.ocrVideoBtnXL}
-              aria-label="Carica scontrino (OCR)"
-              title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
-            >
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                style={styles.ocrVideoXL}
-              >
-                <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-              </video>
+                  {/* OCR Scontrino compatto — VIDEO ICON-BUTTON */}
+<div style={styles.sectionLarge}>
+  <button
+    onClick={() => ocrInputRef.current?.click()}
+    disabled={busy}
+    style={styles.ocrVideoBtn}
+    aria-label="Carica scontrino (OCR)"
+    title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+  >
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      style={styles.ocrVideo}
+    >
+      <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+    </video>
+  </button>
+</div>
 
-              <span style={styles.ocrVideoLabel}>
-                OCR Scontrino · clicca per caricare
-              </span>
-            </button>
-
-            <p style={{ opacity:.8, marginTop:10 }}>
-              Riconosce acquisti, riduce la lista e aggiorna le scorte.
-            </p>
-          </div>
 
           {/* Stato Scorte */}
         <div style={styles.sectionLifted}>
