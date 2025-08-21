@@ -3257,23 +3257,31 @@ const styles = {
     background:'rgba(15,23,42,.65)',
     color:'#f1f5f9'
   }, // ⬅️ VIRGOLA QUI
-
-  // === NUOVI STILI PER LE ICONE ===
   iconSquareBase: {
-    width: 38, height: 38, minWidth: 38,
-    display: 'grid', placeItems: 'center',
+    width: 38,
+    height: 38,
+    minWidth: 38,
+    display: 'grid',
+    placeItems: 'center',
     borderRadius: 12,
     border: '1px solid #4b5563',
     background: 'linear-gradient(180deg,#1f2937,#111827)',
     color: '#e5e7eb',
     boxShadow: '0 2px 8px rgba(0,0,0,.35)',
-    cursor: 'pointer'
+    cursor: 'pointer',
   },
-  iconDanger: {
-    color: '#f87171'
-  }
-   // ===== VIDEO OCR "GRANDE" (full width, come titolo + tasto) =====
-   
+
+    iconDanger: {
+    color: '#f87171',
+  },
+
+
+  sectionLarge: {
+    marginTop: '2rem',
+    padding: '1rem',
+  },
+
+  // ===== VIDEO OCR "GRANDE" (full width, come titolo + tasto) =====
   ocrVideoBtnXL: {
     all: 'unset',
     cursor: 'pointer',
@@ -3289,13 +3297,16 @@ const styles = {
     boxShadow: '0 8px 20px rgba(0,0,0,.28)',
     transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease',
   },
+
   ocrVideoXL: {
+    display: 'block',
     height: 64,
     width: 'auto',
     objectFit: 'contain',
     pointerEvents: 'none',
     filter: 'drop-shadow(0 0 10px rgba(120,220,255,.55)) drop-shadow(0 0 22px rgba(80,200,255,.35))',
   },
+
   ocrVideoLabel: {
     flex: 1,
     fontWeight: 800,
@@ -3307,6 +3318,6 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
+}
 
 
-}; // ⬅️ chiusura dell’oggetto styles
