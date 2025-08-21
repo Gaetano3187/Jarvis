@@ -2354,8 +2354,7 @@ if (unitsUpdated.size > 0) {
             }
           `}</style>
 
-          {/* Switch lista — PNG buttons */}
-{/* Switch lista — PNG buttons ridotti */}
+{/* Switch lista — PNG buttons (safe click) */}
 <div style={styles.switchImgRow}>
   {/* Supermercato */}
   <button
@@ -2401,6 +2400,7 @@ if (unitsUpdated.size > 0) {
     />
   </button>
 </div>
+
           {/* Comandi Lista */}
           <div style={styles.toolsRow}>
             <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
@@ -3442,6 +3442,39 @@ const styles = {
     width: '100%',
     height: 'auto',
   },
+    switchImgRow: {
+    position: 'relative',
+    zIndex: 2,                 // sta sopra ad eventuali overlay
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  switchImgBtn: {
+    // niente all:unset → manteniamo button “sano”
+    appearance: 'none',
+    border: 0,
+    padding: 0,
+    margin: 0,
+    background: 'transparent',
+    cursor: 'pointer',
+    lineHeight: 0,            // elimina line-box
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    boxShadow: '0 4px 12px rgba(0,0,0,.25)',
+    outlineOffset: 2,
+  },
+  switchImg: {
+    display: 'block',
+    width: 'auto',
+    height: 'auto',
+    pointerEvents: 'none',    // il click resta sul <button>
+  },
+
 
 }
 
