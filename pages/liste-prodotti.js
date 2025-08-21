@@ -2420,7 +2420,7 @@ if (unitsUpdated.size > 0) {
     aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
   >
     <Image
-      src="/img/icone%20+%20-/segno%20piu.png"
+    src="/img/icone%20%2B%20-/segno%20piu.png"  // "+" -> %2B
       alt="Aggiungi"
       width={28}
       height={28}
@@ -3542,6 +3542,19 @@ voiceVideoBtn: {
       'drop-shadow(0 0 6px rgba(120,220,255,.45)) ' +
       'drop-shadow(0 0 14px rgba(80,200,255,.25))',
   },
+iconCircle: {
+  width: 42,
+  height: 42,
+  minWidth: 42,
+  display: 'grid',
+  placeItems: 'center',
+  borderRadius: 12, // più squadrato invece che cerchio
+  border: '1px solid rgba(255,255,255,.18)',
+  background: 'rgba(15,23,42,.35)',
+  boxShadow: '0 2px 6px rgba(0,0,0,.4)',
+  cursor: 'pointer',
+  overflow: 'hidden',
+},
 
 
 }
