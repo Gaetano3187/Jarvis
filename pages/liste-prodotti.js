@@ -2588,8 +2588,6 @@ if (unitsUpdated.size > 0) {
     </p>
   </div>
 </div>
-
-
           {/* Stato Scorte */}
         <div style={styles.sectionLifted}>
             <div style={styles.sectionHeaderRow}>
