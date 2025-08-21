@@ -2516,24 +2516,31 @@ if (unitsUpdated.size > 0) {
           </div>
 
                   {/* OCR Scontrino compatto — VIDEO ICON-BUTTON */}
+{/* OCR Scontrino — video pulsante + descrizione compatta */}
 <div style={styles.sectionLarge}>
-  <button
-    onClick={() => ocrInputRef.current?.click()}
-    disabled={busy}
-    style={styles.ocrVideoBtn}
-    aria-label="Carica scontrino (OCR)"
-    title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
-  >
-    <video
-      autoPlay
-      loop
-      muted
-      playsInline
-      style={styles.ocrVideo}
+  <div style={styles.ocrRow}>
+    <button
+      onClick={() => ocrInputRef.current?.click()}
+      disabled={busy}
+      style={styles.ocrVideoBtn}
+      aria-label="Carica scontrino (OCR)"
+      title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
     >
-      <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-    </video>
-  </button>
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={styles.ocrVideo}
+      >
+        <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+      </video>
+    </button>
+
+    <p style={styles.ocrText}>
+      Riconosce acquisti, riduce la lista e aggiorna le scorte.
+    </p>
+  </div>
 </div>
 
 
@@ -3335,6 +3342,48 @@ const styles = {
     filter:
       'drop-shadow(0 0 6px rgba(120,220,255,.45)) drop-shadow(0 0 14px rgba(80,200,255,.25))',
   },
+    ocrRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  },
+
+  ocrVideoBtn: {
+    all: 'unset',
+    cursor: 'pointer',
+    display: 'inline-block',
+    borderRadius: 14,
+    overflow: 'hidden',
+    width: 96,   // 👈 leggermente più grande
+    height: 96,  // 👈 leggermente più grande
+    background: 'rgba(255,255,255,.06)',
+    border: '1px solid rgba(255,255,255,.12)',
+    boxShadow: '0 4px 12px rgba(0,0,0,.25)',
+    transition:
+      'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
+  },
+
+  ocrVideo: {
+    display: 'block',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    pointerEvents: 'none',
+    filter:
+      'drop-shadow(0 0 6px rgba(120,220,255,.45)) drop-shadow(0 0 14px rgba(80,200,255,.25))',
+  },
+
+  ocrText: {
+    flex: 1,
+    fontSize: '1.05rem',
+    fontWeight: 500,
+    fontFamily: "'Poppins', 'Inter', sans-serif", // 👈 carattere elegante e moderno
+    color: '#e6f7ff',
+    textShadow:
+      '0 0 6px rgba(120,220,255,.45), 0 0 12px rgba(80,200,255,.25)',
+    lineHeight: 1.4,
+  },
+
 
 }
 
