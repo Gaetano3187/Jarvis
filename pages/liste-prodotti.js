@@ -2593,7 +2593,7 @@ if (unitsUpdated.size > 0) {
           {/* Stato Scorte */}
         <div style={styles.sectionLifted}>
             <div style={styles.sectionHeaderRow}>
-        <video
+<video
   autoPlay
   loop
   muted
@@ -2601,14 +2601,17 @@ if (unitsUpdated.size > 0) {
   style={{
     display: 'block',
     width: '100%',
-    maxWidth: 320,        // 👈 regola la larghezza
-    margin: '0 auto 8px', // 👈 centrato con margine sotto
-    borderRadius: 12,     // 👈 angoli arrotondati
-    boxShadow: '0 4px 12px rgba(0,0,0,.35)'
+    maxWidth: 420,
+    margin: '0 auto 10px',
+    borderRadius: 14,
+    boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+    background: 'rgba(255,255,255,.06)',
+    minHeight: 80
   }}
 >
-  <source src="/img/titolo/STATO%20SCORTE.mp4" type="video/mp4" />
+  <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
 </video>
+
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
                 <button
   onClick={toggleRecList}
