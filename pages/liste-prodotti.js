@@ -788,6 +788,7 @@ function parseStockUpdateText(text) {
         continue;
       }
             // normalizza parole-numeri → cifre per i match (senza funzioni annidate)
+      
       const cN = chunk.replace(
         /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
         (m) => ({
@@ -2396,30 +2397,38 @@ if (unitsUpdated.size > 0) {
 </div>
 
 
-          {/* Comandi Lista */}
+     {/* Comandi Lista */}
 <div style={styles.toolsRow}>
-<button
-  onClick={toggleRecList}
-  disabled={busy}
-  style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-  aria-label="Vocale Lista"
->
-  <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-    <source src="/img/Button/tasto vocale Liste.mp4" type="video/mp4" />
-  </video>
-</button>
+  {/* Tasto vocale Liste (video 96x96) */}
+  <button
+    onClick={toggleRecList}
+    disabled={busy}
+    style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+    aria-label="Vocale Lista"
+    title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+  >
+    <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+    </video>
+  </button>
 
-            {/* ➕ Toggle form lista: solo icona */}
-            <button
-              onClick={() => setShowListForm(v => !v)}
-              style={styles.iconCircle}
-              title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-              aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-            >
-              <Plus size={18} />
-            </button>
-          </div>
-
+  {/* ➕ Toggle form lista: immagine PNG */}
+  <button
+    onClick={() => setShowListForm(v => !v)}
+    style={styles.iconCircle}
+    title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+    aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+  >
+    <Image
+      src="/img/icone%20+%20-/segno%20piu.png"
+      alt="Aggiungi"
+      width={28}
+      height={28}
+      priority
+      style={{ display:'block', width:'100%', height:'100%', objectFit:'contain' }}
+    />
+  </button>
+</div>
 
           {/* Form aggiunta manuale Lista */}
           {showListForm && (
