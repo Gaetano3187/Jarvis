@@ -2354,7 +2354,7 @@ if (unitsUpdated.size > 0) {
             }
           `}</style>
 
-{/* Switch lista — PNG buttons (safe click) */}
+          {/* Switch lista — PNG buttons */}
 <div style={styles.switchImgRow}>
   {/* Supermercato */}
   <button
@@ -2371,8 +2371,8 @@ if (unitsUpdated.size > 0) {
           : '/img/Button/lista%20supermercato%20spenta.png'
       }
       alt="Lista Supermercato"
-      width={150}
-      height={45}
+      width={240}   // regola in base alla grafica
+      height={72}
       priority
       style={styles.switchImg}
     />
@@ -2393,8 +2393,8 @@ if (unitsUpdated.size > 0) {
           : '/img/Button/lista%20on%20line%20spenta.png'
       }
       alt="Lista Online"
-      width={150}
-      height={45}
+      width={240}   // regola in base alla grafica
+      height={72}
       priority
       style={styles.switchImg}
     />
@@ -3442,39 +3442,6 @@ const styles = {
     width: '100%',
     height: 'auto',
   },
-    switchImgRow: {
-    position: 'relative',
-    zIndex: 2,                 // sta sopra ad eventuali overlay
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
-    marginTop: 6,
-    marginBottom: 12,
-  },
-  switchImgBtn: {
-    // niente all:unset → manteniamo button “sano”
-    appearance: 'none',
-    border: 0,
-    padding: 0,
-    margin: 0,
-    background: 'transparent',
-    cursor: 'pointer',
-    lineHeight: 0,            // elimina line-box
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    boxShadow: '0 4px 12px rgba(0,0,0,.25)',
-    outlineOffset: 2,
-  },
-  switchImg: {
-    display: 'block',
-    width: 'auto',
-    height: 'auto',
-    pointerEvents: 'none',    // il click resta sul <button>
-  },
-
 
 }
 
