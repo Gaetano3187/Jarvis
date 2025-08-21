@@ -2608,7 +2608,10 @@ if (unitsUpdated.size > 0) {
   }}
 >
   <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
-<button
+</video>
+
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+               <button
   onClick={toggleVoiceInventory}
   disabled={busy}
   style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
