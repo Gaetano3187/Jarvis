@@ -787,22 +787,16 @@ function parseStockUpdateText(text) {
         res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
         continue;
       }
-      // Trasforma parole-numeri italiane in cifre (globale)
-function numberWordsToDigits(str) {
-  if (!str) return '';
-  const MAP = {
-    un:1, uno:1, una:1,
-    due:2, tre:3, quattro:4, cinque:5,
-    sei:6, sette:7, otto:8, nove:9, dieci:10
-  };
-  return String(str).replace(
-    /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
-    (m) => String(MAP[m.toLowerCase()] ?? m)
-  );
-  
-  // *** NEW: normalizzo i numeri in cifre per i match ***
-  const cN = numberWordsToDigits(chunk);
-}
+            // normalizza parole-numeri → cifre per i match (senza funzioni annidate)
+      const cN = chunk.replace(
+        /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
+        (m) => ({
+          un:1, uno:1, una:1,
+          due:2, tre:3, quattro:4, cinque:5,
+          sei:6, sette:7, otto:8, nove:9, dieci:10
+        }[m.toLowerCase()] ?? m)
+      );
+    
       // 2) "2 confezioni 6 bottiglie"
       const mBoth = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}.*?\\b(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
       if (mBoth) {
@@ -2403,11 +2397,24 @@ if (unitsUpdated.size > 0) {
 
 
           {/* Comandi Lista */}
-          <div style={styles.toolsRow}>
-            <button onClick={toggleRecList} style={styles.voiceBtn} disabled={busy}>
-              {recBusy ? '⏹️ Stop' : '🎙 Vocale Lista'}
-            </button>
-
+          {/* Comandi Lista */}
+<div style={styles.toolsRow}>
+  <button
+    onClick={toggleRecList}
+    disabled={busy}
+    style={styles.voiceVideoBtn}
+    title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Avvia registrazione vocale')}
+  >
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '50%' }}
+    >
+      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+    </video>
+  </button>
             {/* ➕ Toggle form lista: solo icona */}
             <button
               onClick={() => setShowListForm(v => !v)}
