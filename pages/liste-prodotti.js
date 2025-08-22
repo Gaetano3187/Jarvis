@@ -2598,35 +2598,36 @@ if (unitsUpdated.size > 0) {
 <div style={styles.sectionLifted}>
   <div style={styles.sectionHeaderRow}>
     <div style={{ width: '100%' }}>
-      <video
-        key="/img/titolo/STATO-SCORTEv2.mp4?v=1"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        style={{
-          display: 'block',
-          width: '100%',
-          maxWidth: 420,
-          minHeight: 120,
-          margin: '0 auto 10px',
-          borderRadius: 14,
-          background: 'rgba(0,0,0,.2)',
-          boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-        }}
-        onError={(e) => {
-          const v = e.currentTarget;
-          const img = document.createElement('img');
-          img.src = '/img/titolo/STATO-SCORTE-poster.png';
-          img.alt = 'Stato Scorte';
-          img.style.cssText = v.getAttribute('style') || '';
-          v.replaceWith(img);
-        }}
-      >
-        <source src="/img/titolo/STATO-SCORTEv2.mp4#t=0.001" type="video/mp4" />
-      </video>
-    </div>
+  <video
+    key="/img/titolo/stato%20scorte.mp4?v=1"
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="auto"
+    style={{
+      display: 'block',
+      width: '100%',
+      maxWidth: 420,
+      minHeight: 120,
+      margin: '0 auto 10px',
+      borderRadius: 14,
+      background: 'rgba(0,0,0,.2)',
+      boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+    }}
+    onError={(e) => {
+      const v = e.currentTarget;
+      const img = document.createElement('img');
+      img.src = '/img/titolo/stato-scor te-poster.png'; // opzionale se hai un poster
+      img.alt = 'Stato Scorte';
+      img.style.cssText = v.getAttribute('style') || '';
+      v.replaceWith(img);
+    }}
+  >
+    <source src="/img/titolo/stato%20scorte.mp4#t=0.001" type="video/mp4" />
+  </video>
+</div>
+
 
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       {/* Tasto vocale SCORTE (attenzione: usa toggleVoiceInventory, non toggleRecList) */}
