@@ -2595,112 +2595,90 @@ if (unitsUpdated.size > 0) {
   </div>
 </div>
 
-{/* ▸ STATO SCORTE — Banner orizzontale in rilievo */}
+{/* Stato Scorte */}
 <div style={styles.sectionLifted}>
-  <div style={{ width:'100%' }}>
+  <div style={styles.sectionHeaderRow}>
 
-    {/* BANNER: riempie la card, centrato */}
+    {/* Banner a tutta larghezza (dentro la card) */}
     <div
       style={{
-        /* parametri rapidi per inquadrare il video */
-        '--zoom': 1.42,       /* aumenta se vedi bande nere */
-        '--shiftY': '-10%',   /* alza/abbassa il frame del video */
-
         width: '100%',
-        maxWidth: '100%',       // prende tutta la card
-        height: 130,            // altezza “striscia titolo”
-        margin: '0 auto 12px',  // centrato
+        height: 140,                 // 👈 altezza banner (ritaglio solo verticale)
         borderRadius: 16,
-        overflow: 'hidden',
-        background: 'rgba(0,0,0,.65)',
-        boxShadow: '0 14px 34px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.10)',
-        border: '1px solid rgba(255,255,255,.14)',
-        position: 'relative',
+        overflow: 'hidden',          // 👈 maschera i bordi arrotondati
+        boxShadow: '0 10px 28px rgba(0,0,0,.35)',
+        background: 'rgba(255,255,255,.06)',
       }}
     >
       <video
-        key="/video/stato-scorte-small.mp4?v=3"
+        key="/video/stato-scorte-small.mp4?v=2"
         autoPlay
         loop
         muted
         playsInline
-        preload="none"                 // non blocca il login
+        preload="none"
         poster="/video/stato-scorte.png"
         style={{
-          position: 'absolute',
-          inset: 0,
+          display: 'block',
           width: '100%',
           height: '100%',
-          objectFit: 'cover',
-          transform: `scale(var(--zoom)) translateY(var(--shiftY))`,
-          transformOrigin: 'center',
-          filter: 'contrast(1.05) saturate(1.02)',
+          objectFit: 'cover',        // 👈 riempie in larghezza, ritaglio solo in altezza
+          objectPosition: '50% 45%', // 👈 centra scritta + muletto (regola se serve 40–55%)
         }}
       >
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
       </video>
-
-      {/* riflesso leggero del banner */}
-      <div
-        aria-hidden
-        style={{
-          position:'absolute', inset:0,
-          background:'linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.06) 28%, transparent 55%)',
-          mixBlendMode:'screen', pointerEvents:'none'
-        }}
-      />
-    </div>
-
-    {/* Riga comandi SOTTO il banner */}
-    <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-      {/* Vocale Scorte */}
-      <button
-        onClick={toggleVoiceInventory}
-        disabled={busy}
-        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-        aria-label="Vocale Scorte"
-        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-      >
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="none"
-          style={{
-            display:'block', width:'100%', height:'100%',
-            objectFit:'cover', borderRadius:18,
-            boxShadow:'0 4px 12px rgba(0,0,0,.35)'
-          }}
-        >
-          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-        </video>
-      </button>
-
-      {/* ➕ Aggiunta scorte manuali */}
-      <button
-        onClick={() => setShowStockForm(v => !v)}
-        style={styles.iconCircle}
-        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-      >
-        <Plus size={18} />
-      </button>
-
-      {/* 🗓️ Scadenza manuale */}
-      <button
-        onClick={() => setShowExpiryForm(v => !v)}
-        style={styles.iconCircle}
-        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-      >
-        <Calendar size={18} />
-      </button>
     </div>
   </div>
+
+  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+    {/* Vocale Scorte (resta invariato) */}
+    <button
+      onClick={toggleVoiceInventory}
+      disabled={busy}
+      style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+      aria-label="Vocale Scorte"
+      title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
+    >
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          borderRadius: 18,
+          boxShadow: '0 4px 12px rgba(0,0,0,.35)',
+        }}
+      >
+        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+      </video>
+    </button>
+
+    {/* ➕ Aggiunta scorte manuali */}
+    <button
+      onClick={() => setShowStockForm(v => !v)}
+      style={styles.iconCircle}
+      title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+      aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+    >
+      <Plus size={18} />
+    </button>
+
+    {/* 🗓️ Scadenza manuale */}
+    <button
+      onClick={() => setShowExpiryForm(v => !v)}
+      style={styles.iconCircle}
+      title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+      aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+    >
+      <Calendar size={18} />
+    </button>
+  </div>
 </div>
-
-
 
             {/* Form scorte manuali */}
             {showStockForm && (
