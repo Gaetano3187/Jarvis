@@ -3670,6 +3670,73 @@ headerActions: {
   alignItems: 'center',
   gap: 10,
 },
+scorteHeaderRow: {
+  display: 'grid',
+  gridTemplateColumns: '1fr auto',  // banner | tasti (desktop)
+  alignItems: 'center',
+  gap: 12,
+  width: '100%',
+  marginTop: 10,
+  marginBottom: 12,
+},
+
+bannerBox: {
+  width: '100%',
+  height: 96,                 // regola qui l’altezza del banner
+  borderRadius: 14,
+  overflow: 'hidden',
+  boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+  background: 'rgba(0,0,0,.5)',
+},
+
+bannerVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',         // evita bande nere
+  objectPosition: '50% 45%',  // centra muletto + scritta
+  display: 'block',
+},
+
+toolsInline: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+},
+
+// Pulsanti video 64x64
+tool64: {
+  width: 64,
+  height: 64,
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,.18)',
+  background: 'rgba(15,23,42,.35)',
+  boxShadow: '0 2px 6px rgba(0,0,0,.35)',
+  overflow: 'hidden',
+  display: 'grid',
+  placeItems: 'center',
+  cursor: 'pointer',
+},
+
+toolVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+},
+
+// Icone “+” e calendario in stile coerente con i 64x64
+toolIcon: {
+  width: 64,
+  height: 64,
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,.18)',
+  background: 'rgba(15,23,42,.35)',
+  boxShadow: '0 2px 6px rgba(0,0,0,.35)',
+  display: 'grid',
+  placeItems: 'center',
+  color: '#e5e7eb',
+  cursor: 'pointer',
+},
 
 
 }
