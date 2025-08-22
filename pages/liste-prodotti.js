@@ -3604,7 +3604,7 @@ headerBannerBox: {
 
 headerBannerVideo: {
   width: '100%',
-  height: '80%',
+  height: '160%',
   objectFit: 'cover',         // niente bande: riempie e taglia sopra/sotto
   objectPosition: 'center',   // centra (muletto + scritte)
   display: 'block',
