@@ -2594,66 +2594,66 @@ if (unitsUpdated.size > 0) {
     </p>
   </div>
 </div>
-{/* ▸ STATO SCORTE — Banner video in rilievo, senza bande nere */}
-<div style={styles.sectionLifted}>
-  <div style={styles.sectionHeaderRow}>
 
-    {/* Contenitore banner (ritaglio + rilievo) */}
+{/* ▸ STATO SCORTE — Banner orizzontale in rilievo */}
+<div style={styles.sectionLifted}>
+  <div style={{ width:'100%' }}>
+
+    {/* BANNER: riempie la card, centrato */}
     <div
       style={{
-        /* ---- parametri facili da ritoccare ---- */
-        '--zoom': 1.42,     /* 1 = nessun zoom. Aumenta per togliere bande nere */
-        '--shiftY': '-12%', /* sposta l’inquadratura in verticale (+ o -) */
+        /* parametri rapidi per inquadrare il video */
+        '--zoom': 1.42,       /* aumenta se vedi bande nere */
+        '--shiftY': '-10%',   /* alza/abbassa il frame del video */
 
-        position: 'relative',
         width: '100%',
-        maxWidth: 720,
-        height: 140,             /* altezza “striscia titolo” */
-        margin: '0 auto 12px',
+        maxWidth: '100%',       // prende tutta la card
+        height: 130,            // altezza “striscia titolo”
+        margin: '0 auto 12px',  // centrato
         borderRadius: 16,
-        overflow: 'hidden',      /* ritaglio del video */
+        overflow: 'hidden',
         background: 'rgba(0,0,0,.65)',
         boxShadow: '0 14px 34px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.10)',
         border: '1px solid rgba(255,255,255,.14)',
-        backdropFilter: 'blur(2px)',
+        position: 'relative',
       }}
     >
       <video
-        key="/video/stato-scorte-small.mp4?v=2"
+        key="/video/stato-scorte-small.mp4?v=3"
         autoPlay
         loop
         muted
         playsInline
-        preload="none"                                  /* non blocca il login */
-        poster="/video/stato-scorte.png"                /* opzionale */
+        preload="none"                 // non blocca il login
+        poster="/video/stato-scorte.png"
         style={{
           position: 'absolute',
           inset: 0,
           width: '100%',
           height: '100%',
-          objectFit: 'cover',                           /* riempie il box */
+          objectFit: 'cover',
           transform: `scale(var(--zoom)) translateY(var(--shiftY))`,
-          transformOrigin: 'center center',             /* zoom dal centro */
+          transformOrigin: 'center',
           filter: 'contrast(1.05) saturate(1.02)',
         }}
       >
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
       </video>
 
-      {/* Lucina superiore “banner” (solo estetica) */}
+      {/* riflesso leggero del banner */}
       <div
         aria-hidden
         style={{
           position:'absolute', inset:0,
-          background: 'linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.06) 28%, transparent 55%)',
+          background:'linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.06) 28%, transparent 55%)',
           mixBlendMode:'screen', pointerEvents:'none'
         }}
       />
     </div>
 
-    {/* Riga comandi a destra del banner */}
+    {/* Riga comandi SOTTO il banner */}
     <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-      {/* Vocale Scorte (video nel bottone) */}
+      {/* Vocale Scorte */}
       <button
         onClick={toggleVoiceInventory}
         disabled={busy}
