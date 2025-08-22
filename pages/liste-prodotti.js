@@ -2595,115 +2595,62 @@ if (unitsUpdated.size > 0) {
   </div>
 </div>
 
-{/* ===== STATO SCORTE ===== */}
-<section style={styles.stockSection}>
-  {/* Banner a tutta larghezza della card */}
-  <div style={styles.stockHeroWrap}>
-    <video
-      key="/video/stato-scorte-small.mp4?v=3"
-      autoPlay
-      loop
-      muted
-      playsInline
-      preload="metadata"
-      poster="/video/stato-scorte.png"
-      style={styles.stockHeroVideo}
-      aria-label="Stato Scorte"
-    >
-      <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
-      <img src="/video/stato-scorte.png" alt="Stato Scorte" style={styles.stockHeroVideo} />
-    </video>
-  </div>
-
-  {/* Comandi della sezione (sotto il banner) */}
-  <div style={styles.stockActions}>
-    {/* Vocale scorte */}
-    <button
-      onClick={toggleVoiceInventory}
-      disabled={busy}
-      style={styles.iconSquareLg}
-      aria-label="Vocale Scorte"
-      title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Vocale scorte')}
-    >
-      <video autoPlay loop muted playsInline style={styles.iconVideoFill}>
-        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+{/* ===== STATO SCORTE — HEADER (banner + comandi) ===== */}
+<div style={styles.sectionLifted}>
+  <div style={styles.headerRowScorte}>
+    {/* Banner video (sottile, full width) */}
+    <div style={styles.headerBannerBox}>
+      <video
+        key="/video/stato-scorte-small.mp4?v=2"
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="none"
+        poster="/video/stato-scorte.png"
+        style={styles.headerBannerVideo}
+      >
+        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
       </video>
-    </button>
+    </div>
 
-    {/* ➕ Aggiungi scorta manuale */}
-    <button
-      onClick={() => setShowStockForm(v => !v)}
-      style={styles.pillBtn}
-      aria-label="Aggiungi scorta manualmente"
-      title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-    >
-      + Aggiungi
-    </button>
+    {/* Comandi header */}
+    <div style={styles.headerActions}>
+      {/* Vocale Scorte */}
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+        aria-label="Vocale Scorte"
+        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
+      >
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
 
-    {/* 🗓 Scadenze manuali */}
-    <button
-      onClick={() => setShowExpiryForm(v => !v)}
-      style={styles.pillBtn}
-      aria-label="Inserisci scadenza manuale"
-      title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-    >
-      🗓 Scadenze
-    </button>
+      {/* ➕ Aggiunta scorte manuali */}
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.headerIcon}
+        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+      >
+        <Plus size={18} />
+      </button>
+
+      {/* 🗓️ Scadenza manuale */}
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.headerIcon}
+        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+      >
+        <Calendar size={18} />
+      </button>
+    </div>
   </div>
-
-  {/* In esaurimento / in scadenza (SUBITO dopo i tasti) */}
-  <div style={styles.criticalBlock}>
-    <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-
-    {critical.length === 0 ? (
-      <p style={{ opacity: .85, marginTop: 4 }}>Nessun prodotto critico.</p>
-    ) : (
-      <div style={styles.critListWrap}>
-        {critical.map((s, i) => {
-          const { current, baseline, pct } = residueInfo(s);
-          const w = Math.round(pct * 100);
-          return (
-            <div key={i} style={styles.critRow}>
-              <div style={styles.critName}>
-                {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-              </div>
-
-              <div style={styles.progressOuterCrit}>
-                <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-              </div>
-
-              <div style={styles.critMeta}>
-                {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                {s.expiresAt ? (
-                  <span style={styles.expiryChip}>
-                    scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
-                  </span>
-                ) : null}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
-                <button
-                  title="Elimina definitivamente"
-                  onClick={() => {
-                    const idx = stock.findIndex(
-                      ss => isSimilar(ss.name, s.name) && ((ss.brand || '') === (s.brand || ''))
-                    );
-                    if (idx >= 0) deleteStockRow(idx);
-                  }}
-                  style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-</section>
-{/* ===== FINE STATO SCORTE – A SEGUIRE: TUTTE LE SCORTE ===== */}
-
+</div>
 
             {/* Form scorte manuali */}
             {showStockForm && (
@@ -3681,75 +3628,6 @@ headerIcon: {
   boxShadow: '0 2px 6px rgba(0,0,0,.4)',
   cursor: 'pointer',
 },
-stockSection: {
-  marginTop: 12,
-  marginBottom: 10,
-},
-
-bannerFrame: {
-  position: 'relative',
-  width: '100%',
-  height: 'clamp(120px, 22vw, 220px)',   // sottile su desktop, più alto su mobile
-  borderRadius: 16,
-  overflow: 'hidden',
-  background: 'rgba(0,0,0,.65)',
-  boxShadow:
-    '0 18px 38px rgba(0,0,0,.35), 0 0 30px rgba(160,235,255,.18), inset 0 1px 0 rgba(255,255,255,.10)',
-  border: '1px solid rgba(255,255,255,.10)',
-},
-
-bannerVideo: {
-  position: 'absolute',
-  inset: 0,
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  /* sposta il ritaglio per tenere in vista muletto + scritta.
-     Se il muletto è verso destra, sposta un po’ a destra: */
-  objectPosition: '60% 50%',           // ← se serve più destra, aumenta verso 70–75%
-  filter: 'saturate(1.02)',
-},
-
-stockCommands: {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  marginTop: 10,
-  flexWrap: 'wrap',
-},
-
-cmdIcon: {
-  width: 78,
-  height: 78,
-  minWidth: 78,
-  display: 'inline-grid',
-  placeItems: 'center',
-  borderRadius: 14,
-  overflow: 'hidden',
-  border: '1px solid rgba(255,255,255,.14)',
-  background: 'rgba(255,255,255,.06)',
-  boxShadow: '0 8px 20px rgba(0,0,0,.28)',
-  cursor: 'pointer',
-},
-
-cmdPill: {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 8,
-  height: 44,
-  padding: '0 14px',
-  borderRadius: 12,
-  border: '1px solid rgba(255,255,255,.16)',
-  background: 'linear-gradient(180deg, rgba(15,23,42,.65), rgba(15,23,42,.45))',
-  color: '#e6f7ff',
-  fontWeight: 700,
-  letterSpacing: '.02em',
-  boxShadow: '0 8px 18px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.10)',
-  cursor: 'pointer',
-},
-
-cmdLabel: { fontSize: 14, opacity: .95 },
-
 
 
 }
