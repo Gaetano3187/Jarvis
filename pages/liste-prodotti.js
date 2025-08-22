@@ -2598,10 +2598,10 @@ if (unitsUpdated.size > 0) {
 {/* ===== STATO SCORTE — HEADER (banner + comandi) ===== */}
 <div style={styles.sectionLifted}>
   <div style={styles.headerRowScorte}>
-    {/* Banner video (sottile, full width) */}
+    {/* Banner titolo a tutta larghezza */}
     <div style={styles.headerBannerBox}>
       <video
-        key="/video/stato-scorte-small.mp4?v=2"
+        key="/video/stato-scorte-small.mp4?v=3"
         autoPlay
         loop
         muted
@@ -2614,9 +2614,9 @@ if (unitsUpdated.size > 0) {
       </video>
     </div>
 
-    {/* Comandi header */}
+    {/* Comandi sotto al banner */}
     <div style={styles.headerActions}>
-      {/* Vocale Scorte */}
+      {/* 🎙 Vocale scorte */}
       <button
         onClick={toggleVoiceInventory}
         disabled={busy}
@@ -2639,7 +2639,7 @@ if (unitsUpdated.size > 0) {
         <Plus size={18} />
       </button>
 
-      {/* 🗓️ Scadenza manuale */}
+      {/* 🗓️ Scadenze manuali */}
       <button
         onClick={() => setShowExpiryForm(v => !v)}
         style={styles.headerIcon}
@@ -3627,6 +3627,39 @@ headerIcon: {
   background: 'rgba(15,23,42,.35)',
   boxShadow: '0 2px 6px rgba(0,0,0,.4)',
   cursor: 'pointer',
+},
+headerRowScorte: {
+  // wrapper del titolo "Stato Scorte": colonna, piena larghezza
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 10,
+  width: '100%',
+},
+
+// Banner: piena larghezza, altezza controllabile
+headerBannerBox: {
+  width: '100%',
+  height: 120,               // ← REGOLA qui l'altezza per far vedere muletto + scritta
+  borderRadius: 14,
+  overflow: 'hidden',
+  boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+  background: 'rgba(0,0,0,.5)',
+},
+
+headerBannerVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',        // riempie senza bande
+  objectPosition: 'center',  // centra soggetti (muletto + scritta)
+  display: 'block',
+},
+
+// Pulsanti sotto al banner
+headerActions: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
 },
 
 
