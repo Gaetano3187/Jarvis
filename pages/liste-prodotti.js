@@ -2595,62 +2595,64 @@ if (unitsUpdated.size > 0) {
   </div>
 </div>
 
-{/* ==== STATO SCORTE — HEADER CON BANNER + COMANDI ==== */}
-<section style={styles.stockSection}>
-  {/* Banner titolo */}
-  <div style={styles.stockHeader}>
-    <div style={styles.bannerFrame}>
-      <video
-        key="/video/stato-scorte-small.mp4?v=2"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="metadata"
-        poster="/video/stato-scorte.png" /* opzionale */
-        style={styles.bannerVideo}
-        aria-label="Titolo sezione · Stato Scorte"
-      >
-        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
-      </video>
-    </div>
+{/* === STATO SCORTE – Header (banner + comandi) === */}
+<div style={styles.stockSection}>
+  {/* Banner: video sottile, full-width */}
+  <div style={styles.bannerFrame}>
+    <video
+      key="/video/stato-scorte-small.mp4?v=2"
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="none"
+      poster="/video/stato-scorte-poster.jpg"   /* opzionale */
+      style={styles.bannerVideo}
+    >
+      <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+    </video>
   </div>
 
-  {/* RIGA COMANDI sotto al banner */}
+  {/* Riga comandi sotto il banner */}
   <div style={styles.stockCommands}>
+    {/* Vocale Liste (stessa misura delle altre icone) */}
     <button
       onClick={toggleVoiceInventory}
       disabled={busy}
       style={styles.cmdIcon}
-      aria-label={invRecBusy ? 'Stop registrazione scorte' : 'Vocale Scorte'}
-      title={invRecBusy ? 'Stop registrazione scorte' : 'Vocale Scorte'}
+      aria-label="Vocale Scorte"
+      title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
     >
-      <video autoPlay loop muted playsInline style={{ width:'100%', height:'100%', objectFit:'cover' }}>
-        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-      </video>
+      <img
+        src="/img/Button/Vocale%20Liste%20icona.png" /* usa una PNG 78x78 oppure l’icona che già usi */
+        alt="Vocale Liste"
+        style={{ width:'100%', height:'100%', objectFit:'cover' }}
+      />
     </button>
 
+    {/* + Aggiungi scorta */}
     <button
       onClick={() => setShowStockForm(v => !v)}
       style={styles.cmdPill}
-      aria-label="Aggiungi scorta manualmente"
-      title="Aggiungi scorta manualmente"
+      aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+      title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
     >
-      <Plus size={18} />
+      <span style={{ fontSize:18, lineHeight:1, marginTop:-1 }}>＋</span>
       <span style={styles.cmdLabel}>Aggiungi</span>
     </button>
 
+    {/* 🗓️ Scadenze */}
     <button
       onClick={() => setShowExpiryForm(v => !v)}
       style={styles.cmdPill}
-      aria-label="Inserisci scadenza manuale"
-      title="Inserisci scadenza manuale"
+      aria-label={showExpiryForm ? 'Chiudi scadenze' : 'Inserisci scadenza'}
+      title={showExpiryForm ? 'Chiudi scadenze' : 'Inserisci scadenza'}
     >
-      <Calendar size={18} />
+      <span style={{ fontSize:16, lineHeight:1, marginTop:-1 }}>🗓</span>
       <span style={styles.cmdLabel}>Scadenze</span>
     </button>
   </div>
-</section>
+</div>
 
 
             {/* Form scorte manuali */}
@@ -3629,6 +3631,75 @@ headerIcon: {
   boxShadow: '0 2px 6px rgba(0,0,0,.4)',
   cursor: 'pointer',
 },
+stockSection: {
+  marginTop: 12,
+  marginBottom: 10,
+},
+
+bannerFrame: {
+  position: 'relative',
+  width: '100%',
+  height: 'clamp(120px, 22vw, 220px)',   // sottile su desktop, più alto su mobile
+  borderRadius: 16,
+  overflow: 'hidden',
+  background: 'rgba(0,0,0,.65)',
+  boxShadow:
+    '0 18px 38px rgba(0,0,0,.35), 0 0 30px rgba(160,235,255,.18), inset 0 1px 0 rgba(255,255,255,.10)',
+  border: '1px solid rgba(255,255,255,.10)',
+},
+
+bannerVideo: {
+  position: 'absolute',
+  inset: 0,
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  /* sposta il ritaglio per tenere in vista muletto + scritta.
+     Se il muletto è verso destra, sposta un po’ a destra: */
+  objectPosition: '60% 50%',           // ← se serve più destra, aumenta verso 70–75%
+  filter: 'saturate(1.02)',
+},
+
+stockCommands: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  marginTop: 10,
+  flexWrap: 'wrap',
+},
+
+cmdIcon: {
+  width: 78,
+  height: 78,
+  minWidth: 78,
+  display: 'inline-grid',
+  placeItems: 'center',
+  borderRadius: 14,
+  overflow: 'hidden',
+  border: '1px solid rgba(255,255,255,.14)',
+  background: 'rgba(255,255,255,.06)',
+  boxShadow: '0 8px 20px rgba(0,0,0,.28)',
+  cursor: 'pointer',
+},
+
+cmdPill: {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 44,
+  padding: '0 14px',
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,.16)',
+  background: 'linear-gradient(180deg, rgba(15,23,42,.65), rgba(15,23,42,.45))',
+  color: '#e6f7ff',
+  fontWeight: 700,
+  letterSpacing: '.02em',
+  boxShadow: '0 8px 18px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.10)',
+  cursor: 'pointer',
+},
+
+cmdLabel: { fontSize: 14, opacity: .95 },
+
 
 
 }
