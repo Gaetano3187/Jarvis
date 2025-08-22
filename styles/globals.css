@@ -237,3 +237,30 @@ body,p,td,th,label,span,a,div{ line-height:var(--lh-body); color:var(--text-1); 
 
 /* Kill vecchi sfondi pagina-specifici se presenti */
 .bg-kaleido{ display:none !important; }
+/* ===== HARD FIX — banner vecchio & video “nero” fuori sezione ===== */
+
+/* 1) Nasconde qualunque vecchio header/banner scorte rimasto */
+.headerRowScorte,
+.headerBannerBox,
+.headerBannerVideo {
+  display: none !important;
+}
+
+/* 2) Se esiste un video 'stato-scorte' fuori dal nuovo wrapper, lo disattivo */
+video[src*="stato-scorte"]:not(.scorteBgVideo) {
+  display: none !important;
+}
+
+/* 3) Garantisce che il nuovo banner sia solo sfondo e non “spinga” l’altezza */
+.scorteSection{ position: relative !important; block-size: auto !important; }
+.scorteBg{ position: absolute !important; inset: 0 !important; z-index: 0 !important; pointer-events: none !important; }
+.scorteBgVideo{ width: 100% !important; height: 100% !important; object-fit: cover !important; display:block !important; }
+.scorteBgOverlay{ position:absolute !important; inset:0 !important; }
+
+/* 4) Contenuto sopra al video */
+.scorteContent{ position: relative !important; z-index: 1 !important; }
+
+/* 5) Safety: elimina margini/padding “anomali” ereditati dal vecchio blocco */
+.sectionLifted .headerRowScorte,
+.sectionLifted .headerBannerBox { display:none !important; }
+.sectionLifted { padding-top: 0 !important; }
