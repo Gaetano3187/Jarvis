@@ -3670,6 +3670,48 @@ headerActions: {
   alignItems: 'center',
   gap: 10,
 },
+scorteSection: {
+  position: 'relative',
+  marginTop: 18,
+  borderRadius: 16,
+  overflow: 'hidden',
+  border: '1px solid rgba(255,255,255,.08)',
+  // padding solo per il contenuto (il bg è assoluto)
+},
+
+scorteBg: {
+  position: 'absolute',
+  inset: 0,
+  zIndex: 0,
+  pointerEvents: 'none',
+},
+
+scorteBgVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+},
+
+scorteBgOverlay: {
+  position: 'absolute',
+  inset: 0,
+  background: 'linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.45))',
+},
+
+scorteContent: {
+  position: 'relative',
+  zIndex: 1,
+  padding: 14,
+},
+
+scorteHeader: {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  marginBottom: 8,
+},
 
 
 }
