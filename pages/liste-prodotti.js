@@ -2599,11 +2599,12 @@ if (unitsUpdated.size > 0) {
   <div style={styles.sectionHeaderRow}>
     <div style={{ width: '100%' }}>
       <video
-        key="/img/titolo/STATO-SCORTEv2.mp4"
+        key="/img/titolo/STATO-SCORTEv2.mp4?v=1"
         autoPlay
         loop
         muted
         playsInline
+        preload="auto"
         style={{
           display: 'block',
           width: '100%',
@@ -2614,12 +2615,21 @@ if (unitsUpdated.size > 0) {
           background: 'rgba(0,0,0,.2)',
           boxShadow: '0 6px 16px rgba(0,0,0,.35)',
         }}
+        onError={(e) => {
+          const v = e.currentTarget;
+          const img = document.createElement('img');
+          img.src = '/img/titolo/STATO-SCORTE-poster.png';
+          img.alt = 'Stato Scorte';
+          img.style.cssText = v.getAttribute('style') || '';
+          v.replaceWith(img);
+        }}
       >
-        <source src="/img/titolo/STATO-SCORTEv2.mp4" type="video/mp4" />
+        <source src="/img/titolo/STATO-SCORTEv2.mp4#t=0.001" type="video/mp4" />
       </video>
     </div>
 
-    <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Tasto vocale SCORTE (attenzione: usa toggleVoiceInventory, non toggleRecList) */}
       <button
         onClick={toggleVoiceInventory}
         disabled={busy}
@@ -2627,22 +2637,45 @@ if (unitsUpdated.size > 0) {
         aria-label="Vocale Scorte"
         title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
       >
-        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderRadius: 18,
+            boxShadow: '0 4px 12px rgba(0,0,0,.35)',
+          }}
+        >
           <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
         </video>
       </button>
 
+      {/* ➕ Aggiunta scorte manuali */}
       <button
-        onClick={() => setShowStockForm(v => !v)}
+        onClick={() => setShowStockForm((v) => !v)}
         style={styles.iconCircle}
         title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
         aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
       >
-        <Plus size={18} />
+              {/* "+" -> %2B */}
+        <Image
+          src="/img/icone%20%2B%20-/segno%20piu.png"
+          alt="Aggiungi scorta"
+          width={28}
+          height={28}
+          priority
+          style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }}
+        />
       </button>
 
+      {/* 🗓️ Scadenza manuale */}
       <button
-        onClick={() => setShowExpiryForm(v => !v)}
+        onClick={() => setShowExpiryForm((v) => !v)}
         style={styles.iconCircle}
         title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
         aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
@@ -2652,6 +2685,7 @@ if (unitsUpdated.size > 0) {
     </div>
   </div>
 </div>
+
 
 
             {/* Form scorte manuali */}
