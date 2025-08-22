@@ -264,3 +264,25 @@ video[src*="stato-scorte"]:not(.scorteBgVideo) {
 .sectionLifted .headerRowScorte,
 .sectionLifted .headerBannerBox { display:none !important; }
 .sectionLifted { padding-top: 0 !important; }
+/* ===== SCORTE • BG video unico + kill vecchio banner ===== */
+
+/* Nuovo wrapper: tiene il video come sfondo dell'intera sezione */
+.scorteSection{ position:relative; margin-top:18px; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,.08); }
+.scorteBg{ position:absolute; inset:0; z-index:0; pointer-events:none; }
+.scorteBgVideo{ width:100%; height:100%; object-fit:cover; display:block; }
+.scorteBgOverlay{ position:absolute; inset:0; background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,.18)); }
+.scorteContent{ position:relative; z-index:1; padding:14px; }
+.scorteHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+
+/* KILL di ogni residuo del banner “vecchio” ovunque esso sia */
+.headerRowScorte,
+.headerBannerBox,
+.headerBannerVideo { display:none !important; }
+
+/* Se c’è QUALSIASI video “stato-scorte” fuori dal nuovo wrapper → nascondi */
+video[src*="stato-scorte"]:not(.scorteBgVideo){ display:none !important; }
+
+/* Safety: azzera padding-top extra del vecchio blocco */
+.sectionLifted .headerRowScorte,
+.sectionLifted .headerBannerBox{ display:none !important; }
+.sectionLifted{ padding-top:0 !important; }
