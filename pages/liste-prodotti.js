@@ -2719,7 +2719,7 @@ if (unitsUpdated.size > 0) {
     {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
     {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
   </div>
-     {/* ===== STATO SCORTE — banner + tasti ===== */}
+      {/* ===== STATO SCORTE — banner + tasti ===== */}
 <div style={styles.scorteHeaderRow} className="scorteHeaderRowMobile">
   {/* Banner (desktop: a sinistra | mobile: sopra full width) */}
   <div style={styles.bannerBox}>
@@ -3736,6 +3736,60 @@ toolIcon: {
   placeItems: 'center',
   color: '#e5e7eb',
   cursor: 'pointer',
+},
+stockHeaderRow: {
+  display: 'grid',
+  gridTemplateColumns: '1fr auto', // Banner a sinistra | Tasti a destra
+  alignItems: 'center',
+  gap: 12,
+  width: '100%',
+},
+
+// Contenitore del banner
+stockHeaderBanner: {
+  width: '100%',
+  height: 120,              // altezza “sottile”: aumenta/diminuisci a gusto (es. 100 / 120 / 140)
+  borderRadius: 14,
+  overflow: 'hidden',
+  boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+  background: 'rgba(0,0,0,.5)',
+},
+
+// Video del banner: pieno, taglia sopra/sotto per tenere muletto + scritta
+stockHeaderVideo: {
+  width: '100%',
+  height: '160%',
+  objectFit: 'cover',
+  objectPosition: 'center',
+  display: 'block',
+},
+
+// Contenitore dei bottoni a destra
+stockHeaderBtns: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+},
+
+// Quadretto 60x60 per icone video (scanner/vocale)
+tinySquareBtn: {
+  width: 60,
+  height: 60,
+  minWidth: 60,
+  borderRadius: 12,
+  overflow: 'hidden',
+  border: '1px solid rgba(255,255,255,.18)',
+  background: 'linear-gradient(180deg,#1f2937,#111827)',
+  boxShadow: '0 4px 12px rgba(0,0,0,.35)',
+  cursor: 'pointer',
+},
+
+// Media interno ai quadretti (copre tutto)
+tinySquareMedia: {
+  width: '100%',
+  height: '100%',
+  display: 'block',
+  objectFit: 'cover',
 },
 
 
