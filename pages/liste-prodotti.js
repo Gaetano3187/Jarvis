@@ -2567,99 +2567,255 @@ if (unitsUpdated.size > 0) {
             )}
           </div>
 
-                  {/* OCR Scontrino compatto — VIDEO ICON-BUTTON */}
-{/* OCR Scontrino — video pulsante + descrizione compatta */}
+          {/* Lista corrente */}
 <div style={styles.sectionLarge}>
-  <div style={styles.ocrRow}>
-    <button
-      onClick={() => ocrInputRef.current?.click()}
-      disabled={busy}
-      style={styles.ocrVideoBtn}
-      aria-label="Carica scontrino (OCR)"
-      title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
-    >
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        style={styles.ocrVideo}
-      >
-        <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-      </video>
-    </button>
+  <h3 style={styles.h3}>
+    Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+  </h3>
 
-    <p style={styles.ocrText}>
-      Riconosce acquisti, riduce la lista e aggiorna le scorte.
-    </p>
-  </div>
+  {(lists[currentList] || []).length === 0 ? (
+    <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
+  ) : (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {(lists[currentList] || []).map((it) => {
+        const isBought = !!it.purchased;
+        return (
+          <div
+            key={it.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setLists(prev => {
+                const next = { ...prev };
+                next[currentList] = (prev[currentList] || []).map(i =>
+                  i.id === it.id ? { ...i, purchased: !i.purchased } : i
+                );
+                return next;
+              });
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setLists(prev => {
+                  const next = { ...prev };
+                  next[currentList] = (prev[currentList] || []).map(i =>
+                    i.id === it.id ? { ...i, purchased: !i.purchased } : i
+                  );
+                  return next;
+                });
+              }
+            }}
+            style={{
+              ...styles.listCardRed,
+              ...(isBought ? styles.listCardRedBought : null),
+            }}
+          >
+            <div style={styles.rowLeft}>
+              <div style={styles.rowName}>
+                {it.name}
+                {it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
+              </div>
+              <div style={styles.rowMeta}>
+                {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
+                {isBought ? (
+                  <span style={styles.badgeBought}>preso</span>
+                ) : (
+                  <span style={styles.badgeToBuy}>da prendere</span>
+                )}
+              </div>
+            </div>
+
+            <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
+              <button
+                title="Segna come comprato (–1 conf. e aggiorna scorte)"
+                onClick={() => {
+                  const item = it;
+                  const movePacks = 1;
+                  setLists(prev => {
+                    const next = { ...prev };
+                    next[currentList] = (prev[currentList] || [])
+                      .map(r =>
+                        r.id === item.id
+                          ? {
+                              ...r,
+                              qty: Math.max(0, Number(r.qty || 0) - movePacks),
+                              purchased: true,
+                            }
+                          : r
+                      )
+                      .filter(r => Number(r.qty || 0) > 0);
+                    return next;
+                  });
+                  setStock(prev => {
+                    const arr = [...prev];
+                    const todayISO = new Date().toISOString().slice(0, 10);
+                    const idx = arr.findIndex(
+                      s =>
+                        isSimilar(s.name, item.name) &&
+                        (!item.brand || isSimilar(s.brand || '', item.brand))
+                    );
+                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
+                    const moveLabel = item.unitLabel || 'unità';
+                    if (idx >= 0) {
+                      const old = arr[idx];
+                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
+                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
+                      arr[idx] = {
+                        ...old,
+                        packs: newPacks,
+                        unitsPerPack: upp,
+                        unitLabel: old.unitLabel || moveLabel,
+                        packsOnly: false,
+                        ...restockTouch(newPacks, todayISO, upp),
+                      };
+                    } else {
+                      const row = {
+                        name: item.name,
+                        brand: item.brand || '',
+                        packs: movePacks,
+                        unitsPerPack: moveUPP,
+                        unitLabel: moveLabel,
+                        expiresAt: '',
+                        ...restockTouch(movePacks, todayISO, moveUPP),
+                        avgDailyUnits: 0,
+                        packsOnly: false,
+                      };
+                      arr.unshift(withRememberedImage(row, imagesIndex));
+                    }
+                    return arr;
+                  });
+                }}
+                style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
+              >
+                ✓
+              </button>
+
+              <button
+                title="–1"
+                onClick={() => incQty(it.id, -1)}
+                style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}
+              >
+                −
+              </button>
+              <button
+                title="+1"
+                onClick={() => incQty(it.id, +1)}
+                style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}
+              >
+                +
+              </button>
+
+              <button
+                title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
+                onClick={() => {
+                  setTargetRowIdx(it.id);
+                  rowOcrInputRef.current?.click();
+                }}
+                style={styles.ocrPillBtn}
+              >
+                OCR riga
+              </button>
+
+              <button
+                title="Elimina"
+                onClick={() => removeItem(it.id)}
+                style={styles.trashBtn}
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
 </div>
 
-{/* ===== STATO SCORTE — SEZIONE CON BANNER FULL-BACKGROUND ===== */}
-<div style={styles.scorteSection}>
-  {/* Background video (occupa tutta la sezione) */}
-  <div style={styles.scorteBg} aria-hidden="true">
+{/* Banner largo con video + tasti sotto */}
+<div style={styles.bannerArea}>
+  <div style={styles.bannerBox}>
     <video
-      key="/video/stato-scorte-small.mp4?v=3"
       autoPlay
       loop
       muted
       playsInline
       preload="none"
       poster="/video/stato-scorte.png"
-      style={styles.scorteBgVideo}
+      style={styles.bannerVideo}
     >
       <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
     </video>
-
-    {/* leggero overlay per leggibilità del testo */}
-    <div style={styles.scorteBgOverlay} />
+    <div style={styles.bannerOverlay} />
   </div>
 
-  {/* CONTENUTO della sezione scorte */}
-  <div style={styles.scorteContent}>
-    {/* Header (titolo + comandi) */}
-    <div style={styles.scorteHeader}>
-      <h4 style={{ ...styles.h4, margin: 0 }}>Stato Scorte</h4>
+  {/* Tasti sotto il banner */}
+  <div style={styles.sectionLarge}>
+    <div style={styles.ocrRow}>
+      <button
+        onClick={() => ocrInputRef.current?.click()}
+        disabled={busy}
+        style={styles.ocrVideoBtn}
+        aria-label="Carica scontrino (OCR)"
+        title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+      >
+        <video autoPlay loop muted playsInline style={styles.ocrVideo}>
+          <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+        </video>
+      </button>
 
-      <div style={styles.headerActions}>
-        {/* 🎙 Vocale scorte */}
-        <button
-          onClick={toggleVoiceInventory}
-          disabled={busy}
-          style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-          aria-label="Vocale Scorte"
-          title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-        >
-          <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-            <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-          </video>
-        </button>
+      {/* 🎙 Vocale scorte */}
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={
+          invRecBusy
+            ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover }
+            : styles.voiceVideoBtn
+        }
+        aria-label="Vocale Scorte"
+        title={
+          busy
+            ? 'Elaborazione in corso…'
+            : invRecBusy
+            ? 'Stop registrazione scorte'
+            : 'Aggiorna scorte con voce'
+        }
+      >
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
 
-        {/* ➕ Aggiunta scorte manuali */}
-        <button
-          onClick={() => setShowStockForm(v => !v)}
-          style={styles.headerIcon}
-          title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-          aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-        >
-          <Plus size={18} />
-        </button>
+      {/* ➕ Aggiunta scorte manuali */}
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.headerIcon}
+        title={
+          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
+        }
+        aria-label={
+          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
+        }
+      >
+        <Plus size={18} />
+      </button>
 
-        {/* 🗓️ Scadenze manuali */}
-        <button
-          onClick={() => setShowExpiryForm(v => !v)}
-          style={styles.headerIcon}
-          title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-          aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-        >
-          <Calendar size={18} />
-        </button>
-      </div>
+      {/* 🗓️ Scadenze manuali */}
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.headerIcon}
+        title={
+          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
+        }
+        aria-label={
+          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
+        }
+      >
+        <Calendar size={18} />
+      </button>
     </div>
   </div>
 </div>
-
 
             {/* Form scorte manuali */}
             {showStockForm && (
@@ -3745,6 +3901,90 @@ bannerButtons: {
   marginTop: 10,
   /* cambia l’allineamento qui: */
   justifyContent: 'flex-start', // 'center' | 'flex-end' | 'space-between'
+},
+/* === STILI BANNER STATO SCORTE === */
+bannerArea: {
+  width: '100%',
+  margin: '24px 0',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 12,
+},
+
+bannerBox: {
+  position: 'relative',
+  width: '100%',
+  maxWidth: '100%',       // banner sempre a tutta larghezza sezione
+  borderRadius: 14,
+  overflow: 'hidden',
+  boxShadow: '0 6px 18px rgba(0,0,0,.4)',
+},
+
+bannerVideo: {
+  display: 'block',
+  width: '100%',
+  height: '160px',        // 👈 altezza fissa ottimizzata per PC
+  objectFit: 'cover',     // ritaglia solo sopra/sotto
+  objectPosition: 'center', // centra scritta + muletto
+  borderRadius: 14,
+},
+
+bannerOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: 'rgba(0,0,0,0.1)',
+},
+
+/* OCR + Tasti sotto al banner */
+ocrRow: {
+  display: 'flex',
+  gap: 12,
+  justifyContent: 'center',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  marginTop: 8,
+},
+
+ocrVideoBtn: {
+  width: 64,
+  height: 64,
+  borderRadius: 16,
+  overflow: 'hidden',
+  padding: 0,
+  border: 'none',
+  cursor: 'pointer',
+  boxShadow: '0 4px 10px rgba(0,0,0,.25)',
+},
+
+ocrVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+},
+
+voiceVideoBtn: {
+  width: 64,
+  height: 64,
+  borderRadius: 16,
+  overflow: 'hidden',
+  border: 'none',
+  cursor: 'pointer',
+  boxShadow: '0 4px 10px rgba(0,0,0,.25)',
+},
+
+voiceVideoBtnHover: {
+  transform: 'scale(1.05)',
+  transition: 'transform 0.2s ease',
+},
+
+voiceVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
 },
 
 
