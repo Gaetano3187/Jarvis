@@ -2595,99 +2595,62 @@ if (unitsUpdated.size > 0) {
   </div>
 </div>
 
-{/* Stato Scorte */}
+{/* ===== STATO SCORTE — HEADER (banner + comandi) ===== */}
 <div style={styles.sectionLifted}>
-  <div style={styles.sectionHeaderRow}>
-
-    {/* Banner full-width, sottile, senza maxWidth */}
-    <div
-      style={{
-        /* Piena larghezza del contenitore */
-        width: '100%',
-        alignSelf: 'stretch',
-
-        /* Fascia sottile (puoi portare 64 → 56 se vuoi ancora più slim) */
-        height: 64,
-
-        /* Look “a banner” */
-        borderRadius: 14,
-        overflow: 'hidden',
-        boxShadow: '0 8px 22px rgba(0,0,0,.35)',
-        background: 'rgba(255,255,255,.06)',
-        margin: '0 0 10px 0',
-      }}
-    >
+  <div style={styles.headerRowScorte}>
+    {/* Banner video (sottile, full width) */}
+    <div style={styles.headerBannerBox}>
       <video
-        key="/video/stato-scorte-small.mp4?v=4"   // <-- cache-bust
+        key="/video/stato-scorte-small.mp4?v=2"
         autoPlay
         loop
         muted
         playsInline
         preload="none"
         poster="/video/stato-scorte.png"
-        style={{
-          display: 'block',
-          width: '100%',          // sempre piena larghezza
-          height: '100%',         // riempie l’altezza del banner
-          objectFit: 'cover',     // taglia solo in alto/basso per tenere la larghezza
-          objectPosition: '50% 46%' // centra muletto+scritta (tieni tra 44%–50%)
-        }}
+        style={styles.headerBannerVideo}
       >
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
       </video>
     </div>
-  </div>
 
-  {/* Pulsanti a destra del banner */}
-  <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginTop: 4 }}>
-    {/* Vocale Scorte */}
-    <button
-      onClick={toggleVoiceInventory}
-      disabled={busy}
-      style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-      aria-label="Vocale Scorte"
-      title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-    >
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        style={{
-          display:'block',
-          width:'100%',
-          height:'100%',
-          objectFit:'cover',
-          borderRadius:18,
-          boxShadow:'0 4px 12px rgba(0,0,0,.35)',
-        }}
+    {/* Comandi header */}
+    <div style={styles.headerActions}>
+      {/* Vocale Scorte */}
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+        aria-label="Vocale Scorte"
+        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
       >
-        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-      </video>
-    </button>
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
 
-    {/* ➕ Aggiunta scorte manuali */}
-    <button
-      onClick={() => setShowStockForm(v => !v)}
-      style={styles.iconCircle}
-      title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-      aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-    >
-      <Plus size={18} />
-    </button>
+      {/* ➕ Aggiunta scorte manuali */}
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.headerIcon}
+        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+      >
+        <Plus size={18} />
+      </button>
 
-    {/* 🗓️ Scadenza manuale */}
-    <button
-      onClick={() => setShowExpiryForm(v => !v)}
-      style={styles.iconCircle}
-      title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-      aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-    >
-      <Calendar size={18} />
-    </button>
+      {/* 🗓️ Scadenza manuale */}
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.headerIcon}
+        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+      >
+        <Calendar size={18} />
+      </button>
+    </div>
   </div>
 </div>
-
 
             {/* Form scorte manuali */}
             {showStockForm && (
@@ -3621,6 +3584,49 @@ iconCircle: {
   boxShadow: '0 2px 6px rgba(0,0,0,.4)',
   cursor: 'pointer',
   overflow: 'hidden',
+},
+headerRowScorte: {
+  display: 'grid',
+  gridTemplateColumns: '1fr auto', // banner | comandi
+  alignItems: 'center',
+  gap: 12,
+  width: '100%',
+},
+
+// Banner sottile tipo "titolo"
+headerBannerBox: {
+  height: 96,                 // <- PUOI RENDERLO PIÙ SOTTILE (es. 80)
+  borderRadius: 14,
+  overflow: 'hidden',
+  boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+  background: 'rgba(0,0,0,.5)',
+},
+
+headerBannerVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',         // niente bande: riempie e taglia sopra/sotto
+  objectPosition: 'center',   // centra (muletto + scritte)
+  display: 'block',
+},
+
+headerActions: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+},
+
+headerIcon: {
+  width: 42,
+  height: 42,
+  minWidth: 42,
+  display: 'grid',
+  placeItems: 'center',
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,.18)',
+  background: 'rgba(15,23,42,.35)',
+  boxShadow: '0 2px 6px rgba(0,0,0,.4)',
+  cursor: 'pointer',
 },
 
 
