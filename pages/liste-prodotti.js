@@ -3712,6 +3712,41 @@ scorteHeader: {
   gap: 10,
   marginBottom: 8,
 },
+  /* ——— Banner largo con video + tasti sotto ——— */
+bannerArea: {
+  marginTop: 12,
+},
+bannerBox: {
+  position: 'relative',
+  width: '100%',
+  height: 140,                 // ← altezza del banner (120–180 a gusto)
+  borderRadius: 16,
+  overflow: 'hidden',
+  background: 'rgba(0,0,0,.6)',// fallback se il video non parte
+  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+  border: '1px solid rgba(255,255,255,.10)',
+},
+bannerVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+},
+bannerOverlay: {
+  position: 'absolute',
+  inset: 0,
+  background: 'linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.45))',
+  pointerEvents: 'none',
+},
+bannerButtons: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  marginTop: 10,
+  /* cambia l’allineamento qui: */
+  justifyContent: 'flex-start', // 'center' | 'flex-end' | 'space-between'
+},
+
 
 
 }
