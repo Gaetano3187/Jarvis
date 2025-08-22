@@ -2597,51 +2597,48 @@ if (unitsUpdated.size > 0) {
 {/* Stato Scorte */}
 <div style={styles.sectionLifted}>
   <div style={styles.sectionHeaderRow}>
-    {/* Titolo video (leggero e non-bloccante) */}
-    <div style={{ width: '100%' }}>
+    {/* Banner video in rilievo (muletto + scritte sempre visibili) */}
+    <div
+      style={{
+        display: 'grid',
+        placeItems: 'center',
+        width: '100%',
+        maxWidth: 640,
+        height: 130, // altezza fascia; regola a gusto (110–140)
+        margin: '0 auto 12px',
+        borderRadius: 16,
+        padding: 6,
+        background: 'linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03))',
+        border: '1px solid rgba(255,255,255,.18)',
+        boxShadow: '0 10px 24px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.25)',
+        overflow: 'hidden',
+      }}
+    >
       <video
-        key="/video/stato-scorte-small.mp4?v=1"
+        key="/video/stato-scorte-small.mp4?v=3"
         autoPlay
         loop
         muted
         playsInline
-        preload="none"                     // non blocca il login
-        poster="/video/stato-scorte.png"   // opzionale: se hai un PNG di copertina
+        preload="none"
+        poster="/video/stato-scorte.png" // opzionale
         style={{
-          display: 'block',
           width: '100%',
-          maxWidth: 420,
-          margin: '0 auto 10px',
-          borderRadius: 14,
-          boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-          background: 'rgba(255,255,255,.06)',
-          minHeight: 80,
-          objectFit: 'cover',
+          height: '100%',
+          objectFit: 'contain',      // 👈 mostra tutto (scritte + muletto)
+          objectPosition: 'center',
+          borderRadius: 12,
+          background: 'rgba(0,0,0,.65)',
+          boxShadow: 'inset 0 0 16px rgba(0,0,0,.35)',
         }}
       >
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
-        {/* Fallback statico se il browser non supporta il video */}
-        <img
-          src="/video/stato-scorte.png"
-          alt="Titolo Stato Scorte"
-          style={{
-            display: 'block',
-            width: '100%',
-            maxWidth: 420,
-            margin: '0 auto 10px',
-            borderRadius: 14,
-            boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-            background: 'rgba(255,255,255,.06)',
-            minHeight: 80,
-            objectFit: 'cover',
-          }}
-        />
       </video>
     </div>
 
-    {/* Azioni Stato Scorte */}
+    {/* Pulsanti a destra del titolo */}
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      {/* 🎙️ Vocale Scorte (video nel bottone) */}
+      {/* 🎙️ Vocale Scorte */}
       <button
         onClick={toggleVoiceInventory}
         disabled={busy}
@@ -2654,7 +2651,6 @@ if (unitsUpdated.size > 0) {
           loop
           muted
           playsInline
-          preload="none"
           style={{
             display: 'block',
             width: '100%',
@@ -2690,6 +2686,7 @@ if (unitsUpdated.size > 0) {
     </div>
   </div>
 </div>
+
 
             {/* Form scorte manuali */}
             {showStockForm && (
