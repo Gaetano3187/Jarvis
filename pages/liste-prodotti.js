@@ -3595,7 +3595,7 @@ headerRowScorte: {
 
 // Banner sottile tipo "titolo"
 headerBannerBox: {
-  height: 96,                 // <- PUOI RENDERLO PIÙ SOTTILE (es. 80)
+  height: 80,                 // <- PUOI RENDERLO PIÙ SOTTILE (es. 80)
   borderRadius: 14,
   overflow: 'hidden',
   boxShadow: '0 6px 16px rgba(0,0,0,.35)',
