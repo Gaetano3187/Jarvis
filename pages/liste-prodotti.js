@@ -2598,32 +2598,18 @@ if (unitsUpdated.size > 0) {
 <div style={styles.sectionLifted}>
   <div style={styles.sectionHeaderRow}>
     <div style={{ width: '100%' }}>
-      <video
-        key="/img/titolo/stato-scorte.mp4?v=2"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="metadata"
-        style={{
-          display: 'block',
-          width: '100%',
-          maxWidth: 420,
-          margin: '0 auto 10px',
-          borderRadius: 14,
-          boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-          background: 'rgba(255,255,255,.06)',
-          minHeight: 80,
-        }}
-      >
-        <source src="/img/titolo/stato-scorte.mp4#t=0.001" type="video/mp4" />
-        {/* Fallback immagine se il video non parte */}
-        <img
-          src="/img/titolo/stato-scorte.png"
-          alt="Stato Scorte"
-          style={{ width: '100%', maxWidth: 420, borderRadius: 14 }}
-        />
-      </video>
+<video
+  key="/img/titolo/stato-scorte.mp4?v=3"
+  controls={false}
+  muted
+  playsInline
+  preload="none"
+  poster="/img/titolo/stato-scorte.png"
+  style={{ display:'block', width:'100%', maxWidth:420, margin:'0 auto 10px', borderRadius:14, boxShadow:'0 6px 16px rgba(0,0,0,.35)', background:'rgba(255,255,255,.06)', minHeight:80 }}
+  onError={(e)=>{ try{ e.currentTarget.replaceWith(Object.assign(document.createElement('img'), {src:'/img/titolo/stato-scorte.png', alt:'Stato Scorte', style:e.currentTarget.style.cssText})) }catch{} }}
+>
+  <source src="/img/titolo/stato-scorte.mp4#t=0.001" type="video/mp4" />
+</video>
     </div>
 
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
