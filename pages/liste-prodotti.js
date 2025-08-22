@@ -2595,62 +2595,63 @@ if (unitsUpdated.size > 0) {
   </div>
 </div>
 
-{/* ===== STATO SCORTE — HEADER (banner + comandi) ===== */}
-<div style={styles.sectionLifted}>
-  <div style={styles.headerRowScorte}>
-    {/* Banner video (sottile, full width) */}
-    <div style={styles.headerBannerBox}>
+{/* ==== STATO SCORTE — HEADER CON BANNER + COMANDI ==== */}
+<section style={styles.stockSection}>
+  {/* Banner titolo */}
+  <div style={styles.stockHeader}>
+    <div style={styles.bannerFrame}>
       <video
         key="/video/stato-scorte-small.mp4?v=2"
         autoPlay
         loop
         muted
         playsInline
-        preload="none"
-        poster="/video/stato-scorte.png"
-        style={styles.headerBannerVideo}
+        preload="metadata"
+        poster="/video/stato-scorte.png" /* opzionale */
+        style={styles.bannerVideo}
+        aria-label="Titolo sezione · Stato Scorte"
       >
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
       </video>
     </div>
-
-    {/* Comandi header */}
-    <div style={styles.headerActions}>
-      {/* Vocale Scorte */}
-      <button
-        onClick={toggleVoiceInventory}
-        disabled={busy}
-        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-        aria-label="Vocale Scorte"
-        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-      >
-        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-        </video>
-      </button>
-
-      {/* ➕ Aggiunta scorte manuali */}
-      <button
-        onClick={() => setShowStockForm(v => !v)}
-        style={styles.headerIcon}
-        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-      >
-        <Plus size={18} />
-      </button>
-
-      {/* 🗓️ Scadenza manuale */}
-      <button
-        onClick={() => setShowExpiryForm(v => !v)}
-        style={styles.headerIcon}
-        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-      >
-        <Calendar size={18} />
-      </button>
-    </div>
   </div>
-</div>
+
+  {/* RIGA COMANDI sotto al banner */}
+  <div style={styles.stockCommands}>
+    <button
+      onClick={toggleVoiceInventory}
+      disabled={busy}
+      style={styles.cmdIcon}
+      aria-label={invRecBusy ? 'Stop registrazione scorte' : 'Vocale Scorte'}
+      title={invRecBusy ? 'Stop registrazione scorte' : 'Vocale Scorte'}
+    >
+      <video autoPlay loop muted playsInline style={{ width:'100%', height:'100%', objectFit:'cover' }}>
+        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+      </video>
+    </button>
+
+    <button
+      onClick={() => setShowStockForm(v => !v)}
+      style={styles.cmdPill}
+      aria-label="Aggiungi scorta manualmente"
+      title="Aggiungi scorta manualmente"
+    >
+      <Plus size={18} />
+      <span style={styles.cmdLabel}>Aggiungi</span>
+    </button>
+
+    <button
+      onClick={() => setShowExpiryForm(v => !v)}
+      style={styles.cmdPill}
+      aria-label="Inserisci scadenza manuale"
+      title="Inserisci scadenza manuale"
+    >
+      <Calendar size={18} />
+      <span style={styles.cmdLabel}>Scadenze</span>
+    </button>
+  </div>
+</section>
+
 
             {/* Form scorte manuali */}
             {showStockForm && (
