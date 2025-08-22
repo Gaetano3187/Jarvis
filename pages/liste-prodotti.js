@@ -2599,19 +2599,26 @@ if (unitsUpdated.size > 0) {
 <div style={styles.sectionLifted}>
   <div style={styles.sectionHeaderRow}>
 
-    {/* Banner a tutta larghezza (dentro la card) */}
+    {/* Banner full-width, sottile, senza maxWidth */}
     <div
       style={{
+        /* Piena larghezza del contenitore */
         width: '100%',
-        height: 140,                 // 👈 altezza banner (ritaglio solo verticale)
-        borderRadius: 16,
-        overflow: 'hidden',          // 👈 maschera i bordi arrotondati
-        boxShadow: '0 10px 28px rgba(0,0,0,.35)',
+        alignSelf: 'stretch',
+
+        /* Fascia sottile (puoi portare 64 → 56 se vuoi ancora più slim) */
+        height: 64,
+
+        /* Look “a banner” */
+        borderRadius: 14,
+        overflow: 'hidden',
+        boxShadow: '0 8px 22px rgba(0,0,0,.35)',
         background: 'rgba(255,255,255,.06)',
+        margin: '0 0 10px 0',
       }}
     >
       <video
-        key="/video/stato-scorte-small.mp4?v=2"
+        key="/video/stato-scorte-small.mp4?v=4"   // <-- cache-bust
         autoPlay
         loop
         muted
@@ -2620,10 +2627,10 @@ if (unitsUpdated.size > 0) {
         poster="/video/stato-scorte.png"
         style={{
           display: 'block',
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',        // 👈 riempie in larghezza, ritaglio solo in altezza
-          objectPosition: '50% 45%', // 👈 centra scritta + muletto (regola se serve 40–55%)
+          width: '100%',          // sempre piena larghezza
+          height: '100%',         // riempie l’altezza del banner
+          objectFit: 'cover',     // taglia solo in alto/basso per tenere la larghezza
+          objectPosition: '50% 46%' // centra muletto+scritta (tieni tra 44%–50%)
         }}
       >
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
@@ -2631,8 +2638,9 @@ if (unitsUpdated.size > 0) {
     </div>
   </div>
 
-  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-    {/* Vocale Scorte (resta invariato) */}
+  {/* Pulsanti a destra del banner */}
+  <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginTop: 4 }}>
+    {/* Vocale Scorte */}
     <button
       onClick={toggleVoiceInventory}
       disabled={busy}
@@ -2646,12 +2654,12 @@ if (unitsUpdated.size > 0) {
         muted
         playsInline
         style={{
-          display: 'block',
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          borderRadius: 18,
-          boxShadow: '0 4px 12px rgba(0,0,0,.35)',
+          display:'block',
+          width:'100%',
+          height:'100%',
+          objectFit:'cover',
+          borderRadius:18,
+          boxShadow:'0 4px 12px rgba(0,0,0,.35)',
         }}
       >
         <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
@@ -2679,6 +2687,7 @@ if (unitsUpdated.size > 0) {
     </button>
   </div>
 </div>
+
 
             {/* Form scorte manuali */}
             {showStockForm && (
