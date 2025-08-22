@@ -1,4 +1,3 @@
-
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -2817,6 +2816,31 @@ if (unitsUpdated.size > 0) {
     </div>
   </div>
 </div>
+{/* Critici */}
+            <div style={{ marginTop: 8 }}>
+              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
+              {critical.length === 0 ? (
+                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
+              ) : (
+                <div style={styles.critListWrap}>
+                  {critical.map((s, i) => {
+                    const { current, baseline, pct } = residueInfo(s);
+                    const w = Math.round(pct*100);
+                    return (
+                      <div key={i} style={styles.critRow}>
+  <div style={styles.critName}>
+    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+  </div>
+
+  <div style={styles.progressOuterCrit}>
+    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+  </div>
+
+  <div style={styles.critMeta}>
+    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+    {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+  </div>
+
 
             {/* Form scorte manuali */}
             {showStockForm && (
@@ -2918,32 +2942,7 @@ if (unitsUpdated.size > 0) {
                 <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
               </form>
             )}
-
-            {/* Critici */}
-            <div style={{ marginTop: 8 }}>
-              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-              {critical.length === 0 ? (
-                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
-              ) : (
-                <div style={styles.critListWrap}>
-                  {critical.map((s, i) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    return (
-                      <div key={i} style={styles.critRow}>
-  <div style={styles.critName}>
-    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-  </div>
-
-  <div style={styles.progressOuterCrit}>
-    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-  </div>
-
-  <div style={styles.critMeta}>
-    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-    {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-  </div>
-
+           
   {/* Azione elimina */}
   <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
     <button
@@ -3903,103 +3902,9 @@ bannerButtons: {
   /* cambia l’allineamento qui: */
   justifyContent: 'flex-start', // 'center' | 'flex-end' | 'space-between'
 },
-/* === STILI BANNER STATO SCORTE === */
-bannerArea: {
-  width: '100%',
-  margin: '24px 0',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 12,
-},
-
-bannerBox: {
-  position: 'relative',
-  width: '100%',
-  maxWidth: '100%',       // banner sempre a tutta larghezza sezione
-  borderRadius: 14,
-  overflow: 'hidden',
-  boxShadow: '0 6px 18px rgba(0,0,0,.4)',
-},
-
-bannerVideo: {
-  display: 'block',
-  width: '100%',
-  height: '160px',        // 👈 altezza fissa ottimizzata per PC
-  objectFit: 'cover',     // ritaglia solo sopra/sotto
-  objectPosition: 'center', // centra scritta + muletto
-  borderRadius: 14,
-},
-
-bannerOverlay: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: 'rgba(0,0,0,0.1)',
-},
-
-/* OCR + Tasti sotto al banner */
-ocrRow: {
-  display: 'flex',
-  gap: 12,
-  justifyContent: 'center',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  marginTop: 8,
-},
-
-ocrVideoBtn: {
-  width: 64,
-  height: 64,
-  borderRadius: 16,
-  overflow: 'hidden',
-  padding: 0,
-  border: 'none',
-  cursor: 'pointer',
-  boxShadow: '0 4px 10px rgba(0,0,0,.25)',
-},
-
-ocrVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-},
-
-voiceVideoBtn: {
-  width: 64,
-  height: 64,
-  borderRadius: 16,
-  overflow: 'hidden',
-  border: 'none',
-  cursor: 'pointer',
-  boxShadow: '0 4px 10px rgba(0,0,0,.25)',
-},
-
-voiceVideoBtnHover: {
-  transform: 'scale(1.05)',
-  transition: 'transform 0.2s ease',
-},
-
-voiceVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-},
-// Dock sotto al banner: impila i blocchi in ordine preciso
-scorteDock: {
-  marginTop: 10,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
-},
-
-// Ordine dei blocchi dentro lo stack
-criticiBlock: { order: 1 },   // ⇦ va subito sotto i tasti
-tutteBlock:   { order: 2 },   // ⇦ poi "Tutte le scorte"
-formsBlock:   { order: 3 },   // ⇦ (opzionale) sposta i form dopo
 
 
 
 }
+
+
