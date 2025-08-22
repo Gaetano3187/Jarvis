@@ -2598,60 +2598,7 @@ if (unitsUpdated.size > 0) {
 {/* ===== STATO SCORTE — HEADER (banner + comandi) ===== */}
 <div style={styles.sectionLifted}>
   <div style={styles.headerRowScorte}>
-    {/* Banner titolo a tutta larghezza */}
-    <div style={styles.headerBannerBox}>
-      <video
-        key="/video/stato-scorte-small.mp4?v=3"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="none"
-        poster="/video/stato-scorte.png"
-        style={styles.headerBannerVideo}
-      >
-        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
-      </video>
-    </div>
-
-    {/* Comandi sotto al banner */}
-    <div style={styles.headerActions}>
-      {/* 🎙 Vocale scorte */}
-      <button
-        onClick={toggleVoiceInventory}
-        disabled={busy}
-        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-        aria-label="Vocale Scorte"
-        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-      >
-        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-        </video>
-      </button>
-
-      {/* ➕ Aggiunta scorte manuali */}
-      <button
-        onClick={() => setShowStockForm(v => !v)}
-        style={styles.headerIcon}
-        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
-      >
-        <Plus size={18} />
-      </button>
-
-      {/* 🗓️ Scadenze manuali */}
-      <button
-        onClick={() => setShowExpiryForm(v => !v)}
-        style={styles.headerIcon}
-        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
-      >
-        <Calendar size={18} />
-      </button>
-    </div>
-  </div>
-</div>
-
+  
             {/* Form scorte manuali */}
             {showStockForm && (
               <form onSubmit={(e)=>{e.preventDefault();
@@ -2777,6 +2724,60 @@ if (unitsUpdated.size > 0) {
     {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
     {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
   </div>
+
+       {/* Banner titolo a tutta larghezza */}
+    <div style={styles.headerBannerBox}>
+      <video
+        key="/video/stato-scorte-small.mp4?v=3"
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="none"
+        poster="/video/stato-scorte.png"
+        style={styles.headerBannerVideo}
+      >
+        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+      </video>
+    </div>
+
+    {/* Comandi sotto al banner */}
+    <div style={styles.headerActions}>
+      {/* 🎙 Vocale scorte */}
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+        aria-label="Vocale Scorte"
+        title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
+      >
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
+
+      {/* ➕ Aggiunta scorte manuali */}
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.headerIcon}
+        title={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+        aria-label={showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'}
+      >
+        <Plus size={18} />
+      </button>
+
+      {/* 🗓️ Scadenze manuali */}
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.headerIcon}
+        title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+        aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'}
+      >
+        <Calendar size={18} />
+      </button>
+    </div>
+  </div>
+</div>
 
   {/* Azione elimina */}
   <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
