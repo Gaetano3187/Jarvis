@@ -3595,7 +3595,7 @@ headerRowScorte: {
 
 // Banner sottile tipo "titolo"
 headerBannerBox: {
-  height: 80,                 // <- PUOI RENDERLO PIÙ SOTTILE (es. 80)
+  height: 96,                 // <- PUOI RENDERLO PIÙ SOTTILE (es. 80)
   borderRadius: 14,
   overflow: 'hidden',
   boxShadow: '0 6px 16px rgba(0,0,0,.35)',
@@ -3604,7 +3604,7 @@ headerBannerBox: {
 
 headerBannerVideo: {
   width: '100%',
-  height: '100%',
+  height: '80%',
   objectFit: 'cover',         // niente bande: riempie e taglia sopra/sotto
   objectPosition: 'center',   // centra (muletto + scritte)
   display: 'block',
