@@ -2595,10 +2595,10 @@ if (unitsUpdated.size > 0) {
   </div>
 </div>
 
-{/* ===== STATO SCORTE — SEZIONE CON BANNER FULL-BACKGROUND ===== */}
-<div style={styles.scorteSection}>
-  {/* Background video (occupa tutta la sezione) */}
-  <div style={styles.scorteBg} aria-hidden="true">
+{/* ===== STATO SCORTE — SEZIONE INTERA CON VIDEO DI SFONDO ===== */}
+<div style={styles.scorteWrap}>
+  {/* background video assoluto */}
+  <div style={styles.scorteBg}>
     <video
       key="/video/stato-scorte-small.mp4?v=3"
       autoPlay
@@ -2611,19 +2611,15 @@ if (unitsUpdated.size > 0) {
     >
       <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
     </video>
-
-    {/* leggero overlay per leggibilità del testo */}
     <div style={styles.scorteBgOverlay} />
   </div>
 
-  {/* CONTENUTO della sezione scorte */}
-  <div style={styles.scorteContent}>
-    {/* Header (titolo + comandi) */}
+  {/* contenuto sopra al video */}
+  <div style={styles.scorteInner}>
+    {/* Header (titolo + pulsanti) */}
     <div style={styles.scorteHeader}>
       <h4 style={{ ...styles.h4, margin: 0 }}>Stato Scorte</h4>
-
-      <div style={styles.headerActions}>
-        {/* 🎙 Vocale scorte */}
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
         <button
           onClick={toggleVoiceInventory}
           disabled={busy}
@@ -2635,7 +2631,10 @@ if (unitsUpdated.size > 0) {
             <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
           </video>
         </button>
-
+        <button onClick={()=>setShowStockForm(v=>!v)} style={styles.headerIcon} aria-label="Aggiungi scorta"><Plus size={18}/></button>
+        <button onClick={()=>setShowExpiryForm(v=>!v)} style={styles.headerIcon} aria-label="Scadenza"><Calendar size={18}/></button>
+      </div>
+    </div>
         {/* ➕ Aggiunta scorte manuali */}
         <button
           onClick={() => setShowStockForm(v => !v)}
