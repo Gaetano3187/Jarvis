@@ -2599,7 +2599,7 @@ if (unitsUpdated.size > 0) {
   <div style={styles.sectionHeaderRow}>
     <div style={{ width: '100%' }}>
       <video
-        key="/img/titolo/STATO-SCORTE.mp4?v=1"
+        key="/img/titolo/STATO-SCORTEv2.mp4"
         autoPlay
         loop
         muted
@@ -2608,18 +2608,18 @@ if (unitsUpdated.size > 0) {
           display: 'block',
           width: '100%',
           maxWidth: 420,
+          minHeight: 120,
           margin: '0 auto 10px',
           borderRadius: 14,
+          background: 'rgba(0,0,0,.2)',
           boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-          background: 'rgba(255,255,255,.06)',
-          minHeight: 80
         }}
       >
-        <source src="/img/titolo/STATO-SCORTE.mp4" type="video/mp4" />
+        <source src="/img/titolo/STATO-SCORTEv2.mp4" type="video/mp4" />
       </video>
     </div>
 
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
       <button
         onClick={toggleVoiceInventory}
         disabled={busy}
@@ -2627,20 +2627,7 @@ if (unitsUpdated.size > 0) {
         aria-label="Vocale Scorte"
         title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
       >
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          style={{
-            display: 'block',
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            borderRadius: 18,
-            boxShadow: '0 4px 12px rgba(0,0,0,.35)'
-          }}
-        >
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
           <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
         </video>
       </button>
