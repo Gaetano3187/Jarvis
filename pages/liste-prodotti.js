@@ -2597,23 +2597,51 @@ if (unitsUpdated.size > 0) {
 {/* Stato Scorte */}
 <div style={styles.sectionLifted}>
   <div style={styles.sectionHeaderRow}>
+    {/* Titolo video (leggero e non-bloccante) */}
     <div style={{ width: '100%' }}>
-<video
-  key="/img/titolo/stato-scorte.mp4?v=3"
-  controls={false}
-  muted
-  playsInline
-  preload="none"
-  poster="/img/titolo/stato-scorte.png"
-  style={{ display:'block', width:'100%', maxWidth:420, margin:'0 auto 10px', borderRadius:14, boxShadow:'0 6px 16px rgba(0,0,0,.35)', background:'rgba(255,255,255,.06)', minHeight:80 }}
-  onError={(e)=>{ try{ e.currentTarget.replaceWith(Object.assign(document.createElement('img'), {src:'/img/titolo/stato-scorte.png', alt:'Stato Scorte', style:e.currentTarget.style.cssText})) }catch{} }}
->
-  <source src="/img/titolo/stato-scorte.mp4#t=0.001" type="video/mp4" />
-</video>
+      <video
+        key="/video/stato-scorte-small.mp4?v=1"
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="none"                     // non blocca il login
+        poster="/video/stato-scorte.png"   // opzionale: se hai un PNG di copertina
+        style={{
+          display: 'block',
+          width: '100%',
+          maxWidth: 420,
+          margin: '0 auto 10px',
+          borderRadius: 14,
+          boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+          background: 'rgba(255,255,255,.06)',
+          minHeight: 80,
+          objectFit: 'cover',
+        }}
+      >
+        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+        {/* Fallback statico se il browser non supporta il video */}
+        <img
+          src="/video/stato-scorte.png"
+          alt="Titolo Stato Scorte"
+          style={{
+            display: 'block',
+            width: '100%',
+            maxWidth: 420,
+            margin: '0 auto 10px',
+            borderRadius: 14,
+            boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+            background: 'rgba(255,255,255,.06)',
+            minHeight: 80,
+            objectFit: 'cover',
+          }}
+        />
+      </video>
     </div>
 
+    {/* Azioni Stato Scorte */}
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      {/* Vocale Scorte */}
+      {/* 🎙️ Vocale Scorte (video nel bottone) */}
       <button
         onClick={toggleVoiceInventory}
         disabled={busy}
@@ -2626,6 +2654,7 @@ if (unitsUpdated.size > 0) {
           loop
           muted
           playsInline
+          preload="none"
           style={{
             display: 'block',
             width: '100%',
@@ -2661,6 +2690,7 @@ if (unitsUpdated.size > 0) {
     </div>
   </div>
 </div>
+
             {/* Form scorte manuali */}
             {showStockForm && (
               <form onSubmit={(e)=>{e.preventDefault();
