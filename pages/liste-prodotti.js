@@ -3987,6 +3987,18 @@ voiceVideo: {
   height: '100%',
   objectFit: 'cover',
 },
+// Dock sotto al banner: impila i blocchi in ordine preciso
+scorteDock: {
+  marginTop: 10,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+},
+
+// Ordine dei blocchi dentro lo stack
+criticiBlock: { order: 1 },   // ⇦ va subito sotto i tasti
+tutteBlock:   { order: 2 },   // ⇦ poi "Tutte le scorte"
+formsBlock:   { order: 3 },   // ⇦ (opzionale) sposta i form dopo
 
 
 
