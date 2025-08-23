@@ -2410,18 +2410,757 @@ if (unitsUpdated.size > 0) {
 </section>
 
 {/* ===== SEZIONE 4 — DISPENSA (TUTTE LE SCORTE) ===== */}
-<section style={styles.sectionBox}>
-  <h4 style={styles.h4}>Dispensa</h4>
-  {stock.length===0 ? (
-    <p style={{opacity:.8}}>Nessuna scorta registrata.</p>
-  ) : (
-    <div style={styles.stockList}>
-      {/* …riutilizza il tuo render delle scorte così com’è… */}
-      {stock.map((s, idx)=> /* tuo blocco esistente */ null)}
-    </div>
-  )}
-</section>
+{/* Banner largo con video + tasti sotto */}
+<div style={styles.bannerArea}>
+  <div style={styles.bannerBox}>
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="none"
+      poster="/video/stato-scorte.png"
+      style={styles.bannerVideo}
+    >
+      <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+    </video>
+    <div style={styles.bannerOverlay} />
   </div>
+
+  {/* Tasti sotto il banner */}
+  <div style={styles.sectionLarge}>
+    <div style={styles.ocrRow}>
+      <button
+        onClick={() => ocrInputRef.current?.click()}
+        disabled={busy}
+        style={styles.ocrVideoBtn}
+        aria-label="Carica scontrino (OCR)"
+        title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+      >
+        <video autoPlay loop muted playsInline style={styles.ocrVideo}>
+          <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+        </video>
+      </button>
+
+      {/* 🎙 Vocale scorte */}
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={
+          invRecBusy
+            ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover }
+            : styles.voiceVideoBtn
+        }
+        aria-label="Vocale Scorte"
+        title={
+          busy
+            ? 'Elaborazione in corso…'
+            : invRecBusy
+            ? 'Stop registrazione scorte'
+            : 'Aggiorna scorte con voce'
+        }
+      >
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
+
+      {/* ➕ Aggiunta scorte manuali */}
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.headerIcon}
+        title={
+          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
+        }
+        aria-label={
+          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
+        }
+      >
+        <Plus size={18} />
+      </button>
+
+      {/* 🗓️ Scadenze manuali */}
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.headerIcon}
+        title={
+          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
+        }
+        aria-label={
+          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
+        }
+      >
+        <Calendar size={18} />
+      </button>
+    </div>
+  </div>
+</div>
+
+            {/* Form scorte manuali */}
+            {showStockForm && (
+              <form onSubmit={(e)=>{e.preventDefault();
+                const name = stockForm.name.trim();
+                if (!name) return;
+                const brand = (stockForm.brand || '').trim();
+                const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
+                const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',', '.')) || 1);
+                const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
+                const ex = toISODate(stockForm.expiresAt || '');
+                const todayISO = new Date().toISOString().slice(0,10);
+                setStock(prev => {
+                  const arr = [...prev];
+                  const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
+                  if (idx >= 0) {
+                    const old = arr[idx];
+                    const newPacks = Number(old.packs || 0) + packs;
+                    const upp = Math.max(1, Number(old.unitsPerPack || unitsPerPack));
+                    arr[idx] = {
+                      ...old,
+                      packs: newPacks,
+                      unitsPerPack: upp,
+                      unitLabel: old.unitLabel || unitLabel,
+                      expiresAt: ex || old.expiresAt || '',
+                      packsOnly:false,
+                      ...restockTouch(newPacks, todayISO, upp)
+                    };
+                  } else {
+                    const row = {
+                      name, brand,
+                      packs, unitsPerPack, unitLabel,
+                      expiresAt: ex || '',
+                      baselinePacks: packs,
+                      lastRestockAt: todayISO,
+                      avgDailyUnits: 0,
+                      residueUnits: packs * unitsPerPack,
+                      image: '',
+                      packsOnly:false
+                    };
+                    arr.unshift(withRememberedImage(row, imagesIndex));
+                  }
+                  return arr;
+                });
+                setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
+                setShowStockForm(false);
+                showToast('Scorta aggiunta ✓', 'ok');
+              }} style={styles.formRow}>
+                <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
+                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
+                <input style={styles.input} placeholder="Marca" value={stockForm.brand}
+                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
+                <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
+                       onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
+                <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
+                       onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
+                <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
+                       onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
+                <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
+                       onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
+                <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
+              </form>
+            )}
+
+            {/* Form scadenze manuali */}
+            {showExpiryForm && (
+              <form onSubmit={(e)=>{e.preventDefault();
+                const name = (expiryForm.name || '').trim();
+                const iso  = toISODate(expiryForm.expiresAt || '');
+                if (!name || !iso) { showToast('Nome o data non validi', 'err'); return; }
+                let updated = false;
+                setStock(prev => {
+                  const arr = [...prev];
+                  const i = arr.findIndex(s => isSimilar(s.name, name));
+                  if (i >= 0) {
+                    arr[i] = { ...arr[i], expiresAt: iso };
+                    updated = true;
+                  } else {
+                    arr.unshift(withRememberedImage({
+                      name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
+                      expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
+                    }, imagesIndex));
+                    updated = true;
+                  }
+                  return arr;
+                });
+                if (updated) {
+                  showToast('Scadenza impostata ✓', 'ok');
+                  setExpiryForm({ name:'', expiresAt:'' });
+                  setShowExpiryForm(false);
+                } else {
+                  showToast('Scadenza non aggiornata', 'err');
+                }
+              }} style={styles.formRow}>
+                <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
+                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
+                <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
+                       onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
+                <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
+              </form>
+            )}
+            {/* Banner largo con video + tasti sotto */}
+<div style={styles.bannerArea}>
+  <div style={styles.bannerBox}>
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="none"
+      poster="/video/stato-scorte.png"
+      style={styles.bannerVideo}
+    >
+      <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+    </video>
+    <div style={styles.bannerOverlay} />
+  </div>
+
+  {/* Tasti sotto il banner */}
+  <div style={styles.sectionLarge}>
+    <div style={styles.ocrRow}>
+      <button
+        onClick={() => ocrInputRef.current?.click()}
+        disabled={busy}
+        style={styles.ocrVideoBtn}
+        aria-label="Carica scontrino (OCR)"
+        title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+      >
+        <video autoPlay loop muted playsInline style={styles.ocrVideo}>
+          <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+        </video>
+      </button>
+
+      {/* 🎙 Vocale scorte */}
+      <button
+        onClick={toggleVoiceInventory}
+        disabled={busy}
+        style={
+          invRecBusy
+            ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover }
+            : styles.voiceVideoBtn
+        }
+        aria-label="Vocale Scorte"
+        title={
+          busy
+            ? 'Elaborazione in corso…'
+            : invRecBusy
+            ? 'Stop registrazione scorte'
+            : 'Aggiorna scorte con voce'
+        }
+      >
+        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+        </video>
+      </button>
+
+      {/* ➕ Aggiunta scorte manuali */}
+      <button
+        onClick={() => setShowStockForm(v => !v)}
+        style={styles.headerIcon}
+        title={
+          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
+        }
+        aria-label={
+          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
+        }
+      >
+        <Plus size={18} />
+      </button>
+
+      {/* 🗓️ Scadenze manuali */}
+      <button
+        onClick={() => setShowExpiryForm(v => !v)}
+        style={styles.headerIcon}
+        title={
+          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
+        }
+        aria-label={
+          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
+        }
+      >
+        <Calendar size={18} />
+      </button>
+    </div>
+  </div>
+</div>
+
+            {/* Form scorte manuali */}
+            {showStockForm && (
+              <form onSubmit={(e)=>{e.preventDefault();
+                const name = stockForm.name.trim();
+                if (!name) return;
+                const brand = (stockForm.brand || '').trim();
+                const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
+                const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',', '.')) || 1);
+                const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
+                const ex = toISODate(stockForm.expiresAt || '');
+                const todayISO = new Date().toISOString().slice(0,10);
+                setStock(prev => {
+                  const arr = [...prev];
+                  const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
+                  if (idx >= 0) {
+                    const old = arr[idx];
+                    const newPacks = Number(old.packs || 0) + packs;
+                    const upp = Math.max(1, Number(old.unitsPerPack || unitsPerPack));
+                    arr[idx] = {
+                      ...old,
+                      packs: newPacks,
+                      unitsPerPack: upp,
+                      unitLabel: old.unitLabel || unitLabel,
+                      expiresAt: ex || old.expiresAt || '',
+                      packsOnly:false,
+                      ...restockTouch(newPacks, todayISO, upp)
+                    };
+                  } else {
+                    const row = {
+                      name, brand,
+                      packs, unitsPerPack, unitLabel,
+                      expiresAt: ex || '',
+                      baselinePacks: packs,
+                      lastRestockAt: todayISO,
+                      avgDailyUnits: 0,
+                      residueUnits: packs * unitsPerPack,
+                      image: '',
+                      packsOnly:false
+                    };
+                    arr.unshift(withRememberedImage(row, imagesIndex));
+                  }
+                  return arr;
+                });
+                setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
+                setShowStockForm(false);
+                showToast('Scorta aggiunta ✓', 'ok');
+              }} style={styles.formRow}>
+                <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
+                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
+                <input style={styles.input} placeholder="Marca" value={stockForm.brand}
+                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
+                <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
+                       onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
+                <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
+                       onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
+                <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
+                       onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
+                <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
+                       onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
+                <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
+              </form>
+            )}
+
+            {/* Form scadenze manuali */}
+            {showExpiryForm && (
+              <form onSubmit={(e)=>{e.preventDefault();
+                const name = (expiryForm.name || '').trim();
+                const iso  = toISODate(expiryForm.expiresAt || '');
+                if (!name || !iso) { showToast('Nome o data non validi', 'err'); return; }
+                let updated = false;
+                setStock(prev => {
+                  const arr = [...prev];
+                  const i = arr.findIndex(s => isSimilar(s.name, name));
+                  if (i >= 0) {
+                    arr[i] = { ...arr[i], expiresAt: iso };
+                    updated = true;
+                  } else {
+                    arr.unshift(withRememberedImage({
+                      name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
+                      expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
+                    }, imagesIndex));
+                    updated = true;
+                  }
+                  return arr;
+                });
+                if (updated) {
+                  showToast('Scadenza impostata ✓', 'ok');
+                  setExpiryForm({ name:'', expiresAt:'' });
+                  setShowExpiryForm(false);
+                } else {
+                  showToast('Scadenza non aggiornata', 'err');
+                }
+              }} style={styles.formRow}>
+                <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
+                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
+                <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
+                       onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
+                <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
+              </form>
+            )}
+
+            {/* Critici */}
+            <div style={{ marginTop: 8 }}>
+              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
+              {critical.length === 0 ? (
+                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
+              ) : (
+                <div style={styles.critListWrap}>
+                  {critical.map((s, i) => {
+                    const { current, baseline, pct } = residueInfo(s);
+                    const w = Math.round(pct*100);
+                    return (
+                      <div key={i} style={styles.critRow}>
+  <div style={styles.critName}>
+    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+  </div>
+
+  <div style={styles.progressOuterCrit}>
+    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+  </div>
+
+  <div style={styles.critMeta}>
+    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+    {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+  </div>
+
+  {/* Azione elimina */}
+  <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
+    <button
+      title="Elimina definitivamente"
+      onClick={() => {
+        const idx = stock.findIndex(
+          ss => isSimilar(ss.name, s.name) && ((ss.brand||'') === (s.brand||''))
+        );
+        if (idx >= 0) deleteStockRow(idx);
+      }}
+      style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+    >
+      <Trash2 size={18} />
+    </button>
+  </div>
+</div>
+
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Scorte complete — LAYOUT A RIGHE */}
+            <div style={{ marginTop: 12 }}>
+              <h4 style={styles.h4}>Tutte le scorte</h4>
+              {stock.length === 0 ? (
+                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
+              ) : (
+                <div style={styles.stockList}>
+                  {stock.map((s, idx) => {
+                    const { current, baseline, pct } = residueInfo(s);
+                    const w = Math.round(pct*100);
+                    const zebra = idx % 2 === 0;
+                    return (
+                      <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
+                        {editingRow === idx ? (
+                          <div>
+                            <div style={styles.formRowWrap}>
+                              <input style={styles.input} value={editDraft.name}
+                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
+                              <input style={styles.input} value={editDraft.brand}
+                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
+                            </div>
+                            <div style={styles.formRowWrap}>
+                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
+                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
+                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
+                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
+                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
+                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
+                            </div>
+                            <div style={styles.formRowWrap}>
+                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
+                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                              {/* Campo edit residuo unità / o pacchi se packsOnly */}
+                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
+                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
+                            </div>
+                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                              <button
+                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                style={styles.smallGhostBtn}
+                              >OCR riga</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
+                            <div style={styles.stockRow}>
+                              {/* Colonna immagine */}
+                              <div
+                                style={styles.imageBox}
+                                role="button"
+                                title="Aggiungi/Modifica immagine"
+                                onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
+                              >
+                                {s.image ? (
+                                  <img src={s.image} alt={s.name} style={styles.imageThumb} />
+                                ) : (
+                                  <div style={styles.imagePlaceholder}>＋</div>
+                                )}
+                              </div>
+
+                              {/* Nome + barra */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={styles.stockTitle}>
+                                  {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                                </div>
+                                <div style={styles.progressOuterBig}>
+                                  <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                                </div>
+                                <div style={styles.stockLineSmall}>
+                                  {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                                  {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                                </div>
+                              </div>
+
+                              {/* Confezioni */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Confezioni</div>
+                                <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
+                              </div>
+
+                              {/* Unità/conf. */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Unità/conf.</div>
+                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
+                              </div>
+
+                              {/* Residuo unità */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Residuo unità</div>
+                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
+                              </div>
+
+                              {/* Azioni riga */}
+                                                         {/* Azioni riga */}
+                              <div style={styles.rowActionsRight}>
+                                {/* Modifica (matita) */}
+                                <button
+                                  title="Modifica"
+                                  onClick={() => startRowEdit(idx, s)}
+                                  style={styles.iconCircle}
+                                  aria-label="Modifica scorta"
+                                >
+                                  <Pencil size={18} />
+                                </button>
+
+                                {/* Imposta scadenza rapida (calendario) */}
+                                <button
+                                  title="Imposta scadenza"
+                                  onClick={() => {
+                                    setShowExpiryForm(true);
+                                    setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' });
+                                  }}
+                                  style={styles.iconCircle}
+                                  aria-label="Imposta scadenza"
+                                >
+                                  <Calendar size={18} />
+                                </button>
+
+                                {/* OCR riga (fotocamera) */}
+                                <button
+                                  title="OCR riga"
+                                  onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                  style={styles.iconCircle}
+                                  aria-label="OCR riga"
+                                >
+                                  <Camera size={18} />
+                                </button>
+
+                                {/* Elimina definitivamente (cestino) */}
+                                <button
+                                  title="Elimina definitivamente"
+                                  onClick={() => deleteStockRow(idx)}
+                                  style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
+                                  aria-label="Elimina scorta"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                     
+                 
+           
+              
+         
+       
+          
+
+
+  {/* Azione elimina */}
+  <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
+    <button
+      title="Elimina definitivamente"
+      onClick={() => {
+        const idx = stock.findIndex(
+          ss => isSimilar(ss.name, s.name) && ((ss.brand||'') === (s.brand||''))
+        );
+        if (idx >= 0) deleteStockRow(idx);
+      }}
+      style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+    >
+      <Trash2 size={18} />
+    </button>
+  </div>
+</div>
+
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Scorte complete — LAYOUT A RIGHE */}
+            <div style={{ marginTop: 12 }}>
+              <h4 style={styles.h4}>Tutte le scorte</h4>
+              {stock.length === 0 ? (
+                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
+              ) : (
+                <div style={styles.stockList}>
+                  {stock.map((s, idx) => {
+                    const { current, baseline, pct } = residueInfo(s);
+                    const w = Math.round(pct*100);
+                    const zebra = idx % 2 === 0;
+                    return (
+                      <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
+                        {editingRow === idx ? (
+                          <div>
+                            <div style={styles.formRowWrap}>
+                              <input style={styles.input} value={editDraft.name}
+                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
+                              <input style={styles.input} value={editDraft.brand}
+                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
+                            </div>
+                            <div style={styles.formRowWrap}>
+                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
+                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
+                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
+                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
+                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
+                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
+                            </div>
+                            <div style={styles.formRowWrap}>
+                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
+                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                              {/* Campo edit residuo unità / o pacchi se packsOnly */}
+                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
+                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
+                            </div>
+                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                              <button
+                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                style={styles.smallGhostBtn}
+                              >OCR riga</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
+                            <div style={styles.stockRow}>
+                              {/* Colonna immagine */}
+                              <div
+                                style={styles.imageBox}
+                                role="button"
+                                title="Aggiungi/Modifica immagine"
+                                onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
+                              >
+                                {s.image ? (
+                                  <img src={s.image} alt={s.name} style={styles.imageThumb} />
+                                ) : (
+                                  <div style={styles.imagePlaceholder}>＋</div>
+                                )}
+                              </div>
+
+                              {/* Nome + barra */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={styles.stockTitle}>
+                                  {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                                </div>
+                                <div style={styles.progressOuterBig}>
+                                  <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                                </div>
+                                <div style={styles.stockLineSmall}>
+                                  {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                                  {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                                </div>
+                              </div>
+
+                              {/* Confezioni */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Confezioni</div>
+                                <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
+                              </div>
+
+                              {/* Unità/conf. */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Unità/conf.</div>
+                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
+                              </div>
+
+                              {/* Residuo unità */}
+                              <div style={styles.kvCol}>
+                                <div style={styles.kvLabel}>Residuo unità</div>
+                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
+                              </div>
+
+                              {/* Azioni riga */}
+                                                         {/* Azioni riga */}
+                              <div style={styles.rowActionsRight}>
+                                {/* Modifica (matita) */}
+                                <button
+                                  title="Modifica"
+                                  onClick={() => startRowEdit(idx, s)}
+                                  style={styles.iconCircle}
+                                  aria-label="Modifica scorta"
+                                >
+                                  <Pencil size={18} />
+                                </button>
+
+                                {/* Imposta scadenza rapida (calendario) */}
+                                <button
+                                  title="Imposta scadenza"
+                                  onClick={() => {
+                                    setShowExpiryForm(true);
+                                    setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' });
+                                  }}
+                                  style={styles.iconCircle}
+                                  aria-label="Imposta scadenza"
+                                >
+                                  <Calendar size={18} />
+                                </button>
+
+                                {/* OCR riga (fotocamera) */}
+                                <button
+                                  title="OCR riga"
+                                  onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                                  style={styles.iconCircle}
+                                  aria-label="OCR riga"
+                                >
+                                  <Camera size={18} />
+                                </button>
+
+                                {/* Elimina definitivamente (cestino) */}
+                                <button
+                                  title="Elimina definitivamente"
+                                  onClick={() => deleteStockRow(idx)}
+                                  style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
+                                  aria-label="Elimina scorta"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+
+
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
       
           {/* TOAST */}
           {toast && (
