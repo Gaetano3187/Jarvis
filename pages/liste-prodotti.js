@@ -3467,10 +3467,10 @@ bannerArea: {
 bannerBox: {
   position: 'relative',
   width: '100%',
-  height: 140,                 // ← altezza del banner (120–180 a gusto)
+  height: 110,                 // ← altezza del banner (120–180 a gusto)
   borderRadius: 16,
   overflow: 'hidden',
-  background: 'rgba(0,0,0,.6)',// fallback se il video non parte
+  background: 'rgba(0,0,0,.6)',
   boxShadow: '0 8px 24px rgba(0,0,0,.35)',
   border: '1px solid rgba(255,255,255,.10)',
 },
@@ -3478,6 +3478,7 @@ bannerVideo: {
   width: '100%',
   height: '100%',
   objectFit: 'cover',
+  backgroundColor: '#000',  
   display: 'block',
 },
 bannerOverlay: {
@@ -3515,7 +3516,7 @@ bannerBox: {
 
 bannerVideo: {
   display: 'block',
-  width: '50%',
+  width: '25%',
   height: '160px',        // 👈 altezza fissa ottimizzata per PC
   objectFit: 'cover',     // ritaglia solo sopra/sotto
   objectPosition: 'center', // centra scritta + muletto
