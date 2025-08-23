@@ -1,56 +1,69 @@
 // components/GlobalStyles.js
-import React from 'react'
-import Head from 'next/head'
-import Script from 'next/script'
+import React, { useEffect } from 'react'
 import PropTypes from 'prop-types'
 import { useRouter } from 'next/router'
 
 /**
- * Stili globali HUD + CDN (RemixIcon, AOS opzionale).
- * - Heroicons rimosso (usi lucide-react).
- * - AOS caricato solo se NON sei su /login (lazyOnload).
- * - Background applicato direttamente al body.
+ * Global minimal & non-blocking.
+ * - Su /login NON carica nulla da CDN.
+ * - Fuori dal login carica RemixIcon + AOS in modo asincrono (client-side).
+ * - Sfondo e classi HUD applicati sempre.
  */
 export default function GlobalStyles({ rootClassName = '' }) {
   const { pathname } = useRouter()
   const isLogin = pathname === '/login'
 
+  // Helper non-bloccanti per caricare assets solo lato client
+  useEffect(() => {
+    if (isLogin) return
+
+    const loadStylesheet = (href) =>
+      new Promise((res, rej) => {
+        const l = document.createElement('link')
+        l.rel = 'stylesheet'
+        l.href = href
+        l.onload = res
+        l.onerror = rej
+        document.head.appendChild(l)
+      })
+
+    const loadScript = (src) =>
+      new Promise((res, rej) => {
+        const s = document.createElement('script')
+        s.src = src
+        s.defer = true
+        s.onload = res
+        s.onerror = rej
+        document.body.appendChild(s)
+      })
+
+    ;(async () => {
+      try {
+        // RemixIcon (icone vettoriali leggere)
+        await loadStylesheet('https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css')
+
+        // AOS (solo dove serve, non su login)
+        await loadStylesheet('https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css')
+        await loadScript('https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js')
+        try { window.AOS?.init?.({ once: true, duration: 400, easing: 'ease-out' }) } catch {}
+      } catch {
+        // se la rete al CDN fallisce, l'app continua a funzionare senza blocchi
+      }
+    })()
+  }, [isLogin])
+
+  // Migliora reattività su SPA
+  useEffect(() => {
+    if ('scrollRestoration' in history) {
+      try { history.scrollRestoration = 'manual' } catch {}
+    }
+  }, [])
+
   return (
     <>
-      <Head>
-        {/* Hint rete per CDN */}
-        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="" />
-        <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+      {/* wrapper opzionale per classi HUD, non influisce sul layout */}
+      <div className={`hud-bg hud-title hud-button ${rootClassName}`} />
 
-        {/* Remix Icon (leggero) */}
-        <link
-          rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css"
-        />
-
-        {/* AOS CSS solo dove serve (non sul login) */}
-        {!isLogin && (
-          <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css"
-          />
-        )}
-      </Head>
-
-      {/* AOS JS lazy, inizializzato al volo (non sul login) */}
-      {!isLogin && (
-        <Script
-          src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"
-          strategy="lazyOnload"
-          onLoad={() => {
-            try {
-              window.AOS?.init?.({ once: true, duration: 400, easing: 'ease-out' })
-            } catch {}
-          }}
-        />
-      )}
-
-      {/* CSS globali */}
       <style jsx global>{`
         html, body, #__next { min-height: 100%; }
 
@@ -67,7 +80,7 @@ export default function GlobalStyles({ rootClassName = '' }) {
           -moz-osx-font-smoothing: grayscale;
         }
 
-        /* Manteniamo la classe .hud-bg per retrocompatibilità (se usata altrove) */
+        /* Retrocompatibilità se .hud-bg è usata altrove */
         .hud-bg {
           background:
             radial-gradient(circle at 50% 50%, #10131a 0%, #07090c 70%),
@@ -80,12 +93,12 @@ export default function GlobalStyles({ rootClassName = '' }) {
 
         /* ---------- TIPOGRAFIA ---------- */
         .hud-title {
-          font-family: 'Orbitron', sans-serif;
+          font-family: 'Orbitron', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
           text-shadow: 0 0 6px rgba(0, 228, 255, 0.6);
           letter-spacing: 0.05em;
         }
         .hud-text {
-          font-family: 'Inter', sans-serif;
+          font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         }
 
         /* ---------- BUTTON ripple ---------- */
@@ -129,6 +142,11 @@ export default function GlobalStyles({ rootClassName = '' }) {
           transition: transform 0.2s ease;
         }
         .icon-hud:hover { transform: scale(1.15); }
+
+        /* Riduci carico animazioni su sistemi lenti */
+        @media (prefers-reduced-motion: reduce) {
+          * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+        }
       `}</style>
     </>
   )
