@@ -3289,6 +3289,57 @@ voiceVideo: {
   height: '100%',
   objectFit: 'cover',
 },
+/* === LAYOUT SEZIONI === */
+sectionBox: {
+  marginTop: 18,
+  padding: 14,
+  borderRadius: 16,
+  background: 'rgba(255,255,255,.06)',
+  border: '1px solid rgba(255,255,255,.12)',
+  boxShadow: '0 10px 24px rgba(0,0,0,.28)',
+},
+sectionInner: {
+  marginTop: 10,
+},
+
+kicker: {
+  margin: 0,
+  marginBottom: 8,
+  fontSize: '0.95rem',
+  fontWeight: 700,
+  letterSpacing: '.02em',
+  textTransform: 'none',
+  color: '#eaf7ff',
+  textShadow: '0 1px 0 rgba(0,0,0,.45)',
+  borderLeft: '3px solid rgba(148,233,255,.65)',
+  paddingLeft: 10,
+  opacity: .95,
+},
+
+/* === SEZIONE 1: BANNER FULL-BLEED === */
+sec1FullBleed: {
+  position: 'relative',
+  width: '100vw',
+  height: 'clamp(200px, 36vw, 360px)',     // altezza max: mostra carrello + scritta
+  marginLeft: 'calc(50% - 50vw)',
+  marginRight: 'calc(50% - 50vw)',
+  overflow: 'hidden',
+  borderBottom: '1px solid rgba(255,255,255,.12)',
+},
+sec1Video: {
+  width: '100%',
+  height: '100%',
+  display: 'block',
+  objectFit: 'cover',                      // niente bande sopra/sotto
+  objectPosition: 'center',                // centra carrello + testo
+},
+sec1Overlay: {
+  position: 'absolute', inset: 0,
+  background: 'linear-gradient(180deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,.10) 70%, rgba(0,0,0,.18) 100%)',
+  pointerEvents: 'none',
+},
+
+
 
 
 
