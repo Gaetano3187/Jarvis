@@ -286,3 +286,64 @@ video[src*="stato-scorte"]:not(.scorteBgVideo){ display:none !important; }
 .sectionLifted .headerRowScorte,
 .sectionLifted .headerBannerBox{ display:none !important; }
 .sectionLifted{ padding-top:0 !important; }
+/* ===== LOGIN PERFORMANCE PATCH ===== */
+/* Copre login comuni: /login, /auth/login, /signin */
+:root { --login-bg1:#0d1b24; --login-bg2:#0a1220; }
+
+/* Stop animazioni, blur e video solo su login */
+[data-route="/login"] *,
+[data-route="/auth/login"] *,
+[data-route="/signin"] * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Contenitore app: sfondo statico, niente fixed e niente riflessi pesanti */
+[data-route="/login"] .app-shell,
+[data-route="/auth/login"] .app-shell,
+[data-route="/signin"] .app-shell {
+  min-height: 100svh !important;
+  background: linear-gradient(180deg, var(--login-bg1), var(--login-bg2)) !important;
+  background-attachment: scroll !important;   /* disattiva fixed */
+  box-shadow: none !important;
+}
+
+/* Disattiva overlay/vignette animate */
+[data-route="/login"] .app-shell::before,
+[data-route="/auth/login"] .app-shell::before,
+[data-route="/signin"] .app-shell::before {
+  content: none !important;
+}
+
+/* Niente blur (backdrop-filter è molto costoso) */
+[data-route="/login"] .glass,
+[data-route="/login"] .glass-xl,
+[data-route="/login"] .spese-casa-container2,
+[data-route="/auth/login"] .glass,
+[data-route="/signin"] .glass {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,.25) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+}
+
+/* Spegni video/banner/sfondi dinamici in login */
+[data-route="/login"] video,
+[data-route="/auth/login"] video,
+[data-route="/signin"] video {
+  display: none !important;
+}
+
+/* Se hai header animati (lp5-*) proteggiti comunque */
+[data-route="/login"] .lp5-wrap,
+[data-route="/login"] .lp5-cart,
+[data-route="/auth/login"] .lp5-wrap,
+[data-route="/signin"] .lp5-wrap {
+  display: none !important;
+}
+
+/* Evita blur anche su modali/overlay */
+[data-route="/login"] .modal,
+[data-route="/auth/login"] .modal,
+[d]()
+
