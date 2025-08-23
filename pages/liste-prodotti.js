@@ -3675,62 +3675,6 @@ sec1Overlay: {
     'radial-gradient(120% 100% at 50% 0, rgba(255,255,255,.08), transparent 45%),' +
     'linear-gradient(180deg, transparent 0%, rgba(0,0,0,.25) 100%)',
 },
-// === STATO SCORTE: banner full width + video contenuto (no crop) ===
-bannerArea: {
-  width: '100%',
-  margin: '18px 0',
-},
-
-bannerBox: {
-  position: 'relative',
-  width: '100%',
-  height: 'clamp(140px, 28vw, 240px)',  // banner resta pieno
-  borderRadius: 16,
-  overflow: 'hidden',
-  border: '1px solid rgba(255,255,255,.12)',
-  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-  background: 'linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.55))',
-  padding: '8px 12px',                  // spazio interno per ridurre il video
-  display: 'grid',
-  placeItems: 'center',
-},
-
-bannerVideo: {
-  width: '100%',
-  height: '100%',
-  maxWidth: '100%',
-  maxHeight: '100%',
-  objectFit: 'contain',                  // <<< niente taglio
-  objectPosition: 'center center',
-  display: 'block',
-  borderRadius: 12,
-  zIndex: 1,
-},
-
-bannerOverlay: {
-  position: 'absolute',
-  inset: 0,
-  pointerEvents: 'none',
-  zIndex: 2,
-  background:
-    'radial-gradient(120% 100% at 50% 0, rgba(255,255,255,.08), transparent 45%),' +
-    'linear-gradient(180deg, transparent 0%, rgba(0,0,0,.25) 100%)',
-},
-<video
-  autoPlay
-  loop
-  muted
-  playsInline
-  preload="none"
-  style={{
-    width: '100%',
-    height: '100%',
-    objectFit: 'contain',  // forza no-crop
-    transform: 'scale(0.92)', // opzionale: rende il video un po’ più piccolo nel frame
-    transformOrigin: 'center',
-    borderRadius: 12
-  }}
->
 
 
 }
