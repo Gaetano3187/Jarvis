@@ -3405,7 +3405,7 @@ headerBannerBox: {
 },
 
 headerBannerVideo: {
-  width: '100%',
+  width: '50%',
   height: '100%',
   objectFit: 'cover',        // riempie senza bande
   objectPosition: 'center',  // centra soggetti (muletto + scritta)
