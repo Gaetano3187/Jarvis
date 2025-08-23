@@ -2226,19 +2226,20 @@ return (
 
         {/* ===== SEZIONE 1 — BANNER FULL WIDTH ===== */}
         <section style={styles.sec1FullBleed}>
-          <video
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="metadata"
-            poster="/video/stato-scorte.png"
-            style={styles.sec1Video}
-          >
-            <source src="/pagina%20finanze.mp4" type="video/mp4" />
-          </video>
-          <div style={styles.sec1Overlay} />
-        </section>
+      <video
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="metadata"
+    poster="/video/stato-scorte.png"
+    style={styles.sec1Video}
+  >
+    <source src="/pagina%20finanze.mp4" type="video/mp4" />
+  </video>
+  <div style={styles.sec1Overlay} />
+</section>
+
 
         {/* ===== SEZIONE 2 — LISTE ===== */}
         <section style={styles.sectionBox}>
@@ -3603,24 +3604,32 @@ kicker: {
 /* === SEZIONE 1: BANNER FULL-BLEED === */
 sec1FullBleed: {
   position: 'relative',
-  width: '100vw',
-  height: 'clamp(200px, 36vw, 360px)',     // altezza max: mostra carrello + scritta
-  marginLeft: 'calc(50% - 50vw)',
-  marginRight: 'calc(50% - 50vw)',
+  width: '100%',
+  /* altezza della “striscia” banner: regola a piacere */
+  height: 160,                 // es: 140–200 per più/meno taglio
+  borderRadius: 16,
   overflow: 'hidden',
-  borderBottom: '1px solid rgba(255,255,255,.12)',
+  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+  border: '1px solid rgba(255,255,255,.10)',
+  margin: '8px 0 14px'
 },
+
 sec1Video: {
   width: '100%',
   height: '100%',
   display: 'block',
-  objectFit: 'cover',                      // niente bande sopra/sotto
-  objectPosition: 'center',                // centra carrello + testo
+  objectFit: 'cover',          // riempi e taglia sopra/sotto
+  /* sposta la “finestra” verticale per decidere cosa si vede */
+  objectPosition: 'center 38%' // ↓ aumenta per scendere, ↓ diminuisci per salire
+  // esempi: 'center 30%' (più alto), 'center 50%' (centrato), 'center 65%' (più basso)
 },
+
 sec1Overlay: {
-  position: 'absolute', inset: 0,
-  background: 'linear-gradient(180deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,.10) 70%, rgba(0,0,0,.18) 100%)',
-  pointerEvents: 'none',
+  position: 'absolute',
+  inset: 0,
+  /* leggero velo per leggibilità */
+  background: 'linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.08))',
+  pointerEvents: 'none'
 },
 
 }
