@@ -467,4 +467,56 @@ html[data-route="/auth/login"] .spese-casa-container2 {
   background: rgba(12, 14, 20, .6) !important; /* leggero sfondo opaco */
   border-color: rgba(255,255,255,.06) !important;
 }
+/* ===== Login super-leggero ===== */
+html[data-route="/login"],
+html[data-route="/auth/login"] {
+  scroll-behavior: auto;
+}
+
+/* sfondo semplice + zero animazioni */
+html[data-route="/login"] .app-shell,
+html[data-route="/auth/login"] .app-shell,
+.login-shell {
+  min-height: 100svh;
+  background: #0a0f1a !important;   /* o il tuo grigio “canna di fucile” */
+  animation: none !important;
+  filter: none !important;
+}
+
+/* contenitore stretto e leggero */
+html[data-route="/login"] .page-container,
+html[data-route="/auth/login"] .page-container,
+.page-login {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 16px 12px !important;
+}
+
+/* niente blur/ombre/animazioni ovunque */
+html[data-route="/login"] *,
+html[data-route="/auth/login"] *,
+.login-shell * {
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* se ci sono video sul login, non caricarli/renderizzarli */
+html[data-route="/login"] video,
+html[data-route="/auth/login"] video {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* modali sul login senza blur */
+html[data-route="/login"] .modal,
+html[data-route="/auth/login"] .modal,
+.login-shell .modal {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(0,0,0,.65) !important;
+}
 
