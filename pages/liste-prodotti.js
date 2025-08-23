@@ -2233,7 +2233,7 @@ return (
     loop
     muted
     playsInline
-    preload="metadata"
+    preload="none"
     poster="/video/stato-scorte.png"            // (opz.) puoi cambiarlo con un poster generato dal nuovo video
     style={styles.sec1Video}
   >
@@ -2904,80 +2904,7 @@ return (
   </>
 );
       {/* SAFE OVERRIDES SOLO per /liste-prodotti */}
-<style jsx global>{`
-  /* disattiva animazioni e blur invasivi su questa pagina */
-  .route-liste-prodotti .app-shell,
-  .route-liste-prodotti .app-shell::before {
-    animation: none !important;
-    background-attachment: scroll !important;
-    filter: none !important;
-  }
-  .route-liste-prodotti * {
-    animation: none !important;
-    transition: none !important;
-  }
-  .route-liste-prodotti .glass,
-  .route-liste-prodotti .glass-xl,
-  .route-liste-prodotti .spese-casa-container2 {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
 
-  /* BANNER SEZIONE 1: video intero dentro banner a tutta larghezza */
-  .route-liste-prodotti .sec1FullBleed {
-    display:flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    background:#0b0f17 !important; /* gunmetal */
-    overflow:hidden !important;
-    min-height: 160px; /* regola a piacere */
-  }
-  .route-liste-prodotti .sec1FullBleed > video {
-    width:auto !important;
-    height:100% !important;
-    max-height:100% !important;
-    object-fit: contain !important;  /* nessun taglio */
-    background: transparent !important;
-    filter:none !important;
-    box-shadow:none !important;
-    pointer-events:auto !important;
-  }
-
-  /* BANNER "STATO SCORTE": stesso comportamento */
-  .route-liste-prodotti .bannerArea { width:100%; }
-  .route-liste-prodotti .bannerBox {
-    display:flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    background:#0b0f17 !important;   /* gunmetal */
-    overflow:hidden !important;
-    min-height: 140px;
-    border-radius: 16px;
-  }
-  .route-liste-prodotti .bannerBox > video {
-    width:auto !important;
-    height:100% !important;
-    max-height:100% !important;
-    object-fit: contain !important;   /* nessun taglio */
-    filter:none !important;
-    box-shadow:none !important;
-  }
-
-  /* Bottoni video (OCR/Vocale) alleggeriti */
-  .route-liste-prodotti button[aria-label="Carica scontrino (OCR)"] video,
-  .route-liste-prodotti button[aria-label="Vocale Lista"] video,
-  .route-liste-prodotti button[aria-label="Vocale Scorte"] video {
-    object-fit: contain !important;
-    filter: none !important;
-    box-shadow: none !important;
-  }
-  .route-liste-prodotti button[aria-label="Carica scontrino (OCR)"],
-  .route-liste-prodotti button[aria-label="Vocale Lista"],
-  .route-liste-prodotti button[aria-label="Vocale Scorte"]{
-    width: 82px !important;
-    height: 82px !important;
-  }
-`}</style>
    
 }
 /* =================== Styles (identici) =================== */
