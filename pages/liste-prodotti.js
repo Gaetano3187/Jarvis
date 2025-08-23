@@ -3619,7 +3619,7 @@ sec1FullBleed: {
 },
 
 sec1Video: {
-  width: '80%',
+  width: '130%',
   height: '100%',
   display: 'block',
   objectFit: 'cover',          // riempi e taglia sopra/sotto
