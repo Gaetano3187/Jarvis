@@ -414,4 +414,57 @@ video[src*="stato-scorte"]:not(.scorteBgVideo){ display:none !important; }
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+/* =========================
+   LOGIN • modalità ultra-leggera
+   (vale per /login e /auth/login)
+   Incollare in fondo al file.
+   ========================= */
+
+html[data-route="/login"],
+html[data-route="/auth/login"] {
+  /* solo per scoping */
+}
+
+/* Sfondo semplice, niente animazioni */
+html[data-route="/login"] .app-shell,
+html[data-route="/auth/login"] .app-shell,
+html[data-route="/login"] .login-shell,
+html[data-route="/auth/login"] .login-shell {
+  min-height: 100svh;
+  background: #0b0e13 !important;     /* nero/blu petrolio scuro */
+  background-image: none !important;
+  animation: none !important;
+}
+
+/* STOP a blur/filtri/animazioni/transizioni sul login */
+html[data-route="/login"] *,
+html[data-route="/auth/login"] * {
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+}
+
+/* Niente video o banner animati nel login */
+html[data-route="/login"] video,
+html[data-route="/auth/login"] video,
+html[data-route="/login"] .lp5-wrap,
+html[data-route="/auth/login"] .lp5-wrap,
+html[data-route="/login"] .bg-kaleido,
+html[data-route="/auth/login"] .bg-kaleido {
+  display: none !important;
+}
+
+/* Se hai card glass, niente vetro sul login (più veloce) */
+html[data-route="/login"] .glass,
+html[data-route="/auth/login"] .glass,
+html[data-route="/login"] .spese-casa-container2,
+html[data-route="/auth/login"] .spese-casa-container2 {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  background: rgba(12, 14, 20, .6) !important; /* leggero sfondo opaco */
+  border-color: rgba(255,255,255,.06) !important;
+}
 
