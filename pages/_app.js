@@ -1,7 +1,7 @@
-// /pages/app.js
+// pages/_app.js
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
-import "../styles/mobile-overrides.css";
+import '../styles/mobile-overrides.css';
 
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
@@ -18,8 +18,6 @@ const poppins = Poppins({
   weight: ['400', '600', '700'],
   variable: '--font-sans',
   display: 'swap',
-
-
 });
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -82,11 +80,11 @@ function bootstrapBrainProxy(supabase) {
     log('LS dec:', name, 'by', amount);
   };
 
-  // ——— "Cloud" (Supabase) – opzionale: se manca tabella/permessi, fallback a solo-LS
+  // ——— "Cloud" (Supabase) – opzionale
   const cloud = (() => {
     if (!supabase) return null;
 
-    const table = 'shopping_list'; // <- crea questa tabella per sync cross-device
+    const table = 'shopping_list';
     const getUserId = async () => {
       try {
         const { data } = await supabase.auth.getUser();
@@ -117,7 +115,6 @@ function bootstrapBrainProxy(supabase) {
         .eq('user_id', user_id)
         .order('added_at', { ascending: true });
       if (error) {
-        // 42P01 = table not found (Postgres); ma da edge può venire 400.
         log('[cloud load] fallback only-LS:', error?.message || error);
         return [];
       }
@@ -133,12 +130,10 @@ function bootstrapBrainProxy(supabase) {
       }));
     };
 
-    // Nota: senza unique constraint (user_id, lower(name)) facciamo "merge manuale"
     const upsertOne = async (item) => {
       const user_id = await getUserId();
       if (!user_id) return;
 
-      // prova update se già esiste
       const { data: existing, error: selErr } = await supabase
         .from(table)
         .select('id, qty')
@@ -195,7 +190,7 @@ function bootstrapBrainProxy(supabase) {
       for (const r of (remote||[])) {
         const k = String(r.name||'').toLowerCase();
         if (!map[k]) map[k] = r;
-        else map[k].qty = Math.max(map[k].qty||1, r.qty||1); // tieni il max (o somma se vuoi)
+        else map[k].qty = Math.max(map[k].qty||1, r.qty||1);
       }
       const merged = Object.values(map);
       saveList(merged);
@@ -243,11 +238,9 @@ function bootstrapBrainProxy(supabase) {
         if (remote?.length) cloud.mergeRemoteIntoLS(remote);
         await cloud.pushLSIntoRemote();
       }
-      // dopo la sincronizzazione remota, flush verso brain reale
       if (real?.ask || real?.run) {
         try {
           const items = loadList();
-          // evita doppi inserimenti: prova a leggere già lista dal brain
           let existing = [];
           try { existing = (await real.ask?.('lista-oggi')) || []; } catch {}
           const known = new Set((existing||[]).map(i => String(i.name||'').toLowerCase()));
@@ -292,7 +285,6 @@ function bootstrapBrainProxy(supabase) {
         upsertItemLS(normalized);
         if (cloud?.enabled) cloud.upsertOne({ ...normalized, qty: normalized.packs });
 
-        // prova anche sul brain reale (comandi alias)
         await tryForwards(realBrain,
           ['aggiungi-alla-lista','list/add','lista/aggiungi','add-to-list','addToList'],
           normalized
@@ -310,7 +302,6 @@ function bootstrapBrainProxy(supabase) {
         return { ok: 1 };
       }
 
-      // default passthrough
       if (realBrain?.run) {
         try { return await realBrain.run(cmd, payload); }
         catch (e) { log('run passthrough fail', cmd, e?.message || e); }
@@ -319,12 +310,10 @@ function bootstrapBrainProxy(supabase) {
     },
 
     async ask(question, payload={}) {
-      // 1) prova brain reale
       if (realBrain?.ask) {
         try {
           const res = await realBrain.ask(question, payload);
           if (question === 'lista-oggi') {
-            // merge con LS e con cloud
             if (cloud?.enabled) {
               const remote = await cloud.loadAll();
               if (remote?.length) cloud.mergeRemoteIntoLS(remote);
@@ -346,7 +335,6 @@ function bootstrapBrainProxy(supabase) {
         }
       }
 
-      // 2) fallback
       if (question === 'lista-oggi') {
         if (cloud?.enabled) {
           const remote = await cloud.loadAll();
@@ -359,18 +347,15 @@ function bootstrapBrainProxy(supabase) {
     }
   });
 
-  // ——— installa il proxy + hooka jarvisBrain quando arriva
   const defineProxy = () => {
     if (window.__JARVIS_BRAIN_PROXY_READY__) return;
     window.__JARVIS_BRAIN_PROXY_READY__ = true;
 
-    // se c'è già un brain → wrappa
     if (window.jarvisBrain && !window.__jarvisBrainHub) {
-      __REAL = window.jarvisBrain;
-      window.__jarvisBrainHub = makeWrapper(__REAL);
+      const real = window.jarvisBrain;
+      window.__jarvisBrainHub = makeWrapper(real);
       window.jarvisBrain = window.__jarvisBrainHub;
-      // prima sync cloud, poi flush in brain
-      doCloudPullMergeAndFlush(__REAL);
+      doCloudPullMergeAndFlush(real);
       log('wrappato brain pre-esistente');
     }
 
@@ -379,19 +364,17 @@ function bootstrapBrainProxy(supabase) {
       enumerable: true,
       get() { return window.__jarvisBrainHub || null; },
       set(v) {
-        __REAL = v || null;
-        window.__jarvisBrainHub = makeWrapper(__REAL);
-        window.__jarvisFlush = () => doCloudPullMergeAndFlush(__REAL);
-        doCloudPullMergeAndFlush(__REAL);
-        log('brain reale collegato, wrapper ricreato', !!__REAL);
+        const real = v || null;
+        window.__jarvisBrainHub = makeWrapper(real);
+        window.__jarvisFlush = () => doCloudPullMergeAndFlush(real);
+        doCloudPullMergeAndFlush(real);
+        log('brain reale collegato, wrapper ricreato', !!real);
       }
     });
 
-    // alias utili
     if (!window.__jarvisBrainHub) window.__jarvisBrainHub = makeWrapper(null);
-    if (!window.__jarvisFlush) window.__jarvisFlush = () => doCloudPullMergeAndFlush(__REAL);
+    if (!window.__jarvisFlush) window.__jarvisFlush = () => doCloudPullMergeAndFlush(null);
 
-    // espone anche una pull cloud manuale
     if (cloud?.enabled && !window.__jarvisCloudPull) {
       window.__jarvisCloudPull = async () => {
         const remote = await cloud.loadAll();
@@ -408,13 +391,22 @@ function bootstrapBrainProxy(supabase) {
 
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
-  const hideNavOn = ['/', '/login']; // pagine senza NavBar
+
+  // Pagine senza NavBar
+  const hideNavOn = ['/', '/login', '/auth/login'];
   const showNav = !hideNavOn.includes(router.pathname);
 
-  // opzionale: client supabase condiviso
+  // Supabase client condiviso
   const [supabaseClient] = useState(() =>
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
+
+  // Etichetta la rotta corrente per gli stili CSS (es. login ultra-leggero)
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-route', router.pathname || '');
+    }
+  }, [router.pathname]);
 
   // bootstrap proxy con supabase per sync cross-device
   useEffect(() => {
@@ -425,7 +417,6 @@ export default function MyApp({ Component, pageProps }) {
   useEffect(() => {
     const doFlush = () => {
       if (typeof window !== 'undefined') {
-        // tira giù dal cloud e flush nel brain
         if (window.__jarvisCloudPull) window.__jarvisCloudPull();
         if (window.__jarvisFlush) {
           setTimeout(() => window.__jarvisFlush(), 250);
