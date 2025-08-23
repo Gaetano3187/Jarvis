@@ -345,5 +345,9 @@ video[src*="stato-scorte"]:not(.scorteBgVideo){ display:none !important; }
 /* Evita blur anche su modali/overlay */
 [data-route="/login"] .modal,
 [data-route="/auth/login"] .modal,
-[d]()
+[data-route="/login"] .modal *,
+[data-route="/auth/login"] .modal * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 
