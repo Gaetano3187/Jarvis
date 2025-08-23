@@ -3612,7 +3612,7 @@ sec1FullBleed: {
   /* altezza della “striscia” banner: regola a piacere */
   height: 160,                 // es: 140–200 per più/meno taglio
   borderRadius: 16,
-  backgroundColor: '#000',  
+ backgroundColor: '#2a2f36'  
   boxShadow: '0 8px 24px rgba(0,0,0,.35)',
   border: '1px solid rgba(255,255,255,.10)',
   margin: '8px 0 14px'
