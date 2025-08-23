@@ -519,4 +519,77 @@ html[data-route="/auth/login"] .modal,
   -webkit-backdrop-filter: none !important;
   background: rgba(0,0,0,.65) !important;
 }
+/* ============= LISTE PRODOTTI — SAFE MODE VIDEO + NO TAGLI ============= */
+
+/* Banner: tieni il contenitore full width, centra il video e NON taglia */
+html[data-route="/liste-prodotti"] .bannerArea,
+html[data-route="/liste-prodotti"] .sec1FullBleed {
+  width: 100%;
+}
+
+html[data-route="/liste-prodotti"] .bannerBox,
+html[data-route="/liste-prodotti"] .sec1FullBleed {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #0b0f17 !important;                 /* grigio petrolio scuro */
+}
+
+/* video del banner: scala “tutto dentro”, nessun filtro/ombra costosa */
+html[data-route="/liste-prodotti"] .bannerBox > video,
+html[data-route="/liste-prodotti"] .sec1FullBleed > video {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;                 /* <-- niente taglio */
+  background: transparent !important;
+  filter: none !important;
+  box-shadow: none !important;
+  will-change: auto !important;
+}
+
+/* Bottoni video (OCR + Vocale): togli filtri e usa contain */
+html[data-route="/liste-prodotti"] button[aria-label="Carica scontrino (OCR)"] video,
+html[data-route="/liste-prodotti"] button[aria-label="Vocale Lista"] video,
+html[data-route="/liste-prodotti"] button[aria-label="Vocale Scorte"] video {
+  object-fit: contain !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
+
+/* Riduci un filo i bottoni video (meno GPU) */
+html[data-route="/liste-prodotti"] button[aria-label="Carica scontrino (OCR)"],
+html[data-route="/liste-prodotti"] button[aria-label="Vocale Lista"],
+html[data-route="/liste-prodotti"] button[aria-label="Vocale Scorte"] {
+  width: 80px !important;
+  height: 80px !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35) !important;
+}
+
+/* Disattiva animazioni “di scena” solo in questa pagina */
+html[data-route="/liste-prodotti"] .lp5-wrap,
+html[data-route="/liste-prodotti"] .lp5-title,
+html[data-route="/liste-prodotti"] .lp5-title::after {
+  animation: none !important;
+}
+
+/* I blur sono molto costosi su mobile: spegnili qui */
+html[data-route="/liste-prodotti"] .glass,
+html[data-route="/liste-prodotti"] .glass-xl,
+html[data-route="/liste-prodotti"] .spese-casa-container2 {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Se l’utente preferisce meno movimento, nascondi i video e usa i fallback */
+@media (prefers-reduced-motion: reduce) {
+  html[data-route="/liste-prodotti"] video { display: none !important; }
+  /* opzionale: metti un’immagine di fallback sui bottoni */
+  html[data-route="/liste-prodotti"] button[aria-label="Carica scontrino (OCR)"],
+  html[data-route="/liste-prodotti"] button[aria-label="Vocale Lista"],
+  html[data-route="/liste-prodotti"] button[aria-label="Vocale Scorte"] {
+    background: #0b0f17 center/contain no-repeat;
+  }
+}
 
