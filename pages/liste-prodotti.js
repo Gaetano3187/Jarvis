@@ -3514,8 +3514,8 @@ bannerBox: {
 
 bannerVideo: {
   display: 'block',
-  width: '100%',
-  height: '160px',        // 👈 altezza fissa ottimizzata per PC
+  width: '75%',
+  height: '100px',        // 👈 altezza fissa ottimizzata per PC
   objectFit: 'cover',     // ritaglia solo sopra/sotto
   objectPosition: 'center', // centra scritta + muletto
   borderRadius: 14,
@@ -3583,7 +3583,7 @@ sectionBox: {
   padding: 14,
   borderRadius: 16,
   background: 'rgba(255,255,255,.06)',
-  border: '1px solid rgba(255,255,255,.12)',
+  border: '2px solid rgba(255,255,255,.12)',
   boxShadow: '0 10px 24px rgba(0,0,0,.28)',
 },
 sectionInner: {
@@ -3618,8 +3618,8 @@ sec1FullBleed: {
 },
 
 sec1Video: {
-  width: '100%',
-  height: '100%',
+  width: '70%',
+  height: '70%',
   display: 'block',
   objectFit: 'cover',          // riempi e taglia sopra/sotto
   /* sposta la “finestra” verticale per decidere cosa si vede */
