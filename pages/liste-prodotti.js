@@ -3634,5 +3634,88 @@ sec1Overlay: {
   background: 'linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.08))',
   pointerEvents: 'none'
 },
+  // ——— SEZIONE 1: Banner full width con video ridotto dentro ———
+sec1FullBleed: {
+  position: 'relative',
+  width: '100%',
+  /* il banner resta pieno e con angoli arrotondati */
+  borderRadius: 16,
+  overflow: 'hidden',
+  background: 'linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.55))',
+  border: '1px solid rgba(255,255,255,.12)',
+  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+  /* altezza del banner: resta pieno, il video si adatta dentro */
+  height: 'clamp(140px, 28vw, 240px)',
+  /* spazio interno così il video “respira” ed è più piccolo del banner */
+  padding: '8px 12px',
+  display: 'grid',
+  placeItems: 'center',
+},
+
+sec1Video: {
+  /* il video sta dentro al banner, ridotto, senza crop */
+  width: '100%',
+  height: '100%',
+  maxWidth: '100%',
+  maxHeight: '100%',
+  objectFit: 'contain',          // <<< niente taglio
+  objectPosition: 'center center',
+  borderRadius: 12,              // piccolo arrotondamento interno
+  display: 'block',
+  zIndex: 1,
+},
+
+sec1Overlay: {
+  position: 'absolute',
+  inset: 0,
+  pointerEvents: 'none',
+  zIndex: 2,
+  /* leggerissimo velo per far risaltare il testo del video, opzionale */
+  background:
+    'radial-gradient(120% 100% at 50% 0, rgba(255,255,255,.08), transparent 45%),' +
+    'linear-gradient(180deg, transparent 0%, rgba(0,0,0,.25) 100%)',
+},
+// === STATO SCORTE: banner full width + video contenuto (no crop) ===
+bannerArea: {
+  width: '100%',
+  margin: '18px 0',
+},
+
+bannerBox: {
+  position: 'relative',
+  width: '100%',
+  height: 'clamp(140px, 28vw, 240px)',  // banner resta pieno
+  borderRadius: 16,
+  overflow: 'hidden',
+  border: '1px solid rgba(255,255,255,.12)',
+  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+  background: 'linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.55))',
+  padding: '8px 12px',                  // spazio interno per ridurre il video
+  display: 'grid',
+  placeItems: 'center',
+},
+
+bannerVideo: {
+  width: '100%',
+  height: '100%',
+  maxWidth: '100%',
+  maxHeight: '100%',
+  objectFit: 'contain',                  // <<< niente taglio
+  objectPosition: 'center center',
+  display: 'block',
+  borderRadius: 12,
+  zIndex: 1,
+},
+
+bannerOverlay: {
+  position: 'absolute',
+  inset: 0,
+  pointerEvents: 'none',
+  zIndex: 2,
+  background:
+    'radial-gradient(120% 100% at 50% 0, rgba(255,255,255,.08), transparent 45%),' +
+    'linear-gradient(180deg, transparent 0%, rgba(0,0,0,.25) 100%)',
+},
+
 
 }
