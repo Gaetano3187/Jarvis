@@ -3620,11 +3620,11 @@ sec1FullBleed: {
 
 sec1Video: {
   width: '100%',
-  height: '100%',
+  height: '80%',
   display: 'block',
   objectFit: 'cover',          // riempi e taglia sopra/sotto
   /* sposta la “finestra” verticale per decidere cosa si vede */
-  objectPosition: 'center 38%' // ↓ aumenta per scendere, ↓ diminuisci per salire
+  objectPosition: 'center 50%' // ↓ aumenta per scendere, ↓ diminuisci per salire
   // esempi: 'center 30%' (più alto), 'center 50%' (centrato), 'center 65%' (più basso)
 },
 
