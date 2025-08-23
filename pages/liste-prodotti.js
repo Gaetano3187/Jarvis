@@ -3517,7 +3517,7 @@ bannerBox: {
 bannerVideo: {
   display: 'block',
   width: '25%',
-  height: '160px',        // 👈 altezza fissa ottimizzata per PC
+  height: '120px',        // 👈 altezza fissa ottimizzata per PC
   objectFit: 'cover',     // ritaglia solo sopra/sotto
   objectPosition: 'center', // centra scritta + muletto
   borderRadius: 14,
