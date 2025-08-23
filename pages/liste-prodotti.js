@@ -3405,7 +3405,7 @@ headerBannerBox: {
 },
 
 headerBannerVideo: {
-  width: '100%',
+  width: '80%',
   height: '100%',
   objectFit: 'cover',        // riempie senza bande
   objectPosition: 'center',  // centra soggetti (muletto + scritta)
@@ -3467,7 +3467,7 @@ bannerArea: {
 bannerBox: {
   position: 'relative',
   width: '100%',
-  height: 100,                 // ← altezza del banner (120–180 a gusto)
+  height: 120,                 // ← altezza del banner (120–180 a gusto)
   borderRadius: 16,
   overflow: 'hidden',
   background: 'rgba(0,0,0,.6)',
@@ -3508,7 +3508,7 @@ bannerArea: {
 bannerBox: {
   position: 'relative',
   width: '100%',
-  maxWidth: '80%',       // banner sempre a tutta larghezza sezione
+  maxWidth: '100%',       // banner sempre a tutta larghezza sezione
   borderRadius: 14,
   overflow: 'hidden',
   boxShadow: '0 6px 18px rgba(0,0,0,.4)',
