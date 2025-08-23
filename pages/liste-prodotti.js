@@ -3716,6 +3716,21 @@ bannerOverlay: {
     'radial-gradient(120% 100% at 50% 0, rgba(255,255,255,.08), transparent 45%),' +
     'linear-gradient(180deg, transparent 0%, rgba(0,0,0,.25) 100%)',
 },
+<video
+  autoPlay
+  loop
+  muted
+  playsInline
+  preload="none"
+  style={{
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',  // forza no-crop
+    transform: 'scale(0.92)', // opzionale: rende il video un po’ più piccolo nel frame
+    transformOrigin: 'center',
+    borderRadius: 12
+  }}
+>
 
 
 }
