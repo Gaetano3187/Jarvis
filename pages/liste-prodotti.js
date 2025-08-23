@@ -2225,17 +2225,20 @@ return (
       <div style={styles.card}>
 
         {/* ===== SEZIONE 1 — BANNER FULL WIDTH ===== */}
-        <section style={styles.sec1FullBleed}>
-      <video
+      <section style={styles.sec1FullBleed}>
+  <video
+    key="/video/Liste-prodotti-small.mp4?v=1"   // forza il refresh del video in cache
     autoPlay
     loop
     muted
     playsInline
     preload="metadata"
-    poster="/video/stato-scorte.png"
+    poster="/video/stato-scorte.png"            // (opz.) puoi cambiarlo con un poster generato dal nuovo video
     style={styles.sec1Video}
   >
-    <source src="/pagina%20finanze.mp4" type="video/mp4" />
+    <source src="/video/Liste-prodotti-small.mp4" type="video/mp4" />
+    {/* Se in futuro crei la variante webm, aggiungi anche:
+    <source src="/video/Liste-prodotti.webm" type="video/webm" /> */}
   </video>
   <div style={styles.sec1Overlay} />
 </section>
