@@ -3507,7 +3507,7 @@ bannerArea: {
 
 bannerBox: {
   position: 'relative',
-  width: '100%',
+  width: '80%',
   maxWidth: '100%',       // banner sempre a tutta larghezza sezione
   borderRadius: 14,
   overflow: 'hidden',
