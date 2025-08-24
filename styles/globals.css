@@ -972,6 +972,175 @@ body::after{
       rgba(255,255,255,.04) 28%,
       rgba(0,0,0,.12) 100%);      /* riflesso dolce + leggero scurimento in basso */
 }
+/* =========================================================
+   /liste-prodotti — responsive SOLO smartphone
+   =======================================================*/
+@media (max-width: 480px) {
+  /* contenitore pagina più compatto */
+  body.lp-route .page {
+    padding: 12px 10px !important;
+  }
+  body.lp-route .card {
+    border-radius: 14px !important;
+    padding: 10px !important;
+  }
+
+  /* ---------- Sezione 1: banner alto (riempie e non sborda) ---------- */
+  body.lp-route .lp-sec1{
+    height: 84px !important;         /* altezza barra su tel. */
+    border-radius: 14px !important;
+    overflow: hidden !important;
+    margin: 8px 0 10px !important;
+  }
+  body.lp-route .lp-sec1__video{
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;    /* riempie tutta la barra */
+    object-position: right center !important;  /* sposta a destra */
+    display: block !important;
+  }
+
+  /* ---------- Sezioni 3/4: banner stretti (stesso comportamento) ---------- */
+  body.lp-route .bannerBox{
+    height: 92px !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+    margin-bottom: 8px !important;
+  }
+  body.lp-route .bannerBox > video{
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    object-position: right center !important;
+    display: block !important;
+  }
+
+  /* ---------- “Scegli la lista”: i due pulsanti grossi in 2 colonne ---------- */
+  body.lp-route .switchImgRow{
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+    margin: 6px 0 12px !important;
+  }
+  body.lp-route .switchImgBtn{
+    border-radius: 12px !important;
+    overflow: hidden !important;
+  }
+  body.lp-route .switchImg{
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  /* ---------- Barra comandi: tasti 42×42, griglia 2×2 ---------- */
+  body.lp-route .toolsRow{
+    display: grid !important;
+    grid-template-columns: repeat(4, 42px) !important; /* 2 righe×2 colonne usando wrap */
+    grid-auto-rows: 42px !important;
+    gap: 10px !important;
+    justify-content: start !important;
+    margin: 8px 0 6px !important;
+  }
+  /* forma/tappo da 42 */
+  body.lp-route .voice42,
+  body.lp-route .ocr42,
+  body.lp-route .plusRound42,
+  body.lp-route .calRound42,
+  body.lp-route .iconCircle,
+  body.lp-route .headerIcon{
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+  }
+  /* video dentro al tappo 42 */
+  body.lp-route .voice42Video,
+  body.lp-route .ocr42Video{
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    display: block !important;
+  }
+
+  /* ---------- Sezioni (box) e titoli ---------- */
+  body.lp-route .sectionBox{
+    margin-top: 10px !important;
+    padding: 10px !important;
+  }
+  body.lp-route .h3{
+    font-size: 1.05rem !important;
+    margin: 6px 0 8px !important;
+  }
+  body.lp-route .h4{
+    font-size: 0.95rem !important;
+    margin: 4px 0 6px !important;
+  }
+
+  /* ---------- Card lista prodotti (rosso) ---------- */
+  body.lp-route .listCardRed{
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+  }
+  body.lp-route .rowName{ font-size: 1rem !important; }
+  body.lp-route .rowMeta{ font-size: .85rem !important; }
+
+  /* azioni della riga: griglia compatta, nessun overflow */
+  body.lp-route .rowActions,
+  body.lp-route .rowActionsRight{
+    display: grid !important;
+    grid-template-columns: repeat(4, 36px) !important;
+    grid-auto-rows: 36px !important;
+    gap: 8px !important;
+    justify-content: end !important;
+  }
+  body.lp-route .iconBtnBase{
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    border-radius: 10px !important;
+  }
+  body.lp-route .ocrPillBtn{
+    padding: 6px 8px !important;
+    font-size: .80rem !important;
+    border-radius: 10px !important;
+  }
+
+  /* ---------- “In esaurimento / scadenza” ---------- */
+  body.lp-route .critRow{
+    padding: 8px !important;
+    border-radius: 10px !important;
+    gap: 8px !important;
+  }
+  body.lp-route .progressOuterCrit{ height: 6px !important; }
+
+  /* ---------- Lista scorte (righe con kv) ---------- */
+  body.lp-route .stockRow{
+    gap: 10px !important;
+    align-items: center !important;
+  }
+  body.lp-route .imageBox{
+    width: 50px !important;
+    height: 50px !important;
+    border-radius: 10px !important;
+  }
+  body.lp-route .kvCol{ min-width: 70px !important; }
+  body.lp-route .kvLabel{ font-size: .7rem !important; }
+  body.lp-route .kvValue{ font-size: .95rem !important; }
+
+  /* blocchi vari con bordi tondeggianti */
+  body.lp-route .sectionLarge{
+    padding: 10px !important;
+    border-radius: 12px !important;
+  }
+
+  /* evita duplicazioni/overflow laterale di gruppi azioni */
+  body.lp-route .listCardRed,
+  body.lp-route .stockLineZ1,
+  body.lp-route .stockLineZ2{
+    overflow: hidden !important;
+  }
+}
 
 }
 
