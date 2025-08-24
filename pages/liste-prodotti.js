@@ -2327,11 +2327,11 @@ return (
       width: '100%',
       height: '100%',
       borderRadius: 12,
-       background: 'transparent',  
+      background: '#0f172a',        // scuro, come gli altri comandi
       // rilievo: highlight in alto + ombra in basso, solo inset
       boxShadow:
-        'inset 0 1px 0.4px rgba(255,255,255,.28), ' +  // luce alto
-        'inset 0 -3px 2px rgba(0,0,0,.55), ' +          // ombra basso
+        'inset 0 1px 0.2px rgba(255,255,255,.28), ' +  // luce alto
+        'inset 0 -3px 1px rgba(0,0,0,.55), ' +          // ombra basso
         'inset 0 0 0 1px rgba(255,255,255,.08)',        // filo interno
       overflow: 'hidden'           // taglia eventuali sbordi della maschera interna
     }}
