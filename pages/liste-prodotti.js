@@ -2558,48 +2558,24 @@ return (
           </div>
         </section>
 
-        {/* ===== SEZIONE 3 — ESAURIMENTO/SCADENZA ===== */}
-        <section style={styles.sectionBox}>
-          <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-          {critical.length === 0 ? (
-            <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
-          ) : (
-            <div style={styles.critListWrap}>
-              {critical.map((s, i) => {
-                const { current, baseline, pct } = residueInfo(s);
-                const w = Math.round(pct * 100);
-                return (
-                  <div key={i} style={styles.critRow}>
-                    <div style={styles.critName}>
-                      {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                    </div>
-                    <div style={styles.progressOuterCrit}>
-                      <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                    </div>
-                    <div style={styles.critMeta}>
-                      {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                      {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
-                      <button
-                        title="Elimina definitivamente"
-                        onClick={() => {
-                          const idx = stock.findIndex(
-                            ss => isSimilar(ss.name, s.name) && ((ss.brand || '') === (s.brand || ''))
-                          );
-                          if (idx >= 0) deleteStockRow(idx);
-                        }}
-                        style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+       {/* ===== SEZIONE 3 — BANNER “ESaURITI” ===== */}
+<div style={styles.bannerArea}>
+  <div style={styles.bannerBox}>
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="metadata"
+      /* se vuoi “spostare” l’inquadratura a destra nel banner, tieni objectPosition */
+      style={{ ...styles.bannerVideo, objectPosition: 'right center' }}
+    >
+      <source src="/video/banner%20esauriti.mp4" type="video/mp4" />
+    </video>
+    <div style={styles.bannerOverlay} />
+  </div>
+</div>
+
 
         {/* ===== SEZIONE 4 — DISPENSA (TUTTE LE SCORTE) ===== */}
         <section style={styles.sectionBox}>
