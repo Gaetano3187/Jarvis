@@ -2670,7 +2670,6 @@ return (
   </video>
 </button>
 
-
                {/* ➕ Aggiungi manualmente */}
 <button
   type="button"
