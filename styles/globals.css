@@ -840,6 +840,86 @@ html[data-route="/liste-prodotti"] .spese-casa-container2 {
   object-position: right center; /* 👈 “appiccicato” a destra */
   display: block;
 }
+/* ====== SFONDO GLOBALE: VERDE PETROLIO ↔ BLU PETROLIO (pulse) ====== */
+
+/* colori base (puoi ritoccarli) */
+:root{
+  --petrol-green-1: #0F5E5E;   /* verde petrolio (chiaro) */
+  --petrol-green-2: #0A3D3F;   /* verde petrolio (scuro)  */
+  --petrol-blue-1:  #004E64;   /* blu petrolio (chiaro)   */
+  --petrol-blue-2:  #0B3B4B;   /* blu petrolio (scuro)    */
+}
+
+/* assicurati che il canvas copra tutta la pagina */
+html, body { height: 100%; }
+
+body{
+  /* se qualche contenitore usa ::before con z-index negativi, questo isola gli strati */
+  isolation: isolate;
+  background: transparent !important; /* lascia tutto al layer animato */
+}
+
+/* Due layer fissi sotto a TUTTO: uno verde e uno blu, in crossfade */
+body::before, body::after{
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;               /* sotto a tutto il contenuto */
+  pointer-events: none;
+  background-attachment: fixed;
+  will-change: opacity, background-position;
+}
+
+/* Layer VERDE petrolio */
+body::before{
+  background:
+    radial-gradient(80% 120% at 20% 20%, var(--petrol-green-1) 0%, var(--petrol-green-2) 60%, #062A2F 100%),
+    linear-gradient(135deg, var(--petrol-green-1), var(--petrol-green-2));
+  background-size: 160% 160%, 160% 160%;
+  background-position: 0% 0%, 0% 100%;
+  opacity: 1;
+  animation:
+    petroMove 22s ease-in-out infinite alternate,
+    petroFadeGreen 10s ease-in-out infinite alternate;
+}
+
+/* Layer BLU petrolio */
+body::after{
+  background:
+    radial-gradient(85% 120% at 80% 80%, var(--petrol-blue-1) 0%, var(--petrol-blue-2) 60%, #04232A 100%),
+    linear-gradient(135deg, var(--petrol-blue-1), var(--petrol-blue-2));
+  background-size: 160% 160%, 160% 160%;
+  background-position: 100% 100%, 100% 0%;
+  opacity: 0;
+  animation:
+    petroMove 22s ease-in-out infinite alternate,
+    petroFadeBlue 10s ease-in-out infinite alternate;
+}
+
+/* Spostamento lento delle texture (dà vita senza esagerare) */
+@keyframes petroMove{
+  0%   { background-position: 0% 0%,    0% 100%; }
+  100% { background-position: 100% 100%, 100% 0%; }
+}
+
+/* Crossfade morbido tra verde e blu */
+@keyframes petroFadeGreen{
+  0%   { opacity: 1; }
+  100% { opacity: .0; }
+}
+@keyframes petroFadeBlue{
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Rispetto dell’accessibilità: niente animazioni se l’utente le disattiva */
+@media (prefers-reduced-motion: reduce){
+  body::before, body::after{
+    animation: none;
+  }
+  body::before{ opacity: 1; }
+  body::after { opacity: 0; }
+}
 
 }
 
