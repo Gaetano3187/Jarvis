@@ -2239,6 +2239,13 @@ return (
       preload="none"
       poster="/video/stato-scorte.png"
     >
+      <section className="lp-sec1 glass">
+  <div className="lp-sec1__frame">
+    <video className="lp-sec1__video" autoPlay loop muted playsInline preload="none">
+      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
+    </video>
+  </div>
+</section>
       <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
     </video>
   </div>
