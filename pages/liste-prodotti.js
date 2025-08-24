@@ -6,6 +6,8 @@ import Head from 'next/head';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
+import '../styles/liste-prodotti.clean.css';
+
 
 
 /* ====================== Costanti / Config ====================== */
@@ -924,6 +926,11 @@ export default function ListeProdotti() {
     [LIST_TYPES.SUPERMARKET]: [],
     [LIST_TYPES.ONLINE]: [],
   });
+
+  useEffect(() => {
+  document.body.classList.add('lp-route');
+  return () => document.body.classList.remove('lp-route');
+}, []);
 
   // Form Lista (apri/chiudi)
   const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
@@ -2727,56 +2734,7 @@ return (
         {toast.msg}
       </div>
     )}
-    <style jsx global>{`
-/* ========== 1) TASTI più piccoli nell’area comandi ========== */
-.route-liste-prodotti .toolsRow { gap: 10px !important; }
-
-/* pulsanti icona (+, calendario…) */
-.route-liste-prodotti .toolsRow .iconCircle,
-.route-liste-prodotti .toolsRow .headerIcon{
-  width:40px !important; height:40px !important; min-width:40px !important;
-  border-radius:10px !important; padding:0 !important;
-}
-
-/* pulsanti video (scanner/vocale) */
-.route-liste-prodotti .toolsRow .voiceVideoBtn,
-.route-liste-prodotti .toolsRow .ocrVideoBtn{
-  width:64px !important; height:64px !important; border-radius:12px !important;
-}
-.route-liste-prodotti .toolsRow .voiceVideo,
-.route-liste-prodotti .toolsRow .ocrVideo{ object-fit:contain !important; }
-
-/* ========== 2) Banner: il box segue il video, niente “bande” ========== */
-.route-liste-prodotti .sec1FullBleed{
-  min-height:0 !important; height:auto !important; padding:6px 0 !important;
-  background:transparent !important; display:flex !important;
-  align-items:center !important; justify-content:center !important;
-  overflow:hidden !important;
-}
-.route-liste-prodotti .sec1FullBleed > video{
-  max-height:150px !important; height:auto !important; width:auto !important;
-  max-width:100% !important; object-fit:contain !important; display:block !important;
-}
-
-/* banner “stato scorte” */
-.route-liste-prodotti .bannerBox{
-  min-height:0 !important; height:auto !important; padding:6px 0 !important;
-  background:transparent !important; display:flex !important;
-  align-items:center !important; justify-content:center !important;
-  border-radius:16px; overflow:hidden !important;
-}
-.route-liste-prodotti .bannerBox > video{
-  max-height:130px !important; height:auto !important; width:auto !important;
-  max-width:100% !important; object-fit:contain !important; display:block !important;
-}
-
-/* cornice vetro (facoltativa) */
-.route-liste-prodotti .bannerBox{
-  border:1px solid rgba(255,255,255,.08) !important;
-  box-shadow:0 6px 16px rgba(0,0,0,.25) !important;
-}
-`}</style>
-
+  
 
     {/* INPUT NASCOSTI */}
     <input
@@ -2953,7 +2911,7 @@ return (
     />
   </>
 );
-      {/* SAFE OVERRIDES SOLO per /liste-prodotti */}
+
 
    
 }
@@ -3141,7 +3099,7 @@ const styles = {
     border:'1px solid #475569',
     background:'rgba(15,23,42,.65)',
     color:'#f1f5f9'
-  }, // ⬅️ VIRGOLA QUI
+  }, 
   iconSquareBase: {
     width: 38,
     height: 38,
@@ -3688,5 +3646,6 @@ sec1Overlay: {
   background: 'linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.08))',
   pointerEvents: 'none'
 },
+
 
 }
