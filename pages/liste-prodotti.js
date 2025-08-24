@@ -2302,15 +2302,22 @@ return (
 
 {/* Tasto vocale Liste – con maschera interna */}
 <button
+  type="button"
   onClick={toggleRecList}
   disabled={busy}
-  style={styles.voiceVideoBtn}            // position:relative
-  aria-label="Vocale Lista"
+  className="voiceBtn"
+  aria-label="Vocale Liste"
   title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
 >
-  {/* maschera che ritaglia il video (inset) */}
-  <div style={styles.voiceCrop}>
-    <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+  {/* maschera che ritaglia il video sul bordo interno giallo */}
+  <div className="voiceClip">
+    <video
+      autoPlay
+      loop
+      muted
+      playsInline
+      className="voiceVid"
+    >
       <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
     </video>
   </div>

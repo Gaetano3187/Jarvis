@@ -709,6 +709,49 @@ html[data-route="/liste-prodotti"] .spese-casa-container2 {
     -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
 }
+/* contenitore del tasto: bordo esterno del card (resta come vuoi) */
+.voiceBtn{
+  position: relative;
+  width: 140px;             /* dimensione del card */
+  height: 140px;
+  border: 0;
+  padding: 0;
+  border-radius: 28px;
+  background: #1f2330;      /* sfondo del card */
+  box-shadow: 0 14px 36px rgba(0,0,0,.35), inset 0 1px 2px rgba(255,255,255,.08);
+  cursor: pointer;
+}
+
+/* wrapper che TAGLIA davvero il video */
+.voiceClip{
+  /* spazio interno dal bordo esterno del card (inset=0 vuol dire attaccato) */
+  position: absolute;
+  inset: 12px;              /* margine dal bordo scuro esterno */
+  /* 🔧 VALORI DI TAGLIO FINI: regola solo questi (in %) */
+  --t: 15.5%;
+  --r: 11.5%;
+  --b: 16.5%;
+  --l: 11.5%;
+  --rad: 22px;              /* raggio della forma interna (neon) */
+
+  overflow: hidden;
+  /* ritaglio *aggressivo* dentro al bordo giallo */
+  clip-path: inset(var(--t) var(--r) var(--b) var(--l) round var(--rad));
+  -webkit-clip-path: inset(var(--t) var(--r) var(--b) var(--l) round var(--rad));
+}
+
+/* il video: niente bordi/ombre, occupa tutto il box da ritagliare */
+.voiceVid{
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;        /* riempi e taglia in eccesso */
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  /* aiuta contro gli aloni di antialias */
+  transform: translateZ(0);
+}
 
 }
 
