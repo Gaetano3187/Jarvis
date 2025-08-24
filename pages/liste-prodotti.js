@@ -2246,14 +2246,8 @@ return (
     </video>
   </div>
 </section>
-      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
-    </video>
-  </div>
-</section>
-
-
-
-        {/* ===== SEZIONE 2 — LISTE ===== */}
+     
+             {/* ===== SEZIONE 2 — LISTE ===== */}
         <section style={styles.sectionBox}>
           <p style={styles.kicker}>scegli la lista che vuoi</p>
 
@@ -2586,8 +2580,6 @@ return (
       <div style={styles.bannerOverlay} />
     </div>
   </div>
-
-  <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
 
   {critical.length === 0 ? (
     <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
