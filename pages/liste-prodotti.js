@@ -2298,18 +2298,18 @@ return (
 
           {/* comandi lista (vocale + +) */}
           <div style={styles.toolsRow}>
-            <button
-              onClick={toggleRecList}
-              disabled={busy}
-              style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-              aria-label="Vocale Lista"
-              title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
-            >
-              <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-                <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-              </video>
-            </button>
-
+  <button
+    className="lp-btnVideo"
+    onClick={toggleRecList}
+    disabled={busy}
+    style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+    aria-label="Vocale Lista"
+    title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+  >
+    <video className="lp-btnVideo__video" autoPlay loop muted playsInline>
+      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+    </video>
+  </button>
             <button
               onClick={() => setShowListForm(v => !v)}
               style={styles.iconCircle}
@@ -2559,42 +2559,35 @@ return (
             </div>
 
             {/* Tasti sotto il banner */}
-            <div style={styles.sectionLarge}>
-              <div style={styles.ocrRow}>
-                <button
-                  onClick={() => ocrInputRef.current?.click()}
-                  disabled={busy}
-                  style={styles.ocrVideoBtn}
-                  aria-label="Carica scontrino (OCR)"
-                  title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
-                >
-                  <video autoPlay loop muted playsInline style={styles.ocrVideo}>
-                    <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-                  </video>
-                </button>
+           <div style={styles.ocrRow}>
+  {/* OCR scontrino */}
+  <button
+    className="lp-btnVideo"
+    onClick={() => ocrInputRef.current?.click()}
+    disabled={busy}
+    aria-label="Carica scontrino (OCR)"
+    title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+  >
+    <video className="lp-btnVideo__video" autoPlay loop muted playsInline>
+      <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+    </video>
+  </button>
 
-                <button
-                  onClick={toggleVoiceInventory}
-                  disabled={busy}
-                  style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-                  aria-label="Vocale Scorte"
-                  title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-                >
-                  <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-                    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-                  </video>
-                </button>
-
-                <button onClick={() => setShowStockForm(v => !v)} style={styles.headerIcon} aria-label="Aggiungi scorta">
-                  <Plus size={18} />
-                </button>
-                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.headerIcon} aria-label="Inserisci scadenza">
-                  <Calendar size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-
+  {/* Vocale scorte */}
+  <button
+    className="lp-btnVideo"
+    onClick={toggleVoiceInventory}
+    disabled={busy}
+    aria-label="Vocale Scorte"
+    title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
+    style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+  >
+    <video className="lp-btnVideo__video" autoPlay loop muted playsInline>
+      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+    </video>
+  </button>
+</div>
+</div>
           {/* Scorte complete — LAYOUT A RIGHE */}
           <div style={{ marginTop: 12 }}>
             <h4 style={styles.h4}>Tutte le scorte</h4>
