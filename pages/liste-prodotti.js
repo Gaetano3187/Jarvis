@@ -2623,36 +2623,102 @@ return (
             {/* Tasti sotto il banner */}
             <div style={styles.sectionLarge}>
               <div style={styles.ocrRow}>
-                <button
-                  onClick={() => ocrInputRef.current?.click()}
-                  disabled={busy}
-                  style={styles.ocrVideoBtn}
-                  aria-label="Carica scontrino (OCR)"
-                  title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
-                >
-                  <video autoPlay loop muted playsInline style={styles.ocrVideo}>
-                    <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-                  </video>
-                </button>
+          {/* OCR scontrino — tasto 42x42 con video */}
+<button
+  type="button"
+  onClick={() => ocrInputRef.current?.click()}
+  style={styles.ocr42}
+  aria-label="Scanner scontrino (OCR)"
+  title="Scanner scontrino (OCR)"
+>
+  <video
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="metadata"
+    style={styles.ocr42Video}
+    // opzionale: poster iniziale
+    // poster="/video/ocr-scontrini-poster.jpg"
+  >
+    <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+  </video>
+</button>
+                {/* Vocale Scorte — tasto 42x42 con video */}
+<button
+  type="button"
+  onClick={toggleVoiceInventory}          // tua funzione già presente
+  disabled={busy}
+  style={styles.voice42}
+  aria-pressed={!!invRecBusy}
+  aria-label="Riconoscimento vocale scorte"
+  title={
+    busy
+      ? 'Elaborazione in corso…'
+      : (invRecBusy ? 'Stop registrazione scorte' : 'Riconoscimento vocale scorte')
+  }
+>
+  <video
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="metadata"
+    style={styles.voice42Video}
+  >
+    <source src="/video/Liste-prodotti-small.mp4" type="video/mp4" />
+  </video>
+</button>
 
-                <button
-                  onClick={toggleVoiceInventory}
-                  disabled={busy}
-                  style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-                  aria-label="Vocale Scorte"
-                  title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
-                >
-                  <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-                    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-                  </video>
-                </button>
 
-                <button onClick={() => setShowStockForm(v => !v)} style={styles.headerIcon} aria-label="Aggiungi scorta">
-                  <Plus size={18} />
-                </button>
-                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.headerIcon} aria-label="Inserisci scadenza">
-                  <Calendar size={18} />
-                </button>
+               {/* ➕ Aggiungi manualmente */}
+<button
+  type="button"
+  onClick={() => setShowListForm(v => !v)}
+  style={styles.plusRound42}
+  aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente'}
+  title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente'}
+>
+  {/* usa Next/Image se ce l’hai importato come `Image` */}
+  <Image
+    src="/img/icone%20%2B%20-/segno%20piu.png"  // "icone + -/segno piu.png"
+    alt="Aggiungi"
+    width={26}
+    height={26}
+    priority
+    style={{
+      display: 'block',
+      width: 26,
+      height: 26,
+      objectFit: 'contain',
+      filter: 'drop-shadow(0 0 4px rgba(0,0,0,.35))',
+    }}
+  />
+</button>
+{/* 🗓️ Inserisci scadenza */}
+<button
+  type="button"
+  onClick={() => setShowExpiryForm(v => !v)}
+  style={styles.calendarRound42}               // stesso look del tasto +
+  aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza'}
+  title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza'}
+>
+  <Image
+    src="/img/icone%20%2B%20-/Calendario.png"
+    alt="Inserisci scadenza"
+    width={26}
+    height={26}
+    priority
+    style={{
+      display: 'block',
+      width: 26,
+      height: 26,
+      objectFit: 'contain',
+      filter: 'drop-shadow(0 0 4px rgba(0,0,0,.35))'
+    }}
+  />
+</button>
+
               </div>
             </div>
           </div>
@@ -3761,7 +3827,34 @@ voiceVideo: {
   objectFit: 'cover',
   display: 'block',
   borderRadius: 0, boxShadow: 'none'   // evita aloni/curve indesiderate
-}
+},
+  ocr42: {
+    width: 42,
+    height: 42,
+    minWidth: 42,
+    minHeight: 42,
+    padding: 0,
+    borderRadius: 12,
+    border: '1px solid rgba(255,255,255,.18)',
+    background: 'transparent',           // fondo trasparente
+    display: 'inline-grid',
+    placeItems: 'center',
+    overflow: 'hidden',                  // taglia il video perfettamente
+    boxShadow:
+      'inset 0 1px 1px rgba(255,255,255,.25),' + // piccolo highlight interno
+      '0 2px 6px rgba(0,0,0,.35)',               // ombra esterna soft
+    cursor: 'pointer',
+  },
+
+  ocr42Video: {
+    width: '100%',
+    height: '100%',
+    display: 'block',
+    objectFit: 'cover',      // riempie senza bande
+    pointerEvents: 'none',   // il click passa al button
+    transform: 'translateZ(0)', // evita aliasing/blur su alcuni browser
+  },
+};
 
 
-}
+
