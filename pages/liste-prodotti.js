@@ -2246,7 +2246,8 @@ return (
     </video>
   </div>
 </section>
-       </video>
+      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
+    </video>
   </div>
 </section>
 
@@ -2585,7 +2586,6 @@ return (
       <div style={styles.bannerOverlay} />
     </div>
   </div>
-
   {critical.length === 0 ? (
     <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
   ) : (
@@ -2692,7 +2692,7 @@ return (
     preload="metadata"
     style={styles.voice42Video}
   >
-    <source src="/video/Liste-prodotti-small.mp4" type="video/mp4" />
+    <source src="/video/tasto vocale Liste.mp4" type="video/mp4" />
   </video>
 </button>
 
