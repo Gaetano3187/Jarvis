@@ -6,7 +6,9 @@ import Head from 'next/head';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
-import '../styles/liste-prodotti.clean.css';
+
+
+
 
 
 
@@ -927,11 +929,7 @@ export default function ListeProdotti() {
     [LIST_TYPES.ONLINE]: [],
   });
 
-  useEffect(() => {
-  document.body.classList.add('lp-route');
-  return () => document.body.classList.remove('lp-route');
-}, []);
-
+  
   // Form Lista (apri/chiudi)
   const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
   const [showListForm, setShowListForm] = useState(false);

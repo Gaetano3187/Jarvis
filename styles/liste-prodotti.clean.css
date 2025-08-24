@@ -93,3 +93,71 @@ body.lp-route .toolsRow .ocrVideo{ object-fit:contain !important; }
   body.lp-route .sec1FullBleed{ height:180px; }
   body.lp-route .bannerBox{ height:160px; }
 }
+/* ———————————
+   MOBILE PORTRAIT: bottoni in 2×2 nelle card
+   ——————————— */
+@media (max-width: 480px) and (orientation: portrait) {
+  /* Contenitore azioni: griglia 2 colonne */
+  .lp-route .rowActions,
+  .lp-route .rowActionsRight{
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px 8px !important;          /* riga × colonna */
+    align-items: stretch !important;
+    justify-items: stretch !important;
+    min-width: 0 !important;
+  }
+
+  /* I singoli pulsanti si adattano alla cella */
+  .lp-route .rowActions > * ,
+  .lp-route .rowActionsRight > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 40px !important;          /* 38–42px a gusto */
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* Override delle dimensioni fisse dei bottoni “tondi”/icone */
+  .lp-route .iconBtnBase,
+  .lp-route .iconBtnDark,
+  .lp-route .iconBtnGreen,
+  .lp-route .iconCircle,
+  .lp-route .ocrPillBtn,
+  .lp-route .trashBtn {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    border-radius: 10px !important;   /* un po’ più “pill” per touch */
+    padding: 0 10px !important;
+  }
+
+  /* Evita che il lato destro prenda troppo spazio nella card */
+  .lp-route .listCardRed,
+  .lp-route .stockLineZ1,
+  .lp-route .stockLineZ2{
+    align-items: flex-start !important;
+  }
+}
+
+/* ———————————
+   BANNER responsive anche in verticale (come in foto)
+   ——————————— */
+@media (max-width: 480px) and (orientation: portrait) {
+  /* Sezione 1 (full-bleed) */
+  .lp-route .sec1FullBleed{ height: 140px !important; }
+  .lp-route .sec1Video{
+    height: 100% !important;
+    width: auto !important;
+    object-fit: contain !important;   /* mostra tutto il video */
+  }
+
+  /* Banner “Stato scorte” */
+  .lp-route .bannerBox{ height: 120px !important; }
+  .lp-route .bannerBox > video{
+    height: 100% !important;
+    width: auto !important;
+    object-fit: contain !important;
+  }
+}

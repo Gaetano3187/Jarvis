@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
 import '../styles/mobile-overrides.css';
+import '../styles/liste-prodotti.clean.css';
+
 
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
@@ -22,6 +24,17 @@ const poppins = Poppins({
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+useEffect(() => {
+  const setFlag = (url) => {
+    const on = url.startsWith('/liste-prodotti');
+    document.body.classList.toggle('lp-route', on);
+  };
+  setFlag(router.pathname);
+  router.events.on('routeChangeComplete', setFlag);
+  return () => router.events.off('routeChangeComplete', setFlag);
+}, [router.pathname, router.events]);
+
 
 /* ------------------------------------------------------------------ */
 /*                    BRIDGE + PROXY (LS + CLOUD SYNC)                */
@@ -423,6 +436,7 @@ export default function MyApp({ Component, pageProps }) {
           setTimeout(() => window.__jarvisFlush(), 1200);
         }
       }
+      
     };
     const onRoute = (url) => { if (url.includes('/liste-prodotti')) doFlush(); };
     router.events.on('routeChangeComplete', onRoute);
@@ -434,6 +448,10 @@ export default function MyApp({ Component, pageProps }) {
       window.removeEventListener('focus', doFlush);
     };
   }, [router.events, router.pathname]);
+
+  
+
+
 
   return (
     <SessionContextProvider
