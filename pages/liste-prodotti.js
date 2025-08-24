@@ -3535,7 +3535,8 @@ bannerVideo: {
   width: '100%',
   height: '100%',
   objectFit: 'cover',
-  backgroundColor: '#000',  
+  backgroundColor: '#000', 
+   objectPosition: 'right center', // 👈 sposta tutto a destra 
   display: 'block',
 },
 bannerOverlay: {
