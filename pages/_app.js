@@ -25,16 +25,6 @@ const poppins = Poppins({
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-useEffect(() => {
-  const setFlag = (url) => {
-    const on = url.startsWith('/liste-prodotti');
-    document.body.classList.toggle('lp-route', on);
-  };
-  setFlag(router.pathname);
-  router.events.on('routeChangeComplete', setFlag);
-  return () => router.events.off('routeChangeComplete', setFlag);
-}, [router.pathname, router.events]);
-
 
 /* ------------------------------------------------------------------ */
 /*                    BRIDGE + PROXY (LS + CLOUD SYNC)                */
@@ -401,7 +391,6 @@ function bootstrapBrainProxy(supabase) {
 }
 
 /* ------------------------------------------------------------------ */
-
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
 
@@ -414,19 +403,35 @@ export default function MyApp({ Component, pageProps }) {
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
 
-  // Etichetta la rotta corrente per gli stili CSS (es. login ultra-leggero)
+  // Attributo data-route per selettori CSS mirati (es. login)
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-route', router.pathname || '');
     }
   }, [router.pathname]);
 
-  // bootstrap proxy con supabase per sync cross-device
+  // Classe body SOLO su /liste-prodotti (per gli stili dedicati)
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (router.pathname === '/liste-prodotti') {
+        document.body.classList.add('lp-route');
+      } else {
+        document.body.classList.remove('lp-route');
+      }
+    }
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.body.classList.remove('lp-route');
+      }
+    };
+  }, [router.pathname]);
+
+  // Bootstrap del proxy cloud/LS
   useEffect(() => {
     bootstrapBrainProxy(supabaseClient);
   }, [supabaseClient]);
 
-  // flush aggressivo su /liste-prodotti + al focus (anche cloud)
+  // Flush aggressivo su /liste-prodotti + al focus
   useEffect(() => {
     const doFlush = () => {
       if (typeof window !== 'undefined') {
@@ -436,22 +441,17 @@ export default function MyApp({ Component, pageProps }) {
           setTimeout(() => window.__jarvisFlush(), 1200);
         }
       }
-      
     };
     const onRoute = (url) => { if (url.includes('/liste-prodotti')) doFlush(); };
     router.events.on('routeChangeComplete', onRoute);
     onRoute(router.pathname);
-    window.addEventListener('focus', doFlush);
+    if (typeof window !== 'undefined') window.addEventListener('focus', doFlush);
 
     return () => {
       router.events.off('routeChangeComplete', onRoute);
-      window.removeEventListener('focus', doFlush);
+      if (typeof window !== 'undefined') window.removeEventListener('focus', doFlush);
     };
   }, [router.events, router.pathname]);
-
-  
-
-
 
   return (
     <SessionContextProvider
@@ -469,3 +469,5 @@ export default function MyApp({ Component, pageProps }) {
     </SessionContextProvider>
   );
 }
+
+
