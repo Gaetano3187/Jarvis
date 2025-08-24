@@ -2327,7 +2327,7 @@ return (
       width: '100%',
       height: '100%',
       borderRadius: 12,
-      background: '#0f172a',        // scuro, come gli altri comandi
+      background: 'transparent',       
       // rilievo: highlight in alto + ombra in basso, solo inset
       boxShadow:
         'inset 0 1px 1.2px rgba(255,255,255,.28), ' +  // luce alto
