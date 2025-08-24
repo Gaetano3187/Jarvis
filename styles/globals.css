@@ -674,6 +674,43 @@ html[data-route="/liste-prodotti"] .spese-casa-container2 {
     width: 36px; height: 36px;
   }
 }
+/* ===== LISTE PRODOTTI — Banner alto 260px, video non tagliato ===== */
+[data-route="/liste-prodotti"] .lp-sec1{
+  width: 100% !important;
+  height: 260px !important;
+  max-height: 260px !important;
+  min-height: 260px !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  background: #1f2428 !important;   /* grigio canna di fucile */
+  display: block !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35) !important;
+}
+[data-route="/liste-prodotti"] .lp-sec1__video{
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;    /* mostra tutto il video */
+  object-position: center center !important;
+  background: #1f2428 !important;
+  display: block !important;
+}
+
+/* (Opzionale) stesso comportamento per il banner "stato scorte" */
+[data-route="/liste-prodotti"] .bannerBox{
+  height: 260px !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  background: #1f2428 !important;
+}
+[data-route="/liste-prodotti"] .bannerBox video{
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  background: #1f2428 !important;
+  display: block !important;
+}
+
 
 }
 
