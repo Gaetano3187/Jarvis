@@ -3677,6 +3677,34 @@ voiceVideo: {
   // opzionale: ritaglio ancora più preciso con angoli arrotondati
   // clipPath: 'inset(6% 6% 10% 6% round 18px)',
   filter: 'drop-shadow(0 0 0 rgba(0,0,0,0))' // niente alone aggiuntivo
+},
+voiceVideoBtn: {
+  position: 'relative',
+  width: 100, height: 100,
+  borderRadius: 22,
+  background: 'linear-gradient(180deg,#1f2937,#111827)',
+  border: 'none', padding: 0, cursor: 'pointer',
+  boxShadow: '0 6px 14px rgba(0,0,0,.45), inset 0 1px 3px rgba(255,255,255,.22)',
+  overflow: 'visible'
+},
+
+// Maschera che taglia tutto fuori dal bordo giallo
+voiceCrop: {
+  position: 'absolute',
+  inset: 10,                      // padding interno dal bordo esterno del tasto
+  overflow: 'hidden',             // taglio fisico
+  borderRadius: 18,
+  // clip ancora più precisa (taglio in % su ogni lato)
+  clipPath: 'inset(7% 6% 9% 6% round 18px)',
+  WebkitClipPath: 'inset(7% 6% 9% 6% round 18px)'
+},
+
+voiceVideo: {
+  width: '100%', height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+  borderRadius: 0, boxShadow: 'none'   // evita aloni/curve indesiderate
 }
+
 
 }
