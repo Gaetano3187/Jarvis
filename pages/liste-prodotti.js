@@ -1,4 +1,5 @@
 
+
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
@@ -2216,256 +2217,173 @@ if (unitsUpdated.size > 0) {
 }
 
 
-  /* =================== Render =================== */
-  return (
-    <>
-      <Head><title>🛍 Lista Prodotti</title></Head>
+/* =================== Render =================== */
+return (
+  <>
+    <Head><title>🛍 Lista Prodotti</title></Head>
 
-      <div style={styles.page}>
-        <div style={styles.card}>
-               {/* Header */}
-          <div className="lp5-wrap">
-            {/* Titolo neon (stile Jarvis) */}
-            <h1 className="lp5-title" aria-label="Lista Prodotti">
-              <span className="lp5-stroke">LISTA PRODOTTI</span>
-              <span className="lp5-fill">LISTA PRODOTTI</span>
-            </h1>
+    <div style={styles.page}>
+      <div style={styles.card}>
 
-            {/* Pulsanti a destra: invariati */}
-            <div style={{display:'flex', gap:8, alignItems:'center'}}>
-              <button onClick={()=>{
-                try { localStorage.removeItem(LS_KEY); } catch (e) {}
-                setLists({ [LIST_TYPES.SUPERMARKET]: [], [LIST_TYPES.ONLINE]: [] });
-                setStock([]);
-                setCurrentList(LIST_TYPES.SUPERMARKET);
-                setImagesIndex({});
-                showToast('Dati locali azzerati', 'ok');
-              }} style={styles.actionGhost} title="Cancella i dati locali">↺ Reset locale</button>
-              <Link href="/home" legacyBehavior><a style={styles.homeBtn}>Home</a></Link>
-            </div>
+        {/* ===== SEZIONE 1 — BANNER FULL WIDTH ===== */}
+      <section style={styles.sec1FullBleed}>
+  <video
+    key="/video/Liste-prodotti-small.mp4?v=1"   // forza il refresh del video in cache
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="none"
+    poster="/video/stato-scorte.png"            // (opz.) puoi cambiarlo con un poster generato dal nuovo video
+    style={styles.sec1Video}
+  >
+    <source src="/video/Liste-prodotti-small.mp4" type="video/mp4" />
+    {/* Se in futuro crei la variante webm, aggiungi anche:
+    <source src="/video/Liste-prodotti.webm" type="video/webm" /> */}
+  </video>
+  <div style={styles.sec1Overlay} />
+</section>
 
-            {/* Carrello reale (come background, niente <img>) */}
-            <div className="lp5-cart" aria-hidden="true" />
+
+        {/* ===== SEZIONE 2 — LISTE ===== */}
+        <section style={styles.sectionBox}>
+          <p style={styles.kicker}>scegli la lista che vuoi</p>
+
+          {/* i due tasti (già presenti) */}
+          <div style={styles.switchImgRow}>
+            {/* Supermercato */}
+            <button
+              type="button"
+              onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
+              aria-pressed={currentList === LIST_TYPES.SUPERMARKET}
+              style={styles.switchImgBtn}
+              title="Lista Supermercato"
+            >
+              <Image
+                src={
+                  currentList === LIST_TYPES.SUPERMARKET
+                    ? '/img/Button/lista%20supermercato%20accesa.png'
+                    : '/img/Button/lista%20supermercato%20spenta.png'
+                }
+                alt="Lista Supermercato"
+                width={150}
+                height={45}
+                priority
+                style={styles.switchImg}
+              />
+            </button>
+
+            {/* Online */}
+            <button
+              type="button"
+              onClick={() => setCurrentList(LIST_TYPES.ONLINE)}
+              aria-pressed={currentList === LIST_TYPES.ONLINE}
+              style={styles.switchImgBtn}
+              title="Lista Online"
+            >
+              <Image
+                src={
+                  currentList === LIST_TYPES.ONLINE
+                    ? '/img/Button/Lista%20on%20line%20acceso.png'
+                    : '/img/Button/lista%20on%20line%20spenta.png'
+                }
+                alt="Lista Online"
+                width={150}
+                height={45}
+                priority
+                style={styles.switchImg}
+              />
+            </button>
           </div>
 
-          {/* CSS scoped e indipendente da altri blocchi */}
-          <style jsx>{`
-            /* Anima una sola variabile condivisa (--prog 0→100→0) */
-            .lp5-wrap{
-              --prog: 0;
-              position:relative;
-              display:flex;
-              justify-content:space-between;
-              align-items:center;
-              gap:12px;
-              margin-bottom:8px;
-              padding-top:6px;
-              background:transparent; /* lascia visibile il global */
-              overflow:hidden;
-              z-index:0;
-              animation: lp5-progress 6s cubic-bezier(.25,.1,.25,1) infinite;
-            }
-            @keyframes lp5-progress{
-              0%   { --prog: 0; }
-              8%   { --prog: 8; }
-              50%  { --prog: 100; }
-              82%  { --prog: 100; }
-              100% { --prog: 0; }
-            }
+          {/* comandi lista (vocale + +) */}
+          <div style={styles.toolsRow}>
+            <button
+              onClick={toggleRecList}
+              disabled={busy}
+              style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+              aria-label="Vocale Lista"
+              title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+            >
+              <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+                <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+              </video>
+            </button>
 
-            /* ===== TITOLO NEON ===== */
-            .lp5-title{
-              position:relative;
-              margin:0; line-height:1;
-              height:90px;
-              display:flex; align-items:center;
-              letter-spacing:.06em;
-              isolation:isolate;
-              z-index:1;
-            }
-            .lp5-title > span{
-              position:absolute; inset:0;
-              display:flex; align-items:center;
-              font-family:'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-              font-weight:900;
-              font-size:54px;
-              white-space:nowrap;
-              pointer-events:none;
-            }
-            .lp5-stroke{
-              color:transparent;
-              -webkit-text-stroke:2px #8fe2ff;
-              text-shadow:
-                0 0 10px rgba(120,220,255,.95),
-                0 0 22px rgba(80,200,255,.6),
-                0 0 44px rgba(60,180,255,.35),
-                0 0 70px rgba(60,180,255,.25);
-              animation: lp5-flicker 5.2s linear infinite;
-            }
-            .lp5-fill{
-              /* rivelazione robusta guidata da --prog */
-              background: linear-gradient(90deg,#dff8ff 0%,#94e8ff 40%,#2fb8ff 100%);
-              -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-              background-clip:text; color:transparent;
-              text-shadow: 0 0 8px rgba(160,235,255,.55), 0 0 16px rgba(110,220,255,.35);
-              clip-path: inset(0 calc(100% - (var(--prog) * 1%)) 0 0);
-            }
-            @keyframes lp5-flicker{
-              0%,100% { opacity:1 }
-              6%{opacity:.97} 7%{opacity:1}
-              38%{opacity:.95} 40%{opacity:1}
-              62%{opacity:.93} 64%{opacity:1}
-            }
+            <button
+              onClick={() => setShowListForm(v => !v)}
+              style={styles.iconCircle}
+              title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+              aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+            >
+              <Image
+                src="/img/icone%20%2B%20-/segno%20piu.png"
+                alt="Aggiungi"
+                width={28}
+                height={28}
+                priority
+                style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            </button>
+          </div>
 
-            /* ===== CARRELLO ===== */
-            .lp5-cart{
-              position:absolute;
-              top:50%;
-              height: 94px;                 /* ≈ altezza titolo; ritocca se serve */
-              aspect-ratio: 1.2;            /* proporzione indicativa del carrello */
-              transform: translateY(-60%) rotate(-1.2deg);
-              left: calc(-28% + (var(--prog) * 1.36%)); /* 0% fuori a sx → 100% oltre dx */
-              z-index:2;
-              pointer-events:none; user-select:none;
-              background-image: url('/img/cart.png');   /* <— percorso da verificare */
-              background-size: contain;
-              background-repeat: no-repeat;
-              background-position: left center;
-              filter:
-                drop-shadow(0 0 10px rgba(160,235,255,.45))
-                drop-shadow(0 8px 22px rgba(0,0,0,.35));
-            }
-
-            /* Riduzione motion */
-            @media (prefers-reduced-motion: reduce){
-              .lp5-wrap{ animation:none; }
-              .lp5-fill{ clip-path:none; }
-              .lp5-cart{ left:-9999px; }
-            }
-            /* Responsive */
-            @media (max-width: 560px){
-              .lp5-title{ height:74px; }
-              .lp5-title > span{ font-size:38px; }
-              .lp5-cart{ height:78px; }
-            }
-          `}</style>
-
-{/* Switch lista — PNG buttons (safe click) */}
-<div style={styles.switchImgRow}>
-  {/* Supermercato */}
-  <button
-    type="button"
-    onClick={() => setCurrentList(LIST_TYPES.SUPERMARKET)}
-    aria-pressed={currentList === LIST_TYPES.SUPERMARKET}
-    style={styles.switchImgBtn}
-    title="Lista Supermercato"
-  >
-    <Image
-      src={
-        currentList === LIST_TYPES.SUPERMARKET
-          ? '/img/Button/lista%20supermercato%20accesa.png'
-          : '/img/Button/lista%20supermercato%20spenta.png'
-      }
-      alt="Lista Supermercato"
-      width={150}
-      height={45}
-      priority
-      style={styles.switchImg}
-    />
-  </button>
-
-  {/* Online */}
-  <button
-    type="button"
-    onClick={() => setCurrentList(LIST_TYPES.ONLINE)}
-    aria-pressed={currentList === LIST_TYPES.ONLINE}
-    style={styles.switchImgBtn}
-    title="Lista Online"
-  >
-    <Image
-      src={
-        currentList === LIST_TYPES.ONLINE
-          ? '/img/Button/Lista%20on%20line%20acceso.png'
-          : '/img/Button/lista%20on%20line%20spenta.png'
-      }
-      alt="Lista Online"
-      width={150}
-      height={45}
-      priority
-      style={styles.switchImg}
-    />
-  </button>
-</div>
-
-
-     {/* Comandi Lista */}
-<div style={styles.toolsRow}>
-  {/* Tasto vocale Liste (video 96x96) */}
-  <button
-    onClick={toggleRecList}
-    disabled={busy}
-    style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-    aria-label="Vocale Lista"
-    title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
-  >
-    <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-    </video>
-  </button>
-
-  {/* ➕ Toggle form lista: immagine PNG */}
-<button
-  onClick={() => setShowListForm(v => !v)}
-  style={styles.iconCircle}
-  title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-  aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
->
-  <Image
-    src="/img/icone%20%2B%20-/segno%20piu.png"  // "+" -> %2B
-    alt="Aggiungi"
-    width={28}
-    height={28}
-    priority
-    style={{
-      display: 'block',
-      width: '100%',
-      height: '100%',
-      objectFit: 'contain',
-    }}
-  />
-</button>
-
-
-
-          {/* Form aggiunta manuale Lista */}
+          {/* form lista (se aperto) */}
           {showListForm && (
-            <div style={styles.sectionLarge}>
+            <div style={styles.sectionInner}>
               <form onSubmit={addManualItem} style={styles.formRow}>
-                <input placeholder="Prodotto (es. latte)" value={form.name}
-                      onChange={e => setForm(f => ({...f, name: e.target.value}))} style={styles.input} required />
-                <input placeholder="Marca (es. Parmalat)" value={form.brand}
-                      onChange={e => setForm(f => ({...f, brand: e.target.value}))} style={styles.input} />
-                <input placeholder="Confezioni" inputMode="decimal" value={form.packs}
-                      onChange={e => setForm(f => ({...f, packs: e.target.value}))} style={{...styles.input, width: 140}} required />
-                <input placeholder="Unità/conf." inputMode="decimal" value={form.unitsPerPack}
-                      onChange={e => setForm(f => ({...f, unitsPerPack: e.target.value}))} style={{...styles.input, width: 140}} required />
-                <input placeholder="Etichetta (es. bottiglie)" value={form.unitLabel}
-                      onChange={e => setForm(f => ({...f, unitLabel: e.target.value}))} style={{...styles.input, width: 170}} />
+                <input
+                  placeholder="Prodotto (es. latte)"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  style={styles.input}
+                  required
+                />
+                <input
+                  placeholder="Marca (es. Parmalat)"
+                  value={form.brand}
+                  onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+                  style={styles.input}
+                />
+                <input
+                  placeholder="Confezioni"
+                  inputMode="decimal"
+                  value={form.packs}
+                  onChange={e => setForm(f => ({ ...f, packs: e.target.value }))}
+                  style={{ ...styles.input, width: 140 }}
+                  required
+                />
+                <input
+                  placeholder="Unità/conf."
+                  inputMode="decimal"
+                  value={form.unitsPerPack}
+                  onChange={e => setForm(f => ({ ...f, unitsPerPack: e.target.value }))}
+                  style={{ ...styles.input, width: 140 }}
+                  required
+                />
+                <input
+                  placeholder="Etichetta (es. bottiglie)"
+                  value={form.unitLabel}
+                  onChange={e => setForm(f => ({ ...f, unitLabel: e.target.value }))}
+                  style={{ ...styles.input, width: 170 }}
+                />
                 <button style={styles.primaryBtn} disabled={busy}>Aggiungi alla lista</button>
               </form>
             </div>
           )}
 
-          {/* Lista corrente */}
-          <div style={styles.sectionLarge}>
+          {/* lista corrente */}
+          <div style={styles.sectionInner}>
             <h3 style={styles.h3}>
-              Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
+              Lista corrente:{' '}
+              <span style={{ opacity: .85 }}>
+                {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
+              </span>
             </h3>
 
             {(lists[currentList] || []).length === 0 ? (
-              <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
+              <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
             ) : (
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {(lists[currentList] || []).map((it) => {
                   const isBought = !!it.purchased;
                   return (
@@ -2482,7 +2400,7 @@ if (unitsUpdated.size > 0) {
                           return next;
                         });
                       }}
-                      onKeyDown={e => {
+                      onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
                           setLists(prev => {
@@ -2494,10 +2412,7 @@ if (unitsUpdated.size > 0) {
                           });
                         }
                       }}
-                      style={{
-                        ...styles.listCardRed,
-                        ...(isBought ? styles.listCardRedBought : null)
-                      }}
+                      style={{ ...styles.listCardRed, ...(isBought ? styles.listCardRedBought : null) }}
                     >
                       <div style={styles.rowLeft}>
                         <div style={styles.rowName}>
@@ -2509,13 +2424,13 @@ if (unitsUpdated.size > 0) {
                         </div>
                       </div>
 
-                      <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
-                        {/* ✓ conferma: scala 1 conf. e aggiorna scorte */}
+                      <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
                         <button
-                          title="Segna come comprato (–1 conf. e aggiorna scorte)"
+                          title="Segna come comprato"
                           onClick={() => {
                             const item = it;
                             const movePacks = 1;
+
                             setLists(prev => {
                               const next = { ...prev };
                               next[currentList] = (prev[currentList] || [])
@@ -2523,24 +2438,39 @@ if (unitsUpdated.size > 0) {
                                 .filter(r => Number(r.qty || 0) > 0);
                               return next;
                             });
+
                             setStock(prev => {
                               const arr = [...prev];
                               const todayISO = new Date().toISOString().slice(0, 10);
                               const idx = arr.findIndex(
                                 s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
                               );
-                              const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-                              const moveLabel = item.unitLabel || 'unità';
+                              const upp = Math.max(1, Number(item.unitsPerPack || 1));
+                              const lbl = item.unitLabel || 'unità';
+
                               if (idx >= 0) {
                                 const old = arr[idx];
-                                const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                                const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                                arr[idx] = { ...old, packs: newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || moveLabel, packsOnly:false, ...restockTouch(newPacks, todayISO, upp) };
+                                const u = Math.max(1, Number(old.unitsPerPack || upp));
+                                const p = Math.max(0, Number(old.packs || 0) + movePacks);
+                                arr[idx] = {
+                                  ...old,
+                                  packs: p,
+                                  unitsPerPack: u,
+                                  unitLabel: old.unitLabel || lbl,
+                                  packsOnly: false,
+                                  ...restockTouch(p, todayISO, u),
+                                };
                               } else {
                                 const row = {
-                                  name: item.name, brand: item.brand || '',
-                                  packs: movePacks, unitsPerPack: moveUPP, unitLabel: moveLabel,
-                                  expiresAt: '', ...restockTouch(movePacks, todayISO, moveUPP), avgDailyUnits: 0, packsOnly:false
+                                  name: item.name,
+                                  brand: item.brand || '',
+                                  packs: movePacks,
+                                  unitsPerPack: upp,
+                                  unitLabel: lbl,
+                                  expiresAt: '',
+                                  ...restockTouch(movePacks, todayISO, upp),
+                                  avgDailyUnits: 0,
+                                  packsOnly: false,
                                 };
                                 arr.unshift(withRememberedImage(row, imagesIndex));
                               }
@@ -2548,17 +2478,14 @@ if (unitsUpdated.size > 0) {
                             });
                           }}
                           style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
-                        >✓</button>
+                        >
+                          ✓
+                        </button>
 
                         <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
                         <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
 
-                        <button
-                          title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
-                          onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
-                          style={styles.ocrPillBtn}
-                        >OCR riga</button>
-
+                        <button title="OCR riga" onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }} style={styles.ocrPillBtn}>OCR riga</button>
                         <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
                       </div>
                     </div>
@@ -2567,753 +2494,419 @@ if (unitsUpdated.size > 0) {
               </div>
             )}
           </div>
+        </section>
 
-          {/* Lista corrente */}
-<div style={styles.sectionLarge}>
-  <h3 style={styles.h3}>
-    Lista corrente: <span style={{ opacity: 0.85 }}>{currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}</span>
-  </h3>
-
-  {(lists[currentList] || []).length === 0 ? (
-    <p style={{ opacity: 0.8 }}>Nessun prodotto ancora</p>
-  ) : (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {(lists[currentList] || []).map((it) => {
-        const isBought = !!it.purchased;
-        return (
-          <div
-            key={it.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              setLists(prev => {
-                const next = { ...prev };
-                next[currentList] = (prev[currentList] || []).map(i =>
-                  i.id === it.id ? { ...i, purchased: !i.purchased } : i
+        {/* ===== SEZIONE 3 — ESAURIMENTO/SCADENZA ===== */}
+        <section style={styles.sectionBox}>
+          <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
+          {critical.length === 0 ? (
+            <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
+          ) : (
+            <div style={styles.critListWrap}>
+              {critical.map((s, i) => {
+                const { current, baseline, pct } = residueInfo(s);
+                const w = Math.round(pct * 100);
+                return (
+                  <div key={i} style={styles.critRow}>
+                    <div style={styles.critName}>
+                      {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                    </div>
+                    <div style={styles.progressOuterCrit}>
+                      <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                    </div>
+                    <div style={styles.critMeta}>
+                      {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                      {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
+                      <button
+                        title="Elimina definitivamente"
+                        onClick={() => {
+                          const idx = stock.findIndex(
+                            ss => isSimilar(ss.name, s.name) && ((ss.brand || '') === (s.brand || ''))
+                          );
+                          if (idx >= 0) deleteStockRow(idx);
+                        }}
+                        style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
                 );
-                return next;
-              });
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setLists(prev => {
-                  const next = { ...prev };
-                  next[currentList] = (prev[currentList] || []).map(i =>
-                    i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                  );
-                  return next;
-                });
-              }
-            }}
-            style={{
-              ...styles.listCardRed,
-              ...(isBought ? styles.listCardRedBought : null),
-            }}
-          >
-            <div style={styles.rowLeft}>
-              <div style={styles.rowName}>
-                {it.name}
-                {it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
-              </div>
-              <div style={styles.rowMeta}>
-                {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
-                {isBought ? (
-                  <span style={styles.badgeBought}>preso</span>
-                ) : (
-                  <span style={styles.badgeToBuy}>da prendere</span>
-                )}
-              </div>
-            </div>
-
-            <div style={styles.rowActions} onClick={e => e.stopPropagation()}>
-              <button
-                title="Segna come comprato (–1 conf. e aggiorna scorte)"
-                onClick={() => {
-                  const item = it;
-                  const movePacks = 1;
-                  setLists(prev => {
-                    const next = { ...prev };
-                    next[currentList] = (prev[currentList] || [])
-                      .map(r =>
-                        r.id === item.id
-                          ? {
-                              ...r,
-                              qty: Math.max(0, Number(r.qty || 0) - movePacks),
-                              purchased: true,
-                            }
-                          : r
-                      )
-                      .filter(r => Number(r.qty || 0) > 0);
-                    return next;
-                  });
-                  setStock(prev => {
-                    const arr = [...prev];
-                    const todayISO = new Date().toISOString().slice(0, 10);
-                    const idx = arr.findIndex(
-                      s =>
-                        isSimilar(s.name, item.name) &&
-                        (!item.brand || isSimilar(s.brand || '', item.brand))
-                    );
-                    const moveUPP = Math.max(1, Number(item.unitsPerPack || 1));
-                    const moveLabel = item.unitLabel || 'unità';
-                    if (idx >= 0) {
-                      const old = arr[idx];
-                      const upp = Math.max(1, Number(old.unitsPerPack || moveUPP));
-                      const newPacks = Math.max(0, Number(old.packs || 0) + movePacks);
-                      arr[idx] = {
-                        ...old,
-                        packs: newPacks,
-                        unitsPerPack: upp,
-                        unitLabel: old.unitLabel || moveLabel,
-                        packsOnly: false,
-                        ...restockTouch(newPacks, todayISO, upp),
-                      };
-                    } else {
-                      const row = {
-                        name: item.name,
-                        brand: item.brand || '',
-                        packs: movePacks,
-                        unitsPerPack: moveUPP,
-                        unitLabel: moveLabel,
-                        expiresAt: '',
-                        ...restockTouch(movePacks, todayISO, moveUPP),
-                        avgDailyUnits: 0,
-                        packsOnly: false,
-                      };
-                      arr.unshift(withRememberedImage(row, imagesIndex));
-                    }
-                    return arr;
-                  });
-                }}
-                style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
-              >
-                ✓
-              </button>
-
-              <button
-                title="–1"
-                onClick={() => incQty(it.id, -1)}
-                style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}
-              >
-                −
-              </button>
-              <button
-                title="+1"
-                onClick={() => incQty(it.id, +1)}
-                style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}
-              >
-                +
-              </button>
-
-              <button
-                title="OCR riga (foto etichetta/scontrino — scadenza/quantità)"
-                onClick={() => {
-                  setTargetRowIdx(it.id);
-                  rowOcrInputRef.current?.click();
-                }}
-                style={styles.ocrPillBtn}
-              >
-                OCR riga
-              </button>
-
-              <button
-                title="Elimina"
-                onClick={() => removeItem(it.id)}
-                style={styles.trashBtn}
-              >
-                🗑
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  )}
-</div>
-
-{/* Banner largo con video + tasti sotto */}
-<div style={styles.bannerArea}>
-  <div style={styles.bannerBox}>
-    <video
-      autoPlay
-      loop
-      muted
-      playsInline
-      preload="none"
-      poster="/video/stato-scorte.png"
-      style={styles.bannerVideo}
-    >
-      <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
-    </video>
-    <div style={styles.bannerOverlay} />
-  </div>
-
-  {/* Tasti sotto il banner */}
-  <div style={styles.sectionLarge}>
-    <div style={styles.ocrRow}>
-      <button
-        onClick={() => ocrInputRef.current?.click()}
-        disabled={busy}
-        style={styles.ocrVideoBtn}
-        aria-label="Carica scontrino (OCR)"
-        title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
-      >
-        <video autoPlay loop muted playsInline style={styles.ocrVideo}>
-          <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-        </video>
-      </button>
-
-      {/* 🎙 Vocale scorte */}
-      <button
-        onClick={toggleVoiceInventory}
-        disabled={busy}
-        style={
-          invRecBusy
-            ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover }
-            : styles.voiceVideoBtn
-        }
-        aria-label="Vocale Scorte"
-        title={
-          busy
-            ? 'Elaborazione in corso…'
-            : invRecBusy
-            ? 'Stop registrazione scorte'
-            : 'Aggiorna scorte con voce'
-        }
-      >
-        <video autoPlay loop muted playsInline style={styles.voiceVideo}>
-          <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-        </video>
-      </button>
-
-      {/* ➕ Aggiunta scorte manuali */}
-      <button
-        onClick={() => setShowStockForm(v => !v)}
-        style={styles.headerIcon}
-        title={
-          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
-        }
-        aria-label={
-          showStockForm ? 'Chiudi scorte manuali' : 'Aggiungi scorta manualmente'
-        }
-      >
-        <Plus size={18} />
-      </button>
-
-      {/* 🗓️ Scadenze manuali */}
-      <button
-        onClick={() => setShowExpiryForm(v => !v)}
-        style={styles.headerIcon}
-        title={
-          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
-        }
-        aria-label={
-          showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza manuale'
-        }
-      >
-        <Calendar size={18} />
-      </button>
-    </div>
-  </div>
-</div>
-
-            {/* Form scorte manuali */}
-            {showStockForm && (
-              <form onSubmit={(e)=>{e.preventDefault();
-                const name = stockForm.name.trim();
-                if (!name) return;
-                const brand = (stockForm.brand || '').trim();
-                const packs = Math.max(0, Number(String(stockForm.packs).replace(',','.')) || 0);
-                const unitsPerPack = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',', '.')) || 1);
-                const unitLabel = (stockForm.unitLabel || 'unità').trim() || 'unità';
-                const ex = toISODate(stockForm.expiresAt || '');
-                const todayISO = new Date().toISOString().slice(0,10);
-                setStock(prev => {
-                  const arr = [...prev];
-                  const idx = arr.findIndex(s => isSimilar(s.name, name) && (!brand || isSimilar(s.brand||'', brand)));
-                  if (idx >= 0) {
-                    const old = arr[idx];
-                    const newPacks = Number(old.packs || 0) + packs;
-                    const upp = Math.max(1, Number(old.unitsPerPack || unitsPerPack));
-                    arr[idx] = {
-                      ...old,
-                      packs: newPacks,
-                      unitsPerPack: upp,
-                      unitLabel: old.unitLabel || unitLabel,
-                      expiresAt: ex || old.expiresAt || '',
-                      packsOnly:false,
-                      ...restockTouch(newPacks, todayISO, upp)
-                    };
-                  } else {
-                    const row = {
-                      name, brand,
-                      packs, unitsPerPack, unitLabel,
-                      expiresAt: ex || '',
-                      baselinePacks: packs,
-                      lastRestockAt: todayISO,
-                      avgDailyUnits: 0,
-                      residueUnits: packs * unitsPerPack,
-                      image: '',
-                      packsOnly:false
-                    };
-                    arr.unshift(withRememberedImage(row, imagesIndex));
-                  }
-                  return arr;
-                });
-                setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
-                setShowStockForm(false);
-                showToast('Scorta aggiunta ✓', 'ok');
-              }} style={styles.formRow}>
-                <input style={styles.input} placeholder="Prodotto" value={stockForm.name}
-                       onChange={e=>setStockForm(s=>({...s,name:e.target.value}))} required />
-                <input style={styles.input} placeholder="Marca" value={stockForm.brand}
-                       onChange={e=>setStockForm(s=>({...s,brand:e.target.value}))} />
-                <input style={{...styles.input, width:120}} inputMode="decimal" placeholder="Confezioni" value={stockForm.packs}
-                       onChange={e=>setStockForm(s=>({...s,packs:e.target.value}))} />
-                <input style={{...styles.input, width:140}} inputMode="decimal" placeholder="Unità/conf." value={stockForm.unitsPerPack}
-                       onChange={e=>setStockForm(s=>({...s,unitsPerPack:e.target.value}))} />
-                <input style={{...styles.input, width:160}} placeholder="Etichetta (es. bottiglie)" value={stockForm.unitLabel}
-                       onChange={e=>setStockForm(s=>({...s,unitLabel:e.target.value}))} />
-                <input style={{...styles.input, width:170}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={stockForm.expiresAt}
-                       onChange={e=>setStockForm(s=>({...s,expiresAt:e.target.value}))} />
-                <button style={styles.primaryBtn} disabled={busy}>Aggiungi scorta</button>
-              </form>
-            )}
-
-            {/* Form scadenze manuali */}
-            {showExpiryForm && (
-              <form onSubmit={(e)=>{e.preventDefault();
-                const name = (expiryForm.name || '').trim();
-                const iso  = toISODate(expiryForm.expiresAt || '');
-                if (!name || !iso) { showToast('Nome o data non validi', 'err'); return; }
-                let updated = false;
-                setStock(prev => {
-                  const arr = [...prev];
-                  const i = arr.findIndex(s => isSimilar(s.name, name));
-                  if (i >= 0) {
-                    arr[i] = { ...arr[i], expiresAt: iso };
-                    updated = true;
-                  } else {
-                    arr.unshift(withRememberedImage({
-                      name, brand:'', packs:0, unitsPerPack:1, unitLabel:'unità',
-                      expiresAt: iso, baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0, packsOnly:false
-                    }, imagesIndex));
-                    updated = true;
-                  }
-                  return arr;
-                });
-                if (updated) {
-                  showToast('Scadenza impostata ✓', 'ok');
-                  setExpiryForm({ name:'', expiresAt:'' });
-                  setShowExpiryForm(false);
-                } else {
-                  showToast('Scadenza non aggiornata', 'err');
-                }
-              }} style={styles.formRow}>
-                <input style={styles.input} placeholder="Prodotto" value={expiryForm.name}
-                       onChange={e=>setExpiryForm(f=>({...f,name:e.target.value}))} required />
-                <input style={{...styles.input, width:220}} placeholder="Scadenza (YYYY-MM-DD o 15/08/2025)" value={expiryForm.expiresAt}
-                       onChange={e=>setExpiryForm(f=>({...f,expiresAt:e.target.value}))} required />
-                <button style={styles.primaryBtn} disabled={busy}>Imposta scadenza</button>
-              </form>
-            )}
-
-            {/* Critici */}
-            <div style={{ marginTop: 8 }}>
-              <h4 style={styles.h4}>⚠️ In esaurimento / in scadenza</h4>
-              {critical.length === 0 ? (
-                <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
-              ) : (
-                <div style={styles.critListWrap}>
-                  {critical.map((s, i) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    return (
-                      <div key={i} style={styles.critRow}>
-  <div style={styles.critName}>
-    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-  </div>
-
-  <div style={styles.progressOuterCrit}>
-    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-  </div>
-
-  <div style={styles.critMeta}>
-    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-    {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-  </div>
-
-  {/* Azione elimina */}
-  <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
-    <button
-      title="Elimina definitivamente"
-      onClick={() => {
-        const idx = stock.findIndex(
-          ss => isSimilar(ss.name, s.name) && ((ss.brand||'') === (s.brand||''))
-        );
-        if (idx >= 0) deleteStockRow(idx);
-      }}
-      style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
-    >
-      <Trash2 size={18} />
-    </button>
-  </div>
-</div>
-
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Scorte complete — LAYOUT A RIGHE */}
-            <div style={{ marginTop: 12 }}>
-              <h4 style={styles.h4}>Tutte le scorte</h4>
-              {stock.length === 0 ? (
-                <p style={{ opacity:.8 }}>Nessuna scorta registrata.</p>
-              ) : (
-                <div style={styles.stockList}>
-                  {stock.map((s, idx) => {
-                    const { current, baseline, pct } = residueInfo(s);
-                    const w = Math.round(pct*100);
-                    const zebra = idx % 2 === 0;
-                    return (
-                      <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
-                        {editingRow === idx ? (
-                          <div>
-                            <div style={styles.formRowWrap}>
-                              <input style={styles.input} value={editDraft.name}
-                                     onChange={e=>handleEditDraftChange('name', e.target.value)} />
-                              <input style={styles.input} value={editDraft.brand}
-                                     onChange={e=>handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:120}} inputMode="decimal" value={editDraft.packs}
-                                     onChange={e=>handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
-                              <input style={{...styles.input, width:140}} inputMode="decimal" value={editDraft.unitsPerPack}
-                                     onChange={e=>handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
-                              <input style={{...styles.input, width:150}} value={editDraft.unitLabel}
-                                     onChange={e=>handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
-                            </div>
-                            <div style={styles.formRowWrap}>
-                              <input style={{...styles.input, width:220}} value={editDraft.expiresAt}
-                                     onChange={e=>handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
-                              {/* Campo edit residuo unità / o pacchi se packsOnly */}
-                              <input style={{...styles.input, width:190}} inputMode="decimal" value={editDraft.residueUnits}
-                                     onChange={e=>handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
-                            </div>
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
-                              <button onClick={()=>saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                              <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                              <button
-                                onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                style={styles.smallGhostBtn}
-                              >OCR riga</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Riga: immagine | nome+barra | confezioni | unità/conf | residuo unità | azioni */}
-                            <div style={styles.stockRow}>
-                              {/* Colonna immagine */}
-                              <div
-                                style={styles.imageBox}
-                                role="button"
-                                title="Aggiungi/Modifica immagine"
-                                onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
-                              >
-                                {s.image ? (
-                                  <img src={s.image} alt={s.name} style={styles.imageThumb} />
-                                ) : (
-                                  <div style={styles.imagePlaceholder}>＋</div>
-                                )}
-                              </div>
-
-                              {/* Nome + barra */}
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={styles.stockTitle}>
-                                  {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                                </div>
-                                <div style={styles.progressOuterBig}>
-                                  <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                                </div>
-                                <div style={styles.stockLineSmall}>
-                                  {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                                  {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                                </div>
-                              </div>
-
-                              {/* Confezioni */}
-                              <div style={styles.kvCol}>
-                                <div style={styles.kvLabel}>Confezioni</div>
-                                <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
-                              </div>
-
-                              {/* Unità/conf. */}
-                              <div style={styles.kvCol}>
-                                <div style={styles.kvLabel}>Unità/conf.</div>
-                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
-                              </div>
-
-                              {/* Residuo unità */}
-                              <div style={styles.kvCol}>
-                                <div style={styles.kvLabel}>Residuo unità</div>
-                                <div style={styles.kvValue}>{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
-                              </div>
-
-                              {/* Azioni riga */}
-                                                         {/* Azioni riga */}
-                              <div style={styles.rowActionsRight}>
-                                {/* Modifica (matita) */}
-                                <button
-                                  title="Modifica"
-                                  onClick={() => startRowEdit(idx, s)}
-                                  style={styles.iconCircle}
-                                  aria-label="Modifica scorta"
-                                >
-                                  <Pencil size={18} />
-                                </button>
-
-                                {/* Imposta scadenza rapida (calendario) */}
-                                <button
-                                  title="Imposta scadenza"
-                                  onClick={() => {
-                                    setShowExpiryForm(true);
-                                    setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' });
-                                  }}
-                                  style={styles.iconCircle}
-                                  aria-label="Imposta scadenza"
-                                >
-                                  <Calendar size={18} />
-                                </button>
-
-                                {/* OCR riga (fotocamera) */}
-                                <button
-                                  title="OCR riga"
-                                  onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                                  style={styles.iconCircle}
-                                  aria-label="OCR riga"
-                                >
-                                  <Camera size={18} />
-                                </button>
-
-                                {/* Elimina definitivamente (cestino) */}
-                                <button
-                                  title="Elimina definitivamente"
-                                  onClick={() => deleteStockRow(idx)}
-                                  style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
-                                  aria-label="Elimina scorta"
-                                >
-                                  <Trash2 size={18} />
-                                </button>
-                              </div>
-
-
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* TOAST */}
-          {toast && (
-            <div style={{
-              position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
-              background: toast.type==='ok' ? '#16a34a' : (toast.type==='err' ? '#ef4444' : '#334155'),
-              color:'#fff', padding:'10px 14px', borderRadius:10,
-              boxShadow:'0 6px 16px rgba(0,0,0,.35)', zIndex:9999, fontWeight:600, letterSpacing:.2
-            }}>
-              {toast.msg}
+              })}
             </div>
           )}
-        </div>
+        </section>
+
+        {/* ===== SEZIONE 4 — DISPENSA (TUTTE LE SCORTE) ===== */}
+        <section style={styles.sectionBox}>
+          {/* Banner largo con video + tasti sotto */}
+          <div style={styles.bannerArea}>
+            <div style={styles.bannerBox}>
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="none"
+                poster="/video/stato-scorte.png"
+                style={styles.bannerVideo}
+              >
+                <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+              </video>
+              <div style={styles.bannerOverlay} />
+            </div>
+
+            {/* Tasti sotto il banner */}
+            <div style={styles.sectionLarge}>
+              <div style={styles.ocrRow}>
+                <button
+                  onClick={() => ocrInputRef.current?.click()}
+                  disabled={busy}
+                  style={styles.ocrVideoBtn}
+                  aria-label="Carica scontrino (OCR)"
+                  title={busy ? 'Elaborazione in corso…' : 'Carica scontrino'}
+                >
+                  <video autoPlay loop muted playsInline style={styles.ocrVideo}>
+                    <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+                  </video>
+                </button>
+
+                <button
+                  onClick={toggleVoiceInventory}
+                  disabled={busy}
+                  style={invRecBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
+                  aria-label="Vocale Scorte"
+                  title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Aggiorna scorte con voce')}
+                >
+                  <video autoPlay loop muted playsInline style={styles.voiceVideo}>
+                    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+                  </video>
+                </button>
+
+                <button onClick={() => setShowStockForm(v => !v)} style={styles.headerIcon} aria-label="Aggiungi scorta">
+                  <Plus size={18} />
+                </button>
+                <button onClick={() => setShowExpiryForm(v => !v)} style={styles.headerIcon} aria-label="Inserisci scadenza">
+                  <Calendar size={18} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Scorte complete — LAYOUT A RIGHE */}
+          <div style={{ marginTop: 12 }}>
+            <h4 style={styles.h4}>Tutte le scorte</h4>
+
+            {stock.length === 0 ? (
+              <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
+            ) : (
+              <div style={styles.stockList}>
+                {stock.map((s, idx) => {
+                  const { current, baseline, pct } = residueInfo(s);
+                  const w = Math.round(pct * 100);
+                  const zebra = idx % 2 === 0;
+
+                  return (
+                    <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
+                      {editingRow === idx ? (
+                        <div>
+                          <div style={styles.formRowWrap}>
+                            <input style={styles.input} value={editDraft.name} onChange={e => handleEditDraftChange('name', e.target.value)} />
+                            <input style={styles.input} value={editDraft.brand} onChange={e => handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
+                          </div>
+                          <div style={styles.formRowWrap}>
+                            <input style={{ ...styles.input, width: 120 }} inputMode="decimal" value={editDraft.packs} onChange={e => handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
+                            <input style={{ ...styles.input, width: 140 }} inputMode="decimal" value={editDraft.unitsPerPack} onChange={e => handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
+                            <input style={{ ...styles.input, width: 150 }} value={editDraft.unitLabel} onChange={e => handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
+                          </div>
+                          <div style={styles.formRowWrap}>
+                            <input style={{ ...styles.input, width: 220 }} value={editDraft.expiresAt} onChange={e => handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                            <input style={{ ...styles.input, width: 190 }} inputMode="decimal" value={editDraft.residueUnits} onChange={e => handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                            <button onClick={() => saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                            <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                            <button onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={styles.stockRow}>
+                          <div
+                            style={styles.imageBox}
+                            role="button"
+                            title="Aggiungi/Modifica immagine"
+                            onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
+                          >
+                            {s.image ? (
+                              <img src={s.image} alt={s.name} style={styles.imageThumb} />
+                            ) : (
+                              <div style={styles.imagePlaceholder}>＋</div>
+                            )}
+                          </div>
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={styles.stockTitle}>
+                              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                            </div>
+                            <div style={styles.progressOuterBig}>
+                              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                            </div>
+                            <div style={styles.stockLineSmall}>
+                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                            </div>
+                          </div>
+
+                          <div style={styles.kvCol}>
+                            <div style={styles.kvLabel}>Confezioni</div>
+                            <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
+                          </div>
+
+                          <div style={styles.kvCol}>
+                            <div style={styles.kvLabel}>Unità/conf.</div>
+                            <div style={styles.kvValue}>{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
+                          </div>
+
+                          <div style={styles.kvCol}>
+                            <div style={styles.kvLabel}>Residuo unità</div>
+                            <div style={styles.kvValue}>{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
+                          </div>
+
+                          <div style={styles.rowActionsRight}>
+                            <button title="Modifica" onClick={() => startRowEdit(idx, s)} style={styles.iconCircle} aria-label="Modifica scorta">
+                              <Pencil size={18} />
+                            </button>
+                            <button title="Imposta scadenza" onClick={() => { setShowExpiryForm(true); setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' }); }} style={styles.iconCircle} aria-label="Imposta scadenza">
+                              <Calendar size={18} />
+                            </button>
+                            <button title="OCR riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.iconCircle} aria-label="OCR riga">
+                              <Camera size={18} />
+                            </button>
+                            <button title="Elimina definitivamente" onClick={() => deleteStockRow(idx)} style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }} aria-label="Elimina scorta">
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
       </div>
+    </div>
 
-      {/* INPUT NASCOSTI */}
-      <input
-        ref={ocrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        multiple
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          if (!files.length) return;
-          handleOCR(files);
-          e.target.value = '';
+    {/* TOAST */}
+    {toast && (
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background:
+            toast.type === 'ok'
+              ? '#16a34a'
+              : toast.type === 'err'
+              ? '#ef4444'
+              : '#334155',
+          color: '#fff',
+          padding: '10px 14px',
+          borderRadius: 10,
+          boxShadow: '0 6px 16px rgba(0,0,0,.35)',
+          zIndex: 9999,
+          fontWeight: 600,
+          letterSpacing: .2,
         }}
-      />
+      >
+        {toast.msg}
+      </div>
+    )}
 
-      {/* OCR UNICO di riga */}
-      <input
-        ref={rowOcrInputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        capture="environment"
-        multiple
-        hidden
-        onChange={async (e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (!files.length) return;
+    {/* INPUT NASCOSTI */}
+    <input
+      ref={ocrInputRef}
+      type="file"
+      accept="image/*,application/pdf"
+      multiple
+      hidden
+      onChange={(e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        handleOCR(files);
+        e.target.value = '';
+      }}
+    />
 
-          // Chi è la riga target? (lista o scorte)
-          let itemName = '';
-          let brand = '';
-          let stockIndex = -1;
+    <input
+      ref={rowOcrInputRef}
+      type="file"
+      accept="image/*,application/pdf"
+      capture="environment"
+      multiple
+      hidden
+      onChange={async (e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (!files.length) return;
 
-          const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
-          if (byId) {
-            itemName = byId.name;
-            brand = byId.brand || '';
-          } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
-            stockIndex = targetRowIdx;
-            itemName = stock[stockIndex].name;
-            brand = stock[stockIndex].brand || '';
-          } else {
-            showToast('Elemento non trovato per OCR riga', 'err');
-            return;
-          }
+        // Chi è la riga target? (lista o scorte)
+        let itemName = '';
+        let brand = '';
+        let stockIndex = -1;
 
-          try {
-            setBusy(true);
+        const byId = (lists[currentList] || []).find(i => i.id === targetRowIdx);
+        if (byId) {
+          itemName = byId.name;
+          brand = byId.brand || '';
+        } else if (typeof targetRowIdx === 'number' && stock[targetRowIdx]) {
+          stockIndex = targetRowIdx;
+          itemName = stock[stockIndex].name;
+          brand = stock[stockIndex].brand || '';
+        } else {
+          showToast('Elemento non trovato per OCR riga', 'err');
+          return;
+        }
 
-            // 1) OCR di tutte le immagini caricate
-            const fd = new FormData();
-            files.forEach(f => fd.append('images', f));
-            const ocrRes = await timeoutFetch(API_OCR, { method:'POST', body: fd }, 35000);
-            const ocr = await readJsonSafe(ocrRes);
-            if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
-            const ocrText = String(ocr.text || '').trim();
-            if (!ocrText) throw new Error('Nessun testo letto');
+        try {
+          setBusy(true);
 
-            // 2) Chiedi il pacchetto unificato
-            const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
-            const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ prompt })
-            }, 30000);
-            const safe = await readJsonSafe(r);
-            const answer = safe?.answer || safe?.data || safe;
-            const parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer);} catch { return null; } })() : answer;
+          // OCR di tutte le immagini caricate
+          const fd = new FormData();
+          files.forEach(f => fd.append('images', f));
+          const ocrRes = await timeoutFetch(API_OCR, { method: 'POST', body: fd }, 35000);
+          const ocr = await readJsonSafe(ocrRes);
+          if (!ocr.ok) throw new Error(ocr.error || 'Errore OCR');
+          const ocrText = String(ocr.text || '').trim();
+          if (!ocrText) throw new Error('Nessun testo letto');
 
-            // 3) Applica ai dati di scorta
-            const upd = {
-              name: String(parsed?.name || itemName || '').trim(),
-              brand: String(parsed?.brand || brand || '').trim(),
-              packs: Math.max(0, Number(parsed?.packs || 0)),
-              unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
-              unitLabel: String(parsed?.unitLabel || 'unità').trim() || 'unità',
-              expiresAt: toISODate(parsed?.expiresAt || '')
-            };
+          // Chiedi il pacchetto unificato
+          const prompt = buildUnifiedRowPrompt(ocrText, { name: itemName, brand });
+          const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt }),
+          }, 30000);
+          const safe = await readJsonSafe(r);
+          const answer = safe?.answer || safe?.data || safe;
+          const parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
 
-            const todayISO = new Date().toISOString().slice(0,10);
+          // Applica ai dati di scorta
+          const upd = {
+            name: String(parsed?.name || itemName || '').trim(),
+            brand: String(parsed?.brand || brand || '').trim(),
+            packs: Math.max(0, Number(parsed?.packs || 0)),
+            unitsPerPack: Math.max(1, Number(parsed?.unitsPerPack || 1)),
+            unitLabel: String(parsed?.unitLabel || 'unità').trim() || 'unità',
+            expiresAt: toISODate(parsed?.expiresAt || ''),
+          };
 
-            setStock(prev => {
-              const arr = [...prev];
+          const todayISO = new Date().toISOString().slice(0, 10);
 
-              if (stockIndex >= 0 && arr[stockIndex]) {
-                const old = arr[stockIndex];
-                const nowUnits = upd.packs * upd.unitsPerPack;
-                const wasUnits = old.packsOnly
-                  ? Math.max(0, Number(old.packs || 0))
-                  : Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
-                const restock = nowUnits > wasUnits;
+          setStock(prev => {
+            const arr = [...prev];
 
-                let next = {
-                  ...old,
-                  name: upd.name || old.name,
-                  brand: upd.brand || old.brand,
-                  packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
-                  unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
-                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || old.expiresAt || '',
-                  packsOnly:false
-                };
-                if (restock) {
-                  next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
-                }
-                arr[stockIndex] = next;
-                return arr;
+            if (stockIndex >= 0 && arr[stockIndex]) {
+              const old = arr[stockIndex];
+              const nowUnits = upd.packs * upd.unitsPerPack;
+              const wasUnits = old.packsOnly
+                ? Math.max(0, Number(old.packs || 0))
+                : Math.max(0, Number(old.packs || 0) * Math.max(1, Number(old.unitsPerPack || 1)));
+              const restock = nowUnits > wasUnits;
+
+              let next = {
+                ...old,
+                name: upd.name || old.name,
+                brand: upd.brand || old.brand,
+                packs: (upd.packs || upd.packs === 0) ? upd.packs : old.packs || 0,
+                unitsPerPack: upd.unitsPerPack || old.unitsPerPack || 1,
+                unitLabel: upd.unitLabel || old.unitLabel || 'unità',
+                expiresAt: upd.expiresAt || old.expiresAt || '',
+                packsOnly: false,
+              };
+              if (restock) {
+                next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
               }
-
-              // Se partiva da lista: crea/aggiorna scorta corrispondente
-              const j = arr.findIndex(s => isSimilar(s.name, upd.name) && (!upd.brand || isSimilar(s.brand || '', upd.brand)));
-              if (j >= 0) {
-                const old = arr[j];
-                const newPacks = Math.max(0, Number(upd.packs || 0));
-                const newUPP = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
-                arr[j] = {
-                  ...old,
-                  name: upd.name || old.name,
-                  brand: upd.brand || old.brand,
-                  packs: newPacks || old.packs || 0,
-                  unitsPerPack: newUPP,
-                  unitLabel: upd.unitLabel || old.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || old.expiresAt || '',
-                  packsOnly:false,
-                  ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP)
-                };
-              } else {
-                const p = Math.max(0, Number(upd.packs || 0));
-                const u = Math.max(1, Number(upd.unitsPerPack || 1));
-                const row = {
-                  name: upd.name || itemName,
-                  brand: upd.brand || brand || '',
-                  packs: p,
-                  unitsPerPack: u,
-                  unitLabel: upd.unitLabel || 'unità',
-                  expiresAt: upd.expiresAt || '',
-                  baselinePacks: p,
-                  lastRestockAt: todayISO,
-                  avgDailyUnits: 0,
-                  residueUnits: p * u,
-                  image: '',
-                  packsOnly:false
-                };
-                arr.unshift(withRememberedImage(row, imagesIndex));
-              }
+              arr[stockIndex] = next;
               return arr;
-            });
+            }
 
-            showToast('Riga aggiornata da OCR ✓', 'ok');
-          } catch (err) {
-            console.error('[Row OCR unified]', err);
-            showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
-          } finally {
-            setBusy(false);
-            setTargetRowIdx(null);
-          }
-        }}
-      />
+            // Se partiva da lista: crea/aggiorna scorta corrispondente
+            const j = arr.findIndex(s => isSimilar(s.name, upd.name) && (!upd.brand || isSimilar(s.brand || '', upd.brand)));
+            if (j >= 0) {
+              const old = arr[j];
+              const newPacks = Math.max(0, Number(upd.packs || 0));
+              const newUPP = Math.max(1, Number(upd.unitsPerPack || old.unitsPerPack || 1));
+              arr[j] = {
+                ...old,
+                name: upd.name || old.name,
+                brand: upd.brand || old.brand,
+                packs: newPacks || old.packs || 0,
+                unitsPerPack: newUPP,
+                unitLabel: upd.unitLabel || old.unitLabel || 'unità',
+                expiresAt: upd.expiresAt || old.expiresAt || '',
+                packsOnly: false,
+                ...restockTouch(newPacks || old.packs || 0, todayISO, newUPP),
+              };
+            } else {
+              const p = Math.max(0, Number(upd.packs || 0));
+              const u = Math.max(1, Number(upd.unitsPerPack || 1));
+              const row = {
+                name: upd.name || itemName,
+                brand: upd.brand || brand || '',
+                packs: p,
+                unitsPerPack: u,
+                unitLabel: upd.unitLabel || 'unità',
+                expiresAt: upd.expiresAt || '',
+                baselinePacks: p,
+                lastRestockAt: todayISO,
+                avgDailyUnits: 0,
+                residueUnits: p * u,
+                image: '',
+                packsOnly: false,
+              };
+              arr.unshift(withRememberedImage(row, imagesIndex));
+            }
+            return arr;
+          });
 
-      {/* Input immagine prodotto */}
-      <input
-        ref={rowImageInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = '';
-          if (files.length && typeof targetImageIdx === 'number') {
-            handleRowImage(files, targetImageIdx);
-            setTargetImageIdx(null);
-          }
-        }}
-      />
-    </>
-  );
+          showToast('Riga aggiornata da OCR ✓', 'ok');
+        } catch (err) {
+          console.error('[Row OCR unified]', err);
+          showToast(`Errore OCR riga: ${err?.message || err}`, 'err');
+        } finally {
+          setBusy(false);
+          setTargetRowIdx(null);
+        }
+      }}
+    />
+
+    <input
+      ref={rowImageInputRef}
+      type="file"
+      accept="image/*"
+      capture="environment"
+      hidden
+      onChange={(e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (files.length && typeof targetImageIdx === 'number') {
+          handleRowImage(files, targetImageIdx);
+          setTargetImageIdx(null);
+        }
+      }}
+    />
+  </>
+);
+      {/* SAFE OVERRIDES SOLO per /liste-prodotti */}
+
+   
 }
-
 /* =================== Styles (identici) =================== */
 const styles = {
     page: {
@@ -3876,10 +3469,10 @@ bannerArea: {
 bannerBox: {
   position: 'relative',
   width: '100%',
-  height: 140,                 // ← altezza del banner (120–180 a gusto)
+  height: 120,                 // ← altezza del banner (120–180 a gusto)
   borderRadius: 16,
   overflow: 'hidden',
-  background: 'rgba(0,0,0,.6)',// fallback se il video non parte
+  background: 'rgba(0,0,0,.6)',
   boxShadow: '0 8px 24px rgba(0,0,0,.35)',
   border: '1px solid rgba(255,255,255,.10)',
 },
@@ -3887,6 +3480,7 @@ bannerVideo: {
   width: '100%',
   height: '100%',
   objectFit: 'cover',
+  backgroundColor: '#000',  
   display: 'block',
 },
 bannerOverlay: {
@@ -3924,8 +3518,8 @@ bannerBox: {
 
 bannerVideo: {
   display: 'block',
-  width: '100%',
-  height: '160px',        // 👈 altezza fissa ottimizzata per PC
+  width: '25%',
+  height: '120px',        // 👈 altezza fissa ottimizzata per PC
   objectFit: 'cover',     // ritaglia solo sopra/sotto
   objectPosition: 'center', // centra scritta + muletto
   borderRadius: 14,
@@ -3987,7 +3581,62 @@ voiceVideo: {
   height: '100%',
   objectFit: 'cover',
 },
+/* === LAYOUT SEZIONI === */
+sectionBox: {
+  marginTop: 18,
+  padding: 14,
+  borderRadius: 16,
+  background: 'rgba(255,255,255,.06)',
+  border: '1px solid rgba(255,255,255,.12)',
+  boxShadow: '0 10px 24px rgba(0,0,0,.28)',
+},
+sectionInner: {
+  marginTop: 10,
+},
 
+kicker: {
+  margin: 0,
+  marginBottom: 8,
+  fontSize: '0.95rem',
+  fontWeight: 700,
+  letterSpacing: '.02em',
+  textTransform: 'none',
+  color: '#eaf7ff',
+  textShadow: '0 1px 0 rgba(0,0,0,.45)',
+  borderLeft: '3px solid rgba(148,233,255,.65)',
+  paddingLeft: 10,
+  opacity: .95,
+},
 
+/* === SEZIONE 1: BANNER FULL-BLEED === */
+sec1FullBleed: {
+  position: 'relative',
+  width: '100%',
+  /* altezza della “striscia” banner: regola a piacere */
+  height: 160,                 // es: 140–200 per più/meno taglio
+  borderRadius: 16,
+  backgroundColor: '#4B4336',  
+  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+  border: '1px solid rgba(255,255,255,.10)',
+  margin: '8px 0 14px'
+},
+
+sec1Video: {
+  width: '30%',
+  height: '100%',
+  display: 'block',
+  objectFit: 'cover',          // riempi e taglia sopra/sotto
+  /* sposta la “finestra” verticale per decidere cosa si vede */
+  objectPosition: 'center 75%' // ↓ aumenta per scendere, ↓ diminuisci per salire
+  // esempi: 'center 30%' (più alto), 'center 50%' (centrato), 'center 65%' (più basso)
+},
+
+sec1Overlay: {
+  position: 'absolute',
+  inset: 0,
+  /* leggero velo per leggibilità */
+  background: 'linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.08))',
+  pointerEvents: 'none'
+},
 
 }
