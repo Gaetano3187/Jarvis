@@ -2374,8 +2374,8 @@ return (
               <Image
                 src="/img/icone%20%2B%20-/segno%20piu.png"
                 alt="Aggiungi"
-                width={28}
-                height={28}
+                width={42}
+                height={42}
                 priority
                 style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }}
               />
