@@ -2670,12 +2670,12 @@ return (
     <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
   </video>
 </button>
-                {/* Vocale Scorte — tasto 42x42 con video */}
+      {/* 🔊 Tasto vocale scorte – 42x42, ritagliato */}
 <button
   type="button"
-  onClick={toggleVoiceInventory}          // tua funzione già presente
+  onClick={toggleVoiceInventory}
   disabled={busy}
-  style={styles.voice42}
+  style={styles.voice42}           // << usa questo stile
   aria-pressed={!!invRecBusy}
   aria-label="Riconoscimento vocale scorte"
   title={
@@ -2690,7 +2690,7 @@ return (
     muted
     playsInline
     preload="metadata"
-    style={styles.voice42Video}
+    style={styles.voice42Video}    // << e questo stile
   >
     <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
   </video>
@@ -3880,7 +3880,33 @@ voiceVideo: {
     pointerEvents: 'none',   // il click passa al button
     transform: 'translateZ(0)', // evita aliasing/blur su alcuni browser
   },
-};
+  _const: styles = {
+    // contenitore 42x42 con ritaglio, rilievo leggero
+    voice42: {
+      width: 42,
+      height: 42,
+      borderRadius: 12,
+      padding: 0,
+      border: '1px solid rgba(255,255,255,.14)',
+      background: 'rgba(0,0,0,.18)',
+      display: 'inline-grid',
+      placeItems: 'center',
+      boxShadow: '0 2px 8px rgba(0,0,0,.35), inset 0 1px 1px rgba(255,255,255,.18)',
+      overflow: 'hidden', // 👉 taglia il video ai bordi arrotondati
+      cursor: 'pointer'
+    },
+
+    // il video riempie e viene ritagliato dal contenitore
+    voice42Video: {
+      width: '100%',
+      height: '100%',
+      display: 'block',
+      objectFit: 'cover', // 👉 niente bande: riempi e ritaglia
+      objectPosition: 'center'
+    },
+  },
+}
+
 
 
 
