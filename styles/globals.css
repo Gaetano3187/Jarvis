@@ -812,6 +812,34 @@ html[data-route="/liste-prodotti"] .spese-casa-container2 {
 .lp-route .ocrVideo {
   clip-path: inset(9% round 16%) !important;
 }
+/* Barra 1 */
+.lp-sec1{
+  position: relative;
+  width: 100%;
+  height: 280px;          /* 👈 altezza della barra = altezza del video */
+  border-radius: 20px;
+  overflow: hidden;       /* taglia eventuali sbordi */
+  background: transparent;
+}
+
+/* wrapper che spinge il video a destra */
+.lp-sec1__frame{
+  height: 100%;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;  /* 👈 allinea a destra */
+  align-items: center;
+}
+
+/* video */
+.lp-sec1__video{
+  height: 100%;          /* il video usa l’altezza della barra */
+  width: auto;           /* mantiene il rapporto 1936×280 */
+  max-width: none;       /* evita regole tipo video{max-width:100%} che lo restringono */
+  object-fit: contain;   /* 👈 mostra tutto il video, senza tagli */
+  object-position: right center; /* 👈 “appiccicato” a destra */
+  display: block;
+}
 
 }
 

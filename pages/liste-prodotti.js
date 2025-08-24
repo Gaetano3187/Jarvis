@@ -2222,28 +2222,28 @@ return (
   <>
   
     <Head><title>🛍 Lista Prodotti</title></Head>
+    
 
     <div style={styles.page}>
       <div style={styles.card}>
 
         {/* ===== SEZIONE 1 — BANNER FULL WIDTH ===== */}
-      <section style={styles.sec1FullBleed}>
-  <video
-    key="/video/Liste-prodotti-small.mp4?v=1"   // forza il refresh del video in cache
-    autoPlay
-    loop
-    muted
-    playsInline
-    preload="none"
-    poster="/video/stato-scorte.png"            // (opz.) puoi cambiarlo con un poster generato dal nuovo video
-    style={styles.sec1Video}
-  >
-    <source src="/video/Liste-prodotti-small.mp4" type="video/mp4" />
-    {/* Se in futuro crei la variante webm, aggiungi anche:
-    <source src="/video/Liste-prodotti.webm" type="video/webm" /> */}
-  </video>
-  <div style={styles.sec1Overlay} />
+     <section className="lp-sec1">
+  <div className="lp-sec1__frame">
+    <video
+      className="lp-sec1__video"
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="none"
+      poster="/video/stato-scorte.png"
+    >
+      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
+    </video>
+  </div>
 </section>
+
 
 
         {/* ===== SEZIONE 2 — LISTE ===== */}
@@ -2329,7 +2329,10 @@ return (
       borderRadius: 12,
       background: '#0f172a',        // scuro, come gli altri comandi
       // rilievo: highlight in alto + ombra in basso, solo inset
-    
+      boxShadow:
+        'inset 0 1px 0.1px rgba(255,255,255,.28), ' +  // luce alto
+        'inset 0 -3px 0.5px rgba(0,0,0,.55), ' +          // ombra basso
+        'inset 0 0 0 0.5px rgba(255,255,255,.08)',        // filo interno
       overflow: 'hidden'           // taglia eventuali sbordi della maschera interna
     }}
   >
