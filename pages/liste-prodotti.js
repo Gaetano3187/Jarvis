@@ -2727,6 +2727,56 @@ return (
         {toast.msg}
       </div>
     )}
+    <style jsx global>{`
+/* ========== 1) TASTI più piccoli nell’area comandi ========== */
+.route-liste-prodotti .toolsRow { gap: 10px !important; }
+
+/* pulsanti icona (+, calendario…) */
+.route-liste-prodotti .toolsRow .iconCircle,
+.route-liste-prodotti .toolsRow .headerIcon{
+  width:40px !important; height:40px !important; min-width:40px !important;
+  border-radius:10px !important; padding:0 !important;
+}
+
+/* pulsanti video (scanner/vocale) */
+.route-liste-prodotti .toolsRow .voiceVideoBtn,
+.route-liste-prodotti .toolsRow .ocrVideoBtn{
+  width:64px !important; height:64px !important; border-radius:12px !important;
+}
+.route-liste-prodotti .toolsRow .voiceVideo,
+.route-liste-prodotti .toolsRow .ocrVideo{ object-fit:contain !important; }
+
+/* ========== 2) Banner: il box segue il video, niente “bande” ========== */
+.route-liste-prodotti .sec1FullBleed{
+  min-height:0 !important; height:auto !important; padding:6px 0 !important;
+  background:transparent !important; display:flex !important;
+  align-items:center !important; justify-content:center !important;
+  overflow:hidden !important;
+}
+.route-liste-prodotti .sec1FullBleed > video{
+  max-height:150px !important; height:auto !important; width:auto !important;
+  max-width:100% !important; object-fit:contain !important; display:block !important;
+}
+
+/* banner “stato scorte” */
+.route-liste-prodotti .bannerBox{
+  min-height:0 !important; height:auto !important; padding:6px 0 !important;
+  background:transparent !important; display:flex !important;
+  align-items:center !important; justify-content:center !important;
+  border-radius:16px; overflow:hidden !important;
+}
+.route-liste-prodotti .bannerBox > video{
+  max-height:130px !important; height:auto !important; width:auto !important;
+  max-width:100% !important; object-fit:contain !important; display:block !important;
+}
+
+/* cornice vetro (facoltativa) */
+.route-liste-prodotti .bannerBox{
+  border:1px solid rgba(255,255,255,.08) !important;
+  box-shadow:0 6px 16px rgba(0,0,0,.25) !important;
+}
+`}</style>
+
 
     {/* INPUT NASCOSTI */}
     <input
