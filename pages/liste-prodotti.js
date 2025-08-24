@@ -2220,6 +2220,7 @@ if (unitsUpdated.size > 0) {
 /* =================== Render =================== */
 return (
   <>
+  
     <Head><title>🛍 Lista Prodotti</title></Head>
 
     <div style={styles.page}>
@@ -2298,23 +2299,23 @@ return (
 
           {/* comandi lista (vocale + +) */}
           <div style={styles.toolsRow}>
-  <button
-    className="lp-btnVideo"
-    onClick={toggleRecList}
-    disabled={busy}
-    style={recBusy ? { ...styles.voiceVideoBtn, ...styles.voiceVideoBtnHover } : styles.voiceVideoBtn}
-    aria-label="Vocale Lista"
-    title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
-  >
-    {/* maschera che ritaglia il video (inset) */}
+
+{/* Tasto vocale Liste – con maschera interna */}
+<button
+  onClick={toggleRecList}
+  disabled={busy}
+  style={styles.voiceVideoBtn}            // position:relative
+  aria-label="Vocale Lista"
+  title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+>
+  {/* maschera che ritaglia il video (inset) */}
   <div style={styles.voiceCrop}>
     <video autoPlay loop muted playsInline style={styles.voiceVideo}>
       <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
     </video>
   </div>
 </button>
-  
-  
+ 
             <button
               onClick={() => setShowListForm(v => !v)}
               style={styles.iconCircle}
@@ -3643,5 +3644,39 @@ sec1Overlay: {
   background: 'linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.08))',
   pointerEvents: 'none'
 },
+voiceVideoBtn: {
+  position: 'relative',            // <— serve per ancorare la maschera
+  width: 100,
+  height: 100,
+  borderRadius: 22,
+  padding: 0,
+  border: 'none',
+  background: 'linear-gradient(180deg,#1f2937,#111827)',
+  boxShadow: '0 6px 14px rgba(0,0,0,.45), inset 0 1px 3px rgba(255,255,255,.22)',
+  cursor: 'pointer',
+  overflow: 'visible'              // la maschera sotto farà il taglio
+},
+
+// “cornice” interna che definisce il ritaglio (puoi cambiare gli inset)
+voiceCrop: {
+  position: 'absolute',
+  top: 10,                         // ← taglio sopra
+  right: 10,                       // ← taglio a dx
+  bottom: 10,                      // ← taglio sotto
+  left: 10,                        // ← taglio a sx
+  borderRadius: 18,                // raggio interno ≈ al rettangolo neon
+  overflow: 'hidden',              // <— il vero taglio
+  pointerEvents: 'none'            // il click passa al bottone
+},
+
+voiceVideo: {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+  // opzionale: ritaglio ancora più preciso con angoli arrotondati
+  // clipPath: 'inset(6% 6% 10% 6% round 18px)',
+  filter: 'drop-shadow(0 0 0 rgba(0,0,0,0))' // niente alone aggiuntivo
+}
 
 }
