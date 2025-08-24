@@ -392,7 +392,7 @@ function bootstrapBrainProxy(supabase) {
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
 
-  // pagine senza NavBar
+  // Pagine senza NavBar
   const hideNavOn = ['/', '/login', '/auth/login'];
   const showNav = !hideNavOn.includes(router.pathname);
 
@@ -401,31 +401,25 @@ export default function MyApp({ Component, pageProps }) {
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
 
-  // Aggiunge classe al <body> per gli override di /liste-prodotti
-  useEffect(() => {
-    if (router.pathname === '/liste-prodotti') {
-      document.body.classList.add('lp-route');
-    } else {
-      document.body.classList.remove('lp-route');
-    }
-  }, [router.pathname]);
-
-  // Espone la rotta su <html data-route="...">
+  // Etichette rotta + classe per /liste-prodotti
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      document.documentElement.setAttribute(
-        'data-route',
-        router.pathname || ''
-      );
+      document.documentElement.setAttribute('data-route', router.pathname || '');
+      if (router.pathname === '/liste-prodotti') {
+        document.body.classList.add('lp-route');
+      } else {
+        document.body.classList.remove('lp-route');
+      }
     }
+    return () => document.body.classList.remove('lp-route');
   }, [router.pathname]);
 
-  // Bootstrap del proxy/brain (se lo usi)
+  // Bootstrap proxy cloud/brain
   useEffect(() => {
     bootstrapBrainProxy(supabaseClient);
   }, [supabaseClient]);
 
-  // Flush aggressivo su /liste-prodotti + al focus
+  // Flush aggressivo su cambio rotta e focus
   useEffect(() => {
     const doFlush = () => {
       if (typeof window !== 'undefined') {
@@ -436,20 +430,23 @@ export default function MyApp({ Component, pageProps }) {
         }
       }
     };
-const onRoute = (url) => {
-  if (typeof url === 'string' && url.includes('/liste-prodotti')) {
-    doFlush();
-  }
-};
 
+    const onRoute = (url) => {
+      const path = typeof url === 'string' ? url : router.pathname;
+      if (path.includes('/liste-prodotti')) doFlush();
+    };
 
-    router.events?.on('routeChangeComplete', onRoute);
-    if (router.pathname?.includes('/liste-prodotti')) doFlush();
-    window.addEventListener('focus', doFlush);
+    router.events.on('routeChangeComplete', onRoute);
+    onRoute(router.pathname);             // flush alla prima apertura della pagina
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', doFlush);
+    }
 
     return () => {
-      router.events?.off('routeChangeComplete', onRoute);
-      window.removeEventListener('focus', doFlush);
+      router.events.off('routeChangeComplete', onRoute);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', doFlush);
+      }
     };
   }, [router.events, router.pathname]);
 
