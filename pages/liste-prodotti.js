@@ -2306,10 +2306,15 @@ return (
     aria-label="Vocale Lista"
     title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
   >
-    <video className="lp-btnVideo__video" autoPlay loop muted playsInline>
+    {/* maschera che ritaglia il video (inset) */}
+  <div style={styles.voiceCrop}>
+    <video autoPlay loop muted playsInline style={styles.voiceVideo}>
       <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
     </video>
-  </button>
+  </div>
+</button>
+  
+  
             <button
               onClick={() => setShowListForm(v => !v)}
               style={styles.iconCircle}
