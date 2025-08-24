@@ -2,8 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
 import '../styles/mobile-overrides.css';
-import '../styles/liste-prodotti.clean.css';
-
 
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
@@ -24,7 +22,6 @@ const poppins = Poppins({
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 
 /* ------------------------------------------------------------------ */
 /*                    BRIDGE + PROXY (LS + CLOUD SYNC)                */
@@ -391,6 +388,7 @@ function bootstrapBrainProxy(supabase) {
 }
 
 /* ------------------------------------------------------------------ */
+
 export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
 
@@ -403,35 +401,19 @@ export default function MyApp({ Component, pageProps }) {
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
 
-  // Attributo data-route per selettori CSS mirati (es. login)
+  // Etichetta la rotta corrente per gli stili CSS (es. login ultra-leggero)
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-route', router.pathname || '');
     }
   }, [router.pathname]);
 
-  // Classe body SOLO su /liste-prodotti (per gli stili dedicati)
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      if (router.pathname === '/liste-prodotti') {
-        document.body.classList.add('lp-route');
-      } else {
-        document.body.classList.remove('lp-route');
-      }
-    }
-    return () => {
-      if (typeof document !== 'undefined') {
-        document.body.classList.remove('lp-route');
-      }
-    };
-  }, [router.pathname]);
-
-  // Bootstrap del proxy cloud/LS
+  // bootstrap proxy con supabase per sync cross-device
   useEffect(() => {
     bootstrapBrainProxy(supabaseClient);
   }, [supabaseClient]);
 
-  // Flush aggressivo su /liste-prodotti + al focus
+  // flush aggressivo su /liste-prodotti + al focus (anche cloud)
   useEffect(() => {
     const doFlush = () => {
       if (typeof window !== 'undefined') {
@@ -445,11 +427,11 @@ export default function MyApp({ Component, pageProps }) {
     const onRoute = (url) => { if (url.includes('/liste-prodotti')) doFlush(); };
     router.events.on('routeChangeComplete', onRoute);
     onRoute(router.pathname);
-    if (typeof window !== 'undefined') window.addEventListener('focus', doFlush);
+    window.addEventListener('focus', doFlush);
 
     return () => {
       router.events.off('routeChangeComplete', onRoute);
-      if (typeof window !== 'undefined') window.removeEventListener('focus', doFlush);
+      window.removeEventListener('focus', doFlush);
     };
   }, [router.events, router.pathname]);
 
@@ -469,5 +451,3 @@ export default function MyApp({ Component, pageProps }) {
     </SessionContextProvider>
   );
 }
-
-
