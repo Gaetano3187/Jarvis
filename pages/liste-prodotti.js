@@ -3880,32 +3880,31 @@ voiceVideo: {
     pointerEvents: 'none',   // il click passa al button
     transform: 'translateZ(0)', // evita aliasing/blur su alcuni browser
   },
-  _const: styles = {
-    // contenitore 42x42 con ritaglio, rilievo leggero
-    voice42: {
-      width: 42,
-      height: 42,
-      borderRadius: 12,
-      padding: 0,
-      border: '1px solid rgba(255,255,255,.14)',
-      background: 'rgba(0,0,0,.18)',
-      display: 'inline-grid',
-      placeItems: 'center',
-      boxShadow: '0 2px 8px rgba(0,0,0,.35), inset 0 1px 1px rgba(255,255,255,.18)',
-      overflow: 'hidden', // 👉 taglia il video ai bordi arrotondati
-      cursor: 'pointer'
-    },
-
-    // il video riempie e viene ritagliato dal contenitore
-    voice42Video: {
-      width: '100%',
-      height: '100%',
-      display: 'block',
-      objectFit: 'cover', // 👉 niente bande: riempi e ritaglia
-      objectPosition: 'center'
-    },
+  // contenitore 42x42 con ritaglio, rilievo leggero
+  voice42: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    padding: 0,
+    border: '1px solid rgba(255,255,255,.14)',
+    background: 'rgba(0,0,0,.18)',
+    display: 'inline-grid',
+    placeItems: 'center',
+    boxShadow: '0 2px 8px rgba(0,0,0,.35), inset 0 1px 1px rgba(255,255,255,.18)',
+    overflow: 'hidden',        // 👉 taglia il video ai bordi arrotondati
+    cursor: 'pointer'
   },
+
+  // il video riempie e viene ritagliato dal contenitore
+  voice42Video: {
+    width: '100%',
+    height: '100%',
+    display: 'block',
+    objectFit: 'cover',        // 👉 niente bande: riempi e ritaglia
+    objectPosition: 'center'   // puoi anche provare 'center 55%' se vuoi scendere leggermente
+  }
 }
+
 
 
 
