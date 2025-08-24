@@ -2300,7 +2300,7 @@ return (
           {/* comandi lista (vocale + +) */}
           <div style={styles.toolsRow}>
 
-{/* VOCALE LISTE (42x42, con ritaglio interno) — SOSTITUISCI IL VECCHIO BOTTONE CON QUESTO */}
+{/* VOCALE LISTE – 42x42, rilievo senza alone, ritaglio preciso */}
 <button
   type="button"
   onClick={toggleRecList}
@@ -2311,44 +2311,60 @@ return (
     width: 42,
     height: 42,
     padding: 0,
+    border: 'none',
     borderRadius: 12,
     display: 'inline-grid',
     placeItems: 'center',
-    border: '1px solid rgba(255,255,255,.18)',
-    background: 'rgba(15,23,42,.35)',
-    boxShadow: '0 2px 8px rgba(0,0,0,.40), inset 0 1px 2px rgba(255,255,255,.12)',
-    overflow: 'hidden',                // elimina qualsiasi “sbordo” del video
-    cursor: 'pointer'
+    cursor: 'pointer',
+    background: 'transparent',      // nessun fondale/alone
+    boxShadow: 'none',              // nessun alone esterno
+    overflow: 'visible'
   }}
 >
-  {/* maschera interna: lascia un margine di 6px tutto intorno */}
+  {/* “cornice” con rilievo (solo ombre INSET) */}
   <div
     style={{
-      width: 'calc(100% - 12px)',      // 6px per lato → 12px totali
-      height: 'calc(100% - 12px)',
-      borderRadius: 10,                // raggio interno (regolabile)
-      overflow: 'hidden'               // QUI avviene il ritaglio preciso
+      width: '100%',
+      height: '100%',
+      borderRadius: 12,
+      background: '#0f172a',        // scuro, come gli altri comandi
+      // rilievo: highlight in alto + ombra in basso, solo inset
+      boxShadow:
+        'inset 0 1px 1.2px rgba(255,255,255,.28), ' +  // luce alto
+        'inset 0 -3px 6px rgba(0,0,0,.55), ' +          // ombra basso
+        'inset 0 0 0 1px rgba(255,255,255,.08)',        // filo interno
+      overflow: 'hidden'           // taglia eventuali sbordi della maschera interna
     }}
   >
-    <video
-      autoPlay
-      loop
-      muted
-      playsInline
-      preload="metadata"
+    {/* maschera interna: regola padding per “quanto” ritagliare */}
+    <div
       style={{
-        width: '100%',
-        height: '100%',
-        display: 'block',
-        objectFit: 'cover',
-        filter: 'drop-shadow(0 0 4px rgba(148,233,255,.35))' // leggero glow dentro
+        width: 'calc(100% - 6px)',  // = 3px per lato → ritaglio preciso
+        height: 'calc(100% - 6px)',
+        margin: 3,
+        borderRadius: 10,
+        overflow: 'hidden'          // QUI avviene il ritaglio del video
       }}
     >
-      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-    </video>
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="metadata"
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'block',
+          objectFit: 'cover',
+          filter: 'none'            // IMPORTANTISSIMO: elimina qualsiasi alone/glow ereditato
+        }}
+      >
+        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+      </video>
+    </div>
   </div>
 </button>
-
             <button
               onClick={() => setShowListForm(v => !v)}
               style={styles.iconCircle}
