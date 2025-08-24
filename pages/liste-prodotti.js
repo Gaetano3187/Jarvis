@@ -2246,8 +2246,13 @@ return (
     </video>
   </div>
 </section>
-     
-             {/* ===== SEZIONE 2 — LISTE ===== */}
+       </video>
+  </div>
+</section>
+
+
+
+        {/* ===== SEZIONE 2 — LISTE ===== */}
         <section style={styles.sectionBox}>
           <p style={styles.kicker}>scegli la lista che vuoi</p>
 
