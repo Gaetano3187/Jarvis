@@ -401,7 +401,7 @@ export default function MyApp({ Component, pageProps }) {
     createBrowserClient(supabaseUrl, supabaseAnon)
   );
 
-  // Etichette rotta + classe per /liste-prodotti
+  // Etichetta rotta + classe per /liste-prodotti (per gli stili mirati)
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-route', router.pathname || '');
@@ -414,12 +414,12 @@ export default function MyApp({ Component, pageProps }) {
     return () => document.body.classList.remove('lp-route');
   }, [router.pathname]);
 
-  // Bootstrap proxy cloud/brain
+  // Inizializza il proxy (cloud/lista → brain)
   useEffect(() => {
     bootstrapBrainProxy(supabaseClient);
   }, [supabaseClient]);
 
-  // Flush aggressivo su cambio rotta e focus
+  // Flush aggressivo quando entri in /liste-prodotti e quando la finestra torna in focus
   useEffect(() => {
     const doFlush = () => {
       if (typeof window !== 'undefined') {
@@ -437,7 +437,7 @@ export default function MyApp({ Component, pageProps }) {
     };
 
     router.events.on('routeChangeComplete', onRoute);
-    onRoute(router.pathname);             // flush alla prima apertura della pagina
+    onRoute(router.pathname); // flush immediato all'apertura della pagina
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', doFlush);
     }
@@ -462,6 +462,24 @@ export default function MyApp({ Component, pageProps }) {
             <Component {...pageProps} />
           </main>
         </div>
+
+        {/* Piccolo set di global override utili e innocui */}
+        <style jsx global>{`
+          html, body {
+            overflow-x: hidden !important;   /* elimina lo spazio bianco a destra */
+            max-width: 100%;
+          }
+
+          /* riduci spazio tra banner e "Lista corrente" solo su /liste-prodotti */
+          body.lp-route .lp-sec1 { margin-bottom: 10px !important; }
+          body.lp-route .sectionBox { margin-top: 14px !important; }
+
+          /* su smartphone compattiamo ancora un po' */
+          @media (max-width: 480px) {
+            body.lp-route .lp-sec1 { margin-bottom: 8px !important; }
+            body.lp-route .sectionBox { margin-top: 12px !important; }
+          }
+        `}</style>
       </AuthProvider>
     </SessionContextProvider>
   );
