@@ -752,6 +752,66 @@ html[data-route="/liste-prodotti"] .spese-casa-container2 {
   /* aiuta contro gli aloni di antialias */
   transform: translateZ(0);
 }
+/* ====== VOCE LISTE — pulsante video (42x42, mascherato) ====== */
+.lp-route .lp-voiceBtn {
+  width: 42px;               /* stessa misura del tasto + */
+  height: 42px;
+  padding: 0;
+  border-radius: 12px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(15,23,42,.35);
+  box-shadow: 0 2px 8px rgba(0,0,0,.40), inset 0 1px 2px rgba(255,255,255,.12);
+  overflow: hidden;          /* serve per eliminare ogni “sbordo” del video */
+  cursor: pointer;
+}
+
+/* Il video viene ritagliato sul bordo interno (niente nero attorno) */
+.lp-route .lp-voiceBtn__video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+
+  /* Maschera: rettangolo stondato “interno” (tolto ~9% per lato) */
+  /* Fallback universale */
+  clip-path: inset(9% round 16%);
+
+  /* Maschera precisa (Chrome/Safari) */
+  -webkit-mask-image: url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">\
+  <rect x="9" y="9" width="82" height="82" rx="16" ry="16" fill="white"/>\
+</svg>');
+  -webkit-mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+
+  mask-image: url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">\
+  <rect x="9" y="9" width="82" height="82" rx="16" ry="16" fill="white"/>\
+</svg>');
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+
+  /* piccolo glow “neon” per integrarla col bordo interno del video */
+  filter: drop-shadow(0 0 4px rgba(148,233,255,.35));
+}
+
+/* FORZA l’override di vecchi stili inline/precedenti (se restano in pagina) */
+.lp-route .voiceVideoBtn,
+.lp-route .ocrVideoBtn {
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  background: rgba(15,23,42,.35) !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
+}
+.lp-route .voiceVideo,
+.lp-route .ocrVideo {
+  clip-path: inset(9% round 16%) !important;
+}
 
 }
 

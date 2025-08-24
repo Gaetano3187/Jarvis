@@ -2305,24 +2305,21 @@ return (
   type="button"
   onClick={toggleRecList}
   disabled={busy}
-  className="voiceBtn"
+  className="lp-voiceBtn"
   aria-label="Vocale Liste"
   title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
 >
-  {/* maschera che ritaglia il video sul bordo interno giallo */}
-  <div className="voiceClip">
-    <video
-      autoPlay
-      loop
-      muted
-      playsInline
-      className="voiceVid"
-    >
-      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-    </video>
-  </div>
+  <video
+    className="lp-voiceBtn__video"
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="metadata"
+  >
+    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+  </video>
 </button>
- 
             <button
               onClick={() => setShowListForm(v => !v)}
               style={styles.iconCircle}
