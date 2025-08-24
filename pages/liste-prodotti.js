@@ -2692,9 +2692,10 @@ return (
     preload="metadata"
     style={styles.voice42Video}
   >
-    <source src="/video/tasto vocale Liste.mp4" type="video/mp4" />
+    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
   </video>
 </button>
+
 
                {/* ➕ Aggiungi manualmente */}
 <button
