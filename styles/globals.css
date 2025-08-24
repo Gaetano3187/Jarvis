@@ -651,6 +651,65 @@ html[data-route="/liste-prodotti"] .spese-casa-container2 {
   clip-path: inset(0 round 14px);
   filter: none !important;         /* annulla drop-shadow del video inline */
 }
+/* ====== /liste-prodotti — pulizia bordi tasti video ====== */
+[data-route="/liste-prodotti"] .lp-btnVideo{
+  /* stessa raggiatura ovunque */
+  --r: 14px;
+
+  /* niente bordo/ombra esterna del button */
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+
+  /* taglio netto del contenuto */
+  position: relative;
+  overflow: hidden !important;
+  border-radius: var(--r) !important;
+
+  /* niente ring/contorno di focus esterno */
+  outline: none !important;
+}
+[data-route="/liste-prodotti"] .lp-btnVideo:focus,
+[data-route="/liste-prodotti"] .lp-btnVideo:focus-visible{
+  outline: none !important;
+  box-shadow: none !important;           /* se vuoi, qui puoi mettere un ring interno */
+}
+
+/* il video riempie il riquadro ma SENZA glow/ombra */
+[data-route="/liste-prodotti"] .lp-btnVideo__video{
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border: 0 !important;
+  border-radius: inherit !important;
+  box-shadow: none !important;
+  filter: none !important;                /* ← elimina il drop-shadow che faceva il “terzo bordo” */
+
+  /* taglio preciso anche in WebKit */
+  clip-path: inset(0 round var(--r));
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(white, black);
+}
+
+/* se in precedenza avevamo aggiunto un highlight interno con ::after, lo spengo */
+[data-route="/liste-prodotti"] .lp-btnVideo::after{ display:none !important; }
+
+/* ── alternativa se NON hai messo classi: usa :has() ───────────────────── */
+@supports(selector(:has(*))){
+  [data-route="/liste-prodotti"] .toolsRow button:has(> video),
+  [data-route="/liste-prodotti"] .ocrRow    button:has(> video){ 
+    --r:14px; border:0 !important; box-shadow:none !important;
+    overflow:hidden !important; border-radius:var(--r) !important; outline:none !important;
+  }
+  [data-route="/liste-prodotti"] .toolsRow button:has(> video) > video,
+  [data-route="/liste-prodotti"] .ocrRow    button:has(> video) > video{
+    width:100%; height:100%; object-fit:cover; border:0 !important;
+    border-radius:inherit !important; box-shadow:none !important; filter:none !important;
+    clip-path: inset(0 round 14px);
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+  }
+}
+
 }
 
 
