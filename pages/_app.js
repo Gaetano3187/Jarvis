@@ -452,96 +452,55 @@ export default function MyApp({ Component, pageProps }) {
   }, [router.events, router.pathname]);
 
   return (
-    <SessionContextProvider
-      supabaseClient={supabaseClient}
-      initialSession={pageProps.initialSession ?? null}
-    >
-      <AuthProvider>
-        <div className={`${poppins.variable} app-shell`}>
-          {showNav && <NavBar />}
-          <main className="page-container">
-            <Component {...pageProps} />
-          </main>
-        </div>
+  <SessionContextProvider
+    supabaseClient={supabaseClient}
+    initialSession={pageProps.initialSession ?? null}
+  >
+    <AuthProvider>
+      <div className={`${poppins.variable} app-shell`}>
+        {showNav && <NavBar />}
 
-        {/* ====== GLOBALI: sfondo, no scroll orizzontale, banner unificati, mobile scorte ====== */}
+        <main className="page-container">
+          <Component {...pageProps} />
+        </main>
+
+        {/* ---- OVERRIDE FINALE: sfondo petrolio globale e neutralizzazione sfondi celesti ---- */}
         <style jsx global>{`
-          /* ---- fondazione pagina: niente bianco dietro, niente overflow orizzontale ---- */
-          html, body, #__next, .app-shell {
+          :root{
+            --bg-petrol: linear-gradient(180deg,#2aa9a9 0%,#114a52 38%,#0b2b31 100%);
+          }
+
+          html, body, #__next {
             min-height: 100%;
             width: 100%;
             max-width: 100%;
           }
+
           html {
-            background-color: #0b2b31; /* petrolio scuro fallback */
+            background-color: #0b2b31 !important; /* fallback (iOS bounce) */
           }
+
           body {
-            background: linear-gradient(180deg, #2aa9a9 0%, #114a52 38%, #0b2b31 100%) fixed;
+            background: var(--bg-petrol) fixed !important;
             overflow-x: hidden !important;
-            -webkit-overflow-scrolling: touch;
-            overscroll-behavior-x: none;
-            position: relative;
-          }
-          /* vignetta/glow per riempire micro-gap di iOS */
-          body::before {
-            content: '';
-            position: fixed; inset: 0; z-index: -1; pointer-events: none;
-            background:
-              radial-gradient(65% 30% at 50% 0, rgba(46,160,160,.18), transparent 60%),
-              radial-gradient(90% 40% at 50% 100%, rgba(17,74,82,.25), transparent 60%);
           }
 
-          /* ——— compattazioni in liste-prodotti ——— */
-          body.lp-route .lp-sec1       { margin-bottom: 10px !important; }
-          body.lp-route .sectionBox    { margin-top: 12px !important; }
-          body.lp-route .sectionLifted { margin-top: 12px !important; }
-
-          @media (max-width: 480px) {
-            body.lp-route .lp-sec1       { margin-bottom: 8px !important; }
-            body.lp-route .sectionBox,
-            body.lp-route .sectionLifted { margin-top: 10px !important; }
+          /* Elimina eventuali sfondi “celesti” dei wrapper */
+          .app-shell,
+          .page-container,
+          .page,
+          .layout,
+          .bg-app,
+          .bg-global {
+            background: transparent !important;
           }
-
-          /* sicurezza: niente elementi più larghi del viewport */
-          * { box-sizing: border-box; }
-          img, video { max-width: 100%; height: auto; }
-
-          /* ====== BANNER UNIFICATI (Sez.1,3,4) ====== */
-          .lp-banner, .lp-banner--scorte, .lp-banner--critici {
-            width: 100%;
-            height: 120px;               /* stessa altezza del banner Stato Scorte su mobile */
-            border-radius: 16px;
-            overflow: hidden;
-            background: rgba(0,0,0,.55);
-            box-shadow:
-              inset 0 1px 1.2px rgba(255,255,255,.22),
-              inset 0 -4px 8px rgba(0,0,0,.55),
-              0 10px 24px rgba(0,0,0,.28);
-            border: 1px solid rgba(255,255,255,.08);
+          [class*="wrapper"],
+          [class*="container"] {
+            background-image: none !important;
           }
-          .lp-banner__video {
-            width: 100%; height: 100%;
-            display: block;
-            object-fit: contain;         /* nessun taglio del video */
-            object-position: center;
-            background: transparent;
-          }
-          @media (min-width: 768px){
-            .lp-banner, .lp-banner--scorte, .lp-banner--critici { height: 140px; }
-          }
-
-          /* ====== LISTA SCORTE — MOBILE WRAP ====== */
-          .stockRow {
-            display:flex; flex-wrap:wrap; align-items:flex-start; gap:10px; width:100%;
-          }
-          .stockTitle, .progressOuterBig, .stockLineSmall { width:100%; }
-          .kvCol       { flex:1 1 48%; min-width:150px; text-align:left; }
-          .rowActionsRight { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; margin-left:0; }
-
-          .stockRow *, .critRow * { white-space: normal; word-break: break-word; }
         `}</style>
-      </AuthProvider>
-    </SessionContextProvider>
-  );
-  
+      </div>
+    </AuthProvider>
+  </SessionContextProvider>
+);
 }
