@@ -1466,7 +1466,6 @@ async function handleOCR(files) {
       fdOcr.append('file',   f, name);
       fdOcr.append('image',  f, name);
     }
-
     let ocrText = '';
     try {
       const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 45000);
