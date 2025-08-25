@@ -562,6 +562,15 @@ const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto|off\.)\b/i; // salt
 
     const txt = name.toLowerCase();
 
+    // 🔁 Backfill: aggiungi voci prodotto direttamente dal testo se l’AI ne ha saltate
+purchases = backfillMissingPurchasesFromOCRText(ocrText, purchases);
+
+// Normalizza nomi/brand (MB, banane, fette rigate, batticuori…)
+purchases = purchases.map(normalizeNameBrandPurchase);
+
+// Sanifica quantità (evita 500g/1,5L come unitsPerPack)
+purchases = cleanupPurchasesQuantities(purchases);
+
     // normalizzazioni "intelligenti" per i casi visti
     if (/prezzemol/.test(txt)) name = 'prezzemolo';
     else if (/pane\s+e\s+pizza/.test(txt)) name = 'farina pane e pizza';
@@ -779,6 +788,87 @@ function parseStockUpdateText(text) {
   }
   return res;
 }
+// ——— Header/non-prodotto SOLO se la riga intera è un'intestazione ———
+const NOT_PRODUCT_FULL_LINE_RE = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva|rt\b|cassa|cassiere|codice|tessera)\b/i;
+// "DECO SHOP" (riga categoria negozio) ma NON "shampoo"
+const SHOP_LINE_RE = /^\s*(?:deco\s+shop|shop)\s*$/i;
+// righe promo tipo "(OFF. 1,39)"
+const OFF_LINE_RE = /^\s*\(off\.\b/i;
+
+// brand comuni per hint "loose"
+const KNOWN_BRANDS = [
+  'Mulino Bianco','Ferrero','Motta','Lavazza','Parmalat','Zymil','Garofalo','Eridania',
+  'Lenor','Dash','Arborea','Bufalart','Decò','Deco','Saiva'
+];
+const BRAND_RE = new RegExp(`\\b(${KNOWN_BRANDS.map(s => s.replace(/\s+/g,'\\s+')).join('|')})\\b`, 'i');
+
+// usa il tuo lessico esteso già caricato
+const __LEX_SET = new Set((GROCERY_LEXICON || []).map(normKey));
+
+// hit “loose”: se la riga contiene un termine del lessico, considerala prodotto
+function lexLooseHit(nm) {
+  for (const term of __LEX_SET) { if (term && nm.includes(term)) return true; }
+  return false;
+}
+
+// ——— Backfill: aggiunge voci prodotto saltate dall’AI, leggendo direttamente l’OCR ———
+function backfillMissingPurchasesFromOCRText(ocrText, currentPurchases = []) {
+  const existed = new Set((currentPurchases || []).map(p => normKey(p.name)));
+  const out = [...(currentPurchases || [])];
+
+  const lines = String(ocrText || '')
+    .split(/\r?\n/)
+    .map(s => s.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  for (let ln of lines) {
+    if (NOT_PRODUCT_FULL_LINE_RE.test(ln)) continue;
+    if (SHOP_LINE_RE.test(ln)) continue;
+    if (OFF_LINE_RE.test(ln)) continue;
+
+    // togli IVA/colonne prezzo di coda
+    ln = ln
+      .replace(/\s+vi\*?\s*$/i, '')
+      .replace(/\s+(?:€|eur|euro)?\s*\d+(?:[.,]\d{2})\s*$/i, '')
+      .trim();
+
+    // se resta troppo corta, salta
+    if (ln.length < 3) continue;
+
+    const nm0 = normalizeProductName(ln, '', ln);
+    const brand0 = normalizeBrandName(ln);
+    const nm = nm0 || ln;                         // nome candidato
+    const key = normKey(nm);
+
+    // dedup con quelli già presenti
+    if (!nm || existed.has(key)) continue;
+
+    // accetta SOLO se:
+    // - contiene un termine del lessico OPPURE
+    // - contiene un brand noto OPPURE
+    // - sembra una riga prodotto in maiuscolo con almeno 2 parole (tipico scontrino)
+    const lo = normKey(ln);
+    const looksProductUpper = /^[A-Z0-9À-ÖØ-Þ][A-Z0-9À-ÖØ-Þ .'-]{6,}$/.test(ln) && /\s/.test(ln);
+
+    if (!(lexLooseHit(lo) || BRAND_RE.test(ln) || looksProductUpper)) continue;
+
+    // scarta riga "deco shop" anche se normale
+    if (/^deco\s+shop$/i.test(nm)) continue;
+
+    out.push({
+      name: nm.trim(),
+      brand: brand0 !== nm ? brand0 : '',     // se brand==nome, lascialo vuoto
+      packs: 1,
+      unitsPerPack: 1,
+      unitLabel: 'unità',
+      priceEach: 0, priceTotal: 0, currency: 'EUR',
+      expiresAt: ''
+    });
+    existed.add(key);
+  }
+  return out;
+}
+
 
 /* ====================== Consumi / restock helpers ====================== */
 function computeNewAvgDailyUnits(old, newPacks) {
