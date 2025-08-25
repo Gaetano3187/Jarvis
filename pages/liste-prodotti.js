@@ -85,6 +85,288 @@ const GROCERY_LEXICON = [
   'insalata','pomodori','zucchine','melanzane','patate','cipolle','aglio','mele','banane','arance','limoni',
   'uova','acqua','birra','vino','tortillas','piadine','affettati','ferrero fiesta'
 ];
+/* ==================== LEXICON EXTENSION + QUANTITY SANITIZER + PROMPTS ==================== */
+/* Drop-in: richiede che esistano già GROCERY_LEXICON e normKey() nel file. */
+(() => {
+  const __hasLex = (term) =>
+    Array.isArray(GROCERY_LEXICON) && GROCERY_LEXICON.some(x => normKey(x) === normKey(term));
+  const __lexAdd = (arr) => { arr.forEach(t => { if (t && !__hasLex(t)) GROCERY_LEXICON.push(t); }); };
+
+  /* —— Salumi/Affettati —— */
+  const LEX_DELI = [
+    'prosciutto cotto','prosciutto crudo','prosciutto crudo dolce','prosciutto crudo stagionato',
+    'bresaola','speck','mortadella','salame','salame milano','salame ungherese','salame napoli','salame felino',
+    'pancetta','pancetta affumicata','guanciale','coppa','lonza','fiocco','arrosto di tacchino','fesa di tacchino',
+    'petto di pollo a fette','wurstel','salsiccia','porchetta','roast beef'
+  ];
+
+  /* —— Latticini —— */
+  const LEX_DAIRY = [
+    'latte','latte intero','latte parzialmente scremato','latte scremato','latte uht','latte senza lattosio','latte zymil',
+    'latte di soia','latte di mandorla','latte di avena','latte di riso',
+    'yogurt','yogurt magro','yogurt greco','yogurt bianco','yogurt alla frutta','kefir',
+    'burro','margarina','panna fresca','panna da cucina','panna spray',
+    'formaggio spalmabile','philadelphia','ricotta','mozzarella','fior di latte','burrata','scamorza','provola',
+    'caciocavallo','asiago','fontina','montasio','edamer','gouda','emmental','provolone','grana padano',
+    'parmigiano reggiano','pecorino','gorgonzola','stracchino','robiola','brie','camembert','crescenza'
+  ];
+
+  /* —— Forno/Panetteria —— */
+  const LEX_BAKERY = [
+    'pane','pane integrale','panini','pan bauletto','pan carrè','pane in cassetta','grissini','cracker','taralli',
+    'piadina','tortillas','wrap','basi pizza','impasto pizza','focaccia','brioche','cornetti','croissant',
+    'fette biscottate','pangrattato','pan grattugiato'
+  ];
+
+  /* —— Pasta, riso, farine —— */
+  const LEX_PASTA_RICE_FLOUR = [
+    'pasta','spaghetti','penne','fusilli','rigatoni','mezze maniche','orecchiette','farfalle','linguine','tagliatelle',
+    'lasagne','gnocchi','ravioli','tortellini',
+    'riso','riso arborio','riso carnaroli','riso basmati','riso parboiled','riso integrale',
+    'cous cous','orzo perlato','farro','quinoa','polenta',
+    'farina 00','farina 0','farina 1','farina 2','farina integrale','farina di semola','semola rimacinata',
+    'amido di mais','fecola di patate','lievito di birra','lievito per dolci'
+  ];
+
+  /* —— Dispensa/Salse/Conserve —— */
+  const LEX_PANTRY_SAUCES = [
+    'passata di pomodoro','polpa di pomodoro','pomodori pelati','concentrato di pomodoro','sugo pronto',
+    'pesto','ragù','salsa di pomodoro',
+    'olio extravergine di oliva','olio evo','olio di oliva','olio di semi','olio di semi di girasole','olio di arachide',
+    'aceto di vino','aceto balsamico','aceto di mele',
+    'zucchero','zucchero semolato','zucchero di canna','zucchero a velo','sale fino','sale grosso','sale iodato','sale rosa','pepe',
+    'tonno in scatola','sgombro in scatola','acciughe','salmone in scatola','vongole in scatola',
+    'legumi in scatola','ceci','fagioli borlotti','fagioli cannellini','lenticchie','piselli',
+    'mais dolce','olive verdi','olive nere','capperi',
+    'dado da brodo','dado vegetale','dado di carne','dado di pollo',
+    'maionese','ketchup','senape','salsa barbecue','salsa piccante','salsa di soia','tabasco',
+    'origano','basilico','rosmarino','salvia','timo','peperoncino','paprika','curry','curcuma',
+    'noce moscata','cannella','zafferano','aglio granulare','cipolla disidratata'
+  ];
+
+  /* —— Colazione/Spalmabili —— */
+  const LEX_BREAKFAST_SPREADS = [
+    'cereali','corn flakes','muesli','fiocchi di avena','granola',
+    'biscotti','biscotti integrali','biscotti frollini','biscotti secchi',
+    'merendine','crostatine','plumcake','brioss',
+    'marmellata','confettura','miele','nutella','crema spalmabile alla nocciola','crema di arachidi'
+  ];
+
+  /* —— Snack/Dolci/Frutta secca —— */
+  const LEX_SWEETS_SNACKS = [
+    'cioccolato','tavolette di cioccolato','barrette','merendine al cioccolato',
+    'caramelle','liquirizia','gelatine','gomme da masticare',
+    'cracker salati','salatini',
+    'noccioline','arachidi','mandorle','nocciole','pistacchi','anacardi','noci','noci pecan','pinoli',
+    'patatine','patatine rustiche','popcorn','grissini snack'
+  ];
+
+  /* —— Bevande —— */
+  const LEX_BEVERAGES = [
+    'acqua naturale','acqua frizzante','soda','tonica',
+    'succo di frutta','tè freddo','orzo solubile','caffè','caffè macinato','caffè in grani','caffè capsule','caffè cialde',
+    'cioccolata calda','bevanda vegetale',
+    'bibita cola','aranciata','gassosa','spremuta','energy drink',
+    'birra','vino','spumante','prosecco','aperitivo analcolico'
+  ];
+
+  /* —— Surgelati —— */
+  const LEX_FROZEN = [
+    'surgelati','piselli surgelati','spinaci surgelati','verdure grigliate surgelate','minestrone surgelato',
+    'patatine surgelate','bastoncini di pesce','filetti di merluzzo','fritto misto surgelato',
+    'pizza surgelata','gelato','gelati confezionati','sorbetto','frutti di bosco surgelati'
+  ];
+
+  /* —— Orto: verdura —— */
+  const LEX_FRESH_VEG = [
+    'insalata','lattuga','rucola','spinaci','radicchio','pomodori','pomodori ciliegino','zucchine','melanzane','peperoni',
+    'carote','sedano','cetrioli','cipolle','aglio','patate','zucca','funghi','finocchi','broccoli','cavolfiore',
+    'bieta','verza','cavolo cappuccio','asparagi','carciofi'
+  ];
+
+  /* —— Frutta (ampia) —— */
+  const LEX_FRESH_FRUIT = [
+    'mele','mele golden','mele fuji','mele granny smith','pere','pere abate','banane',
+    'arance','mandarini','clementine','limoni','lime','pompelmo',
+    'kiwi','uva','fragole','mirtilli','lamponi','more','ciliegie',
+    'ananas','mango','papaya','melone','anguria','pesche','pesche noci','albicocche','prugne','fichi','melagrana',
+    'avocado','cachi','pere kaiser'
+  ];
+
+  /* —— Infanzia & Pet —— */
+  const LEX_BABY_PET = [
+    'pannolini','salviettine umidificate','omogeneizzati','latte in polvere',
+    'crocchette cane','crocchette gatto','scatolette cane','scatolette gatto','lettiera gatti'
+  ];
+
+  /* —— Casa/Lavanderia —— */
+  const LEX_HOUSEHOLD_LAUNDRY = [
+    'detersivo lavatrice','detersivo liquido lavatrice','detersivo in polvere lavatrice','pods lavatrice',
+    'ammorbidente','smacchiatore','sbiancante','cattura colore','igienizzante bucato','profuma biancheria',
+    'detersivo capi delicati','detersivo lana e seta','candeggina','candeggina delicata'
+  ];
+
+  /* —— Casa/Stoviglie —— */
+  const LEX_HOUSEHOLD_DISH = [
+    'detersivo piatti','detersivo piatti a mano','pastiglie lavastoviglie','tabs lavastoviglie',
+    'gel lavastoviglie','sale lavastoviglie','brillantante lavastoviglie','deodorante lavastoviglie'
+  ];
+
+  /* —— Casa/Superfici —— */
+  const LEX_HOUSEHOLD_SURFACES = [
+    'sgrassatore cucina','detergente multiuso','detergente vetri','detergente pavimenti','detergente bagno',
+    'anticalcare','disincrostante','detergente wc','gel wc','candeggina wc','igienizzante superfici',
+    'detergente acciaio','detergente legno','cera parquet','detergente marmo','antipolvere'
+  ];
+
+  /* —— Casa/Consumabili & Accessori —— */
+  const LEX_HOUSEHOLD_CONSUMABLES = [
+    'carta igienica','carta casa','scottex','fazzoletti','tovaglioli','salviette','rotoli di carta',
+    'sacchi spazzatura','sacchetti immondizia','sacchetti differenziata','sacchetti biodegradabili',
+    'pellicola','alluminio','carta forno','sacchetti freezer','buste gelo','sacchetti zip',
+    'guanti lattice','guanti nitrile','spugne','panni microfibra','panni cattura polvere',
+    'mocio','ricariche mocio','secchio','scopa','paletta','spazzolone',
+    'sacchetti aspirapolvere','profumatori armadio','deumidificatore ricariche','accendifuoco','fiammiferi',
+    'grucce','appendiabiti','teli copritutto','copriwater','tappi lavello'
+  ];
+
+  /* —— Casa/Ambiente & insetti —— */
+  const LEX_HOUSEHOLD_AIR_PEST = [
+    'deodorante ambiente','profumatore ambiente','ricariche profumatore','spray antiodore',
+    'insetticida','antizanzare','zampironi','spirali antizanzare','spray mosche e zanzare'
+  ];
+
+  /* —— Cura persona (essenziali) —— */
+  const LEX_PERSONAL = [
+    'sapone mani','bagnoschiuma','docciaschiuma','shampoo','balsamo',
+    'dentifricio','collutorio','spazzolino','filo interdentale',
+    'schiuma da barba','lamette','deodorante','assorbenti','cotton fioc','cotone idrofilo','crema mani','crema corpo'
+  ];
+
+  /* —— Contenitori/Cucina —— */
+  const LEX_KITCHEN_STORAGE = [
+    'contenitori alimenti','contenitori ermetici','barattoli vetro','vaschette alluminio','pellicola alimentare'
+  ];
+
+  /* —— Extra: cucina/ferramenta/legno/attrezzi/clima —— */
+  const EXTRA_KITCHEN = [
+    'padella','pentola','teglia','tegame','coltelli cucina','set coltelli','tagliere',
+    'apri scatole','apribottiglie','grattugia','mestoli','frusta','bilancia da cucina'
+  ];
+  const EXTRA_HARDWARE = [
+    'viti','tasselli','chiodi','rondelle','bulloni','dadi','cerniere','maniglie',
+    'catena','lucchetto','catenaccio','silicone','stucco','colla vinilica','colla epossidica',
+    'nastro isolante','nastro carta','nastro americano','vernice','smalto','antiruggine','primer','diluente nitro','acetone',
+    'pennelli','rulli','carta vetrata'
+  ];
+  const EXTRA_WOOD = [
+    'listelli legno','tavole abete','multistrato','osb','mdf','perline','compensato',
+    'profili alluminio','cornici legno'
+  ];
+  const EXTRA_TOOLS = [
+    'martello','cacciavite','set cacciaviti','brugole','pinza','tenaglia','metro','livella',
+    'seghetto alternativo','sega circolare','smerigliatrice','flessibile','trapano','tassellatore','avvitatore',
+    'dischi abrasivi','punte trapano','scalpello','pialletto','compressore','pistola silicone'
+  ];
+  const EXTRA_HVAC = [
+    'condizionatore','climatizzatore monosplit','unità esterna','canalina','staffe condizionatore',
+    'telecomando condizionatore','filtro condizionatore','gas r32','stufa a pellet','pellet','tubo fumi',
+    'silicone alta temperatura','deumidificatore'
+  ];
+
+  [
+    LEX_DELI, LEX_DAIRY, LEX_BAKERY, LEX_PASTA_RICE_FLOUR, LEX_PANTRY_SAUCES,
+    LEX_BREAKFAST_SPREADS, LEX_SWEETS_SNACKS, LEX_BEVERAGES, LEX_FROZEN,
+    LEX_FRESH_VEG, LEX_FRESH_FRUIT, LEX_BABY_PET,
+    LEX_HOUSEHOLD_LAUNDRY, LEX_HOUSEHOLD_DISH, LEX_HOUSEHOLD_SURFACES,
+    LEX_HOUSEHOLD_CONSUMABLES, LEX_HOUSEHOLD_AIR_PEST,
+    LEX_PERSONAL, LEX_KITCHEN_STORAGE,
+    EXTRA_KITCHEN, EXTRA_HARDWARE, EXTRA_WOOD, EXTRA_TOOLS, EXTRA_HVAC
+  ].forEach(__lexAdd);
+})();
+
+/* ——— Evita che PESI/VOL/DIMENSIONI vengano letti come quantità ——— */
+const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
+const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
+// numeri tipici di peso/volume che NON sono "unità/conf."
+const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,450,454,500,700,720,733,750,800,900,910,930,950,1000,1250,1500,1750,2000]);
+
+/** Pulizia quantità su elenco acquisti */
+function cleanupPurchasesQuantities(list) {
+  return (Array.isArray(list) ? list : []).map(p => {
+    const out = { ...p };
+    const joined = `${String(out.name||'')} ${String(out.brand||'')}`.toLowerCase();
+
+    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 ||
+                       (joined.match(DIMENSION_RE) || []).length > 0;
+
+    const upp = Math.max(0, Number(out.unitsPerPack || 0));
+    const packs = Math.max(0, Number(out.packs || 0));
+    const looksWeightNumber = upp >= 20 || SUSPECT_UPP.has(upp);
+
+    // se sembra peso/volume/dimensione → non interpretare come unitsPerPack
+    if ((hasMeasure && upp > 1) || looksWeightNumber) {
+      out.unitsPerPack = 1;
+      out.unitLabel = 'unità';
+      if (!packs) out.packs = 1;
+    }
+    return out;
+  });
+}
+
+/** Opzionale: utility da usare nei parser locali per rimuovere misure/dimensioni da una riga */
+function stripMeasuresDims(s) {
+  return String(s||'').replace(MEASURE_TOKEN_RE, '').replace(DIMENSION_RE, '');
+}
+
+/* ——— PROMPT builders aggiornati ——— */
+function buildOcrAssistantPrompt(ocrText, lexicon = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, viti, trapano, ...';
+  return [
+    'Sei Jarvis, estrattore strutturato di SCONTRINI. RISPONDI SOLO JSON con lo schema ESATTO sotto.',
+    '{',
+    '  "store":"",',
+    '  "purchaseDate":"",',
+    '  "purchases":[{"name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","priceEach":0,"priceTotal":0,"currency":"","expiresAt":""}]',
+    '}',
+    '',
+    'REGOLE:',
+    `- Normalizza i nomi prodotti rispetto a questo LESSICO: ${LEX}`,
+    '- NON usare pesi/volumi/dimensioni (es. "500 g", "1,5 L", "25x30 cm") come quantità.',
+    '- Imposta packs/unitsPerPack SOLO con pattern espliciti: "2x6", "2 conf da 6", "3 confezioni", "6 bottiglie".',
+    '- Se vedi solo il peso (es. 500 g) → packs=1, unitsPerPack=1, unitLabel="unità".',
+    '- Ignora subtotali, IVA, metodi di pagamento, codici a barre, sconti OFF.',
+    '',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
+function buildOcrStockBagPrompt(ocrText, lexicon = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, padella, viti, trapano, ...';
+  return [
+    'Sei Jarvis: vedi foto di prodotti/buste e DEVI restituire SOLO JSON.',
+    '{ "items":[ { "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" } ] }',
+    '',
+    `LESSICO di riferimento: ${LEX}`,
+    'REGOLE:',
+    '- NON interpretare pesi/volumi/dimensioni come quantità.',
+    '- Quantità SOLO con pattern espliciti (2x6, 2 conf da 6, 6 bottiglie).',
+    '- Se non ricavi packs/unitsPerPack lascia 0 e unitLabel "".',
+    '- Scadenza in YYYY-MM-DD se presente.',
+    '',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
+/* ——— Nota d’uso in handleOCR() ———
+   Dopo aver costruito "purchases" (da items/scontrino/fallback), applica:
+     purchases = cleanupPurchasesQuantities(purchases);
+*/
+
 
 /* ====================== Utils testo ====================== */
 function tokens(str){ return new Set(normKey(str).split(' ').filter(Boolean)); }
@@ -1618,16 +1900,28 @@ async function handleOCR(files) {
         upp: p.unitsPerPack, lbl: p.unitLabel, desc: p._desc
       })));
     } catch {}
+    // ---- Super-fallback a lessico (ultimo tentativo) ----
+if (!purchases.length && ocrText) {
+  purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
+}
 
-    // Rimuovi non-merce + messaggi modello (“mi dispiace…”)
-    const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
-    const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-    purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
-      const nm = String(p?.name || '').toLowerCase();
-      return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
-    });
+// ✅ SANITIZZA quantità (evita che 500g/1,5L ecc. diventino unitsPerPack)
+purchases = cleanupPurchasesQuantities(purchases);
 
-    // Early exit se davvero vuoto (evita finto "completato")
+// Guard unica: se ancora vuoto → esci
+if (!purchases.length) {
+  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+  return;
+}
+
+// Rimuovi non-merce + messaggi modello (“mi dispiace…”)
+const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+purchases = purchases.filter(p => {
+  const nm = String(p?.name || '').toLowerCase();
+  return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
+});
+       // Early exit se davvero vuoto (evita finto "completato")
     if (!Array.isArray(purchases) || purchases.length === 0) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
