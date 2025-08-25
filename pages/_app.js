@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
 import '../styles/mobile-overrides.css';
-import '../styles/theme-override.css';   // <— ULTIMO
+
 
 import { AuthProvider } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
@@ -545,41 +545,3 @@ export default function MyApp({ Component, pageProps }) {
   );
   
 }
-/* _app.js — INSERISCI QUESTO <style jsx global> ALLA FINE, PRIMA DI CHIUDERE I PROVIDER */
-<style jsx global>{`
-  /* ===== SFONDO PETROLIO GLOBALE (desktop + mobile) ===== */
-  :root{
-    --bg-petrol: linear-gradient(180deg, #2aa9a9 0%, #114a52 38%, #0b2b31 100%);
-  }
-
-  html, body, #__next{
-    min-height: 100%;
-    width: 100%;
-    max-width: 100%;
-  }
-
-  html{
-    background-color: #0b2b31 !important; /* fallback durante i rimbalzi iOS */
-  }
-
-  body{
-    background: var(--bg-petrol) fixed !important; /* SEMPRE petrolio */
-    overflow-x: hidden !important;
-  }
-
-  /* Neutralizza vecchi sfondi “celesti” applicati ai wrapper */
-  .app-shell,
-  .page-container,
-  .page,
-  .layout,
-  .bg-app,
-  .bg-global{
-    background: transparent !important;
-  }
-
-  /* Se hai qualche gradientone sul wrapper della pagina, lo rendiamo trasparente */
-  [class*="wrapper"],
-  [class*="container"]{
-    background-image: none !important;
-  }
-`}</style>
