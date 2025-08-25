@@ -529,6 +529,37 @@ function parseLinesToItems(text) {
 
   return items;
 }
+// ——— Normalizza brand e nomi comuni prima dei filtri ———
+function normalizeBrandName(str = '') {
+  const s = normKey(str);
+  // Mulino Bianco (varianti OCR): "mb", "m bianco", "mbianco", "mulino b1anco", "mulino bianc0"…
+  if (/(^|\b)m\s*bianco\b/.test(s) || /\bmbianco\b/.test(s) || /\bmb\b/.test(s) || /mulino\s*b[i1]anc[0o]/.test(s)) {
+    return 'Mulino Bianco';
+  }
+  return (str || '').trim();
+}
+
+function normalizeProductName(name = '', brand = '', rawJoin = '') {
+  const j = normKey(`${name} ${brand} ${rawJoin}`);
+  // Mulino Bianco tipici
+  if (/batticuor/i.test(j)) return 'batticuori';
+  if (/fett[ea]\s+rigat/i.test(j) || /(rigat\w+).*(fett[ea])/.test(j)) return 'fette rigate';
+  // Ortofrutta
+  if (/banan/i.test(j)) return 'banane';
+  return (name || '').trim();
+}
+
+// Se il nome è vuoto ma il brand è noto, teniamo almeno il brand come nome (meglio di scartare)
+function normalizeNameBrandPurchase(p) {
+  const brand = normalizeBrandName(p?.brand || '');
+  const name  = normalizeProductName(p?.name || '', brand, `${p?.name||''} ${brand}`);
+  return {
+    ...p,
+    brand,
+    name: (name || p?.name || brand || '').trim()
+  };
+}
+
 
 
 
@@ -887,6 +918,16 @@ const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto|off\.)\b/i; // salt
     else if (/salsiccia/i.test(name)) name = 'salsiccia';
     else if (/candeggin/i.test(name) || /ace/i.test(brand)) name = 'candeggina';
     else if (/\bcaff[eè]\b/.test(txt)) name = 'caffè';
+    else if (/banan/i.test(txt)) name = 'banane';
+else if (/batticuor/i.test(txt)) { name = 'batticuori'; brand = brand || 'Mulino Bianco'; }
+else if (/fett[ea]\s+rigat/i.test(txt) || /(rigat\w+).*(fett[ea])/.test(txt)) {
+  name = 'fette rigate'; brand = brand || 'Mulino Bianco';
+}
+// brand catcher (OCR: "mb", "m bianco", "mbianco")
+if (/(\b|^)m\s*bianc/.test(raw) || /\bmbianc/.test(raw) || /\bmb\b/.test(raw) || /mulino\s*bianc/i.test(raw)) {
+  brand = 'Mulino Bianco';
+}
+
 
     const packs = packsFromTail || packsInline || 1;
 
@@ -1945,20 +1986,39 @@ if (!purchases.length) {
   return;
 }
 
-// Rimuovi SOLO vere non-merci + messaggi modello; non toccare alimenti/brand
-// via "busta" perché può essere PRODOTTO (buste freezer). via anche "sacchetti" (sono prodotti).
-const DISCARD_RE  = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
-const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+// Rimuovi SOLO non-merce & messaggi modello. Consenti tutto il resto.
+const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
+const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
 
-// Keep override: se matcha questi, NON scartare mai
+// Keep override: termini che NON vanno mai scartati se compaiono
 const KEEP_RE = /\b(banane?|fett[ea]\s+rigat\w*|batticuor\w*|mulino\s*bianc\w*|mbianco|m\s*bianco)\b/i;
 
+// Set lessico per matching “loose” (inclusione)
+const __LEX_SET = new Set((GROCERY_LEXICON || []).map(normKey));
+
+// Match “loose”: se il testo contiene un termine del lessico, tienilo
+function lexLooseHit(nm) {
+  for (const term of __LEX_SET) {
+    if (term && nm.includes(term)) return true;
+  }
+  return false;
+}
+
+// Applica normalizzazioni prima del filtro
+purchases = (purchases || []).map(normalizeNameBrandPurchase);
+
+// ⚠️ Se l’AI ha messo il peso come UPP, correggilo prima (già avevi questa riga)
+purchases = cleanupPurchasesQuantities(purchases);
+
+// Filtro veramente minimo: butta solo le cose sicure da scartare
 purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
-  const nm = normKey(`${p?.name||''} ${p?.brand||''}`);
+  const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
   if (!nm) return false;
-  if (KEEP_RE.test(nm)) return true;
-  if (DISCARD_MSG.test(nm)) return false;
-  return !DISCARD_RE.test(nm);
+  if (DISCARD_MSG.test(nm)) return false;       // messaggi modello
+  if (KEEP_RE.test(nm)) return true;            // parole chiave da tenere sempre
+  if (NOT_PRODUCT_RE.test(nm)) return false;    // vera non-merce
+  if (lexLooseHit(nm)) return true;             // contiene un termine del lessico esteso
+  return true;                                  // default: tieni (più permissivo)
 });
 
        // Early exit se davvero vuoto (evita finto "completato")
