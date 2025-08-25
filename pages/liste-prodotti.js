@@ -531,6 +531,7 @@ function parseLinesToItems(text) {
 }
 
 
+
 /* ====================== Scadenze utils ====================== */
 function toISODate(any) {
   const s = String(any || '').trim();
@@ -660,6 +661,36 @@ async function fetchJSONStrict(url, opts={}, timeoutMs=40000){
   }
   try { return JSON.parse(raw); } catch { return { data: raw }; }
 }
+// ——— Brand & Product normalizer (prima dei filtri) ———
+function normalizeBrandName(str=''){
+  const s = normKey(str);
+  if (/(^|\b)m\s*bianco\b/.test(s) || /\bmbianco\b/.test(s) || /mulino\s*b[i1]anco/.test(s) || /^\s*mb\s*$/.test(s)) {
+    return 'Mulino Bianco';
+  }
+  return (str || '').trim();
+}
+function normalizeProductName(name='', brand='', rawJoin=''){
+  const j = normKey(`${name} ${brand} ${rawJoin}`);
+  // prodotti tipici Mulino Bianco
+  if (/batticuor/i.test(j)) return 'batticuori';
+  if (/fett[ea]\s+rigat/i.test(j) || /(rigat\w+).*(fett[ea])/.test(j)) return 'fette rigate';
+  // ortofrutta comuni
+  if (/banan/i.test(j)) return 'banane';
+  return (name || '').trim();
+}
+/** Applica le normalizzazioni a una riga purchase */
+function normalizeNameBrandPurchase(p){
+  const brand = normalizeBrandName(p?.brand || '');
+  // rawJoin serve se in futuro passerai la riga grezza; ora usiamo solo name+brand
+  const name  = normalizeProductName(p?.name || '', brand, `${p?.name||''} ${brand}`);
+  // se il name è vuoto ma il brand è noto e la riga contiene indice prodotto, tieni il brand+name coerente
+  return {
+    ...p,
+    brand,
+    name: name || (p?.name || '').trim() || (brand ? `${brand}` : '').trim()
+  };
+}
+
 
 
 /* ====================== Calcoli scorte ====================== */
@@ -1914,13 +1945,22 @@ if (!purchases.length) {
   return;
 }
 
-// Rimuovi non-merce + messaggi modello (“mi dispiace…”)
-const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+// Rimuovi SOLO vere non-merci + messaggi modello; non toccare alimenti/brand
+// via "busta" perché può essere PRODOTTO (buste freezer). via anche "sacchetti" (sono prodotti).
+const DISCARD_RE  = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
 const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-purchases = purchases.filter(p => {
-  const nm = String(p?.name || '').toLowerCase();
-  return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
+
+// Keep override: se matcha questi, NON scartare mai
+const KEEP_RE = /\b(banane?|fett[ea]\s+rigat\w*|batticuor\w*|mulino\s*bianc\w*|mbianco|m\s*bianco)\b/i;
+
+purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
+  const nm = normKey(`${p?.name||''} ${p?.brand||''}`);
+  if (!nm) return false;
+  if (KEEP_RE.test(nm)) return true;
+  if (DISCARD_MSG.test(nm)) return false;
+  return !DISCARD_RE.test(nm);
 });
+
        // Early exit se davvero vuoto (evita finto "completato")
     if (!Array.isArray(purchases) || purchases.length === 0) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
