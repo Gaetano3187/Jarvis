@@ -1427,11 +1427,14 @@ async function handleOCR(files) {
     const toArray = (x) => Array.from(x || []);
     const isFileLike = (v) => {
       try {
-        return !!(v && typeof v === 'object' &&
+        return !!(
+          v &&
+          typeof v === 'object' &&
           typeof v.type === 'string' &&
           typeof v.size === 'number' &&
           typeof v.arrayBuffer === 'function' &&
-          typeof v.slice === 'function');
+          typeof v.slice === 'function'
+        );
       } catch { return false; }
     };
 
@@ -1439,64 +1442,85 @@ async function handleOCR(files) {
     for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // 1) OCR → testo (HOTFIX: compat totale con la route di prima)
-const aliases = ['images', 'files', 'file', 'image']; // tutte le chiavi che la route potrebbe aspettarsi
+    // 1) OCR → testo (HOTFIX: compat totale con la route di prima, ma payload leggero)
+    const aliases = ['images', 'files', 'file', 'image']; // tutte le chiavi che la route potrebbe aspettarsi
 
-// prendi SOLO la prima immagine (riduce 4× il peso rispetto a prima)
-const first = picked[0];
-if (!first) throw new Error('Nessuna immagine valida selezionata');
+    // prendi SOLO la prima immagine (riduce 4× il peso rispetto a prima)
+    const first = picked[0];
+    if (!first) throw new Error('Nessuna immagine valida selezionata');
 
-// comprimi a JPEG (resta leggero su mobile)
-const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
+    // comprimi a JPEG (resta leggero su mobile)
+    const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
 
-// invia la stessa immagine su tutte le chiavi, come “prima”, ma una sola volta
-let fdOcr = new FormData();
-for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
+    // invia la stessa immagine su tutte le chiavi, come “prima”, ma una sola volta
+    let fdOcr = new FormData();
+    for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
 
-let ocrText = '';
-try {
-  const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
-  ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
-} catch (err) {
-  showToast(`OCR errore: ${err.message}`, 'err');
-  throw err;
-}
+    let ocrAns = null;
+    let ocrText = '';
+    try {
+      ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
+      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
+    } catch (err) {
+      showToast(`OCR errore: ${err.message}`, 'err');
+      throw err;
+    }
 
-// se ancora vuoto e Safari ha generato un HEIC, riprova inviando l’ORIGINALE non compresso
-if (!ocrText && /heic|heif/i.test(first?.type || '')) {
-  fdOcr = new FormData();
-  for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
-  try {
-    const ocrAns2 = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
-    ocrText = String(ocrAns2?.text || ocrAns2?.data?.text || ocrAns2?.data || '').trim();
-  } catch {}
-}
+    // se ancora vuoto e Safari ha generato un HEIC, riprova inviando l’ORIGINALE non compresso
+    if (!ocrText && /heic|heif/i.test(first?.type || '')) {
+      fdOcr = new FormData();
+      for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
+      try {
+        const ocrAns2 = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
+        // se la seconda chiamata ha più risultati, usa quelli
+        if (ocrAns2 && (ocrAns2.text || (ocrAns2.items && ocrAns2.items.length))) {
+          ocrAns = ocrAns2;
+          ocrText = String(ocrAns2?.text || ocrAns2?.data?.text || ocrAns2?.data || '').trim();
+        }
+      } catch {}
+    }
 
-// ripulisci eventuali messaggi “Mi dispiace…”
-ocrText = sanitizeOcrText(ocrText);
-if (!ocrText) {
-  throw new Error('OCR vuoto: controlla /api/ocr (env OPENAI_API_KEY, file multipart, content-type)');
-}
+    // ripulisci eventuali messaggi “Mi dispiace…”
+    ocrText = sanitizeOcrText(ocrText);
 
+    // Debug TAP & guard
+    try {
+      if (typeof window !== 'undefined') window.__jarvisLastOCR = { len: ocrText.length, text: ocrText };
+      console.info('[OCR len]', ocrText.length, 'preview:', ocrText.slice(0, 300));
+    } catch {}
 
-    // TAP & guard
-try {
-  if (typeof window !== 'undefined') window.__jarvisLastOCR = { len: ocrText.length, text: ocrText };
-  console.info('[OCR len]', ocrText.length, 'preview:', ocrText.slice(0,300));
-} catch {}
-if (!ocrText) {
-  throw new Error('OCR vuoto: controlla /api/ocr (env OPENAI_API_KEY, file multipart, content-type)');
-}
+    // ================== Preferisci gli ITEMS (foto busta) ==================
+    let purchases = [];   // dichiarazione UNICA in tutto handleOCR
 
+    const itemsFromVision = Array.isArray(ocrAns?.items) ? ocrAns.items : [];
+    if (itemsFromVision.length) {
+      purchases = itemsFromVision.map(p => ({
+        name: String(p?.name || '').trim(),
+        brand: String(p?.brand || '').trim(),
+        packs: coerceNum(p?.packs),
+        unitsPerPack: coerceNum(p?.unitsPerPack),
+        unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
+        priceEach: 0,
+        priceTotal: 0,
+        currency: 'EUR',
+        expiresAt: toISODate(p?.expiresAt || '')
+      })).filter(p => p.name);
+    }
+
+    // se non abbiamo né testo né items → stop qui
+    if (!ocrText && !purchases.length) {
+      showToast('OCR vuoto: controlla /api/ocr (env OPENAI_API_KEY, file multipart, content-type)', 'err');
+      return;
+    }
 
     // -------- PARSER SCONTRINO (AI) --------
     let parsed = null;
-    if (ocrText) {
+    if (!purchases.length && ocrText) {
       const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
       try {
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: promptTicket })
         }, 35000);
         const safe = await readJsonSafe(r);
@@ -1514,25 +1538,28 @@ if (!ocrText) {
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
 
-    // Righe acquisto parse AI
-    let purchases = ensureArray(parsed?.purchases).map(p => ({
-      name: String(p?.name||'').trim(),
-      brand: String(p?.brand||'').trim(),
-      packs: coerceNum(p?.packs),
-      unitsPerPack: coerceNum(p?.unitsPerPack),
-      unitLabel: normalizeUnitLabel(p?.unitLabel||''),
-      priceEach: coerceNum(p?.priceEach),
-      priceTotal: coerceNum(p?.priceTotal),
-      currency: String(p?.currency||'').trim() || 'EUR',
-      expiresAt: toISODate(p?.expiresAt || '')
-    })).filter(p => p.name);
+    // Righe acquisto parse AI → SOLO se ancora vuoto
+    if (!purchases.length && parsed) {
+      purchases = ensureArray(parsed?.purchases).map(p => ({
+        name: String(p?.name || '').trim(),
+        brand: String(p?.brand || '').trim(),
+        packs: coerceNum(p?.packs),
+        unitsPerPack: coerceNum(p?.unitsPerPack),
+        unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
+        priceEach: coerceNum(p?.priceEach),
+        priceTotal: coerceNum(p?.priceTotal),
+        currency: String(p?.currency || '').trim() || 'EUR',
+        expiresAt: toISODate(p?.expiresAt || '')
+      })).filter(p => p.name);
+    }
 
-    // -------- PARSER "BUSTA/ETICHETTA" (AI) se scontrino vuoto --------
+    // -------- PARSER "BUSTA/ETICHETTA" (AI) se ancora vuoto --------
     if (!purchases.length) {
       const promptBag = buildOcrStockBagPrompt(ocrText || '(immagine senza testo)', GROCERY_LEXICON);
       try {
         const r2 = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: promptBag })
         }, 35000);
         const safe2 = await readJsonSafe(r2);
@@ -1542,12 +1569,14 @@ if (!ocrText) {
           : answer2;
 
         purchases = ensureArray(parsed2?.items).map(p => ({
-          name: String(p?.name||'').trim(),
-          brand: String(p?.brand||'').trim(),
+          name: String(p?.name || '').trim(),
+          brand: String(p?.brand || '').trim(),
           packs: coerceNum(p?.packs),
           unitsPerPack: coerceNum(p?.unitsPerPack),
-          unitLabel: normalizeUnitLabel(p?.unitLabel||''),
-          priceEach: 0, priceTotal: 0, currency: 'EUR',
+          unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
+          priceEach: 0,
+          priceTotal: 0,
+          currency: 'EUR',
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
       } catch (e) {
@@ -1558,203 +1587,200 @@ if (!ocrText) {
     // -------- Fallback locale riga-per-riga --------
     if (!purchases.length && ocrText) {
       purchases = parseReceiptPurchases(ocrText).map(p => ({
-        name: p.name, brand: p.brand || '',
-        packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
+        name: p.name,
+        brand: p.brand || '',
+        packs: p.packs || 0,
+        unitsPerPack: p.unitsPerPack || 0,
         unitLabel: normalizeUnitLabel(p.unitLabel || ''),
-        priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
+        priceEach: 0,
+        priceTotal: 0,
+        currency: 'EUR',
+        expiresAt: ''
       }));
-      // ---- Super-fallback a lessico (ultimo tentativo) ----
-if (!purchases.length && ocrText) {
-  purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
-}
-
-// Se ancora vuoto => esci senza fare finti aggiornamenti
-if (!purchases.length) {
-  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-  return; // il finally chiude busy e reset input
-}
-
     }
 
+    // ---- Super-fallback a lessico (ultimo tentativo) ----
+    if (!purchases.length && ocrText) {
+      purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
+    }
+
+    // Guard unica: se ancora vuoto → esci
     if (!purchases.length) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+      return;
     }
-if (!purchases.length) {
-  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-  return; // <-- interrompe la funzione; il finally chiuderà busy
-}
+
     // TAP console: cosa ha prodotto il parser
-try {
-  if (typeof window !== 'undefined') window.__jarvisPurchases = purchases;
-  console.table((Array.isArray(purchases) ? purchases : []).map(p => ({
-    name: p.name, brand: p.brand, packs: p.packs,
-    upp: p.unitsPerPack, lbl: p.unitLabel, desc: p._desc
-  })));
-} catch {}
+    try {
+      if (typeof window !== 'undefined') window.__jarvisPurchases = purchases;
+      console.table((Array.isArray(purchases) ? purchases : []).map(p => ({
+        name: p.name, brand: p.brand, packs: p.packs,
+        upp: p.unitsPerPack, lbl: p.unitLabel, desc: p._desc
+      })));
+    } catch {}
 
-// Early exit se davvero vuoto (evita finto "completato")
-if (!Array.isArray(purchases) || purchases.length === 0) {
-  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-  return;
-}
-// Rimuovi non-merce + messaggi modello (“mi dispiace…”)
-const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
-const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+    // Rimuovi non-merce + messaggi modello (“mi dispiace…”)
+    const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+    const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+    purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
+      const nm = String(p?.name || '').toLowerCase();
+      return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
+    });
 
-purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
-  const nm = String(p?.name || '').toLowerCase();
-  return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
-});
+    // Early exit se davvero vuoto (evita finto "completato")
+    if (!Array.isArray(purchases) || purchases.length === 0) {
+      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+      return;
+    }
 
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
       setLists(prev => decrementAcrossBothLists(prev, purchases));
     }
-    
 
     // 3) Aggiorna SCORTE (flag rosso se mancano quantità)
-setStock(prev => {
-  const arr = [...prev];
-  const todayISO = new Date().toISOString().slice(0,10);
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0, 10);
 
-  for (const p of purchases) {
-    const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
-    const packs = coerceNum(p.packs);
-    const upp   = coerceNum(p.unitsPerPack);
-    const hasCounts = packs > 0 || upp > 0;
+      for (const p of purchases) {
+        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand)));
+        const packs = coerceNum(p.packs);
+        const upp   = coerceNum(p.unitsPerPack);
+        const hasCounts = packs > 0 || upp > 0;
 
-    if (idx >= 0) {
-      const old = arr[idx];
-      if (hasCounts) {
-        const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
-        const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
-        arr[idx] = {
-          ...old,
-          packs: newPacks,
-          unitsPerPack: nextUpp,
-          unitLabel: old.unitLabel || p.unitLabel || 'unità',
-          expiresAt: p.expiresAt || old.expiresAt || '',
-          packsOnly: false,
-          needsUpdate: false,
-          ...restockTouch(newPacks, todayISO, nextUpp)
-        };
-      } else {
-        // ✅ Nessuna quantità dall’OCR: se attivo, aggiungi 1 conf. di default
-        if (DEFAULT_PACKS_IF_MISSING) {
-          const uppOld   = Math.max(1, Number(old.unitsPerPack || 1));
-          const newPacks = Math.max(0, Number(old.packs || 0) + 1);
-          arr[idx] = {
-            ...old,
-            packs: newPacks,
-            unitsPerPack: uppOld,
-            unitLabel: old.unitLabel || 'unità',
-            packsOnly: false,
-            needsUpdate: false,
-            ...restockTouch(newPacks, todayISO, uppOld)
-          };
+        if (idx >= 0) {
+          const old = arr[idx];
+          if (hasCounts) {
+            const newPacks = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const nextUpp  = Math.max(1, Number(old.unitsPerPack || upp || 1));
+            arr[idx] = {
+              ...old,
+              packs: newPacks,
+              unitsPerPack: nextUpp,
+              unitLabel: old.unitLabel || p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || old.expiresAt || '',
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(newPacks, todayISO, nextUpp)
+            };
+          } else {
+            // ✅ Nessuna quantità dall’OCR: se attivo, aggiungi 1 conf. di default
+            if (DEFAULT_PACKS_IF_MISSING) {
+              const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+              const newPacks = Math.max(0, Number(old.packs || 0) + 1);
+              arr[idx] = {
+                ...old,
+                packs: newPacks,
+                unitsPerPack: uppOld,
+                unitLabel: old.unitLabel || 'unità',
+                packsOnly: false,
+                needsUpdate: false,
+                ...restockTouch(newPacks, todayISO, uppOld)
+              };
+            } else {
+              arr[idx] = { ...old, needsUpdate: true };
+            }
+          }
         } else {
-          arr[idx] = { ...old, needsUpdate: true };
+          if (hasCounts) {
+            const u = Math.max(1, upp || 1);
+            const row = {
+              name: p.name, brand: p.brand || '',
+              packs: Math.max(0, packs || 1),
+              unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || '',
+              baselinePacks: Math.max(0, packs || 1),
+              lastRestockAt: todayISO, avgDailyUnits: 0,
+              residueUnits: Math.max(0, (packs || 1) * u),
+              packsOnly: false, needsUpdate: false
+            };
+            arr.unshift(withRememberedImage(row, imagesIndex));
+          } else {
+            // ✅ Nuova riga senza quantità: se attivo, crea con 1 conf. di default
+            if (DEFAULT_PACKS_IF_MISSING) {
+              const row = {
+                name: p.name, brand: p.brand || '',
+                packs: 1, unitsPerPack: 1, unitLabel: 'unità',
+                expiresAt: p.expiresAt || '',
+                baselinePacks: 1,
+                lastRestockAt: todayISO, avgDailyUnits: 0,
+                residueUnits: 1,
+                packsOnly: false, needsUpdate: false
+              };
+              arr.unshift(withRememberedImage(row, imagesIndex));
+            } else {
+              const row = {
+                name: p.name, brand: p.brand || '',
+                packs: 0, unitsPerPack: 1, unitLabel: '-',
+                expiresAt: p.expiresAt || '',
+                baselinePacks: 0, lastRestockAt: '',
+                avgDailyUnits: 0, residueUnits: 0,
+                packsOnly: true, needsUpdate: true
+              };
+              arr.unshift(withRememberedImage(row, imagesIndex));
+            }
+          }
         }
+      }
+      return arr;
+    });
+
+    // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
+    const hasPurchases = Array.isArray(purchases) && purchases.length > 0;
+    let financesOk = true;
+
+    if (hasPurchases) {
+      try {
+        const itemsSafe = purchases.map(p => ({
+          name: p.name,
+          brand: p.brand || '',
+          packs: Number.isFinite(p.packs) ? p.packs : 0,
+          unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
+          unitLabel: p.unitLabel || '',
+          priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
+          priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
+          currency: p.currency || 'EUR',
+          expiresAt: p.expiresAt || ''
+        }));
+
+        const payload = {
+          ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+          ...(store ? { store } : {}),
+          ...(purchaseDate ? { purchaseDate } : {}),
+          payment_method: 'cash',
+          card_label: null,
+          items: itemsSafe
+        };
+
+        const r = await fetchJSONStrict(API_FINANCES_INGEST, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 30000);
+
+        if (DEBUG) console.log('[FINANCES_INGEST OK]', r);
+      } catch (e) {
+        financesOk = false;
+        console.warn('[FINANCES_INGEST] fail', e);
+        showToast(`Finanze: ${e.message}`, 'err');
       }
     } else {
-      if (hasCounts) {
-        const u = Math.max(1, upp || 1);
-        const row = {
-          name: p.name, brand: p.brand || '',
-          packs: Math.max(0, packs || 1),
-          unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
-          expiresAt: p.expiresAt || '',
-          baselinePacks: Math.max(0, packs || 1),
-          lastRestockAt: todayISO, avgDailyUnits: 0,
-          residueUnits: Math.max(0, (packs || 1) * u),
-          packsOnly: false, needsUpdate: false
-        };
-        arr.unshift(withRememberedImage(row, imagesIndex));
-      } else {
-        // ✅ Nuova riga senza quantità: se attivo, crea con 1 conf. di default
-        if (DEFAULT_PACKS_IF_MISSING) {
-          const row = {
-            name: p.name, brand: p.brand || '',
-            packs: 1, unitsPerPack: 1, unitLabel: 'unità',
-            expiresAt: p.expiresAt || '',
-            baselinePacks: 1,
-            lastRestockAt: todayISO, avgDailyUnits: 0,
-            residueUnits: 1,
-            packsOnly: false, needsUpdate: false
-          };
-          arr.unshift(withRememberedImage(row, imagesIndex));
-        } else {
-          const row = {
-            name: p.name, brand: p.brand || '',
-            packs: 0, unitsPerPack: 1, unitLabel: '-',
-            expiresAt: p.expiresAt || '',
-            baselinePacks: 0, lastRestockAt: '',
-            avgDailyUnits: 0, residueUnits: 0,
-            packsOnly: true, needsUpdate: true
-          };
-          arr.unshift(withRememberedImage(row, imagesIndex));
-        }
-      }
+      if (DEBUG) console.log('[FINANCES_INGEST] SKIP — no items');
     }
-  }
-  return arr;
-});
 
-  // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
-const hasPurchases = Array.isArray(purchases) && purchases.length > 0;
-let financesOk = true;
-
-if (hasPurchases) {
-  try {
-    const itemsSafe = purchases.map(p => ({
-      name: p.name,
-      brand: p.brand || '',
-      packs: Number.isFinite(p.packs) ? p.packs : 0,
-      unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
-      unitLabel: p.unitLabel || '',
-      priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
-      priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
-      currency: p.currency || 'EUR',
-      expiresAt: p.expiresAt || ''
-    }));
-
-    const payload = {
-      ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-      ...(store ? { store } : {}),
-      ...(purchaseDate ? { purchaseDate } : {}),
-      payment_method: 'cash',
-      card_label: null,
-      items: itemsSafe
-    };
-
-    const r = await fetchJSONStrict(API_FINANCES_INGEST, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }, 30000);
-
-    if (DEBUG) console.log('[FINANCES_INGEST OK]', r);
+    // ✅ SUCCESS solo se davvero abbiamo aggiornato e Finanze non è fallito
+    if (hasPurchases && financesOk) {
+      showToast('OCR scorte completato ✓', 'ok');
+    }
   } catch (e) {
-    financesOk = false;
-    console.warn('[FINANCES_INGEST] fail', e);
-    showToast(`Finanze: ${e.message}`, 'err');
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
-} else {
-  if (DEBUG) console.log('[FINANCES_INGEST] SKIP — no items');
 }
-
-// ✅ SUCCESS solo se davvero abbiamo aggiornato e Finanze non è fallito
-if (hasPurchases && financesOk) {
-  showToast('OCR scorte completato ✓', 'ok');
-}
-} catch (e) {
-  console.error('[OCR scorte] error', e);
-  showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-} finally {
-  setBusy(false);
-  if (ocrInputRef.current) ocrInputRef.current.value = '';
-}
-} // <-- FINE handleOCR
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
