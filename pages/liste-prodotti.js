@@ -1381,6 +1381,58 @@ async function collectImageBlobs(input){
     }
   }
   return out;
+  
+}
+// === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
+async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
+  try {
+    // Non toccare PDF o file non immagine
+    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
+
+    // Crea un bitmap (o <img> come fallback) per disegnare su canvas
+    const getBitmap = async (blob) => {
+      if (typeof window !== 'undefined' && window.createImageBitmap) {
+        return await createImageBitmap(blob);
+      }
+      const dataUrl = await new Promise((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result);
+        r.onerror = ko;
+        r.readAsDataURL(blob);
+      });
+      const img = new Image();
+      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
+      return img;
+    };
+
+    const bmp = await getBitmap(file);
+    const w0 = bmp.width || bmp.naturalWidth;
+    const h0 = bmp.height || bmp.naturalHeight;
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+
+    // Se già piccolo (<~1.2MB) o lato max <= maxSide, lascia stare
+    if (scale === 1 && file.size <= 1_200_000) return file;
+
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, w, h);
+
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
+    if (!blob) return file;
+
+    // Se per qualche motivo non comprimiamo davvero, tieni l'originale
+    if (blob.size >= file.size) return file;
+
+    const base = (file.name || 'upload').replace(/\.\w+$/, '');
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
+  } catch {
+    // In caso di errore, non bloccare il flusso: torna l’originale
+    return file;
+  }
 }
 
 /* ====================== Prompt builder OCR Riga ====================== */
@@ -1457,15 +1509,14 @@ async function handleOCR(files) {
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
     // 1) OCR → testo (invio con ALIAS multipli per massima compatibilità)
-    const fdOcr = new FormData();
-    for (const f of picked) {
-      const ext = (f.type || '').split('/')[1] || 'jpg';
-      const name = f.name || `upload.${ext}`;
-      fdOcr.append('images', f, name);
-      fdOcr.append('files',  f, name);
-      fdOcr.append('file',   f, name);
-      fdOcr.append('image',  f, name);
-    }
+ const fdOcr = new FormData();
+const limited = picked.slice(0, 3); // evita batch enormi su mobile
+for (let i = 0; i < limited.length; i++) {
+  const src = limited[i];
+  const slim = await downscaleImageFile(src, { maxSide: 1600, quality: 0.74 });
+  fdOcr.append('images', slim, slim.name || `photo_${i}.jpg`);
+}
+
     let ocrText = '';
     try {
       const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 45000);
