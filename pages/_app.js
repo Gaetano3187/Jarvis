@@ -464,22 +464,53 @@ export default function MyApp({ Component, pageProps }) {
         </div>
 
         {/* Piccolo set di global override utili e innocui */}
-        <style jsx global>{`
-          html, body {
-            overflow-x: hidden !important;   /* elimina lo spazio bianco a destra */
-            max-width: 100%;
-          }
+  <style jsx global>{`
+  /* ---- fondazione pagina: niente bianco dietro, niente overflow orizzontale ---- */
+  html, body, #__next, .app-shell {
+    min-height: 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+  html {
+    /* colore di fallback per iOS durante i rimbalzi */
+    background-color: #0b2b31; /* petrolio scuro */
+  }
+  body {
+    /* sfondo pieno sempre presente dietro a tutto */
+    background: linear-gradient(180deg, #2aa9a9 0%, #114a52 38%, #0b2b31 100%) fixed;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: none;    /* evita “tirate” laterali che mostrano il bianco */
+    position: relative;
+  }
+  /* leggera “vignetta”/glow dietro: riempie eventuali micro-gap su iOS */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(65% 30% at 50% 0, rgba(46,160,160,.18), transparent 60%),
+      radial-gradient(90% 40% at 50% 100%, rgba(17,74,82,.25), transparent 60%);
+  }
 
-          /* riduci spazio tra banner e "Lista corrente" solo su /liste-prodotti */
-          body.lp-route .lp-sec1 { margin-bottom: 10px !important; }
-          body.lp-route .sectionBox { margin-top: 14px !important; }
+  /* classe che applichi già su /liste-prodotti: compattiamo verticalmente */
+  body.lp-route .lp-sec1        { margin-bottom: 10px !important; }
+  body.lp-route .sectionBox     { margin-top: 12px !important; }
+  body.lp-route .sectionLifted  { margin-top: 12px !important; }
 
-          /* su smartphone compattiamo ancora un po' */
-          @media (max-width: 480px) {
-            body.lp-route .lp-sec1 { margin-bottom: 8px !important; }
-            body.lp-route .sectionBox { margin-top: 12px !important; }
-          }
-        `}</style>
+  /* su smartphone stringiamo un filo ancora */
+  @media (max-width: 480px) {
+    body.lp-route .lp-sec1       { margin-bottom: 8px !important; }
+    body.lp-route .sectionBox,
+    body.lp-route .sectionLifted { margin-top: 10px !important; }
+  }
+
+  /* sicurezza: niente layout “più largo del viewport” */
+  * { box-sizing: border-box; }
+`}</style>
+
       </AuthProvider>
     </SessionContextProvider>
   );
