@@ -453,41 +453,9 @@ async function collectImageBlobs(input) {
             const b = await resp.blob();
             out.push({ blob: b, name: `upload.${guessExt(b.type)}` });
           }
-                  } catch {}
+        } catch {}
         continue;
       }
-async function downscaleImageFile(file, { maxSide = 1600, quality = 0.72 } = {}) {
-  try {
-    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
-
-    const getBitmap = async (blob) => {
-      if (window.createImageBitmap) return await createImageBitmap(blob);
-      const dataUrl = await new Promise((ok, ko) => {
-        const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(blob);
-      });
-      const img = new Image();
-      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-      return img;
-    };
-
-    const bmp = await getBitmap(file);
-    const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
-    const scale = Math.min(1, maxSide / Math.max(w0, h0));
-    if (scale === 1 && file.size <= 1_200_000) return file;
-
-    const w = Math.max(1, Math.round(w0 * scale));
-    const h = Math.max(1, Math.round(h0 * scale));
-    const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d'); ctx.drawImage(bmp, 0, 0, w, h);
-
-    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
-    if (!blob || blob.size >= file.size) return file;
-
-    const base = (file.name || 'upload').replace(/\.\w+$/, '');
-    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
-  } catch { return file; }
-}
-
     }
   }
   return out;
@@ -1489,14 +1457,15 @@ async function handleOCR(files) {
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
     // 1) OCR → testo (invio con ALIAS multipli per massima compatibilità)
-   const fdOcr = new FormData();
-const limited = picked.slice(0, 3); // evita batch enormi su mobile
-for (let i = 0; i < limited.length; i++) {
-  const src = limited[i];
-  const slim = await downscaleImageFile(src, { maxSide: 1600, quality: 0.74 });
-  fdOcr.append('images', slim, slim.name || `photo_${i}.jpg`);
-}
-
+    const fdOcr = new FormData();
+    for (const f of picked) {
+      const ext = (f.type || '').split('/')[1] || 'jpg';
+      const name = f.name || `upload.${ext}`;
+      fdOcr.append('images', f, name);
+      fdOcr.append('files',  f, name);
+      fdOcr.append('file',   f, name);
+      fdOcr.append('image',  f, name);
+    }
 
     let ocrText = '';
     try {
