@@ -249,6 +249,7 @@ function parseLinesToItems(text) {
 }
 
 
+
 /* ====================== Scadenze utils ====================== */
 function toISODate(any) {
   const s = String(any || '').trim();
@@ -601,7 +602,93 @@ function cleanupPurchasesQuantities(list) {
     return out;
   });
 }
+// Righe non-prodotto strictly
+const NOT_PRODUCT_FULL_LINE_RE = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva|rt\b|cassa|cassiere|codice|tessera)\b/i;
+const SHOP_LINE_RE = /^\s*(?:deco\s+shop|shop)\s*$/i;
+const OFF_LINE_RE  = /^\s*\(off\.\b/i;
 
+// brand noti per hint
+const KNOWN_BRANDS = [
+  'Mulino Bianco','Ferrero','Motta','Lavazza','Parmalat','Zymil','Garofalo','Eridania',
+  'Lenor','Dash','Arborea','Bufalart','Decò','Deco','Saiva','Barilla','Galbani','Santa Lucia'
+];
+const BRAND_RE = new RegExp(`\\b(${KNOWN_BRANDS.map(s => s.replace(/\s+/g,'\\s+')).join('|')})\\b`, 'i');
+
+// set lessico (già popolato)
+const __LEX_SET = new Set((GROCERY_LEXICON || []).map(normKey));
+const __inLex = (s) => {
+  const nm = normKey(s);
+  for (const t of __LEX_SET) if (t && nm.includes(t)) return true;
+  return false;
+};
+
+function backfillMissingPurchasesFromOCRText(ocrText, currentPurchases = []) {
+  const existed = new Set((currentPurchases || []).map(p => normKey(p.name)));
+  const out = [...(currentPurchases || [])];
+
+  const rawLines = String(ocrText || '')
+    .split(/\r?\n/)
+    .map(s => s.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  // Unisci righe spezzate tipo “DASH PODS 30PZ” + “REGOLARE”
+  const lines = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    let ln = rawLines[i];
+    if (i+1 < rawLines.length) {
+      const nxt = rawLines[i+1];
+      // se la successiva è una sola parola/attributo (es. REGOLARE), unisci
+      if (/^[A-ZÀ-ÖØ-Þ0-9]{3,}$/.test(nxt) && !/^\(off\./i.test(nxt)) {
+        ln = `${ln} ${nxt}`; i++;
+      }
+    }
+    lines.push(ln);
+  }
+
+  for (let ln of lines) {
+    if (NOT_PRODUCT_FULL_LINE_RE.test(ln)) continue;
+    if (SHOP_LINE_RE.test(ln)) continue;
+    if (OFF_LINE_RE.test(ln)) continue;
+
+    // rimuovi colonna IVA/prezzo a destra
+    ln = ln
+      .replace(/\s+vi\*?\s*$/i, '')
+      .replace(/\s+(?:€|eur|euro)?\s*\d+(?:[.,]\d{2})\s*$/i, '')
+      .trim();
+    if (!ln) continue;
+
+    // Se la riga è tipo “BANANE” (una sola parola), ora la accettiamo se è nel lessico
+    const nm0 = normalizeProductName(ln, '', ln) || ln;
+    const brand0 = normalizeBrandName(ln);
+    const key = normKey(nm0);
+    if (existed.has(key)) continue;
+
+    const lo = normKey(ln);
+    const hasBrand = BRAND_RE.test(ln);
+    const looksProductUpper = /^[A-Z0-9À-ÖØ-Þ][A-Z0-9À-ÖØ-Þ .'-]{4,}$/.test(ln);
+
+    // Condizioni più larghe:
+    // - nel lessico
+    // - oppure contiene brand noto
+    // - oppure sembra una riga prodotto “maiuscola” (anche una parola sola lunga >=5)
+    if (!(__inLex(lo) || hasBrand || looksProductUpper)) continue;
+
+    // escludi ancora categorie pure
+    if (/^deco\s+shop$/i.test(nm0)) continue;
+
+    out.push({
+      name: nm0.trim(),
+      brand: brand0 !== nm0 ? brand0 : '',
+      packs: 1,
+      unitsPerPack: 1,
+      unitLabel: 'unità',
+      priceEach: 0, priceTotal: 0, currency: 'EUR',
+      expiresAt: ''
+    });
+    existed.add(key);
+  }
+  return out;
+}
 
     // normalizzazioni "intelligenti" per i casi visti
     if (/prezzemol/.test(txt)) name = 'prezzemolo';
