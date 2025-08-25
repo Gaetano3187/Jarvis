@@ -1439,27 +1439,45 @@ async function handleOCR(files) {
     for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // 1) OCR → testo (payload snello: UNA chiave + compressione)
-const fdOcr = new FormData();
-const limited = picked.slice(0, 3);
-for (let i = 0; i < limited.length; i++) {
-  const slim = await downscaleImageFile(limited[i], { maxSide: 1600, quality: 0.74 });
-  const name = slim.name || `photo_${i}.jpg`;
-  fdOcr.append('images', slim, name); // UNA sola chiave
-  fdOcr.append('file',   slim, name); // alias leggero, non quadruplare
-}
+    // 1) OCR → testo (HOTFIX: compat totale con la route di prima)
+const aliases = ['images', 'files', 'file', 'image']; // tutte le chiavi che la route potrebbe aspettarsi
+
+// prendi SOLO la prima immagine (riduce 4× il peso rispetto a prima)
+const first = picked[0];
+if (!first) throw new Error('Nessuna immagine valida selezionata');
+
+// comprimi a JPEG (resta leggero su mobile)
+const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
+
+// invia la stessa immagine su tutte le chiavi, come “prima”, ma una sola volta
+let fdOcr = new FormData();
+for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
 
 let ocrText = '';
 try {
-  const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 45000);
+  const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
   ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
 } catch (err) {
   showToast(`OCR errore: ${err.message}`, 'err');
   throw err;
 }
 
-// ripulisci eventuale “mi dispiace…”
+// se ancora vuoto e Safari ha generato un HEIC, riprova inviando l’ORIGINALE non compresso
+if (!ocrText && /heic|heif/i.test(first?.type || '')) {
+  fdOcr = new FormData();
+  for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
+  try {
+    const ocrAns2 = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
+    ocrText = String(ocrAns2?.text || ocrAns2?.data?.text || ocrAns2?.data || '').trim();
+  } catch {}
+}
+
+// ripulisci eventuali messaggi “Mi dispiace…”
 ocrText = sanitizeOcrText(ocrText);
+if (!ocrText) {
+  throw new Error('OCR vuoto: controlla /api/ocr (env OPENAI_API_KEY, file multipart, content-type)');
+}
+
 
     // TAP & guard
 try {
