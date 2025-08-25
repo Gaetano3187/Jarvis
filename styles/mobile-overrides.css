@@ -1,55 +1,162 @@
 /* ==========================================================
    MOBILE OVERRIDES — iPhone portrait + layout card/tabelle
-   (questo file va importato per ULTIMO in _app.js)
+   (questo file DEVE essere importato per ULTIMO in _app.js)
    ========================================================== */
 
-/* ---------- Tabelle: scroll X, niente per-lettera ---------- */
+/* ---------- HARD RESET anti scroll orizzontale / anti bande bianche ---------- */
 @media (max-width: 480px){
-  .table-container{
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-  .custom-table, .table-v{
-    display: block !important;
+  html, body, #__next {
     width: 100% !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    -webkit-text-size-adjust: 100%;
+    background-color: #0b2b31 !important; /* petrolio fallback durante rimbalzi */
   }
-  .custom-table thead, .table-v thead{
-    display: table-header-group !important;
-    position: sticky; top: 0; z-index: 2;
+  .app-shell, .page-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
   }
-  .custom-table tbody, .table-v tbody{ display: table-row-group !important; }
 
-  /* annulla regole aggressive arrivate da altri fogli */
+  /* qualsiasi media non esca dal viewport */
+  img, video, canvas, svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* ==========================================================
+   BANNER UNIFICATI (Sez.1 / Sez.3 / Sez.4)
+   Usa nel markup: <div class="lp-banner"><video class="lp-banner__video">...</video></div>
+   ========================================================== */
+.lp-banner,
+.lp-banner--scorte,
+.lp-banner--critici {
+  width: 100%;
+  height: 120px;                     /* come banner Stato Scorte su mobile */
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(0,0,0,.55);
+  box-shadow:
+    inset 0 1px 1.2px rgba(255,255,255,.22),
+    inset 0 -4px 8px rgba(0,0,0,.55),
+    0 10px 24px rgba(0,0,0,.28);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.lp-banner__video{
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;               /* nessun taglio del video */
+  object-position: center;
+  background: transparent;
+}
+@media (min-width: 768px){
+  .lp-banner, .lp-banner--scorte, .lp-banner--critici { height: 140px; }
+}
+
+/* ---------- Sezione CRITICI: banner in alto, lista sotto ---------- */
+/* prova a coprire più classi possibili perché non conosco il tuo markup */
+@media (max-width: 480px){
+  .crit-section,
+  .critSection,
+  .section-3,
+  .sectionCritici {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px;
+  }
+  .crit-section .lp-banner,
+  .critSection .lp-banner,
+  .section-3 .lp-banner,
+  .sectionCritici .lp-banner {
+    order: 0 !important;
+  }
+  .crit-section .critListWrap,
+  .critSection .critListWrap,
+  .section-3 .critListWrap,
+  .sectionCritici .critListWrap {
+    order: 1 !important;
+  }
+
+  /* nasconde vecchi banner duplicati su mobile */
+  .bannerArea .bannerBox,
+  .headerBannerBox,
+  .headerBannerVideo,
+  .sectionBox .bannerBox {
+    display: none !important;
+  }
+}
+
+/* ==========================================================
+   LISTA SCORTE — MOBILE WRAP (niente testi/pulsanti tagliati)
+   ========================================================== */
+@media (max-width: 480px){
+  .stockRow {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+
+  .stockTitle,
+  .progressOuterBig,
+  .stockLineSmall { width: 100% !important; }
+
+  .kvCol { flex: 1 1 48% !important; min-width: 150px !important; text-align: left !important; }
+
+  .rowActionsRight {
+    flex: 1 1 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    margin-left: 0 !important;
+  }
+
+  .stockRow *, .critRow * {
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+}
+
+/* ==========================================================
+   TABELLE — scroll X senza forzare celle a 1px
+   ========================================================== */
+@media (max-width: 480px){
+  .table-container{ overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  .custom-table, .table-v{ display:block !important; width:100% !important; overflow-x:auto !important; -webkit-overflow-scrolling:touch; }
+  .custom-table thead, .table-v thead{ display:table-header-group !important; position:sticky; top:0; z-index:2; }
+  .custom-table tbody, .table-v tbody{ display:table-row-group !important; }
+
   .custom-table th, .custom-table td,
   .table-v th, .table-v td{
-    white-space: nowrap !important;    /* resta in riga */
-    word-break: normal !important;     /* no spezza-lettere */
-    overflow-wrap: normal !important;  /* no “anywhere” */
+    white-space: nowrap !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
     hyphens: manual !important;
-    max-width: none !important;        /* stop a max-width:1px */
+    max-width: none !important;
     padding: 8px 10px !important;
     line-height: 1.35 !important;
   }
 }
 
-/* ---------- Card/lista: layout stabile testo | azioni ---------- */
-/* Target più comuni nel tuo progetto: .cards .cat-card e .spese-casa-container2 .card */
+/* ==========================================================
+   CARD / LIST-ITEM — testo a sinistra, azioni a destra (wrappano)
+   ========================================================== */
 .cards .cat-card,
 .spese-casa-container2 .card,
 .card,
 .list-item{
-  overflow: visible !important;                    /* evita tagli bottoni/badge */
+  overflow: visible !important;
   display: grid !important;
-  grid-template-columns: 1fr auto !important;      /* sx testo | dx azioni */
+  grid-template-columns: 1fr auto !important;
   grid-auto-rows: min-content;
   align-items: center;
   column-gap: 10px;
   row-gap: 6px;
 }
 
-/* Titolo: primo figlio “non-azioni” → una riga con ellissi */
 @supports(selector(:has(*))){
   .cards .cat-card > :not(:has(button,[role="button"])):first-child,
   .spese-casa-container2 .card > :not(:has(button,[role="button"])):first-child,
@@ -62,7 +169,6 @@
     text-overflow: ellipsis !important;
   }
 
-  /* Meta: gli altri fratelli non-azioni vanno sotto */
   .cards .cat-card > :not(:has(button,[role="button"])):not(:first-child),
   .spese-casa-container2 .card > :not(:has(button,[role="button"])):not(:first-child),
   .card > :not(:has(button,[role="button"])):not(:first-child),
@@ -76,36 +182,32 @@
     font-size: 13px; line-height: 1.28;
   }
 
-  /* Azioni: qualunque figlio che CONTIENE pulsanti */
   .cards .cat-card > :has(> button, > [role="button"]),
   .spese-casa-container2 .card > :has(> button, > [role="button"]),
   .card > :has(> button, > [role="button"]),
   .list-item > :has(> button, > [role="button"]){
     grid-column: 2 / 3;
     display: flex !important;
-    flex-wrap: wrap !important;            /* wrappa se non c’è spazio */
+    flex-wrap: wrap !important;
     gap: 8px; justify-content: flex-end;
-    position: static !important;           /* annulla absolute */
+    position: static !important;
   }
 }
 
-/* Fallback (se :has non fosse supportato) — azioni wrappano comunque */
+/* Fallback se :has non fosse supportato */
 .cards .cat-card :is(button,[role="button"]),
 .spese-casa-container2 .card :is(button,[role="button"]),
 .card :is(button,[role="button"]),
-.list-item :is(button,[role="button"]){
-  position: static !important;
-}
+.list-item :is(button,[role="button"]){ position: static !important; }
+
 .cards .cat-card :is(button,[role="button"]) + :is(button,[role="button"]),
 .spese-casa-container2 .card :is(button,[role="button"]) + :is(button,[role="button"]),
 .card :is(button,[role="button"]) + :is(button,[role="button"]),
 .list-item :is(button,[role="button"]) + :is(button,[role="button"]){
-  /* forza il container a flex-wrap se i bottoni sono fratelli */
-  display: inline-flex;
-  flex-wrap: wrap;
+  display: inline-flex; flex-wrap: wrap;
 }
 
-/* Dimensioni pulsanti */
+/* Dimensioni minime bottoni nelle card */
 .list-item :is(button,[role="button"],.btn),
 .card :is(button,[role="button"],.btn),
 .spese-casa-container2 .card :is(button,[role="button"],.btn),
@@ -115,10 +217,10 @@
   padding: 6px 10px; border-radius: 10px; line-height: 1; font-size: 13px;
 }
 
+/* azioni: limitiamo la colonna e permettiamo scroll orizzontale dei soli bottoni */
 @media (max-width: 480px){
-  /* in portrait limita la colonna azioni e permetti scroll solo lì */
   .cards .cat-card > :has(> button, > [role="button"]),
-  .spese-casa-container2 .card > :has(> button, > [role="button"]),
+  .spese-casa-container2 .card > :has(> button, > [role="button"] ),
   .card > :has(> button, > [role="button"]),
   .list-item > :has(> button, > [role="button"]){
     max-width: 44vw;
@@ -130,27 +232,9 @@
   .cards .cat-card :is(button,[role="button"],.btn){
     min-width: 34px; min-height: 34px; padding: 6px 8px; font-size: 12px;
   }
-   /* ===== SCORTE • BG video unico + kill vecchio banner ===== */
 
-/* Nuovo wrapper: tiene il video come sfondo dell'intera sezione */
-.scorteSection{ position:relative; margin-top:18px; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,.08); }
-.scorteBg{ position:absolute; inset:0; z-index:0; pointer-events:none; }
-.scorteBgVideo{ width:100%; height:100%; object-fit:cover; display:block; }
-.scorteBgOverlay{ position:absolute; inset:0; background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,.18)); }
-.scorteContent{ position:relative; z-index:1; padding:14px; }
-.scorteHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-
-/* KILL di ogni residuo del banner “vecchio” ovunque esso sia */
-.headerRowScorte,
-.headerBannerBox,
-.headerBannerVideo { display:none !important; }
-
-/* Se c’è QUALSIASI video “stato-scorte” fuori dal nuovo wrapper → nascondi */
-video[src*="stato-scorte"]:not(.scorteBgVideo){ display:none !important; }
-
-/* Safety: azzera padding-top extra del vecchio blocco */
-.sectionLifted .headerRowScorte,
-.sectionLifted .headerBannerBox{ display:none !important; }
-.sectionLifted{ padding-top:0 !important; }
-
+  /* nasconde qualunque vecchio header banner nelle scorte su mobile */
+  .headerRowScorte,
+  .headerBannerBox,
+  .headerBannerVideo { display:none !important; }
 }
