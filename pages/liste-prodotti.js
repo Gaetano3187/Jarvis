@@ -511,8 +511,9 @@ function parseReceiptPurchases(ocrText) {
     lines.push(ln);
   }
 
-  const HEADER_RE = /^\s*(totale|subtotale|di\s*cui\s*iva|iva\b|pagamento|resto|importo|pezz[i]?|cassa|cassiere|transaz|documento|negozio|art\b|rt\b)/i;
-  const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+const HEADER_RE = /^\s*(totale|subtotale|di\s*cui\s*iva|iva\b|pagamento|resto|importo|pezz[i]?|cassa|cassiere|transaz|documento|documento\s+commerciale|descrizione|prezzo|\beuro\b|€|negozio|p\.?iva|tel|maxistore|deco)\b/i;
+const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto|off\.)\b/i; // salta righe sconto "OFF."
+
 
   const out = [];
   for (let raw of lines) {
@@ -1302,6 +1303,17 @@ async function collectImageBlobs(input){
   return out;
   
 }
+// === Ripulisce l'OCR da messaggi di rifiuto / policy ===
+function sanitizeOcrText(t) {
+  const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+  return String(t || '')
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter(s => !BAD.test(s))   // elimina righe tipo “Mi dispiace…”
+    .join('\n');
+}
+
 // === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
 async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
   try {
@@ -1427,23 +1439,28 @@ async function handleOCR(files) {
     for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // 1) OCR → testo (invio con ALIAS multipli per massima compatibilità)
- const fdOcr = new FormData();
-const limited = picked.slice(0, 3); // evita batch enormi su mobile
+    // 1) OCR → testo (payload snello: UNA chiave + compressione)
+const fdOcr = new FormData();
+const limited = picked.slice(0, 3);
 for (let i = 0; i < limited.length; i++) {
-  const src = limited[i];
-  const slim = await downscaleImageFile(src, { maxSide: 1600, quality: 0.74 });
-  fdOcr.append('images', slim, slim.name || `photo_${i}.jpg`);
+  const slim = await downscaleImageFile(limited[i], { maxSide: 1600, quality: 0.74 });
+  const name = slim.name || `photo_${i}.jpg`;
+  fdOcr.append('images', slim, name); // UNA sola chiave
+  fdOcr.append('file',   slim, name); // alias leggero, non quadruplare
 }
 
-    let ocrText = '';
-    try {
-      const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 45000);
-      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
-    } catch (err) {
-      showToast(`OCR errore: ${err.message}`, 'err');
-      throw err; // interrompe il flusso in caso di 400/500 OCR
-    }
+let ocrText = '';
+try {
+  const ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 45000);
+  ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
+} catch (err) {
+  showToast(`OCR errore: ${err.message}`, 'err');
+  throw err;
+}
+
+// ripulisci eventuale “mi dispiace…”
+ocrText = sanitizeOcrText(ocrText);
+
     // TAP & guard
 try {
   if (typeof window !== 'undefined') window.__jarvisLastOCR = { len: ocrText.length, text: ocrText };
@@ -1562,11 +1579,14 @@ if (!Array.isArray(purchases) || purchases.length === 0) {
   showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
   return;
 }
-// Rimuovi righe non-merce (shopper, busta, cauzioni, vuoti, ecc.)
-const DISCARD_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
-purchases = (Array.isArray(purchases) ? purchases : []).filter(
-  p => p && p.name && !DISCARD_RE.test(String(p.name))
-);
+// Rimuovi non-merce + messaggi modello (“mi dispiace…”)
+const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
+const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+
+purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
+  const nm = String(p?.name || '').toLowerCase();
+  return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
+});
 
     // 2) Decrementa le LISTE acquisti
     if (purchases.length) {
