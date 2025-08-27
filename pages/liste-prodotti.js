@@ -75,8 +75,11 @@ function persistNow(snapshot) {
   }
 }
 
-/* ==================== LEXICON EXTENSION + QUANTITY SANITIZER + PROMPTS ==================== */
+/* ==================== LEXICON EXTENSION + QUANTITY SANITIZER + PROMPTS (SAFE) ==================== */
 (() => {
+  // Evita ReferenceError se non è ancora definito
+  if (typeof GROCERY_LEXICON === 'undefined') return;
+
   const __hasLex = (term) =>
     Array.isArray(GROCERY_LEXICON) && GROCERY_LEXICON.some(x => normKey(x) === normKey(term));
   const __lexAdd = (arr) => { arr.forEach(t => { if (t && !__hasLex(t)) GROCERY_LEXICON.push(t); }); };
@@ -128,8 +131,29 @@ function cleanupPurchasesQuantities(list) {
   });
 }
 
+// ——— PROMPT per scontrino ———
+function buildOcrAssistantPrompt(ocrText, lexicon = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pasta, biscotti, detersivi, ...';
+  return [
+    'Sei Jarvis, estrattore strutturato di SCONTRINI. RISPONDI SOLO JSON con lo schema esatto:',
+    '{ "store":"", "purchaseDate":"", "purchases":[{"name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","priceEach":0,"priceTotal":0,"currency":"","expiresAt":""}] }',
+    'Regole: normalizza i nomi rispetto a questo lessico: ' + LEX,
+    'NON interpretare pesi/volumi/dimensioni come quantità; packs/unitsPerPack solo con pattern espliciti (2x6, 2 conf da 6, 6 bottiglie).',
+    'Ignora subtotali, IVA, metodi di pagamento, sconti (OFF.).',
+    '--- INIZIO ---', ocrText, '--- FINE ---'
+  ].join('\n');
+}
 
-
+// ——— PROMPT per foto “busta prodotti” / etichette ———
+function buildOcrStockBagPrompt(ocrText, lexicon = []) {
+  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, buste freezer, ...';
+  return [
+    'Sei Jarvis: da foto di prodotti/buste estrai SOLO JSON { "items":[{ "name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","expiresAt":"" }] }',
+    'NON usare pesi/volumi/dimensioni come quantità; quantità solo con pattern espliciti.',
+    'Lessico: ' + LEX,
+    '--- INIZIO ---', ocrText, '--- FINE ---'
+  ].join('\n');
+}
 
 /* ====================== Parser liste rapide ====================== */
 function extractPackInfo(str){
