@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
 import '../styles/mobile-overrides.css';
+import 'leaflet/dist/leaflet.css';
 
 
 import { AuthProvider } from '../context/AuthContext';
