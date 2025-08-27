@@ -460,59 +460,10 @@ function isExpiringSoon(s, days=10){
 }
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
 
-/* ====================== Prompt builders ====================== */
-function buildOcrAssistantPrompt(ocrText, lexicon = []) {
-  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
-  return [
-    'Sei Jarvis, estrattore strutturato di SCONTRINI. RISPONDI SOLO JSON con lo schema ESATTO sotto.',
-    '{',
-    '  "store":"",                 // punto vendita (anche ragione sociale)',
-    '  "purchaseDate":"",          // YYYY-MM-DD se presente',
-    '  "purchases":[               // RIGHE ARTICOLO',
-    '    {',
-    '      "name":"",              // prodotto normalizzato usando il lessico',
-    '      "brand":"",             // marca breve, altrimenti ""',
-    '      "packs":0,              // n. confezioni (se indicato) - default 0',
-    '      "unitsPerPack":0,       // n. unità per confezione (se indicato) - default 0',
-    '      "unitLabel":"",         // "unità", "bottiglie", "pezzi", "buste", ...',
-    '      "priceEach":0,          // prezzo unitario se deducibile, altrimenti 0',
-    '      "priceTotal":0,         // totale riga, altrimenti 0',
-    '      "currency":"",          // es. "EUR" se deducibile',
-    '      "expiresAt":""          // YYYY-MM-DD se compare una scadenza',
-    '    }',
-    '  ]',
-    '}',
-    '',
-    'REGOLE:',
-    `- Normalizza i nomi prodotti rispetto a questo LESSICO: ${LEX}`,
-    '- Ignora intestazioni generiche, subtotali, IVA, metodi di pagamento, resto, numeri d’ordine.',
-    '- Se non trovi un campo, metti valore "vuoto": stringa vuota "", numeri 0.',
-    '- Riconosci unità tipiche: unità, pz/pezzo/pezzi, bottiglia/e, busta/e, lattina/e, vasetto/i, barattolo/i, vaschetta/e, foglio/i, rotolo/i, capsula/e…',
-    '- packs/unitsPerPack: usa pattern tipo "2x6", "2 conf da 6", "2 confezioni 6 pezzi", "6 bottiglie" (=> packs=1, unitsPerPack=6).',
-    '- purchaseDate: usa la data stampata sullo scontrino (NON la data/ora attuali).',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
-
-function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-  return [
-    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
-    'RISPONDI SOLO JSON con schema esatto:',
-    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
-    '',
-    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs (confezioni), unitsPerPack (unità per confezione), unitLabel (pezzi/bottiglie/...)',
-    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
-    '- Scadenza in formato YYYY-MM-DD se presente',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
+/* ====================== Prompt builders (moved) ====================== */
+// Le funzioni buildOcrAssistantPrompt e buildOcrStockBagPrompt sono state spostate
+// sopra, nel blocco “LEXICON EXTENSION + …”. Qui non lasciamo definizioni per evitare duplicati.
+// buildUnifiedRowPrompt rimane definita una sola volta nella sezione "Prompt builder OCR Riga".
 
 /* ====================== Parser fallback OCR ====================== */
 function parseReceiptPurchases(ocrText) {
