@@ -66,7 +66,7 @@ export default async function handler(req, res) {
       const dataUrl = `data:${mimetype || 'image/jpeg'};base64,${b64}`;
 
       const resp = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: process.env.OCR_VISION_MODEL || 'gpt-4o',
         temperature: 0,
         messages: [
           {
