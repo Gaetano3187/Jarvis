@@ -7,6 +7,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
 
+
+
+
 // ===== BASE LEXICON (minimo, espandibile) =====
 const GROCERY_LEXICON = [
   'latte','latte zymil','yogurt','burro','uova','mozzarella','parmigiano',
@@ -28,6 +31,11 @@ const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipac
 let __reviewSetters = null;
 function registerReviewSetters(setters){ __reviewSetters = setters; }
 
+// usa NEXT_PUBLIC_USE_AGENT_POST=1 per abilitarlo in prod
+const USE_AGENT_POST = process.env.NEXT_PUBLIC_USE_AGENT_POST === '1';
+
+
+
 // ===== Helper “learning” SHIM per evitare ReferenceError (puoi migliorarli in seguito) =====
 function applyLearnedAliases({ name, brand }, learned){
   // shim semplice: applichiamo eventuali alias dichiarati in learned (se presenti)
@@ -38,6 +46,7 @@ function applyLearnedAliases({ name, brand }, learned){
       const re = new RegExp(`\\b${esc(pat)}\\b`, 'i');
       if (re.test(b) || re.test(n)) { b = repl; n = n.replace(re,'').trim(); }
     }
+    
   }
   if (learned?.aliases?.product) {
     for (const [pat, repl] of Object.entries(learned.aliases.product)) {
@@ -1700,6 +1709,19 @@ function decrementAcrossBothLists(prevLists, purchases) {
   decList(LIST_TYPES.ONLINE);
   return next;
 }
+function estimateCandidateLines(ocrText=''){
+  const lines = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
+  let count = 0;
+  for (const ln of lines){
+    if (HEADER.test(ln)) continue;
+    if (ln.length < 4) continue;
+    // euristica: riga con parole e senza sembrare solo prezzo
+    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
+  }
+  return count;
+}
+
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
 async function handleOCR(files) {
   if (!files) return;
@@ -1833,6 +1855,59 @@ async function handleOCR(files) {
       if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
       if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
     }
+// === Tentativo di arricchimento via agente SOLO se copertura bassa ===
+try {
+  const rough = estimateCandidateLines(ocrText || '');
+  const lowCoverage = USE_AGENT_POST && rough >= 6 && purchases.length < Math.ceil(rough * 0.5);
+
+  if (lowCoverage) {
+    const promptExpand = [
+      'Sei un normalizzatore di scontrini. Ricevi OCR grezzo e un primo array di items.',
+      'Restituisci SOLO JSON: { "purchases":[{ "name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","priceEach":0,"priceTotal":0,"currency":"EUR"}] }',
+      'Regole:',
+      '- Completa le voci mancanti rispetto all\'OCR (non duplicare).',
+      '- NON interpretare pesi/volumi/dimensioni come quantità.',
+      '- Quantità solo da pattern espliciti (2x6, 30 pz, 2 conf da 6...).',
+      '',
+      '--- OCR ---',
+      ocrText,
+      '--- ITEMS_PRIMI ---',
+      JSON.stringify(purchases, null, 2)
+    ].join('\n');
+
+    const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ prompt: promptExpand })
+    }, 30000);
+    const safe = await readJsonSafe(r);
+    const answer = safe?.answer || safe?.data || safe;
+    const parsed = typeof answer === 'string'
+      ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})()
+      : answer;
+
+    const extra = Array.isArray(parsed?.purchases) ? parsed.purchases : [];
+    if (extra.length) {
+      // Merge: aggiungi solo le righe nuove (per nome+brand simili)
+      const already = new Set(purchases.map(p => productKey(p.name, p.brand||'')));
+      for (const it of extra) {
+        const key = productKey(String(it?.name||''), String(it?.brand||'')); 
+        if (!key || already.has(key)) continue;
+        purchases.push({
+          name: String(it?.name||'').trim(),
+          brand: String(it?.brand||'').trim(),
+          packs: coerceNum(it?.packs),
+          unitsPerPack: coerceNum(it?.unitsPerPack),
+          unitLabel: normalizeUnitLabel(it?.unitLabel||'') || 'unità',
+          priceEach: 0, priceTotal: 0, currency: 'EUR'
+        });
+        already.add(key);
+      }
+    }
+  }
+} catch(e) {
+  if (DEBUG) console.warn('[AGENT POST] skip', e);
+}
 
     // ——— 7) Filtro “larghissimo” + raccolta CANDIDATI per modale ———
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
