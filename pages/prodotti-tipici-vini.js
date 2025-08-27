@@ -72,66 +72,87 @@ export default function ProdottiTipiciViniPage() {
 
   // ===== Inserimenti auto da OCR/Voce (dopo normalizzazione) =====
   async function autoInsertArtisan(norm) {
-    // norm atteso: { kind:'artisan', data:{ name, producer, product_type, designation, price_eur, origin:{name,lat,lng}, purchase:{name,lat,lng}, notes } }
-    const d = norm?.data || {};
-    if (!d.name) return alert('Nome mancante nei dati estratti.');
-    const { data: inserted, error } = await supabase.from('artisan_products').insert([{
-      name: d.name,
-      category: (d.product_type === 'salume' ? 'salume' : 'formaggio'),
-      designation: d.designation || null,
-      price_eur: d.price_eur ?? null,
-      notes: d.producer ? `Produttore: ${d.producer}${d.notes ? ' — ' + d.notes : ''}` : (d.notes || null)
-    }]).select().single();
-    if (error) return alert('Errore inserimento prodotto: ' + error.message);
+  const d = norm?.data || {};
+  const raw = norm?._raw || ''; // se lo passiamo dalla toolbar (vedi punto 2)
 
-    const rows = [];
-    if (d.origin?.lat && d.origin?.lng) rows.push({
-      item_type:'artisan', item_id: inserted.id, kind:'origin',
-      place_name: d.origin.name || null, lat: d.origin.lat, lng: d.origin.lng, is_primary: true
-    });
-    if (d.purchase?.lat && d.purchase?.lng) rows.push({
-      item_type:'artisan', item_id: inserted.id, kind:'purchase',
-      place_name: d.purchase.name || null, lat: d.purchase.lat, lng: d.purchase.lng, is_primary: true
-    });
-    if (rows.length) {
-      const { error: e2 } = await supabase.from('product_places').insert(rows);
-      if (e2) alert('Inserito il prodotto, ma errore sui luoghi: ' + e2.message);
-    }
-    await refreshAll();
+  // nome di fallback se mancante
+  const name = (d.name && String(d.name).trim())
+    || `Prodotto (da completare) ${new Date().toISOString().slice(0,10)}`;
+
+  const pr = d.pricing || {};
+  const noteParts = [];
+  if (pr.unit === 'kg' && pr.unit_price_eur != null) noteParts.push(`Prezzo: € ${Number(pr.unit_price_eur).toFixed(2)}/kg`);
+  if (pr.quantity_kg != null)                         noteParts.push(`Peso: ${Number(pr.quantity_kg).toFixed(3)} kg`);
+  if (pr.total_price_eur != null)                     noteParts.push(`Totale: € ${Number(pr.total_price_eur).toFixed(2)}`);
+  if (d.producer)                                     noteParts.push(`Produttore: ${d.producer}`);
+  if (!d.name && raw)                                 noteParts.push(`[OCR] ${raw.slice(0,150)}…`);
+
+  const priceForDB =
+    (pr.unit === 'kg' && pr.unit_price_eur != null) ? pr.unit_price_eur :
+    (pr.total_price_eur != null ? pr.total_price_eur : (d.price_eur ?? null));
+
+  const { data: inserted, error } = await supabase.from('artisan_products').insert([{
+    name,
+    category: (d.product_type === 'salume' ? 'salume' : 'formaggio'),
+    designation: d.designation || null,
+    price_eur: priceForDB,
+    notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null)
+  }]).select().single();
+  if (error) { alert('Errore inserimento prodotto: ' + error.message); return; }
+
+  const rows = [];
+  if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
+  if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
+  if (rows.length) {
+    const { error:e2 } = await supabase.from('product_places').insert(rows);
+    if (e2) alert('Inserito il prodotto, ma errore sui luoghi: ' + e2.message);
   }
+  await refreshAll();
+}
+
 
   async function autoInsertWine(norm, alsoCellar = false) {
-    // norm atteso: { kind:'wine', data:{ name, winery, denomination, region, grapes[], vintage, style, price_eur, origin:{...}, purchase:{...}, notes } }
-    const d = norm?.data || {};
-    if (!d.name) return alert('Nome vino mancante nei dati estratti.');
-    const { data: inserted, error } = await supabase.from('wines').insert([{
-      name: d.name, winery: d.winery || null, denomination: d.denomination || null, region: d.region || null,
-      grapes: Array.isArray(d.grapes) ? d.grapes : null, vintage: d.vintage ?? null,
-      style: d.style || null, price_target: d.price_eur ?? null, notes: d.notes || null
-    }]).select().single();
-    if (error) return alert('Errore inserimento vino: ' + error.message);
+  const d = norm?.data || {};
+  const raw = norm?._raw || '';
 
-    const rows = [];
-    if (d.origin?.lat && d.origin?.lng) rows.push({
-      item_type:'wine', item_id: inserted.id, kind:'origin',
-      place_name: d.origin.name || null, lat: d.origin.lat, lng: d.origin.lng, is_primary: true
-    });
-    if (d.purchase?.lat && d.purchase?.lng) rows.push({
-      item_type:'wine', item_id: inserted.id, kind:'purchase',
-      place_name: d.purchase.name || null, lat: d.purchase.lat, lng: d.purchase.lng, is_primary: true
-    });
-    if (rows.length) {
-      const { error: e2 } = await supabase.from('product_places').insert(rows);
-      if (e2) alert('Inserito il vino, ma errore sui luoghi: ' + e2.message);
-    }
+  // nome di fallback
+  const name = (d.name && String(d.name).trim())
+    || `Vino (da completare) ${new Date().toISOString().slice(0,10)}`;
 
-    if (alsoCellar) {
-      const price = d.price_eur ?? null;
-      const { error: e3 } = await supabase.from('cellar').insert([{ wine_id: inserted.id, bottles: 1, purchase_price_eur: price }]);
-      if (e3) alert('Inserito vino ma errore in Cantina: ' + e3.message);
-    }
-    await refreshAll();
+  const noteParts = [];
+  if (d.bottle_l)             noteParts.push(`Bott: ${Number(d.bottle_l).toFixed(2)} l`);
+  if (d.unit_price_l != null) noteParts.push(`~ € ${Number(d.unit_price_l).toFixed(2)}/l`);
+  if (!d.name && raw)         noteParts.push(`[OCR] ${raw.slice(0,150)}…`);
+
+  const { data: inserted, error } = await supabase.from('wines').insert([{
+    name,
+    winery: d.winery || null,
+    denomination: d.denomination || null,
+    region: d.region || null,
+    grapes: Array.isArray(d.grapes) ? d.grapes : null,
+    vintage: d.vintage ?? null,
+    style: d.style || null,
+    price_target: d.price_eur ?? null,
+    notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null)
+  }]).select().single();
+  if (error) { alert('Errore inserimento vino: ' + error.message); return; }
+
+  const rows = [];
+  if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
+  if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
+  if (rows.length) {
+    const { error:e2 } = await supabase.from('product_places').insert(rows);
+    if (e2) alert('Inserito il vino, ma errore sui luoghi: ' + e2.message);
   }
+
+  if (alsoCellar) {
+    const price = d.price_eur ?? null;
+    const { error:e3 } = await supabase.from('cellar').insert([{ wine_id: inserted.id, bottles: 1, purchase_price_eur: price }]);
+    if (e3) alert('Inserito vino ma errore in Cantina: ' + e3.message);
+  }
+  await refreshAll();
+}
+
 
   return (
     <>
@@ -332,6 +353,10 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
   } catch (e) {
     alert('Errore OCR: ' + (e.message || e));
   } finally { setBusy(false); }
+
+  parsed._raw = text; // passa il testo originale
+
+
 }
 
   async function handleVoice() {
@@ -370,6 +395,8 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
       }
     } catch(e){ alert('Errore voce: ' + (e.message||e)); }
     finally { setBusy(false); }
+    parsed._raw = text; // passa il testo originale
+
   }
 
   return (

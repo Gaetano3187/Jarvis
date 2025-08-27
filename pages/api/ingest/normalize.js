@@ -278,6 +278,24 @@ export default async function handler(req, res) {
     norm.data.origin = origin || null;
     norm.data.purchase = purchase || null;
 
+    // Fallback: prova a forzare un nome se manca
+try {
+  const raw = text || '';
+  if (norm && norm.data) {
+    if (!norm.data.name || String(norm.data.name).trim().length < 2) {
+      if (norm.kind === 'wine') {
+        const m = /\b(barolo|barbaresco|chianti|brunello|amarone|lugana|vermentino|pecorino|grillo|gavi|nero d.?avola|frappato|aglianico|taurasi|montepulciano d.?abruzzo|primitivo|negroamaro|soave|valpolicella|pinot nero|pinot grigio|sauvignon|merlot|cabernet|nebbiolo|sangiovese)\b/i.exec(raw);
+        if (m) norm.data.name = m[1].replace(/\s+/g,' ').replace(/^\w/, c => c.toUpperCase());
+      } else {
+        const m = /\b(pecorino|caciocavallo(?:\s+podolico)?|parmigiano|grana|gorgonzola|provola|mozzarella|scamorza|asiago|fontina|salame|prosciutto|culatello|finocchiona|coppa|bresaola|mortadella|speck)\b/i.exec(raw);
+        if (m) norm.data.name = m[1].replace(/\s+/g,' ').replace(/^\w/, c => c.toUpperCase());
+      }
+      if (!norm.data.name) norm.data.name = (norm.kind === 'wine') ? 'Vino (da completare)' : 'Prodotto (da completare)';
+    }
+  }
+} catch {}
+
+
     return res.status(200).json(norm);
   } catch (e) {
     console.error('normalize error', e);
