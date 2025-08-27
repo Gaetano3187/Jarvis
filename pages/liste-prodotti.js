@@ -65,7 +65,9 @@ function persistNow(snapshot) {
       lists: snapshot.lists,
       stock: snapshot.stock,
       currentList: snapshot.currentList,
-      imagesIndex: snapshot.imagesIndex || {}, // nuovo indice immagini
+      imagesIndex: snapshot.imagesIndex || {},
+      // 👇 NEW: memoria di apprendimento (prodotti/alias/keep)
+      learned: snapshot.learned || learned,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(payload));
   } catch (e) {
@@ -73,47 +75,60 @@ function persistNow(snapshot) {
   }
 }
 
-/* ====================== Lessico supermercato ====================== */
-const GROCERY_LEXICON = [
-  'latte','latte ps','latte parzialmente scremato','latte intero','latte uht','latte zymil',
-  'yogurt','burro','mozzarella','ricotta','parmigiano','grana padano','formaggio spalmabile',
-  'pane','pasta','spaghetti','penne','fusilli','rigatoni','riso','farina','zucchero','sale','olio evo','olio di semi','aceto','passata di pomodoro','pelati',
-  'biscotti','cereali','fette biscottate','marmellata','nutella','caffè','caffe','the','tè',
-  'pollo','petto di pollo','bistecche','tritato','prosciutto','tonno in scatola','salmone',
-  'piselli surgelati','spinaci surgelati','patatine surgelate','gelato',
-  'detersivo','detersivo piatti','detersivo lavatrice','ammorbidente','candeggina','spugne','carta igienica','scottex','sacchetti immondizia',
-  'insalata','pomodori','zucchine','melanzane','patate','cipolle','aglio','mele','banane','arance','limoni',
-  'uova','acqua','birra','vino','tortillas','piadine','affettati','ferrero fiesta'
-];
+/* ==================== LEXICON EXTENSION + QUANTITY SANITIZER + PROMPTS ==================== */
+(() => {
+  const __hasLex = (term) =>
+    Array.isArray(GROCERY_LEXICON) && GROCERY_LEXICON.some(x => normKey(x) === normKey(term));
+  const __lexAdd = (arr) => { arr.forEach(t => { if (t && !__hasLex(t)) GROCERY_LEXICON.push(t); }); };
 
-/* ====================== Utils testo ====================== */
-function tokens(str){ return new Set(normKey(str).split(' ').filter(Boolean)); }
-function isSimilar(a,b){
-  const na=normKey(a), nb=normKey(b);
-  if(!na||!nb) return false;
-  if(na===nb) return true;
-  if(na.length>=3 && (nb.includes(na)||na.includes(nb))) return true;
-  const A=tokens(a), B=tokens(b);
-  let inter=0; A.forEach(t=>{ if(B.has(t)) inter++; });
-  const union = new Set([...A,...B]).size;
-  const j = inter/union;
-  return j>=0.5 || (inter>=1 && (A.size===1 || B.size===1));
+  // ——— ALIMENTARI & CASA (esteso) ———
+  const LEX_DELI = ['prosciutto cotto','prosciutto crudo','bresaola','speck','mortadella','salame','pancetta','salsiccia','wurstel','porchetta','arrosto di tacchino'];
+  const LEX_DAIRY = ['latte','latte uht','latte senza lattosio','latte zymil','yogurt','yogurt greco','burro','panna','ricotta','mozzarella','burrata','scamorza','provola','parmigiano reggiano','grana padano','pecorino','gorgonzola','stracchino','robiola','brie','crescenza','philadelphia','formaggio spalmabile','kefir'];
+  const LEX_BAKERY = ['pane','panini','pan bauletto','pan carrè','grissini','cracker','taralli','piadina','tortillas','focaccia','cornetti','croissant','fette biscottate','pangrattato','pan grattugiato','pan carré'];
+  const LEX_PASTA = ['pasta','spaghetti','penne','fusilli','rigatoni','lasagne','gnocchi','ravioli','tortellini','riso','riso arborio','riso carnaroli','riso basmati','farina 00','semola','lievito per dolci','lievito di birra','cous cous','farro','orzo','quinoa','polenta'];
+  const LEX_PANTRY = ['passata di pomodoro','polpa di pomodoro','pomodori pelati','concentrato di pomodoro','pesto','ragù','olio extravergine di oliva','olio evo','olio di semi','aceto balsamico','zucchero','zucchero di canna','sale fino','sale grosso','pepe','tonno in scatola','sgombro','legumi in scatola','ceci','fagioli borlotti','lenticchie','piselli','mais','olive','capperi','dado da brodo','maionese','ketchup','senape','salsa barbecue','salsa di soia','spezie','origano','basilico','rosmarino','curry','paprika','curcuma','cannella','zafferano'];
+  const LEX_BREAKFAST = ['cereali','corn flakes','muesli','granola','biscotti','biscotti integrali','merendine','crostatine','plumcake','marmellata','confettura','miele','nutella','crema di arachidi'];
+  const LEX_SNACKS = ['cioccolato','barrette','caramelle','liquirizia','gomme da masticare','salatini','mandorle','nocciole','pistacchi','anacardi','noci','pinoli','patatine','popcorn','grissini snack','batticuori','fette rigate','yo-yo','fiesta'];
+  const LEX_BEVERAGES = ['acqua naturale','acqua frizzante','succo di frutta','tè freddo','caffè','caffè capsule','caffè cialde','bevanda vegetale','bibita cola','aranciata','birra','vino','spumante'];
+  const LEX_FROZEN = ['piselli surgelati','spinaci surgelati','minestrone surgelato','patatine surgelate','bastoncini di pesce','pizza surgelata','gelato','sorbetto'];
+  const LEX_VEG = ['insalata','lattuga','rucola','pomodori','zucchine','melanzane','peperoni','carote','sedano','cetrioli','cipolle','aglio','patate','zucca','broccoli','cavolfiore','asparagi','carciofi','funghi','finocchi','verza'];
+  const LEX_FRUIT = ['banane','mele','pere','arance','limoni','mandarini','kiwi','uva','fragole','mirtilli','lamponi','ananas','mango','melone','anguria','pesche','albicocche','prugne','fichi','melagrana','avocado','cachi'];
+  const LEX_BABY_PET = ['pannolini','salviettine umidificate','omogeneizzati','latte in polvere','crocchette cane','crocchette gatto','lettiera gatti'];
+  const LEX_LAUNDRY = ['detersivo lavatrice','pods lavatrice','ammorbidente','smacchiatore','candeggina','igienizzante bucato','detersivo capi delicati','perle profuma-bucato'];
+  const LEX_DISH = ['detersivo piatti','pastiglie lavastoviglie','gel lavastoviglie','sale lavastoviglie','brillantante lavastoviglie'];
+  const LEX_SURF = ['sgrassatore cucina','detergente multiuso','detergente vetri','detergente pavimenti','detergente bagno','anticalcare','gel wc','igienizzante superfici','cera parquet'];
+  const LEX_CONSUM = ['carta igienica','carta casa','scottex','fazzoletti','tovaglioli','sacchi spazzatura','sacchetti immondizia','sacchetti freezer','pellicola','alluminio','carta forno','guanti lattice','panni microfibra','buste gelo','sacchetti zip','mocio','ricariche mocio','scopa','teli copritutto','accendifuoco','sacchetti aspirapolvere','deumidificatore ricariche','rotolo bio con maniglie'];
+  const LEX_PERSONAL = ['sapone mani','bagnoschiuma','shampoo','balsamo','dentifricio','collutorio','spazzolino','deodorante','assorbenti','cotton fioc','crema mani'];
+
+  [LEX_DELI,LEX_DAIRY,LEX_BAKERY,LEX_PASTA,LEX_PANTRY,LEX_BREAKFAST,LEX_SNACKS,LEX_BEVERAGES,LEX_FROZEN,LEX_VEG,LEX_FRUIT,LEX_BABY_PET,LEX_LAUNDRY,LEX_DISH,LEX_SURF,LEX_CONSUM,LEX_PERSONAL].forEach(__lexAdd);
+})();
+
+// ——— Sanitizzazione quantità: NON toccare “pezzi” (pz/capsule/pods ecc.), neutralizza pesi/volumi/dimensioni ———
+const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
+const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
+const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,450,454,500,700,720,733,750,800,900,910,930,950,1000,1250,1500,1750,2000]);
+
+function cleanupPurchasesQuantities(list) {
+  return (Array.isArray(list) ? list : []).map(p => {
+    const out = { ...p };
+    const joined = `${String(out.name||'')} ${String(out.brand||'')}`.toLowerCase();
+    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 || (joined.match(DIMENSION_RE) || []).length > 0;
+    const u = Math.max(0, Number(out.unitsPerPack || 0));
+    const packs = Math.max(0, Number(out.packs || 0));
+    const piecesHit = /\b(pz|pezzi|bottigli|capsul|pods|bust|lattin|vasett|rotol|fogli|uova|brick)\b/i.test(
+      normKey(`${out.unitLabel||''} ${joined}`)
+    );
+    const looksWeightNumber = !piecesHit && (hasMeasure || SUSPECT_UPP.has(u));
+    if ((hasMeasure && u > 1) || looksWeightNumber) {
+      out.unitsPerPack = 1;
+      out.unitLabel = 'unità';
+      if (!packs) out.packs = 1;
+    }
+    return out;
+  });
 }
-function wantsAbsoluteSet(text) {
-  const t = normKey(text);
-  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
-}
-// Rileva frasi che indicano un valore ASSOLUTO (SET) invece di sommare
-function hasAbsoluteKeywords(text) {
-  const t = normKey(text);
-  // esempi supportati:
-  // "sono 6 bottiglie", "restano 2 pacchi", "rimangono 4",
-  // "ci sono ancora 3", "ancora 5"
-  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/.test(t);
-}
-// Sinonimi ampi per UNITA' e per CONFEZIONI (packs)
-const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|compresse?|pastiglie?|pillol(?:a|e)|monouso|fogli(?:o|i)|rotol(?:o|i)|bicchier(?:e|i)|capsul(?:a|e))';
-const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+
+
 
 
 /* ====================== Parser liste rapide ====================== */
@@ -457,25 +472,7 @@ function buildOcrAssistantPrompt(ocrText, lexicon = []) {
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
-function buildOcrStockBagPrompt(ocrText, lexicon = []) {
-  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, pasta, uova, ...';
-  return [
-    'Sei Jarvis, estrattore da FOTO DI PRODOTTI (busta della spesa, etichette, pacchi).',
-    'RISPONDI SOLO JSON con questo schema:',
-    '{ "items":[ { "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" } ] }',
-    '',
-    `LESSICO di riferimento: ${LEX}`,
-    'REGOLE:',
-    '- Se vedi quantità tipo "2x6", "2 conf da 6", "6 bottiglie" compila packs/unitsPerPack/unitLabel.',
-    '- Se non ricavi packs/unitsPerPack lascia 0 e unitLabel "".',
-    '- Scadenza (YYYY-MM-DD) se presente sull’etichetta.',
-    '- Se non vedi nulla di utile, restituisci items: [].',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
+
 function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
   return [
     'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
@@ -886,6 +883,20 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
+  // Review (modale di convalida)
+const [reviewOpen, setReviewOpen] = useState(false);
+const [reviewItems, setReviewItems] = useState([]);
+const [reviewPick, setReviewPick] = useState({});
+const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
+
+// Learning (memoria prodotti/alias/keep)
+const [learned, setLearned] = useState({
+  products: {},
+  aliases: { product: {}, brand: {} },
+  keepTerms: {},
+  discardTerms: {}
+});
+
 
   // Vocale inventario unificato
   const invMediaRef = useRef(null);
@@ -970,9 +981,13 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
         if (st.imagesIndex && typeof st.imagesIndex === 'object') {
           setImagesIndex(st.imagesIndex);
         }
+        if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
+
       } catch (e) {
         if (DEBUG) console.warn('[cloud init] skipped', e);
       }
+
+
     })();
 
     return () => { mounted = false; };
@@ -984,7 +999,7 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     if (!userIdRef.current) return;
 
     if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
-    const snapshot = { lists, stock, currentList, imagesIndex };
+  const snapshot = { lists, stock, currentList, imagesIndex, learned };
 
     cloudTimerRef.current = setTimeout(async () => {
       try {
@@ -1158,17 +1173,23 @@ const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
     }
     if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
       setImagesIndex(saved.imagesIndex);
-    }
+  if (saved.learned && typeof saved.learned === 'object') {
+  setLearned(saved.learned);
+}
+
+}
+
+    
   }, []);
 
   /* =================== Autosave debounce (locale) =================== */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    const snapshot = { lists, stock, currentList, imagesIndex };
+   const snapshot = { lists, stock, currentList, imagesIndex, learned };
     persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
     return () => clearTimeout(persistTimerRef.current);
-  }, [lists, stock, currentList, imagesIndex]);
+  }, [lists, stock, currentList, imagesIndex, learned]);
 
   /* =================== Sync tra tab =================== */
   useEffect(() => {
@@ -1423,7 +1444,7 @@ async function handleOCR(files) {
   try {
     setBusy(true);
 
-    // accetta SOLO FileList/Array<File> dall'input
+    // ——— 0) Seleziona solo File reali dall’input ———
     const toArray = (x) => Array.from(x || []);
     const isFileLike = (v) => {
       try {
@@ -1437,22 +1458,15 @@ async function handleOCR(files) {
         );
       } catch { return false; }
     };
-
     const picked = [];
     for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // 1) OCR → testo (HOTFIX: compat totale con la route di prima, ma payload leggero)
-    const aliases = ['images', 'files', 'file', 'image']; // tutte le chiavi che la route potrebbe aspettarsi
-
-    // prendi SOLO la prima immagine (riduce 4× il peso rispetto a prima)
+    // ——— 1) Invio OCR (compat route: 4 chiavi) con 1 sola foto compressa ———
     const first = picked[0];
-    if (!first) throw new Error('Nessuna immagine valida selezionata');
-
-    // comprimi a JPEG (resta leggero su mobile)
+    const aliases = ['images','files','file','image'];
     const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
 
-    // invia la stessa immagine su tutte le chiavi, come “prima”, ma una sola volta
     let fdOcr = new FormData();
     for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
 
@@ -1466,32 +1480,32 @@ async function handleOCR(files) {
       throw err;
     }
 
-    // se ancora vuoto e Safari ha generato un HEIC, riprova inviando l’ORIGINALE non compresso
+    // Retry HEIC (Safari) se testo ancora vuoto
     if (!ocrText && /heic|heif/i.test(first?.type || '')) {
       fdOcr = new FormData();
       for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
       try {
-        const ocrAns2 = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
-        // se la seconda chiamata ha più risultati, usa quelli
-        if (ocrAns2 && (ocrAns2.text || (ocrAns2.items && ocrAns2.items.length))) {
-          ocrAns = ocrAns2;
-          ocrText = String(ocrAns2?.text || ocrAns2?.data?.text || ocrAns2?.data || '').trim();
+        const o2 = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 50000);
+        if (o2 && (o2.text || (o2.items && o2.items.length))) {
+          ocrAns = o2;
+          ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
         }
       } catch {}
     }
 
-    // ripulisci eventuali messaggi “Mi dispiace…”
-    ocrText = sanitizeOcrText(ocrText);
+    // Ripulisci eventuali messaggi “Mi dispiace…”
+    if (typeof sanitizeOcrText === 'function') {
+      ocrText = sanitizeOcrText(ocrText || '');
+    }
 
-    // Debug TAP & guard
+    // Debug TAP
     try {
       if (typeof window !== 'undefined') window.__jarvisLastOCR = { len: ocrText.length, text: ocrText };
-      console.info('[OCR len]', ocrText.length, 'preview:', ocrText.slice(0, 300));
+      if (DEBUG) console.info('[OCR len]', ocrText.length, 'preview:', ocrText.slice(0, 300));
     } catch {}
 
-    // ================== Preferisci gli ITEMS (foto busta) ==================
-    let purchases = [];   // dichiarazione UNICA in tutto handleOCR
-
+    // ——— 2) Preferisci items strutturati (foto busta) ———
+    let purchases = [];
     const itemsFromVision = Array.isArray(ocrAns?.items) ? ocrAns.items : [];
     if (itemsFromVision.length) {
       purchases = itemsFromVision.map(p => ({
@@ -1507,20 +1521,22 @@ async function handleOCR(files) {
       })).filter(p => p.name);
     }
 
-    // se non abbiamo né testo né items → stop qui
+    // Se non abbiamo né testo né items → stop
     if (!ocrText && !purchases.length) {
       showToast('OCR vuoto: controlla /api/ocr (env OPENAI_API_KEY, file multipart, content-type)', 'err');
       return;
     }
 
-    // -------- PARSER SCONTRINO (AI) --------
+    // ——— 3) Parser scontrino AI (solo se serve) ———
     let parsed = null;
     if (!purchases.length && ocrText) {
-      const promptTicket = buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON);
+      const promptTicket = (typeof buildOcrAssistantPrompt === 'function')
+        ? buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON)
+        : ocrText;
       try {
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ prompt: promptTicket })
         }, 35000);
         const safe = await readJsonSafe(r);
@@ -1528,38 +1544,37 @@ async function handleOCR(files) {
         parsed = typeof answer === 'string'
           ? (() => { try { return JSON.parse(answer); } catch { return null; } })()
           : answer;
-      } catch (e) {
-        if (DEBUG) console.warn('[ASSISTANT ticket parse] fallito', e);
-      }
+      } catch (e) { if (DEBUG) console.warn('[ASSISTANT ticket parse] fallito', e); }
     }
 
-    // Meta da OCR grezzo (fallback per store/data)
+    // Meta (store/data)
     const meta = parseReceiptMeta(ocrText || '');
     let store = (parsed?.store || meta.store || '').trim();
     let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
 
-    // Righe acquisto parse AI → SOLO se ancora vuoto
+    // Righe AI dallo scontrino
     if (!purchases.length && parsed) {
       purchases = ensureArray(parsed?.purchases).map(p => ({
-        name: String(p?.name || '').trim(),
-        brand: String(p?.brand || '').trim(),
+        name: String(p?.name||'').trim(),
+        brand: String(p?.brand||'').trim(),
         packs: coerceNum(p?.packs),
         unitsPerPack: coerceNum(p?.unitsPerPack),
-        unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
+        unitLabel: normalizeUnitLabel(p?.unitLabel||''),
         priceEach: coerceNum(p?.priceEach),
         priceTotal: coerceNum(p?.priceTotal),
-        currency: String(p?.currency || '').trim() || 'EUR',
+        currency: String(p?.currency||'').trim() || 'EUR',
         expiresAt: toISODate(p?.expiresAt || '')
       })).filter(p => p.name);
     }
 
-    // -------- PARSER "BUSTA/ETICHETTA" (AI) se ancora vuoto --------
+    // ——— 4) Parser “busta/etichetta” AI (backup) ———
     if (!purchases.length) {
-      const promptBag = buildOcrStockBagPrompt(ocrText || '(immagine senza testo)', GROCERY_LEXICON);
+      const promptBag = (typeof buildOcrStockBagPrompt === 'function')
+        ? buildOcrStockBagPrompt(ocrText || '(immagine senza testo)', GROCERY_LEXICON)
+        : ocrText;
       try {
         const r2 = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ prompt: promptBag })
         }, 35000);
         const safe2 = await readJsonSafe(r2);
@@ -1569,22 +1584,18 @@ async function handleOCR(files) {
           : answer2;
 
         purchases = ensureArray(parsed2?.items).map(p => ({
-          name: String(p?.name || '').trim(),
-          brand: String(p?.brand || '').trim(),
+          name: String(p?.name||'').trim(),
+          brand: String(p?.brand||'').trim(),
           packs: coerceNum(p?.packs),
           unitsPerPack: coerceNum(p?.unitsPerPack),
-          unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
-          priceEach: 0,
-          priceTotal: 0,
-          currency: 'EUR',
+          unitLabel: normalizeUnitLabel(p?.unitLabel||''),
+          priceEach: 0, priceTotal: 0, currency: 'EUR',
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
-      } catch (e) {
-        if (DEBUG) console.warn('[ASSISTANT bag parse] fallito', e);
-      }
+      } catch (e) { if (DEBUG) console.warn('[ASSISTANT bag parse] fallito', e); }
     }
 
-    // -------- Fallback locale riga-per-riga --------
+    // ——— 5) Fallback locali ———
     if (!purchases.length && ocrText) {
       purchases = parseReceiptPurchases(ocrText).map(p => ({
         name: p.name,
@@ -1598,47 +1609,78 @@ async function handleOCR(files) {
         expiresAt: ''
       }));
     }
-
-    // ---- Super-fallback a lessico (ultimo tentativo) ----
     if (!purchases.length && ocrText) {
       purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
     }
 
-    // Guard unica: se ancora vuoto → esci
-    if (!purchases.length) {
-      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-      return;
+    // ——— 6) Backfill & Miner (solo se presenti nel file) ———
+    if (typeof backfillMissingPurchasesFromOCRText === 'function') {
+      purchases = backfillMissingPurchasesFromOCRText(ocrText, purchases);
+    }
+    if (typeof mineProductsFromLexicon === 'function') {
+      purchases = mineProductsFromLexicon(ocrText, purchases);
     }
 
-    // TAP console: cosa ha prodotto il parser
-    try {
-      if (typeof window !== 'undefined') window.__jarvisPurchases = purchases;
-      console.table((Array.isArray(purchases) ? purchases : []).map(p => ({
-        name: p.name, brand: p.brand, packs: p.packs,
-        upp: p.unitsPerPack, lbl: p.unitLabel, desc: p._desc
-      })));
-    } catch {}
+    // ——— 7) Aliases/normalizzazioni apprese + Sanitizzazione quantità ———
+    if (Array.isArray(purchases)) {
+      purchases = purchases.map(p => {
+        if (typeof applyLearnedAliases === 'function') {
+          const a = applyLearnedAliases({ name:p.name, brand:p.brand }, (typeof learned !== 'undefined' ? learned : {}));
+          return { ...p, name: a.name, brand: a.brand };
+        }
+        return p;
+      });
+      if (typeof normalizeNameBrandPurchase === 'function') {
+        purchases = purchases.map(normalizeNameBrandPurchase);
+      }
+      if (typeof cleanupPurchasesQuantities === 'function') {
+        purchases = cleanupPurchasesQuantities(purchases);
+      }
+    }
 
-    // Rimuovi non-merce + messaggi modello (“mi dispiace…”)
-    const DISCARD_RE  = /\b(shopper|sacchetto|busta|cauzione|vuoto)\b/i;
-    const DISCARD_MSG = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-    purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
-      const nm = String(p?.name || '').toLowerCase();
-      return nm && !DISCARD_RE.test(nm) && !DISCARD_MSG.test(nm);
-    });
+    // ——— 8) Filtri (larghi): scarta solo non-merce & messaggi modello ———
+    const NOT_PRODUCT_RE  = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
+    const DISCARD_MSG     = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
 
-    // Early exit se davvero vuoto (evita finto "completato")
+    // Se esiste un KEEP dinamico (learning), usalo
+    const KEEP_RE_DYNAMIC = (typeof buildKeepRegex === 'function' && typeof learned !== 'undefined')
+      ? (buildKeepRegex(learned) || /$a^/)
+      : /$a^/; // non matcha niente
+
+    const filtered = [];
+    const discardedForReview = [];
+    for (const p of (Array.isArray(purchases) ? purchases : [])) {
+      const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
+      if (!nm || DISCARD_MSG.test(nm)) continue;           // messaggi modello: scarta
+      if (KEEP_RE_DYNAMIC.test(nm)) { filtered.push(p); continue; }
+      if (NOT_PRODUCT_RE.test(nm)) {                       // non-merce: proporre in review se disponibile
+        if (typeof openValidation === 'function') discardedForReview.push(p);
+        continue;
+      }
+      filtered.push(p);
+    }
+    purchases = filtered;
+
+    // Apri la modale di validazione (se implementata)
+    if (discardedForReview.length && typeof openValidation === 'function') {
+      openValidation(discardedForReview, { store, purchaseDate });
+    }
+
+    // Guard finale
     if (!Array.isArray(purchases) || purchases.length === 0) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
     }
 
-    // 2) Decrementa le LISTE acquisti
-    if (purchases.length) {
-      setLists(prev => decrementAcrossBothLists(prev, purchases));
+    // ——— 9) Apprendimento automatico (se presente) ———
+    if (typeof rememberItems === 'function') {
+      rememberItems(purchases, { alsoLexicon: true });
     }
 
-    // 3) Aggiorna SCORTE (flag rosso se mancano quantità)
+    // ——— 10) Decrementa le LISTE acquisti ———
+    setLists(prev => decrementAcrossBothLists(prev, purchases));
+
+    // ——— 11) Aggiorna SCORTE ———
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0, 10);
@@ -1665,7 +1707,6 @@ async function handleOCR(files) {
               ...restockTouch(newPacks, todayISO, nextUpp)
             };
           } else {
-            // ✅ Nessuna quantità dall’OCR: se attivo, aggiungi 1 conf. di default
             if (DEFAULT_PACKS_IF_MISSING) {
               const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
               const newPacks = Math.max(0, Number(old.packs || 0) + 1);
@@ -1697,7 +1738,6 @@ async function handleOCR(files) {
             };
             arr.unshift(withRememberedImage(row, imagesIndex));
           } else {
-            // ✅ Nuova riga senza quantità: se attivo, crea con 1 conf. di default
             if (DEFAULT_PACKS_IF_MISSING) {
               const row = {
                 name: p.name, brand: p.brand || '',
@@ -1726,53 +1766,43 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // 4) FINANZE + SUCCESS TOAST — non inviare se non ci sono items
-    const hasPurchases = Array.isArray(purchases) && purchases.length > 0;
+    // ——— 12) Finanze ———
     let financesOk = true;
+    try {
+      const itemsSafe = purchases.map(p => ({
+        name: p.name,
+        brand: p.brand || '',
+        packs: Number.isFinite(p.packs) ? p.packs : 0,
+        unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
+        unitLabel: p.unitLabel || '',
+        priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
+        priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
+        currency: p.currency || 'EUR',
+        expiresAt: p.expiresAt || ''
+      }));
 
-    if (hasPurchases) {
-      try {
-        const itemsSafe = purchases.map(p => ({
-          name: p.name,
-          brand: p.brand || '',
-          packs: Number.isFinite(p.packs) ? p.packs : 0,
-          unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
-          unitLabel: p.unitLabel || '',
-          priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
-          priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
-          currency: p.currency || 'EUR',
-          expiresAt: p.expiresAt || ''
-        }));
+      const payload = {
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(store ? { store } : {}),
+        ...(purchaseDate ? { purchaseDate } : {}),
+        payment_method: 'cash',
+        card_label: null,
+        items: itemsSafe
+      };
 
-        const payload = {
-          ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-          ...(store ? { store } : {}),
-          ...(purchaseDate ? { purchaseDate } : {}),
-          payment_method: 'cash',
-          card_label: null,
-          items: itemsSafe
-        };
-
-        const r = await fetchJSONStrict(API_FINANCES_INGEST, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }, 30000);
-
-        if (DEBUG) console.log('[FINANCES_INGEST OK]', r);
-      } catch (e) {
-        financesOk = false;
-        console.warn('[FINANCES_INGEST] fail', e);
-        showToast(`Finanze: ${e.message}`, 'err');
-      }
-    } else {
-      if (DEBUG) console.log('[FINANCES_INGEST] SKIP — no items');
+      await fetchJSONStrict(API_FINANCES_INGEST, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }, 30000);
+    } catch (e) {
+      financesOk = false;
+      console.warn('[FINANCES_INGEST] fail', e);
+      showToast(`Finanze: ${e.message}`, 'err');
     }
 
-    // ✅ SUCCESS solo se davvero abbiamo aggiornato e Finanze non è fallito
-    if (hasPurchases && financesOk) {
-      showToast('OCR scorte completato ✓', 'ok');
-    }
+    if (financesOk) showToast('OCR scorte completato ✓', 'ok');
+
   } catch (e) {
     console.error('[OCR scorte] error', e);
     showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
@@ -2914,7 +2944,124 @@ return (
         {toast.msg}
       </div>
     )}
+    {reviewOpen && (
+  <div style={{ position:'fixed', inset:0, zIndex:99999, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center' }}>
+    <div style={{
+      width:'min(920px, 94vw)', maxHeight:'82vh', overflow:'hidden',
+      background:'rgba(17,24,39,.97)', border:'1px solid rgba(255,255,255,.12)',
+      borderRadius:14, boxShadow:'0 20px 50px rgba(0,0,0,.6)', color:'#e5e7eb'
+    }}>
+      {/* Header */}
+      <div style={{ padding:'12px 14px', borderBottom:'1px solid rgba(255,255,255,.08)'}}>
+        <h3 style={{ margin:0, fontSize:'1.08rem', fontWeight:800 }}>Convalida & Modifica articoli</h3>
+        <p style={{ margin:'4px 0 0', opacity:.85, fontSize:'.9rem' }}>
+          Spunta gli articoli da aggiungere. Puoi modificare nome, marca e quantità prima di confermare.
+        </p>
+        <div style={{ marginTop:8, display:'flex', gap:8 }}>
+          <button onClick={autoNormalizeReview} style={styles.smallGhostBtn} title="Applica normalizzazioni note">
+            Auto-normalizza
+          </button>
+        </div>
+      </div>
 
+      {/* Body */}
+      <div style={{ padding:'10px 14px', overflowY:'auto', maxHeight:'58vh', display:'flex', flexDirection:'column', gap:10 }}>
+        {reviewItems.map((it) => {
+          const key = productKey(it.name, it.brand || '');
+          const checked = !!reviewPick[key];
+
+          return (
+            <div key={it.id || key} style={{
+              display:'grid',
+              gridTemplateColumns:'24px 1.2fr 1fr 0.6fr 0.8fr 0.9fr 0.9fr auto',
+              gap:10, alignItems:'center',
+              padding:'10px 12px', borderRadius:10,
+              background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.10)'
+            }}>
+              {/* Check */}
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => setReviewPick(prev => ({ ...prev, [key]: !checked }))}
+                style={{ width:18, height:18 }}
+              />
+
+              {/* Nome */}
+              <input
+                value={it.name}
+                onChange={(e) => handleReviewChange(it.id, 'name', e.target.value)}
+                placeholder="Nome prodotto"
+                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
+              />
+
+              {/* Marca */}
+              <input
+                value={it.brand || ''}
+                onChange={(e) => handleReviewChange(it.id, 'brand', e.target.value)}
+                placeholder="Marca"
+                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
+              />
+
+              {/* Packs */}
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <button type="button" onClick={() => handleReviewChange(it.id, 'packs', Math.max(0, (parseInt(it.packs||1,10)||1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="-1">−</button>
+                <input inputMode="numeric" value={String(it.packs ?? 1)} onChange={(e) => handleReviewChange(it.id, 'packs', Math.max(0, parseInt(e.target.value||'1',10)||1))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
+                <button type="button" onClick={() => handleReviewChange(it.id, 'packs', (parseInt(it.packs||1,10)||1)+1)} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="+1">+</button>
+              </div>
+
+              {/* UPP */}
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <button type="button" onClick={() => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, (parseInt(it.unitsPerPack||1,10)||1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="-1">−</button>
+                <input inputMode="numeric" value={String(it.unitsPerPack ?? 1)} onChange={(e) => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, parseInt(e.target.value||'1',10)||1))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
+                <button type="button" onClick={() => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, (parseInt(it.unitsPerPack||1,10)||1)+1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="+1">+</button>
+              </div>
+
+              {/* Etichetta unità */}
+              <select
+                value={it.unitLabel || 'unità'}
+                onChange={(e) => handleReviewChange(it.id, 'unitLabel', e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
+              >
+                {['unità','pezzi','bottiglie','buste','lattine','vasetti','rotoli','capsule','brick','uova'].map(l => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+
+              {/* Scadenza */}
+              <input
+                type="date"
+                value={it.expiresAt || ''}
+                onChange={(e) => handleReviewChange(it.id, 'expiresAt', e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
+              />
+
+              {/* Scarta riga */}
+              <button
+                type="button"
+                onClick={() => setReviewPick(prev => ({ ...prev, [key]: false }))}
+                style={{ ...styles.iconSquareBase, ...styles.iconDanger, width:36, height:36 }}
+                title="Scarta"
+              >🗑</button>
+            </div>
+          );
+        })}
+        {reviewItems.length === 0 && <p style={{ opacity:.8 }}>Nessun candidato da convalidare.</p>}
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding:'10px 14px', display:'flex', gap:8, borderTop:'1px solid rgba(255,255,255,.08)'}}>
+        <button
+          onClick={() => setReviewPick(reviewItems.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}))}
+          style={styles.smallGhostBtn}
+        >Seleziona tutti</button>
+        <button onClick={() => setReviewPick({})} style={styles.smallGhostBtn}>Deseleziona</button>
+        <div style={{ flex:1 }} />
+        <button onClick={() => { setReviewOpen(false); setReviewItems([]); setReviewPick({}); setPendingOcrMeta(null); }} style={styles.smallGhostBtn}>Annulla</button>
+        <button onClick={applyReviewSelection} style={styles.smallOkBtn}>Aggiungi selezionati</button>
+      </div>
+    </div>
+  </div>
+)}
     {/* INPUT NASCOSTI */}
     <input
       ref={ocrInputRef}
