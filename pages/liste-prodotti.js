@@ -1593,7 +1593,38 @@ async function handleOCR(files) {
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
       } catch (e) { if (DEBUG) console.warn('[ASSISTANT bag parse] fallito', e); }
+      // Filtra solo non-merce & messaggi modello; il resto lo proponiamo o lo teniamo
+const NOT_PRODUCT_RE  = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
+const DISCARD_MSG     = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+
+// KEEP dinamico (imparato)
+const KEEP_RE_DYNAMIC = (typeof buildKeepRegex === 'function' && typeof learned !== 'undefined')
+  ? (buildKeepRegex(learned) || /$a^/)
+  : /$a^/;
+
+const filtered = [];
+const discardedForReview = [];
+
+for (const p of (Array.isArray(purchases) ? purchases : [])) {
+  const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
+  if (!nm || DISCARD_MSG.test(nm)) continue;           // messaggi modello: scarta senza review
+  if (KEEP_RE_DYNAMIC.test(nm)) { filtered.push(p); continue; }
+  if (NOT_PRODUCT_RE.test(nm)) {                       // non-merce “probabile” → chiedi conferma
+    discardedForReview.push(p);
+    continue;
+  }
+  filtered.push(p);
+}
+
+purchases = filtered;
+
+// Apri la modale di validazione (non blocca il flusso principale)
+if (discardedForReview.length && typeof openValidation === 'function') {
+  openValidation(discardedForReview, { store, purchaseDate });
+}
+
     }
+    
 
     // ——— 5) Fallback locali ———
     if (!purchases.length && ocrText) {
@@ -3062,6 +3093,70 @@ return (
     </div>
   </div>
 )}
+{reviewOpen && (
+  <div style={{ position:'fixed', inset:0, zIndex:99999, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center' }}>
+    <div style={{
+      width:'min(920px, 94vw)', maxHeight:'82vh', overflow:'hidden',
+      background:'rgba(17,24,39,.97)', border:'1px solid rgba(255,255,255,.12)',
+      borderRadius:14, boxShadow:'0 20px 50px rgba(0,0,0,.6)', color:'#e5e7eb'
+    }}>
+      <div style={{ padding:'12px 14px', borderBottom:'1px solid rgba(255,255,255,.08)'}}>
+        <h3 style={{ margin:0, fontSize:'1.08rem', fontWeight:800 }}>Convalida & Modifica articoli</h3>
+        <p style={{ margin:'4px 0 0', opacity:.85, fontSize:'.9rem' }}>
+          Spunta gli articoli da aggiungere. Puoi modificare nome, marca e quantità prima di confermare.
+        </p>
+        <div style={{ marginTop:8, display:'flex', gap:8 }}>
+          <button onClick={autoNormalizeReview} style={styles.smallGhostBtn}>Auto-normalizza</button>
+        </div>
+      </div>
+
+      <div style={{ padding:'10px 14px', overflowY:'auto', maxHeight:'58vh', display:'flex', flexDirection:'column', gap:10 }}>
+        {reviewItems.map((it) => {
+          const key = productKey(it.name, it.brand || '');
+          const checked = !!reviewPick[key];
+          return (
+            <div key={it.id || key} style={{
+              display:'grid',
+              gridTemplateColumns:'24px 1.2fr 1fr 0.6fr 0.8fr 0.9fr 0.9fr auto',
+              gap:10, alignItems:'center',
+              padding:'10px 12px', borderRadius:10,
+              background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.10)'
+            }}>
+              <input type="checkbox" checked={checked} onChange={() => setReviewPick(prev => ({ ...prev, [key]: !checked }))} style={{ width:18, height:18 }} />
+              <input value={it.name} onChange={(e)=>handleReviewChange(it.id,'name',e.target.value)} placeholder="Nome" style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }} />
+              <input value={it.brand||''} onChange={(e)=>handleReviewChange(it.id,'brand',e.target.value)} placeholder="Marca" style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }} />
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <button type="button" onClick={()=>handleReviewChange(it.id,'packs',Math.max(0,intOr(it.packs,1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }}>−</button>
+                <input inputMode="numeric" value={String(it.packs ?? 1)} onChange={(e)=>handleReviewChange(it.id,'packs',Math.max(0,intOr(e.target.value,1)))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
+                <button type="button" onClick={()=>handleReviewChange(it.id,'packs',intOr(it.packs,1)+1)} style={{ ...styles.iconSquareBase, width:32, height:32 }}>+</button>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <button type="button" onClick={()=>handleReviewChange(it.id,'unitsPerPack',Math.max(1,intOr(it.unitsPerPack,1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }}>−</button>
+                <input inputMode="numeric" value={String(it.unitsPerPack ?? 1)} onChange={(e)=>handleReviewChange(it.id,'unitsPerPack',Math.max(1,intOr(e.target.value,1)))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
+                <button type="button" onClick={()=>handleReviewChange(it.id,'unitsPerPack',intOr(it.unitsPerPack,1)+1)} style={{ ...styles.iconSquareBase, width:32, height:32 }}>+</button>
+              </div>
+              <select value={it.unitLabel || 'unità'} onChange={(e)=>handleReviewChange(it.id,'unitLabel',e.target.value)} style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}>
+                {['unità','pezzi','bottiglie','buste','lattine','vasetti','rotoli','capsule','brick','uova'].map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <input type="date" value={it.expiresAt || ''} onChange={(e)=>handleReviewChange(it.id,'expiresAt',e.target.value)} style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }} />
+              <button type="button" onClick={()=>setReviewPick(prev => ({ ...prev, [key]: false }))} style={{ ...styles.iconSquareBase, ...styles.iconDanger, width:36, height:36 }}>🗑</button>
+            </div>
+          );
+        })}
+        {reviewItems.length === 0 && <p style={{ opacity:.8 }}>Nessun candidato da convalidare.</p>}
+      </div>
+
+      <div style={{ padding:'10px 14px', display:'flex', gap:8, borderTop:'1px solid rgba(255,255,255,.08)'}}>
+        <button onClick={()=>setReviewPick(reviewItems.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}))} style={styles.smallGhostBtn}>Seleziona tutti</button>
+        <button onClick={()=>setReviewPick({})} style={styles.smallGhostBtn}>Deseleziona</button>
+        <div style={{ flex:1 }} />
+        <button onClick={()=>{ setReviewOpen(false); setReviewItems([]); setReviewPick({}); setPendingOcrMeta(null); }} style={styles.smallGhostBtn}>Annulla</button>
+        <button onClick={applyReviewSelection} style={styles.smallOkBtn}>Aggiungi selezionati</button>
+      </div>
+    </div>
+  </div>
+)}
+
     {/* INPUT NASCOSTI */}
     <input
       ref={ocrInputRef}
@@ -3217,6 +3312,165 @@ return (
           setBusy(false);
           setTargetRowIdx(null);
         }
+        // Coercizioni sicure
+function intOr(x, d=0){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? Math.trunc(n) : d; }
+function posIntOr(x, d=0){ return Math.max(0, intOr(x, d)); }
+function nonEmpty(s){ return String(s||'').trim(); }
+
+// Modifica una riga in revisione
+function handleReviewChange(id, field, value){
+  setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
+  try {
+    const it = reviewItems.find(i => i.id === id);
+    if (it) {
+      const key = productKey(it.name, it.brand || '');
+      setReviewPick(prev => ({ ...prev, [key]: true }));
+    }
+  } catch {}
+}
+
+// Normalizza le righe prima di aggiungerle
+function normalizeReviewedItems(items){
+  return (items||[]).map(p => {
+    let name = nonEmpty(p.name);
+    let brand = nonEmpty(p.brand);
+    let packs = posIntOr(p.packs, 1);
+    let upp   = posIntOr(p.unitsPerPack, 1);
+    let unitLabel = nonEmpty(p.unitLabel) || (upp>1 ? 'pezzi' : 'unità');
+    const expiresAt = toISODate(p.expiresAt || '');
+    return { name, brand, packs, unitsPerPack: upp, unitLabel, expiresAt,
+      priceEach: 0, priceTotal: 0, currency: 'EUR'
+    };
+  });
+}
+
+// Auto-normalizza in modale (alias / Mulino Bianco / batticuori / ecc.)
+function autoNormalizeReview(){
+  setReviewItems(prev => prev.map(it => {
+    const ab = applyLearnedAliases({ name: it.name, brand: it.brand }, learned);
+    const brand = normalizeBrandName(ab.brand);
+    const name  = normalizeProductName(ab.name, brand, `${ab.name} ${brand}`);
+    return { ...it, name: name || it.name, brand: brand || it.brand };
+  }));
+}
+
+// Apri modale di validazione
+function openValidation(discardedList, meta) {
+  const uniq = new Map(), items = [];
+  for (const p of discardedList || []) {
+    const nm = nonEmpty(p?.name); if (!nm) continue;
+    const br = nonEmpty(p?.brand);
+    const key = productKey(nm, br);
+    if (uniq.has(key)) continue;
+    uniq.set(key, true);
+    items.push({
+      ...p,
+      id: 'rev-' + key,
+      name: nm,
+      brand: br,
+      packs: posIntOr(p?.packs, 1),
+      unitsPerPack: posIntOr(p?.unitsPerPack, 1),
+      unitLabel: nonEmpty(p?.unitLabel) || 'unità',
+      expiresAt: toISODate(p?.expiresAt || '')
+    });
+  }
+  if (items.length) {
+    setReviewItems(items);
+    setReviewPick(items.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}));
+    setPendingOcrMeta(meta || null);
+    setReviewOpen(true);
+  }
+}
+
+// Applica le aggiunte alla tua logica di liste/scorte/finanze
+async function applyAdditionalPurchases(addItems, meta = {}) {
+  if (!Array.isArray(addItems) || !addItems.length) return;
+
+  setLists(prev => decrementAcrossBothLists(prev, addItems));
+
+  setStock(prev => {
+    const arr = [...prev]; const todayISO = new Date().toISOString().slice(0, 10);
+    for (const p of addItems) {
+      const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand)));
+      const packs = Math.max(0, Number(p.packs || 0));
+      const upp   = Math.max(1, Number(p.unitsPerPack || 1));
+      const hasCounts = packs > 0 || upp > 0;
+      if (idx >= 0) {
+        const old = arr[idx];
+        if (hasCounts) {
+          const newP = Math.max(0, Number(old.packs || 0) + packs);
+          const newU = Math.max(1, Number(old.unitsPerPack || upp));
+          arr[idx] = { ...old, packs:newP, unitsPerPack:newU,
+            unitLabel: old.unitLabel || p.unitLabel || 'unità',
+            expiresAt: p.expiresAt || old.expiresAt || '',
+            packsOnly:false, needsUpdate:false, ...restockTouch(newP, todayISO, newU) };
+        } else {
+          if (DEFAULT_PACKS_IF_MISSING) {
+            const uo = Math.max(1, Number(old.unitsPerPack || 1));
+            const np = Math.max(0, Number(old.packs || 0) + 1);
+            arr[idx] = { ...old, packs:np, unitsPerPack:uo, unitLabel: old.unitLabel || 'unità',
+              packsOnly:false, needsUpdate:false, ...restockTouch(np, todayISO, uo) };
+          } else { arr[idx] = { ...old, needsUpdate:true }; }
+        }
+      } else {
+        if (hasCounts) {
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand || '', packs, unitsPerPack:upp, unitLabel:p.unitLabel || 'unità',
+            expiresAt:p.expiresAt || '', baselinePacks:packs, lastRestockAt:todayISO, avgDailyUnits:0, residueUnits:packs*upp,
+            packsOnly:false, needsUpdate:false
+          }, imagesIndex));
+        } else if (DEFAULT_PACKS_IF_MISSING) {
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand || '', packs:1, unitsPerPack:1, unitLabel:'unità',
+            expiresAt:p.expiresAt || '', baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0, residueUnits:1,
+            packsOnly:false, needsUpdate:false
+          }, imagesIndex));
+        } else {
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand || '', packs:0, unitsPerPack:1, unitLabel:'-',
+            expiresAt:p.expiresAt || '', baselinePacks:0, lastRestockAt:'', avgDailyUnits:0, residueUnits:0,
+            packsOnly:true, needsUpdate:true
+          }, imagesIndex));
+        }
+      }
+    }
+    return arr;
+  });
+
+  // Finanze (opzionale ma consigliato)
+  try {
+    const itemsSafe = addItems.map(p => ({
+      name:p.name, brand:p.brand || '',
+      packs:Number(p.packs || 0), unitsPerPack:Number(p.unitsPerPack || 0),
+      unitLabel:p.unitLabel || '', priceEach:Number(p.priceEach || 0),
+      priceTotal:Number(p.priceTotal || 0), currency:p.currency || 'EUR',
+      expiresAt:p.expiresAt || ''
+    }));
+    await fetchJSONStrict(API_FINANCES_INGEST, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
+        ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
+        payment_method: 'cash', card_label: null,
+        items: itemsSafe
+      })
+    }, 30000);
+  } catch (e) { if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e); }
+}
+
+// Conferma selezionati dalla modale
+async function applyReviewSelection() {
+  const selected = reviewItems.filter(it => reviewPick[productKey(it.name, it.brand || '')]);
+  setReviewOpen(false); setReviewItems([]); setReviewPick({});
+  if (!selected.length) return;
+  const cleaned = normalizeReviewedItems(selected);
+  rememberItems(cleaned);                               // << apprendimento
+  await applyAdditionalPurchases(cleaned, pendingOcrMeta || {});
+  setPendingOcrMeta(null);
+  showToast(`Aggiunti ${cleaned.length} articoli convalidati ✓`, 'ok');
+}
+
       }}
     />
 
