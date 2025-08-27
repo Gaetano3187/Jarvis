@@ -7,6 +7,55 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
 
+// ===== BASE LEXICON (minimo, espandibile) =====
+const GROCERY_LEXICON = [
+  'latte','latte zymil','yogurt','burro','uova','mozzarella','parmigiano',
+  'pane','pasta','riso','farina','zucchero','olio evo','olio di semi','aceto',
+  'passata di pomodoro','pelati','tonno in scatola','piselli','fagioli',
+  'biscotti','merendine','fette biscottate','marmellata','nutella','caffè',
+  'acqua naturale','acqua frizzante','birra','vino',
+  'detersivo lavatrice','pods lavatrice','ammorbidente','candeggina',
+  'detersivo piatti','pastiglie lavastoviglie',
+  'carta igienica','carta casa','sacchi spazzatura',
+  'mele','banane','arance','limoni','zucchine','melanzane','pomodori','patate'
+];
+
+// Sinonimi quantità per i parser (vocale/regex)
+const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
+const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+
+// ===== REVIEW BRIDGE (module-scope): permette a openValidation di aprire la modale =====
+let __reviewSetters = null;
+function registerReviewSetters(setters){ __reviewSetters = setters; }
+
+// ===== Helper “learning” SHIM per evitare ReferenceError (puoi migliorarli in seguito) =====
+function applyLearnedAliases({ name, brand }, learned){
+  // shim semplice: applichiamo eventuali alias dichiarati in learned (se presenti)
+  let n = name || '', b = brand || '';
+  const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  if (learned?.aliases?.brand) {
+    for (const [pat, repl] of Object.entries(learned.aliases.brand)) {
+      const re = new RegExp(`\\b${esc(pat)}\\b`, 'i');
+      if (re.test(b) || re.test(n)) { b = repl; n = n.replace(re,'').trim(); }
+    }
+  }
+  if (learned?.aliases?.product) {
+    for (const [pat, repl] of Object.entries(learned.aliases.product)) {
+      const re = new RegExp(`\\b${esc(pat)}\\b`, 'i');
+      if (re.test(n)) n = n.replace(re, repl).trim();
+    }
+  }
+  return { name:n, brand:b };
+}
+function normalizeBrandName(s){ 
+  const t = String(s||'');
+  if (/^\s*m\s*bianco\b|mbianco\b/i.test(t) || /mulino\s*bianco/i.test(t)) return 'Mulino Bianco';
+  return t.trim();
+}
+function normalizeProductName(n){ return String(n||'').trim(); }
+function rememberItems(arr){ /* no-op minimo: evita errori; puoi collegarlo a setLearned se vuoi */ }
+
+
 
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
@@ -917,8 +966,11 @@ function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
 }
 
 
-// Apri la modale con i candidati
+// Apri la modale con i candidati (usa i setter registrati)
 function openValidation(discardedList, meta) {
+  if (!__reviewSetters) return; // nessun componente registrato
+  const { setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen } = __reviewSetters;
+
   const uniq = new Map(), items = [];
   for (const p of discardedList || []) {
     const nm = nonEmpty(p?.name); if (!nm) continue;
@@ -944,6 +996,7 @@ function openValidation(discardedList, meta) {
     setReviewOpen(true);
   }
 }
+
 
 // Applica le aggiunte (liste + scorte + finanze)
 async function applyAdditionalPurchases(addItems, meta = {}) {
@@ -1090,6 +1143,13 @@ const [reviewOpen, setReviewOpen] = useState(false);
 const [reviewItems, setReviewItems] = useState([]);
 const [reviewPick, setReviewPick] = useState({});
 const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
+
+// registra i setter per gli helper globali
+useEffect(() => {
+  registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
+  // i setter React sono stabili, deps vuote ok
+}, []);
+
 
 // Learning (memoria prodotti/alias/keep)
 const [learned, setLearned] = useState({
@@ -3319,7 +3379,7 @@ return (
           setBusy(false);
           setTargetRowIdx(null);
         }
-        
+              
       }}
     />
 
