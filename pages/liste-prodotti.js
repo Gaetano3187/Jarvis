@@ -41,6 +41,23 @@ function normKey(str) {
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+/* SAFETY SHIM — garantisce che isSimilar esista nel modulo */
+ /* eslint-disable no-var, no-use-before-define */
+var isSimilar = isSimilar || function isSimilar(a, b) {
+  const na = normKey(a), nb = normKey(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length >= 3 && (nb.includes(na) || na.includes(nb))) return true;
+  const A = new Set(na.split(' ').filter(Boolean));
+  const B = new Set(nb.split(' ').filter(Boolean));
+  let inter = 0; A.forEach(t => { if (B.has(t)) inter++; });
+  const union = new Set([...A, ...B]).size;
+  const j = inter / union;
+  return j >= 0.5 || (inter >= 1 && (A.size === 1 || B.size === 1));
+};
+ /* eslint-enable no-var, no-use-before-define */
+
+
 function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
