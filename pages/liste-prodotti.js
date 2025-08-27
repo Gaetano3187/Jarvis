@@ -825,6 +825,154 @@ function withRememberedImage(row, imagesIdx) {
   if (img) return { ...row, image: img };
   return row;
 }
+// Coercizioni/utility
+function intOr(x, d=0){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? Math.trunc(n) : d; }
+function posIntOr(x, d=0){ return Math.max(0, intOr(x, d)); }
+function nonEmpty(s){ return String(s||'').trim(); }
+
+// Modifica una riga nella modale
+function handleReviewChange(id, field, value){
+  setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
+  try {
+    const it = reviewItems.find(i => i.id === id);
+    if (it) {
+      const key = productKey(it.name, it.brand || '');
+      setReviewPick(prev => ({ ...prev, [key]: true }));
+    }
+  } catch {}
+}
+
+// Normalizza le righe prima di aggiungerle
+function normalizeReviewedItems(items){
+  return (items||[]).map(p => {
+    let name = nonEmpty(p.name);
+    let brand = nonEmpty(p.brand);
+    let packs = posIntOr(p.packs, 1);
+    let upp   = posIntOr(p.unitsPerPack, 1);
+    let unitLabel = nonEmpty(p.unitLabel) || (upp>1 ? 'pezzi' : 'unità');
+    const expiresAt = toISODate(p.expiresAt || '');
+    return { name, brand, packs, unitsPerPack: upp, unitLabel, expiresAt,
+      priceEach: 0, priceTotal: 0, currency: 'EUR'
+    };
+  });
+}
+
+// Apri la modale con i candidati
+function openValidation(discardedList, meta) {
+  const uniq = new Map(), items = [];
+  for (const p of discardedList || []) {
+    const nm = nonEmpty(p?.name); if (!nm) continue;
+    const br = nonEmpty(p?.brand);
+    const key = productKey(nm, br);
+    if (uniq.has(key)) continue;
+    uniq.set(key, true);
+    items.push({
+      ...p,
+      id: 'rev-' + key,
+      name: nm,
+      brand: br,
+      packs: posIntOr(p?.packs, 1),
+      unitsPerPack: posIntOr(p?.unitsPerPack, 1),
+      unitLabel: nonEmpty(p?.unitLabel) || 'unità',
+      expiresAt: toISODate(p?.expiresAt || '')
+    });
+  }
+  if (items.length) {
+    setReviewItems(items);
+    setReviewPick(items.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}));
+    setPendingOcrMeta(meta || null);
+    setReviewOpen(true);
+  }
+}
+
+// Applica le aggiunte (liste + scorte + finanze)
+async function applyAdditionalPurchases(addItems, meta = {}) {
+  if (!Array.isArray(addItems) || !addItems.length) return;
+
+  // 1) Decrementa liste
+  setLists(prev => decrementAcrossBothLists(prev, addItems));
+
+  // 2) Aggiorna scorte (riuso della tua logica)
+  setStock(prev => {
+    const arr = [...prev]; const todayISO = new Date().toISOString().slice(0,10);
+    for (const p of addItems) {
+      const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+      const packs = Math.max(0, Number(p.packs || 0));
+      const upp   = Math.max(1, Number(p.unitsPerPack || 1));
+      const hasCounts = packs > 0 || upp > 0;
+
+      if (idx >= 0) {
+        const old = arr[idx];
+        if (hasCounts) {
+          const newP = Math.max(0, Number(old.packs || 0) + packs);
+          const newU = Math.max(1, Number(old.unitsPerPack || upp));
+          arr[idx] = { ...old, packs:newP, unitsPerPack:newU,
+            unitLabel: old.unitLabel || p.unitLabel || 'unità',
+            expiresAt: p.expiresAt || old.expiresAt || '',
+            packsOnly:false, needsUpdate:false, ...restockTouch(newP, todayISO, newU) };
+        } else {
+          if (DEFAULT_PACKS_IF_MISSING) {
+            const uo = Math.max(1, Number(old.unitsPerPack || 1));
+            const np = Math.max(0, Number(old.packs || 0) + 1);
+            arr[idx] = { ...old, packs:np, unitsPerPack:uo, unitLabel: old.unitLabel || 'unità',
+              packsOnly:false, needsUpdate:false, ...restockTouch(np, todayISO, uo) };
+          } else { arr[idx] = { ...old, needsUpdate:true }; }
+        }
+      } else {
+        if (hasCounts) {
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand || '', packs, unitsPerPack:upp, unitLabel:p.unitLabel || 'unità',
+            expiresAt:p.expiresAt || '', baselinePacks:packs, lastRestockAt:todayISO, avgDailyUnits:0,
+            residueUnits:packs*upp, packsOnly:false, needsUpdate:false
+          }, imagesIndex));
+        } else if (DEFAULT_PACKS_IF_MISSING) {
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand || '', packs:1, unitsPerPack:1, unitLabel:'unità',
+            expiresAt:p.expiresAt || '', baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
+            residueUnits:1, packsOnly:false, needsUpdate:false
+          }, imagesIndex));
+        } else {
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand || '', packs:0, unitsPerPack:1, unitLabel:'-',
+            expiresAt:p.expiresAt || '', baselinePacks:0, lastRestockAt:'', avgDailyUnits:0,
+            residueUnits:0, packsOnly:true, needsUpdate:true
+          }, imagesIndex));
+        }
+      }
+    }
+    return arr;
+  });
+
+  // 3) Finanze (opzionale)
+  try {
+    const itemsSafe = addItems.map(p => ({
+      name:p.name, brand:p.brand||'', packs:Number(p.packs||0), unitsPerPack:Number(p.unitsPerPack||0),
+      unitLabel:p.unitLabel||'', priceEach:Number(p.priceEach||0), priceTotal:Number(p.priceTotal||0),
+      currency:p.currency||'EUR', expiresAt:p.expiresAt||''
+    }));
+    await fetchJSONStrict(API_FINANCES_INGEST, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
+        ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
+        payment_method:'cash', card_label:null, items: itemsSafe
+      })
+    }, 30000);
+  } catch(e){ if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e); }
+}
+
+// Conferma selezionati
+async function applyReviewSelection() {
+  const selected = reviewItems.filter(it => reviewPick[productKey(it.name, it.brand || '')]);
+  setReviewOpen(false); setReviewItems([]); setReviewPick({}); 
+  if (!selected.length) return;
+  const cleaned = normalizeReviewedItems(selected);
+  await applyAdditionalPurchases(cleaned, pendingOcrMeta || {});
+  setPendingOcrMeta(null);
+  showToast(`Aggiunti ${cleaned.length} articoli convalidati ✓`, 'ok');
+}
+
 
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
@@ -1455,9 +1603,9 @@ async function handleOCR(files) {
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
     // ——— 1) Invio OCR (compat route: 4 chiavi) con 1 sola foto compressa ———
-    const first = picked[0];
+    const first   = picked[0];
     const aliases = ['images','files','file','image'];
-    const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
+    const slim    = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
 
     let fdOcr = new FormData();
     for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
@@ -1541,8 +1689,8 @@ async function handleOCR(files) {
 
     // Meta (store/data)
     const meta = parseReceiptMeta(ocrText || '');
-    let store = (parsed?.store || meta.store || '').trim();
-    let purchaseDate = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
+    let store         = (parsed?.store || meta.store || '').trim();
+    let purchaseDate  = toISODate(parsed?.purchaseDate || meta.purchaseDate || '');
 
     // Righe AI dallo scontrino
     if (!purchases.length && parsed) {
@@ -1585,38 +1733,7 @@ async function handleOCR(files) {
           expiresAt: toISODate(p?.expiresAt || '')
         })).filter(p => p.name);
       } catch (e) { if (DEBUG) console.warn('[ASSISTANT bag parse] fallito', e); }
-      // Filtra solo non-merce & messaggi modello; il resto lo proponiamo o lo teniamo
-const NOT_PRODUCT_RE  = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
-const DISCARD_MSG     = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-
-// KEEP dinamico (imparato)
-const KEEP_RE_DYNAMIC = (typeof buildKeepRegex === 'function' && typeof learned !== 'undefined')
-  ? (buildKeepRegex(learned) || /$a^/)
-  : /$a^/;
-
-const filtered = [];
-const discardedForReview = [];
-
-for (const p of (Array.isArray(purchases) ? purchases : [])) {
-  const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
-  if (!nm || DISCARD_MSG.test(nm)) continue;           // messaggi modello: scarta senza review
-  if (KEEP_RE_DYNAMIC.test(nm)) { filtered.push(p); continue; }
-  if (NOT_PRODUCT_RE.test(nm)) {                       // non-merce “probabile” → chiedi conferma
-    discardedForReview.push(p);
-    continue;
-  }
-  filtered.push(p);
-}
-
-purchases = filtered;
-
-// Apri la modale di validazione (non blocca il flusso principale)
-if (discardedForReview.length && typeof openValidation === 'function') {
-  openValidation(discardedForReview, { store, purchaseDate });
-}
-
     }
-    
 
     // ——— 5) Fallback locali ———
     if (!purchases.length && ocrText) {
@@ -1636,7 +1753,7 @@ if (discardedForReview.length && typeof openValidation === 'function') {
       purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
     }
 
-    // ——— 6) Backfill & Miner (solo se presenti nel file) ———
+    // ——— 6) Backfill & Miner (se presenti) ———
     if (typeof backfillMissingPurchasesFromOCRText === 'function') {
       purchases = backfillMissingPurchasesFromOCRText(ocrText, purchases);
     }
@@ -1661,30 +1778,24 @@ if (discardedForReview.length && typeof openValidation === 'function') {
       }
     }
 
-    // ——— 8) Filtri (larghi): scarta solo non-merce & messaggi modello ———
+    // ——— 8) Filtro + raccolta candidati per VALIDAZIONE ———
     const NOT_PRODUCT_RE  = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
     const DISCARD_MSG     = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
 
-    // Se esiste un KEEP dinamico (learning), usalo
-    const KEEP_RE_DYNAMIC = (typeof buildKeepRegex === 'function' && typeof learned !== 'undefined')
-      ? (buildKeepRegex(learned) || /$a^/)
-      : /$a^/; // non matcha niente
-
     const filtered = [];
     const discardedForReview = [];
+
     for (const p of (Array.isArray(purchases) ? purchases : [])) {
       const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
-      if (!nm || DISCARD_MSG.test(nm)) continue;           // messaggi modello: scarta
-      if (KEEP_RE_DYNAMIC.test(nm)) { filtered.push(p); continue; }
-      if (NOT_PRODUCT_RE.test(nm)) {                       // non-merce: proporre in review se disponibile
-        if (typeof openValidation === 'function') discardedForReview.push(p);
+      if (!nm || DISCARD_MSG.test(nm)) continue;      // messaggi modello: scarta
+      if (NOT_PRODUCT_RE.test(nm)) {                  // non-merce “probabile” → chiedi conferma
+        discardedForReview.push(p);
         continue;
       }
       filtered.push(p);
     }
     purchases = filtered;
 
-    // Apri la modale di validazione (se implementata)
     if (discardedForReview.length && typeof openValidation === 'function') {
       openValidation(discardedForReview, { store, purchaseDate });
     }
