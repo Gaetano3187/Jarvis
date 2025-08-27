@@ -17,6 +17,7 @@
     "@supabase/supabase-js": "^2.52.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^2.1.1",
+    "d3-geo": "^3.1.1",
     "dayjs": "^1.11.13",
     "formidable": "^3.5.4",
     "lucide-react": "^0.525.0",
@@ -27,8 +28,10 @@
     "prop-types": "15.7.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-simple-maps": "^3.0.0",
     "react-sparklines": "^1.7.0",
-    "react-table": "^7.8.0"
+    "react-table": "^7.8.0",
+    "topojson-client": "^3.1.0"
   },
   "devDependencies": {
     "@supabase/auth-helpers-react": "^0.5.0",
