@@ -12,6 +12,8 @@ const links = [
   { href: '/vestiti-ed-altro', label: 'Vestiti',        c1: '#f472b6', c2: '#fb7185' },
   { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#fb923c' },
   { href: '/varie',            label: 'Varie',          c1: '#94a3b8', c2: '#d4d4d8' },
+  { href: '/prodotti-tipici-vini', label: 'Prodotti & Vini', c1: '#60a5fa', c2: '#22d3ee' }
+
 ];
 
 export default function NavBar() {
