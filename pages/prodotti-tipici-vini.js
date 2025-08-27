@@ -302,21 +302,37 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
   }
 
   async function handleOcrFile(file) {
-    if (!file) return;
-    setBusy(true);
-    try {
-      // 1) OCR immagine → testo
-      const fd = new FormData(); fd.append('file', file);
-      const r1 = await fetch('/api/ocr', { method:'POST', body: fd });
-      const j1 = await r1.json();
-      const text = j1?.text || j1?.result || j1?.raw || '';
-      if (!text) throw new Error('OCR: nessun testo.');
-      // 2) normalizza in base alla sezione (target)
-      const norm = await normalizeText(text);
-      onParsed && onParsed(norm, { source:'ocr', raw:text });
-    } catch(e){ alert('Errore OCR: ' + (e.message||e)); }
-    finally { setBusy(false); }
-  }
+  if (!file) return;
+  setBusy(true);
+  try {
+    const toDataURL = f => new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(f);
+    });
+    const dataUrl = await toDataURL(file);           // <-- base64
+    const r1 = await fetch('/api/ocr', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ dataUrl })              // <-- niente FormData
+    });
+    const j1 = await r1.json();
+    const text = j1?.text || j1?.result || j1?.raw || '';
+    if (!text) throw new Error('OCR: nessun testo.');
+
+    // normalizza → schema
+    const r2 = await fetch('/api/ingest/normalize', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ text, target })
+    });
+    const parsed = await r2.json();
+    onParsed && onParsed(parsed, { source:'ocr', raw:text });
+  } catch (e) {
+    alert('Errore OCR: ' + (e.message || e));
+  } finally { setBusy(false); }
+}
 
   async function handleVoice() {
     setBusy(true);
