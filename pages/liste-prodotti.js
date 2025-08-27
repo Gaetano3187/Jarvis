@@ -856,6 +856,66 @@ function normalizeReviewedItems(items){
     };
   });
 }
+// === Auto-normalizza le righe in modale in base ad alias/normalizzatori appresi ===
+function autoNormalizeReview(){
+  setReviewItems(prev => prev.map(it => {
+    const ab = (typeof applyLearnedAliases === 'function')
+      ? applyLearnedAliases({ name: it.name, brand: it.brand }, learned)
+      : { name: it.name, brand: it.brand };
+    const brand = (typeof normalizeBrandName === 'function') ? normalizeBrandName(ab.brand) : ab.brand;
+    const name  = (typeof normalizeProductName === 'function') ? normalizeProductName(ab.name, brand, `${ab.name} ${brand}`) : ab.name;
+    return { ...it, name: name || it.name, brand: brand || it.brand };
+  }));
+}
+
+// === Raccoglie voci NON riconosciute dall'OCR per la modale di validazione ===
+function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
+  const existed = new Set((purchasesRecognized || []).map(p => normKey(p.name)));
+  const out = [];
+  const lines = String(ocrText || '')
+    .split(/\r?\n/)
+    .map(s => s.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  const KNOWN_BRANDS = ['Mulino Bianco','Ferrero','Motta','Lavazza','Parmalat','Zymil','Garofalo','Eridania',
+    'Lenor','Dash','Arborea','Bufalart','Decò','Deco','Saiva','Barilla','Galbani','Santa Lucia'];
+
+  for (let ln of lines) {
+    if (/^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva|rt\b|cassa|cassiere|codice|tessera)\b/i.test(ln)) continue;
+    if (/^\(off\.\b/i.test(ln)) continue;
+
+    ln = ln.replace(/\s+vi\*?\s*$/i,'')
+           .replace(/\s+(?:€|eur|euro)?\s*\d+(?:[.,]\d{2})\s*$/i,'')
+           .trim();
+    if (!ln) continue;
+
+    let brand = '';
+    for (const b of KNOWN_BRANDS) {
+      if (new RegExp(`\\b${b.replace(/\s+/g,'\\s+')}\\b`, 'i').test(ln)) { brand = b; break; }
+    }
+    let name = ln;
+    if (typeof normalizeBrandName === 'function') brand = normalizeBrandName(brand || ln);
+    if (typeof normalizeProductName === 'function') name  = normalizeProductName(name, brand, ln);
+
+    const key = normKey(name);
+    if (!key || existed.has(key)) continue;
+
+    const looksUpper  = /^[A-Z0-9À-ÖØ-Þ][A-Z0-9À-ÖØ-Þ .'-]{4,}$/.test(ln);
+    const tokenAlpha  = (ln.match(/[A-Za-zÀ-ÖØ-öø-ÿ]{2,}/g) || []).length >= 2;
+    if (!(looksUpper || tokenAlpha)) continue;
+
+    out.push({
+      id: 'rev-' + key,
+      name: name.trim(),
+      brand: brand && brand !== name ? brand : '',
+      packs: 1, unitsPerPack: 1, unitLabel: 'unità',
+      priceEach: 0, priceTotal: 0, currency: 'EUR',
+      expiresAt: ''
+    });
+  }
+  return out;
+}
+
 
 // Apri la modale con i candidati
 function openValidation(discardedList, meta) {
@@ -942,6 +1002,8 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
     }
     return arr;
   });
+
+
 
   // 3) Finanze (opzionale)
   try {
