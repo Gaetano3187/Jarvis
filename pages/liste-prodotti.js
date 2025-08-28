@@ -434,21 +434,8 @@ function parseLinesToItems(text) {
       unitLabel: packInfo.unitLabel || 'unità',
       purchased: false,
     });
-    
-    
-  }
-  /* === Absolute-intent helpers (module scope) === */
-// Riconosce frasi che intendono "IMPOSTA" (SET assoluto) anziché sommare
-function wantsAbsoluteSet(text = '') {
-  const t = normKey(text);
-  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
-}
-
-// Indicatori di SET assoluto dentro la singola frase
-function hasAbsoluteKeywords(text = '') {
-  const t = normKey(text);
-  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
-}
+          }
+  
 
 
   return items;
@@ -920,6 +907,18 @@ function parseStockUpdateText(text) {
     }
   }
   return res;
+}
+/* === Absolute-intent helpers (module scope) === */
+// Riconosce frasi che intendono "IMPOSTA" (SET assoluto) anziché sommare
+function wantsAbsoluteSet(text = '') {
+  const t = normKey(text);
+  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+}
+
+// Indicatori di SET assoluto dentro la singola frase
+function hasAbsoluteKeywords(text = '') {
+  const t = normKey(text);
+  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
 }
 
 /* ====================== Consumi / restock helpers ====================== */
