@@ -130,6 +130,22 @@ function loadPersisted() {
   } catch {
     return null;
   }
+  // === Absolute-intent helpers (richiesti da parseStockUpdateText e processVoiceInventory) ===
+// Riconosce frasi che intendono "IMPOSTA" (SET assoluto) anziché sommare
+function wantsAbsoluteSet(text = '') {
+  const t = normKey(text);
+  // esempi: "porta a 5", "imposta a 3", "metti a 2", "fissa a 4",
+  // "in totale sono 6", "ora sono 2", "adesso sono 7", "fai che siano 3"
+  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+}
+
+// Sinonimi/indicatori ampi di SET assoluto dentro la singola frase
+function hasAbsoluteKeywords(text = '') {
+  const t = normKey(text);
+  // "sono 6 bottiglie", "restano 2 pacchi", "rimangono 4", "ci sono ancora 3", "ancora 5"
+  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
+}
+
 }
 function persistNow(snapshot) {
   try {
