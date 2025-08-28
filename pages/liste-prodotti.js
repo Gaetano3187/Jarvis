@@ -24,29 +24,29 @@ const GROCERY_LEXICON = [
 ];
 
 // Sinonimi quantità per i parser (vocale/regex)
-const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
-const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+const UNIT_SYNONYMS =
+  '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
+
+const PACK_SYNONYMS =
+  '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
 
 // ===== REVIEW BRIDGE (module-scope): permette a openValidation di aprire la modale =====
 let __reviewSetters = null;
-function registerReviewSetters(setters){ __reviewSetters = setters; }
+function registerReviewSetters(setters) { __reviewSetters = setters; }
 
 // usa NEXT_PUBLIC_USE_AGENT_POST=1 per abilitarlo in prod
 const USE_AGENT_POST = process.env.NEXT_PUBLIC_USE_AGENT_POST === '1';
 
-
-
 // ===== Helper “learning” SHIM per evitare ReferenceError (puoi migliorarli in seguito) =====
-function applyLearnedAliases({ name, brand }, learned){
-  // shim semplice: applichiamo eventuali alias dichiarati in learned (se presenti)
+function applyLearnedAliases({ name, brand }, learned) {
   let n = name || '', b = brand || '';
   const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+
   if (learned?.aliases?.brand) {
     for (const [pat, repl] of Object.entries(learned.aliases.brand)) {
       const re = new RegExp(`\\b${esc(pat)}\\b`, 'i');
       if (re.test(b) || re.test(n)) { b = repl; n = n.replace(re,'').trim(); }
     }
-    
   }
   if (learned?.aliases?.product) {
     for (const [pat, repl] of Object.entries(learned.aliases.product)) {
@@ -56,13 +56,31 @@ function applyLearnedAliases({ name, brand }, learned){
   }
   return { name:n, brand:b };
 }
-function normalizeBrandName(s){ 
+
+function normalizeBrandName(s) {
   const t = String(s||'');
   if (/^\s*m\s*bianco\b|mbianco\b/i.test(t) || /mulino\s*bianco/i.test(t)) return 'Mulino Bianco';
   return t.trim();
 }
-function normalizeProductName(n){ return String(n||'').trim(); }
-function rememberItems(arr){ /* no-op minimo: evita errori; puoi collegarlo a setLearned se vuoi */ }
+function normalizeProductName(n) { return String(n||'').trim(); }
+function rememberItems(_arr) { /* no-op minimo: evita errori */ }
+
+/* ====================== Absolute-intent helpers (MODULE SCOPE!) ====================== */
+// Riconosce frasi che intendono "IMPOSTA" (SET assoluto) anziché sommare
+function wantsAbsoluteSet(text = '') {
+  const t = normKey(text);
+  // es: "porta a 5", "imposta a 3", "metti a 2", "fissa a 4",
+  // "in totale/ora/adesso sono N", "fai che siano N"
+  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+}
+
+// Indicatori di SET assoluto dentro la singola frase
+function hasAbsoluteKeywords(text = '') {
+  const t = normKey(text);
+  // es: "sono 6 bottiglie", "restano 2 pacchi", "rimangono 4",
+  // "ci sono ancora 3", "ancora 5"
+  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
+}
 
 
 
@@ -908,18 +926,7 @@ function parseStockUpdateText(text) {
   }
   return res;
 }
-/* === Absolute-intent helpers (module scope) === */
-// Riconosce frasi che intendono "IMPOSTA" (SET assoluto) anziché sommare
-function wantsAbsoluteSet(text = '') {
-  const t = normKey(text);
-  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
-}
 
-// Indicatori di SET assoluto dentro la singola frase
-function hasAbsoluteKeywords(text = '') {
-  const t = normKey(text);
-  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
-}
 
 /* ====================== Consumi / restock helpers ====================== */
 function computeNewAvgDailyUnits(old, newPacks) {
