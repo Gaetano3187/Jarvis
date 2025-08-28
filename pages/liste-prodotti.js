@@ -1185,6 +1185,12 @@ async function applyReviewSelection() {
 }
 
 
+/* ==== Toggle riconoscimento/agent (arricchimento attivo) ==== */
+const ENRICH_MODE = 'on';         // 'off' | 'auto' | 'on'
+const ASSIST_TIMEOUT_MS = 15000;  // timeout breve per l'agente
+const OCR_IMAGE_MAXSIDE = 1200;
+const OCR_IMAGE_QUALITY = 0.66;
+
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
@@ -1228,33 +1234,30 @@ export default function ListeProdotti() {
   // Vocale lista
   theMediaWorkaround();
 
-const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
-
+  const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
+
   // Review (modale di convalida)
-const [reviewOpen, setReviewOpen] = useState(false);
-const [reviewItems, setReviewItems] = useState([]);
-const [reviewPick, setReviewPick] = useState({});
-const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewItems, setReviewItems] = useState([]);
+  const [reviewPick, setReviewPick] = useState({});
+  const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
 
-// registra i setter per gli helper globali
-useEffect(() => {
-  registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
-  // i setter React sono stabili, deps vuote ok
-}, []);
+  // registra i setter per gli helper globali
+  useEffect(() => {
+    registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
+  }, []);
 
-
-// Learning (memoria prodotti/alias/keep)
-const [learned, setLearned] = useState({
-  products: {},
-  aliases: { product: {}, brand: {} },
-  keepTerms: {},
-  discardTerms: {}
-});
-
+  // Learning (memoria prodotti/alias/keep)
+  const [learned, setLearned] = useState({
+    products: {},
+    aliases: { product: {}, brand: {} },
+    keepTerms: {},
+    discardTerms: {}
+  });
 
   // Vocale inventario unificato
   const invMediaRef = useRef(null);
@@ -1262,10 +1265,8 @@ const [learned, setLearned] = useState({
   const invStreamRef = useRef(null);
   const [invRecBusy, setInvRecBusy] = useState(false);
 
-  // OCR input (scontrini)
+  // OCR inputs
   const ocrInputRef = useRef(null);
-
-  // OCR UNICO di riga (multi-file)
   const rowOcrInputRef = useRef(null);
   const [targetRowIdx, setTargetRowIdx] = useState(null);
 
@@ -1288,27 +1289,22 @@ const [learned, setLearned] = useState({
 
   /* =================== Cloud Sync (Supabase) — opzionale =================== */
   const userIdRef = useRef(null);
-
   useEffect(() => {
     if (!CLOUD_SYNC) return;
     let mounted = true;
 
     (async () => {
       try {
-        // Importa solo se il client esiste; altrimenti non sincronizzare (no crash)
         const mod = await import('@/lib/supabaseClient').catch(() => null);
         if (!mod?.supabase) return;
-
         __supabase = mod.supabase;
 
-        // Prende l'utente loggato (se non loggato → esci silenziosamente)
         const { data: userData, error: authErr } = await __supabase.auth.getUser();
         if (authErr) return;
         const uid = userData?.user?.id || null;
         if (mounted) userIdRef.current = uid;
         if (!uid) return;
 
-        // Carica stato dal cloud (se esiste).
         const { data: row, error } = await __supabase
           .from(CLOUD_TABLE)
           .select('state')
@@ -1317,10 +1313,8 @@ const [learned, setLearned] = useState({
 
         if (error) {
           const msg = (error.message || '').toLowerCase();
-          if (error.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))) {
-            if (DEBUG) console.warn('[cloud] colonna state assente: skip load');
-          } else if (DEBUG) {
-            console.warn('[cloud] load error', error);
+          if (!(error.code === '42703' || (msg.includes('column') && msg.includes('does not exist')))) {
+            if (DEBUG) console.warn('[cloud] load error', error);
           }
           return;
         }
@@ -1336,50 +1330,56 @@ const [learned, setLearned] = useState({
         if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
           setCurrentList(st.currentList);
         }
-        if (st.imagesIndex && typeof st.imagesIndex === 'object') {
-          setImagesIndex(st.imagesIndex);
-        }
         if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
-
+        // imagesIndex volutamente non da cloud
       } catch (e) {
         if (DEBUG) console.warn('[cloud init] skipped', e);
       }
-
-
     })();
 
     return () => { mounted = false; };
   }, []);
 
+  // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
+  function stripForCloud({ lists, stock, currentList, learned }) {
+    const safeLists = {
+      [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
+      [LIST_TYPES.ONLINE]: (lists?.[LIST_TYPES.ONLINE] || []).map(({ image, ...r }) => r),
+    };
+    const safeStock = (stock || []).map(({ image, ...r }) => r);
+    const safeLearned =
+      learned && typeof learned === 'object'
+        ? learned
+        : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
+    return { lists: safeLists, stock: safeStock, currentList, learned: safeLearned };
+  }
+
   const cloudTimerRef = useRef(null);
-useEffect(() => {
-  if (!CLOUD_SYNC || !__supabase) return;
-  if (!userIdRef.current) return;
+  useEffect(() => {
+    if (!CLOUD_SYNC || !__supabase) return;
+    if (!userIdRef.current) return;
 
-  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
 
-  // ⬇️ NON mandiamo imagesIndex in cloud, e togliamo field .image dalle scorte
-  const cloudState = stripForCloud({ lists, stock, currentList, learned });
-  const payload = { user_id: userIdRef.current, state: cloudState };
+    // NON mandiamo imagesIndex in cloud, e togliamo field .image
+    const cloudState = stripForCloud({ lists, stock, currentList, learned });
+    const payload = { user_id: userIdRef.current, state: cloudState };
 
-  // debounce più alto: 5s è molto più sicuro
-  cloudTimerRef.current = setTimeout(async () => {
-    try {
-      await __supabase
-        .from(CLOUD_TABLE)
-        .upsert(payload, { onConflict: 'user_id' }); // niente .select() → returning minimal
-    } catch (e) {
-      if (DEBUG) console.warn('[cloud upsert] fail', e);
-    }
-  }, 5000);
+    cloudTimerRef.current = setTimeout(async () => {
+      try {
+        await __supabase
+          .from(CLOUD_TABLE)
+          .upsert(payload, { onConflict: 'user_id' }); // returning minimal
+      } catch (e) {
+        if (DEBUG) console.warn('[cloud upsert] fail', e);
+      }
+    }, 5000);
 
-  return () => clearTimeout(cloudTimerRef.current);
-}, [lists, stock, currentList, learned]); // ⬅️ imagesIndex NON nei deps
-
+    return () => clearTimeout(cloudTimerRef.current);
+  }, [lists, stock, currentList, learned]);
 
   /* === Brain Hub – versione robusta (evita forme incompatibili) === */
   const HUB_KEY = '__jarvisBrainHub_v2';
-
   function getHub() {
     if (typeof window === 'undefined') return null;
     const h = window[HUB_KEY];
@@ -1415,8 +1415,8 @@ useEffect(() => {
       },
       list() {
         return {
-          datasources: [...this._datasources.keys()],
-          commands: [...this._commands.keys()],
+          datasources: [...this._datasources.keys() ],
+          commands:    [...this._commands.keys()    ],
         };
       },
     };
@@ -1511,7 +1511,7 @@ useEffect(() => {
     });
   }, [stock, lists]);
 
-  /* =================== Hydration iniziale (locale) =================== */
+   /* =================== Hydration iniziale (locale) =================== */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const saved = loadPersisted();
