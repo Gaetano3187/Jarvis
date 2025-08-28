@@ -24,29 +24,29 @@ const GROCERY_LEXICON = [
 ];
 
 // Sinonimi quantità per i parser (vocale/regex)
-const UNIT_SYNONYMS =
-  '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
-
-const PACK_SYNONYMS =
-  '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
+const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
 
 // ===== REVIEW BRIDGE (module-scope): permette a openValidation di aprire la modale =====
 let __reviewSetters = null;
-function registerReviewSetters(setters) { __reviewSetters = setters; }
+function registerReviewSetters(setters){ __reviewSetters = setters; }
 
 // usa NEXT_PUBLIC_USE_AGENT_POST=1 per abilitarlo in prod
 const USE_AGENT_POST = process.env.NEXT_PUBLIC_USE_AGENT_POST === '1';
 
+
+
 // ===== Helper “learning” SHIM per evitare ReferenceError (puoi migliorarli in seguito) =====
-function applyLearnedAliases({ name, brand }, learned) {
+function applyLearnedAliases({ name, brand }, learned){
+  // shim semplice: applichiamo eventuali alias dichiarati in learned (se presenti)
   let n = name || '', b = brand || '';
   const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-
   if (learned?.aliases?.brand) {
     for (const [pat, repl] of Object.entries(learned.aliases.brand)) {
       const re = new RegExp(`\\b${esc(pat)}\\b`, 'i');
       if (re.test(b) || re.test(n)) { b = repl; n = n.replace(re,'').trim(); }
     }
+    
   }
   if (learned?.aliases?.product) {
     for (const [pat, repl] of Object.entries(learned.aliases.product)) {
@@ -56,31 +56,13 @@ function applyLearnedAliases({ name, brand }, learned) {
   }
   return { name:n, brand:b };
 }
-
-function normalizeBrandName(s) {
+function normalizeBrandName(s){ 
   const t = String(s||'');
   if (/^\s*m\s*bianco\b|mbianco\b/i.test(t) || /mulino\s*bianco/i.test(t)) return 'Mulino Bianco';
   return t.trim();
 }
-function normalizeProductName(n) { return String(n||'').trim(); }
-function rememberItems(_arr) { /* no-op minimo: evita errori */ }
-
-/* ====================== Absolute-intent helpers (MODULE SCOPE!) ====================== */
-// Riconosce frasi che intendono "IMPOSTA" (SET assoluto) anziché sommare
-function wantsAbsoluteSet(text = '') {
-  const t = normKey(text);
-  // es: "porta a 5", "imposta a 3", "metti a 2", "fissa a 4",
-  // "in totale/ora/adesso sono N", "fai che siano N"
-  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
-}
-
-// Indicatori di SET assoluto dentro la singola frase
-function hasAbsoluteKeywords(text = '') {
-  const t = normKey(text);
-  // es: "sono 6 bottiglie", "restano 2 pacchi", "rimangono 4",
-  // "ci sono ancora 3", "ancora 5"
-  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
-}
+function normalizeProductName(n){ return String(n||'').trim(); }
+function rememberItems(arr){ /* no-op minimo: evita errori; puoi collegarlo a setLearned se vuoi */ }
 
 
 
@@ -138,111 +120,35 @@ function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
 
-function parseStockUpdateText(text) {
-  const t = normKey(text);
-  const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
-
-  const res = [];
-  const absoluteGlobal = wantsAbsoluteSet(text) || hasAbsoluteKeywords(text);
-
-  const WORD_MAP = { un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
-  const wordToNum = (chunk) => {
-    const m = chunk.match(/\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
-    return m ? (WORD_MAP[m[1].toLowerCase()] || NaN) : NaN;
-  };
-
-  for (let rawChunk of parts) {
-    if (/scad|scadenza|scade|entro/.test(rawChunk)) continue;
-    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(rawChunk)) continue;
-    if (/\b20\d{2}\b/.test(rawChunk)) continue;
-
-    const chunks = rawChunk.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
-
-    for (const chunk of chunks) {
-      const name = guessProductName(chunk);
-      if (!name) continue;
-
-      const forceSet = hasAbsoluteKeywords(chunk);
-
-      // normalizza parole→cifre per i match
-      const src = chunk.replace(
-        /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
-        (m) => ({ un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 }[m.toLowerCase()] ?? m)
-      );
-
-      // 1) "2 confezioni da 4 bottiglie"
-      let m = src.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}\\s*(?:da|x)\\s*(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
-      if (m) {
-        const packs = Math.max(1, Number(m[1] || 1));
-        const upp   = Math.max(1, Number(m[2] || 1));
-        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
-        continue;
-      }
-
-      // 1bis) "2x4" senza parole
-      m = src.match(/(\d+)\s*[x×]\s*(\d+)/i);
-      if (m) {
-        const packs = Math.max(1, Number(m[1] || 1));
-        const upp   = Math.max(1, Number(m[2] || 1));
-        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
-        continue;
-      }
-
-      // 2) "2 confezioni 4 bottiglie"
-      m = src.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}.*?\\b(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
-      if (m) {
-        const packs = Math.max(1, Number(m[1] || 1));
-        const upp   = Math.max(1, Number(m[2] || 1));
-        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
-        continue;
-      }
-
-      // 3) Solo UNITA' ("6 bottiglie", "6 pezzi")
-      m = src.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${UNIT_SYNONYMS})\\b`, 'i'));
-      if (m) {
-        const value = Math.max(0, Number(String(m[1]).replace(',','.')) || 0);
-        res.push({ name, mode:'units', value, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
-        continue;
-      }
-
-      // 4) Solo PACCHI ("3 confezioni")
-      m = src.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${PACK_SYNONYMS})\\b`, 'i'));
-      if (m) {
-        const value = Math.max(0, Number(String(m[1]).replace(',','.')) || 0);
-        res.push({ name, mode:'packs', value, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:value, _upp:1, explicit:false, forceSet });
-        continue;
-      }
-
-      // 5) Numero scritto come parola
-      const wnum = wordToNum(chunk);
-      if (Number.isFinite(wnum)) {
-        const looksUnits = new RegExp(UNIT_SYNONYMS, 'i').test(chunk);
-        const looksPacks = new RegExp(PACK_SYNONYMS, 'i').test(chunk);
-        if (looksUnits && !looksPacks) {
-          res.push({ name, mode:'units', value: wnum, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:1, _upp:wnum, explicit:false, forceSet });
-        } else {
-          res.push({ name, mode:'packs', value: wnum, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:wnum, _upp:1, explicit:false, forceSet });
-        }
-        continue;
-      }
-
-      // 6) Numero finale isolato
-      const mNum = src.match(/(\d+(?:[.,]\d+)?)\s*$/);
-      if (mNum) {
-        const value = Math.max(0, Number(String(mNum[1]).replace(',','.')) || 0);
-        const looksUnits = new RegExp(UNIT_SYNONYMS, 'i').test(chunk);
-        const looksPacks = new RegExp(PACK_SYNONYMS, 'i').test(chunk);
-        if (looksUnits && !looksPacks) {
-          res.push({ name, mode:'units', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
-        } else if (looksPacks && !looksUnits) {
-          res.push({ name, mode:'packs', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:value, _upp:1, explicit:false, forceSet });
-        } else {
-          res.push({ name, mode:'units', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
-        }
-      }
-    }
+function loadPersisted() {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.v !== LS_VER) return null;
+    return data;
+  } catch {
+    return null;
   }
-  return res;
+  
+}
+function persistNow(snapshot) {
+  try {
+    if (typeof window === 'undefined') return;
+    const payload = {
+      v: LS_VER,
+      at: Date.now(),
+      lists: snapshot.lists,
+      stock: snapshot.stock,
+      currentList: snapshot.currentList,
+      imagesIndex: snapshot.imagesIndex || {},
+      // 👇 NEW: memoria di apprendimento (prodotti/alias/keep)
+      learned: snapshot.learned || learned,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('[persist] save failed', e);
+  }
 }
 
 /* ==================== LEXICON EXTENSION + QUANTITY SANITIZER + PROMPTS (SAFE) ==================== */
@@ -452,15 +358,10 @@ function parseLinesToItems(text) {
       unitLabel: packInfo.unitLabel || 'unità',
       purchased: false,
     });
-          }
-  
-
+  }
 
   return items;
 }
-
-
-
 
 
 /* ====================== Scadenze utils ====================== */
@@ -926,7 +827,6 @@ function parseStockUpdateText(text) {
   }
   return res;
 }
-
 
 /* ====================== Consumi / restock helpers ====================== */
 function computeNewAvgDailyUnits(old, newPacks) {
