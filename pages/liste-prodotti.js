@@ -559,9 +559,8 @@ function parseReceiptPurchases(ocrText) {
     lines.push(ln);
   }
 
-const HEADER_RE = /^\s*(totale|subtotale|di\s*cui\s*iva|iva\b|pagamento|resto|importo|pezz[i]?|cassa|cassiere|transaz|documento|documento\s+commerciale|descrizione|prezzo|\beuro\b|€|negozio|p\.?iva|tel|maxistore|deco)\b/i;
-const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto|off\.)\b/i; // salta righe sconto "OFF."
-
+  const HEADER_RE = /^\s*(totale|subtotale|di\s*cui\s*iva|iva\b|pagamento|resto|importo|pezz[i]?|cassa|cassiere|transaz|documento|documento\s+commerciale|descrizione|prezzo|\beuro\b|€|negozio|p\.?iva|tel|maxistore|deco)\b/i;
+  const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto|off\.)\b/i; // salta righe sconto "OFF."
 
   const out = [];
   for (let raw of lines) {
@@ -637,7 +636,7 @@ const IGNORE_RE = /\b(shopper|sacchetto|busta|cauzione|vuoto|off\.)\b/i; // salt
   return out;
 }
 
-
+/* ===== Numeri & meta ===== */
 function coerceNum(x){
   if (x == null) return 0;
   const s = String(x).trim().replace(',', '.');
@@ -647,7 +646,6 @@ function coerceNum(x){
 function parseByLexicon(ocrText, lexicon = []) {
   const s = normKey(ocrText);
   const counts = Object.create(null);
-
   for (const term of lexicon) {
     const k = normKey(term);
     if (!k) continue;
@@ -655,11 +653,10 @@ function parseByLexicon(ocrText, lexicon = []) {
     const m = s.match(re);
     if (m) counts[term] = (counts[term] || 0) + m.length;
   }
-
   return Object.entries(counts).map(([name, count]) => ({
     name,
     brand: '',
-    packs: Math.max(1, count), // se appare 2 volte, metto 2 confezioni
+    packs: Math.max(1, count),
     unitsPerPack: 1,
     unitLabel: 'unità',
     priceEach: 0,
@@ -668,7 +665,6 @@ function parseByLexicon(ocrText, lexicon = []) {
     expiresAt: ''
   }));
 }
-
 
 function parseReceiptMeta(ocrText) {
   const lines = String(ocrText||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
@@ -688,10 +684,11 @@ function parseReceiptMeta(ocrText) {
   return { store, purchaseDate };
 }
 
+/* ===== Etichette unitarie ===== */
 function normalizeUnitLabel(lbl=''){
   const s = normKey(lbl);
   if (/bottigl/.test(s)) return 'bottiglie';
-  if (/(?:pz|pezz|unit\b|unita?)/.test(s)) return 'pezzi';          // uniformo "unità/pz/pezzi" → "pezzi"
+  if (/(?:pz|pezz|unit\b|unita?)/.test(s)) return 'pezzi';
   if (/bust/.test(s)) return 'buste';
   if (/lattin/.test(s)) return 'lattine';
   if (/vasett/.test(s)) return 'vasetti';
@@ -703,6 +700,7 @@ function normalizeUnitLabel(lbl=''){
   return 'unità';
 }
 
+/* ===== Heuristics nome ===== */
 function guessProductName(chunk) {
   let best = '';
   let bestLen = 0;
@@ -723,12 +721,31 @@ function looksLikeSetResidue(text) {
   const t = normKey(text);
   return /\b(sono|ce\s+ne\s+sono|ce\s+n'?e\s+sono|ne\s+ho|adesso\s+sono|ora\s+sono|in\s+totale\s+sono)\b/.test(t);
 }
+
+/* ===== Fallback pattern synonyms + intent set (evita ReferenceError) ===== */
+const __DEFAULT_UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
+const __DEFAULT_PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+
+function wantsAbsoluteSet(text = '') {
+  const t = normKey(text);
+  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+}
+function hasAbsoluteKeywords(text = '') {
+  const t = normKey(text);
+  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
+}
+
+/* ====================== Parser aggiornamenti vocali scorte ====================== */
 function parseStockUpdateText(text) {
   const t = normKey(text);
   const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
 
   const res = [];
-  const absoluteGlobal = wantsAbsoluteSet(text) || (typeof hasAbsoluteKeywords === 'function' && hasAbsoluteKeywords(text));
+  const absoluteGlobal = wantsAbsoluteSet(text) || hasAbsoluteKeywords(text);
+
+  // sinonimi locali (fallback se non esistono globali)
+  const UNIT = (typeof UNIT_SYNONYMS === 'string' ? UNIT_SYNONYMS : __DEFAULT_UNIT_SYNONYMS);
+  const PACK = (typeof PACK_SYNONYMS === 'string' ? PACK_SYNONYMS : __DEFAULT_PACK_SYNONYMS);
 
   // parole → numeri
   const WORD_MAP = { un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
@@ -748,57 +765,62 @@ function parseStockUpdateText(text) {
       const name = guessProductName(chunk);
       if (!name) continue;
 
-      const forceSet = (typeof hasAbsoluteKeywords === 'function' && hasAbsoluteKeywords(chunk));
-      // 1) Struttura esplicita: "2 confezioni da 6 bottiglie"
-      const mExplicit = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}\\s*(?:da|x)\\s*(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
-      if (mExplicit) {
-        const packs = Math.max(1, Number(mExplicit[1] || 1));
-        const upp   = Math.max(1, Number(mExplicit[2] || 1));
-        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
-        continue;
-      }
-            // normalizza parole-numeri → cifre per i match (senza funzioni annidate)
-      
-      const cN = chunk.replace(
+      const forceSet = hasAbsoluteKeywords(chunk);
+
+      // normalizza parole→cifre per i match
+      const src = chunk.replace(
         /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
-        (m) => ({
-          un:1, uno:1, una:1,
-          due:2, tre:3, quattro:4, cinque:5,
-          sei:6, sette:7, otto:8, nove:9, dieci:10
-        }[m.toLowerCase()] ?? m)
+        (m) => WORD_MAP[m.toLowerCase()] ?? m
       );
-    
-      // 2) "2 confezioni 6 bottiglie"
-      const mBoth = chunk.match(new RegExp(`(\\d+)\\s*${PACK_SYNONYMS}.*?\\b(\\d+)\\s*(?:${UNIT_SYNONYMS})?`, 'i'));
-      if (mBoth) {
-        const packs = Math.max(1, Number(mBoth[1] || 1));
-        const upp   = Math.max(1, Number(mBoth[2] || 1));
+
+      // 1) "2 confezioni da 4 bottiglie"
+      let m = src.match(new RegExp(`(\\d+)\\s*${PACK}\\s*(?:da|x)\\s*(\\d+)\\s*(?:${UNIT})?`, 'i'));
+      if (m) {
+        const packs = Math.max(1, Number(m[1] || 1));
+        const upp   = Math.max(1, Number(m[2] || 1));
         res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
         continue;
       }
 
-      // 3) Solo UNITA': "... 6 bottiglie / 6 pezzi / 6 unit"
-      const mUnits = chunk.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${UNIT_SYNONYMS})\\b`, 'i'));
-      if (mUnits) {
-        const value = Math.max(0, Number(String(mUnits[1]).replace(',','.')) || 0);
+      // 1bis) "2x4" senza parole
+      m = src.match(/(\d+)\s*[x×]\s*(\d+)/i);
+      if (m) {
+        const packs = Math.max(1, Number(m[1] || 1));
+        const upp   = Math.max(1, Number(m[2] || 1));
+        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
+        continue;
+      }
+
+      // 2) "2 confezioni 4 bottiglie"
+      m = src.match(new RegExp(`(\\d+)\\s*${PACK}.*?\\b(\\d+)\\s*(?:${UNIT})?`, 'i'));
+      if (m) {
+        const packs = Math.max(1, Number(m[1] || 1));
+        const upp   = Math.max(1, Number(m[2] || 1));
+        res.push({ name, mode:'packs', value:packs, op:'restockExplicit', _packs:packs, _upp:upp, explicit:true, forceSet });
+        continue;
+      }
+
+      // 3) Solo UNITA' ("6 bottiglie", "6 pezzi")
+      m = src.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${UNIT})\\b`, 'i'));
+      if (m) {
+        const value = Math.max(0, Number(String(m[1]).replace(',','.')) || 0);
         res.push({ name, mode:'units', value, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
         continue;
       }
 
-      // 4) Solo PACCHI: "... 3 confezioni / 2 pacchi / 1 scatola"
-      const mPacks = chunk.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${PACK_SYNONYMS})\\b`, 'i'));
-      if (mPacks) {
-        const value = Math.max(0, Number(String(mPacks[1]).replace(',','.')) || 0);
+      // 4) Solo PACCHI ("3 confezioni")
+      m = src.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${PACK})\\b`, 'i'));
+      if (m) {
+        const value = Math.max(0, Number(String(m[1]).replace(',','.')) || 0);
         res.push({ name, mode:'packs', value, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:value, _upp:1, explicit:false, forceSet });
         continue;
       }
 
-      // 5) Numero scritto come parola (senza tag): prova a dedurre
+      // 5) Numero scritto come parola
       const wnum = wordToNum(chunk);
       if (Number.isFinite(wnum)) {
-        // Se contiene parole di unità → units, altrimenti pacchi
-        const looksUnits = new RegExp(UNIT_SYNONYMS, 'i').test(chunk);
-        const looksPacks = new RegExp(PACK_SYNONYMS, 'i').test(chunk);
+        const looksUnits = new RegExp(UNIT, 'i').test(chunk);
+        const looksPacks = new RegExp(PACK, 'i').test(chunk);
         if (looksUnits && !looksPacks) {
           res.push({ name, mode:'units', value: wnum, op: (forceSet || absoluteGlobal) ? 'set' : 'maybeResidue', _packs:1, _upp:wnum, explicit:false, forceSet });
         } else {
@@ -807,19 +829,17 @@ function parseStockUpdateText(text) {
         continue;
       }
 
-      // 6) Fallback su numero finale isolato
-      const mNum = chunk.match(/(\d+(?:[.,]\d+)?)\s*$/);
+      // 6) Numero finale isolato
+      const mNum = src.match(/(\d+(?:[.,]\d+)?)\s*$/);
       if (mNum) {
         const value = Math.max(0, Number(String(mNum[1]).replace(',','.')) || 0);
-        // prova a capire da parole presenti
-        const looksUnits = new RegExp(UNIT_SYNONYMS, 'i').test(chunk);
-        const looksPacks = new RegExp(PACK_SYNONYMS, 'i').test(chunk);
+        const looksUnits = new RegExp(UNIT, 'i').test(chunk);
+        const looksPacks = new RegExp(PACK, 'i').test(chunk);
         if (looksUnits && !looksPacks) {
           res.push({ name, mode:'units', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
         } else if (looksPacks && !looksUnits) {
           res.push({ name, mode:'packs', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:value, _upp:1, explicit:false, forceSet });
         } else {
-          // ambiguo → considera units (caso più comune)
           res.push({ name, mode:'units', value, op:(forceSet || absoluteGlobal)?'set':'maybeResidue', _packs:1, _upp:value, explicit:false, forceSet });
         }
       }
@@ -872,9 +892,8 @@ function pickAudioMime(){
       if (MediaRecorder.isTypeSupported?.(c.mime)) return c;
     } catch(_) {}
   }
-  return { mime: '', ext: 'webm' }; // fallback
+  return { mime: '', ext: 'webm' };
 }
-
 
 /* ====================== Utility immagini ====================== */
 function withRememberedImage(row, imagesIdx) {
@@ -889,14 +908,23 @@ function intOr(x, d=0){ const n = Number(String(x).replace(',','.')); return Num
 function posIntOr(x, d=0){ return Math.max(0, intOr(x, d)); }
 function nonEmpty(s){ return String(s||'').trim(); }
 
-// Modifica una riga nella modale
+/* ====================== Review helpers ====================== */
+// Modifica una riga nella modale (usa i setter globali se disponibili)
 function handleReviewChange(id, field, value){
-  setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
   try {
-    const it = reviewItems.find(i => i.id === id);
-    if (it) {
-      const key = productKey(it.name, it.brand || '');
-      setReviewPick(prev => ({ ...prev, [key]: true }));
+    if (typeof __reviewSetters !== 'undefined' && __reviewSetters) {
+      const { setReviewItems /*, setReviewPick*/ } = __reviewSetters;
+      setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
+    } else {
+      // fallback: se in closure del componente
+      setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
+      try {
+        const it = reviewItems.find(i => i.id === id);
+        if (it) {
+          const key = productKey(it.name, it.brand || '');
+          setReviewPick(prev => ({ ...prev, [key]: true }));
+        }
+      } catch {}
     }
   } catch {}
 }
@@ -915,7 +943,8 @@ function normalizeReviewedItems(items){
     };
   });
 }
-// === Auto-normalizza le righe in modale in base ad alias/normalizzatori appresi ===
+
+// Auto-normalizza le righe in modale in base ad alias/normalizzatori appresi
 function autoNormalizeReview(){
   setReviewItems(prev => prev.map(it => {
     const ab = (typeof applyLearnedAliases === 'function')
@@ -927,7 +956,7 @@ function autoNormalizeReview(){
   }));
 }
 
-// === Raccoglie voci NON riconosciute dall'OCR per la modale di validazione ===
+// Raccoglie voci NON riconosciute dall'OCR per la modale di validazione
 function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
   const existed = new Set((purchasesRecognized || []).map(p => normKey(p.name)));
   const out = [];
@@ -975,10 +1004,9 @@ function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
   return out;
 }
 
-
 // Apri la modale con i candidati (usa i setter registrati)
 function openValidation(discardedList, meta) {
-  if (!__reviewSetters) return; // nessun componente registrato
+  if (typeof __reviewSetters === 'undefined' || !__reviewSetters) return; // sicuro
   const { setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen } = __reviewSetters;
 
   const uniq = new Map(), items = [];
@@ -1007,15 +1035,14 @@ function openValidation(discardedList, meta) {
   }
 }
 
-
-// Applica le aggiunte (liste + scorte + finanze)
+/* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
 async function applyAdditionalPurchases(addItems, meta = {}) {
   if (!Array.isArray(addItems) || !addItems.length) return;
 
   // 1) Decrementa liste
   setLists(prev => decrementAcrossBothLists(prev, addItems));
 
-  // 2) Aggiorna scorte (riuso della tua logica)
+  // 2) Aggiorna scorte
   setStock(prev => {
     const arr = [...prev]; const todayISO = new Date().toISOString().slice(0,10);
     for (const p of addItems) {
@@ -1066,9 +1093,7 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
     return arr;
   });
 
-
-
-  // 3) Finanze (opzionale)
+  // 3) Finanze
   try {
     const itemsSafe = addItems.map(p => ({
       name:p.name, brand:p.brand||'', packs:Number(p.packs||0), unitsPerPack:Number(p.unitsPerPack||0),
@@ -1090,7 +1115,7 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
 // Conferma selezionati
 async function applyReviewSelection() {
   const selected = reviewItems.filter(it => reviewPick[productKey(it.name, it.brand || '')]);
-  setReviewOpen(false); setReviewItems([]); setReviewPick({}); 
+  setReviewOpen(false); setReviewItems([]); setReviewPick({});
   if (!selected.length) return;
   const cleaned = normalizeReviewedItems(selected);
   await applyAdditionalPurchases(cleaned, pendingOcrMeta || {});
@@ -1909,6 +1934,157 @@ try {
 } catch(e) {
   if (DEBUG) console.warn('[AGENT POST] skip', e);
 }
+
+/* ====================== Canonicalizzazione + Merge duplicati ====================== */
+
+// ripulisce rumore tipico da righe scontrino
+function stripReceiptNoise(s=''){
+  return String(s)
+    .replace(/\b(vi|iva|rt|pr|pz\.?|pcs?|cod(?:ice)?|tessera|cassa|reparto|off\.?|promo|art\.)\b/gi,' ')
+    .replace(/\b\d{6,}\b/g,' ')                  // codici lunghi
+    .replace(/\b\d+\s*%\b/g,' ')                 // percentuali
+    .replace(/[•*#()\[\]]/g,' ')
+    .replace(/\s{2,}/g,' ')
+    .trim();
+}
+
+// normalizza marca (sinonimi/abbreviazioni frequenti)
+function normalizeBrand(b=''){
+  const x = stripReceiptNoise(b);
+  const MAP = [
+    [/^m\.?\s*bianco\b|^mbianco\b|mulino\s*bianc/i, 'Mulino Bianco'],
+    [/^lavazz/i, 'Lavazza'],
+    [/^galban/i, 'Galbani'],
+    [/^parmalat/i, 'Parmalat'],
+    [/zymi?l/i, 'Zymil'],                    // sotto-brand (lo lasciamo nel name se usi brand=Parmalat)
+    [/^eridani/i, 'Eridania'],
+    [/^pane?angeli|^p\.?\s*angeli/i, 'Paneangeli'],
+    [/^garofal/i, 'Garofalo'],
+    [/^ferrer/i, 'Ferrero'],
+    [/^mott/i, 'Motta'],
+    [/^dash/i, 'Dash'],
+    [/^lenor/i, 'Lenor'],
+    [/^deco\b|^decò\b/i, 'Decò']
+  ];
+  let out = x;
+  for (const [re, val] of MAP) if (re.test(out)) { out = val; break; }
+  return out.trim();
+}
+
+// normalizza nome prodotto (lessico minimo + rimozione rumore)
+function normalizeProduct(n=''){
+  let out = stripReceiptNoise(n);
+
+  // espansioni/sinonimi più comuni
+  const REPL = [
+    [/\bpassata\b.*\bpomodor/i, 'passata di pomodoro'],
+    [/\briso\b.*\barbor/i, 'riso arborio'],
+    [/\briso\b.*\bcarnar/i, 'riso carnaroli'],
+    [/\bpan\s?carr[èe]\b|pancarr[èe]/i, 'pan bauletto'],
+    [/\bfett[ea]\s*rigat/i, 'fette rigate'],
+    [/\bbatticuor/i, 'batticuori'],
+    [/\byo[\s\-]?yo/i, 'yo-yo'],
+    [/\bcaff[eè]\b.*\bgrani\b/i, 'caffè in grani'],
+    [/\bcaff[eè]\b.*\bcapsul/i, 'caffè capsule'],
+    [/\bcandeggin/i, 'candeggina'],
+    [/\buova\b.*\b6\b/i, 'uova fresche 6'],
+    [/\bpassata\b/i, 'passata di pomodoro'],
+    [/\bburro\b/i, 'burro'],
+    [/\bmozzarella\b.*bufal/i, 'mozzarella di bufala'],
+    [/\bpods?\b/i, 'pods'],
+    [/\bfiesta\b/i, 'fiesta'],
+    [/\bgallett(e|a)\b/i, 'galletti'],        // Mulino Bianco
+    [/\bzymil\b|\bzymyl\b/i, 'zymil'],        // uniformo la grafia
+  ];
+  for (const [re, val] of REPL) out = out.replace(re, val);
+
+  // pulizie numeriche comuni nel nome (teniamo “x” quando è struttura confezioni)
+  out = out
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt)\b/gi,' ')   // pesi/volumi
+    .replace(/\s{2,}/g,' ')
+    .trim();
+
+  return out;
+}
+
+// costruisce una “chiave canone” nome+marca + regole leggere
+function canonicalizePurchase(p0){
+  const p = { ...p0 };
+
+  // base
+  let brand = normalizeBrand(p.brand || '');
+  let name  = normalizeProduct(p.name || '');
+
+  // se il brand è inglobato nel nome, estrailo
+  if (!brand) {
+    const B = ['Mulino Bianco','Lavazza','Galbani','Parmalat','Zymil','Eridania','Paneangeli','Garofalo','Ferrero','Motta','Dash','Lenor','Decò'];
+    for (const b of B) {
+      const re = new RegExp(`\\b${b.replace(/\s+/g,'\\s+')}`,'i');
+      if (re.test(name)) { brand = b; name = name.replace(re,' ').replace(/\s{2,}/g,' ').trim(); break; }
+    }
+  }
+
+  // casi speciali frequenti brand/prodotto
+  if (/zymil/i.test(p.name) || /zymil/i.test(p.brand)) {
+    // latte zymil → brand Parmalat, nome “latte zymil”
+    brand = brand && brand !== 'Zymil' ? brand : 'Parmalat';
+    name = /latte/i.test(name) ? name : 'latte zymil';
+  }
+  if (/paneangeli|p\.?\s*angeli/i.test(p.name) || brand === 'Paneangeli') {
+    brand = 'Paneangeli';
+    if (/liev/i.test(name) && !/lievito per dolci/i.test(name)) name = 'lievito per dolci';
+  }
+
+  // unitLabel di default coerente
+  const upp = Math.max(0, Number(p.unitsPerPack || 0));
+  const packs = Math.max(0, Number(p.packs || 0));
+  let unitLabel = String(p.unitLabel || '').trim();
+  if (!unitLabel) unitLabel = upp > 1 ? 'pezzi' : 'unità';
+
+  return {
+    ...p,
+    name: name || (p.name || '').trim(),
+    brand: brand || (p.brand || '').trim(),
+    packs: packs || 1,
+    unitsPerPack: upp || 1,
+    unitLabel
+  };
+}
+
+// unisce duplicati (somma quantità) su chiave canone name+brand
+function mergeAndCanonizePurchases(list){
+  const map = new Map();
+  for (const raw of (Array.isArray(list) ? list : [])) {
+    const p = canonicalizePurchase(raw);
+    const key = productKey(p.name, p.brand || '');
+    if (!map.has(key)) {
+      map.set(key, { ...p });
+      continue;
+    }
+    // merge
+    const cur = map.get(key);
+    // se l'UPP coincide sommo i pacchi; se diverso, converto a unità e provo a riallineare
+    if (Number(cur.unitsPerPack || 1) === Number(p.unitsPerPack || 1)) {
+      cur.packs = Math.max(0, Number(cur.packs || 0)) + Math.max(0, Number(p.packs || 0));
+    } else {
+      const u1 = Math.max(0, Number(cur.packs || 0)) * Math.max(1, Number(cur.unitsPerPack || 1));
+      const u2 = Math.max(0, Number(p.packs || 0)) * Math.max(1, Number(p.unitsPerPack || 1));
+      const totalUnits = u1 + u2;
+      const targetUPP = Math.max(1, Number(cur.unitsPerPack || p.unitsPerPack || 1));
+      cur.unitsPerPack = targetUPP;
+      cur.packs = Math.max(0, Math.round(totalUnits / targetUPP)) || 1;
+    }
+    // unitLabel/altro di cortesia
+    if (!cur.unitLabel) cur.unitLabel = p.unitLabel || 'unità';
+    if (!cur.currency)  cur.currency  = p.currency || 'EUR';
+    if (!cur.priceEach && p.priceEach)   cur.priceEach = p.priceEach;
+    if (!cur.priceTotal && p.priceTotal) cur.priceTotal = p.priceTotal;
+    map.set(key, cur);
+  }
+  return [...map.values()];
+}
+// NEW: canonizza e unisci duplicati (somma quantità su nome+marca)
+purchases = mergeAndCanonizePurchases(purchases);
 
 // ——— 7) Filtro “larghissimo” + raccolta CANDIDATI per modale ———
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
