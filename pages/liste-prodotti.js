@@ -119,6 +119,67 @@ var isSimilar = isSimilar || function isSimilar(a, b) {
 function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
+/* ====================== Cloud: sanitizer stato per upsert ====================== */
+function stripForCloud(state = {}) {
+  // 1) Liste (tieni solo campi essenziali)
+  const safeList = (arr) => (Array.isArray(arr) ? arr : []).map(it => ({
+    id: String(it?.id ?? ''),
+    name: String(it?.name ?? ''),
+    brand: String(it?.brand ?? ''),
+    qty: Number(it?.qty ?? 0),
+    unitsPerPack: Number(it?.unitsPerPack ?? 1),
+    unitLabel: String(it?.unitLabel ?? 'unità'),
+    purchased: !!it?.purchased,
+  }));
+
+  const lists = state.lists || {};
+  const safeLists = {
+    [LIST_TYPES.SUPERMARKET]: safeList(lists[LIST_TYPES.SUPERMARKET]),
+    [LIST_TYPES.ONLINE]:      safeList(lists[LIST_TYPES.ONLINE]),
+  };
+
+  // 2) Scorte (solo campi persistibili)
+  const safeStock = (Array.isArray(state.stock) ? state.stock : []).map(s => ({
+    name: String(s?.name ?? ''),
+    brand: String(s?.brand ?? ''),
+    packs: Number(s?.packs ?? 0),
+    unitsPerPack: Number(s?.unitsPerPack ?? 1),
+    unitLabel: String(s?.unitLabel ?? 'unità'),
+    expiresAt: String(s?.expiresAt ?? ''),
+    baselinePacks: Number(s?.baselinePacks ?? 0),
+    lastRestockAt: String(s?.lastRestockAt ?? ''),
+    avgDailyUnits: Number(s?.avgDailyUnits ?? 0),
+    residueUnits: Number(
+      s?.residueUnits ?? (Number(s?.packs ?? 0) * Number(s?.unitsPerPack ?? 1))
+    ),
+    packsOnly: !!s?.packsOnly,
+  }));
+
+  // 3) imagesIndex: opzionale e limitato (evita base64 giganteschi)
+  const srcIdx = state.imagesIndex && typeof state.imagesIndex === 'object' ? state.imagesIndex : {};
+  const imagesIndex = {};
+  for (const [k, v] of Object.entries(srcIdx)) {
+    if (typeof v === 'string' && v.length <= 4000) {
+      imagesIndex[k] = v; // tieni solo thumb brevi
+    }
+  }
+
+  // 4) learned (solo quello utile)
+  const learned = state.learned && typeof state.learned === 'object'
+    ? {
+        products: state.learned.products || {},
+        aliases: state.learned.aliases || { product: {}, brand: {} },
+        keepTerms: state.learned.keepTerms || {},
+      }
+    : undefined;
+
+  // 5) currentList sicuro
+  const currentList = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(state.currentList)
+    ? state.currentList
+    : LIST_TYPES.SUPERMARKET;
+
+  return { lists: safeLists, stock: safeStock, currentList, imagesIndex, learned };
+}
 
 function loadPersisted() {
   try {
