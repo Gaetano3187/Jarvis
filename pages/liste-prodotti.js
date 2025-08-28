@@ -1291,32 +1291,30 @@ const [learned, setLearned] = useState({
   }, []);
 
   const cloudTimerRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC || !__supabase) return;
-    if (!userIdRef.current) return;
+useEffect(() => {
+  if (!CLOUD_SYNC || !__supabase) return;
+  if (!userIdRef.current) return;
 
-    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
-  const snapshot = { lists, stock, currentList, imagesIndex, learned };
+  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
 
-    cloudTimerRef.current = setTimeout(async () => {
-      try {
-        await __supabase
-          .from(CLOUD_TABLE)
-          .upsert(
-            { user_id: userIdRef.current, state: snapshot },
-            { onConflict: 'user_id' }
-          );
-      } catch (e) {
-        // fix parser: niente optional chaining su call
-        const msg = (e?.message || '').toLowerCase();
-        if (DEBUG && !(msg.includes('column') && msg.includes('does not exist'))) {
-          console.warn('[cloud upsert] fail', e);
-        }
-      }
-    }, 400);
+  // ⬇️ NON mandiamo imagesIndex in cloud, e togliamo field .image dalle scorte
+  const cloudState = stripForCloud({ lists, stock, currentList, learned });
+  const payload = { user_id: userIdRef.current, state: cloudState };
 
-    return () => clearTimeout(cloudTimerRef.current);
-  }, [lists, stock, currentList, imagesIndex]);
+  // debounce più alto: 5s è molto più sicuro
+  cloudTimerRef.current = setTimeout(async () => {
+    try {
+      await __supabase
+        .from(CLOUD_TABLE)
+        .upsert(payload, { onConflict: 'user_id' }); // niente .select() → returning minimal
+    } catch (e) {
+      if (DEBUG) console.warn('[cloud upsert] fail', e);
+    }
+  }, 5000);
+
+  return () => clearTimeout(cloudTimerRef.current);
+}, [lists, stock, currentList, learned]); // ⬅️ imagesIndex NON nei deps
+
 
   /* === Brain Hub – versione robusta (evita forme incompatibili) === */
   const HUB_KEY = '__jarvisBrainHub_v2';
