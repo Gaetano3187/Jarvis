@@ -2803,177 +2803,131 @@ return (
             </div>
           )}
 
-       {/* lista corrente */}
-  <div style={styles.sectionInner}>
-    <h3 style={styles.h3}>
-      Lista corrente:{' '}
-      <span style={{ opacity: .85 }}>
-        {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
-      </span>
-    </h3>
+          {/* lista corrente */}
+          <div style={styles.sectionInner}>
+            <h3 style={styles.h3}>
+              Lista corrente:{' '}
+              <span style={{ opacity: .85 }}>
+                {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
+              </span>
+            </h3>
 
-    {(lists[currentList] || []).length === 0 ? (
-      <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
-    ) : (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(lists[currentList] || []).map((it) => {
-          const isBought = !!it.purchased;
-          return (
-            <div
-              key={it.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setLists(prev => {
-                  const next = { ...prev };
-                  next[currentList] = (prev[currentList] || []).map(i =>
-                    i.id === it.id ? { ...i, purchased: !i.purchased } : i
+            {(lists[currentList] || []).length === 0 ? (
+              <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(lists[currentList] || []).map((it) => {
+                  const isBought = !!it.purchased;
+                  return (
+                    <div
+                      key={it.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setLists(prev => {
+                          const next = { ...prev };
+                          next[currentList] = (prev[currentList] || []).map(i =>
+                            i.id === it.id ? { ...i, purchased: !i.purchased } : i
+                          );
+                          return next;
+                        });
+                        
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setLists(prev => {
+                            const next = { ...prev };
+                            next[currentList] = (prev[currentList] || []).map(i =>
+                              i.id === it.id ? { ...i, purchased: !i.purchased } : i
+                            );
+                            return next;
+                          });
+                        }
+                      }}
+                      style={{ ...styles.listCardRed, ...(isBought ? styles.listCardRedBought : null) }}
+                    >
+                      <div style={styles.rowLeft}>
+                        <div style={styles.rowName}>
+                          {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
+                        </div>
+                        <div style={styles.rowMeta}>
+                          {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
+                          {isBought ? <span style={styles.badgeBought}>preso</span> : <span style={styles.badgeToBuy}>da prendere</span>}
+                        </div>
+                      </div>
+
+                      <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          title="Segna come comprato"
+                          onClick={() => {
+                            const item = it;
+                            const movePacks = 1;
+
+                            setLists(prev => {
+                              const next = { ...prev };
+                              next[currentList] = (prev[currentList] || [])
+                                .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
+                                .filter(r => Number(r.qty || 0) > 0);
+                              return next;
+                            });
+
+                            setStock(prev => {
+                              const arr = [...prev];
+                              const todayISO = new Date().toISOString().slice(0, 10);
+                              const idx = arr.findIndex(
+                                s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+                              );
+                              const upp = Math.max(1, Number(item.unitsPerPack || 1));
+                              const lbl = item.unitLabel || 'unità';
+
+                              if (idx >= 0) {
+                                const old = arr[idx];
+                                const u = Math.max(1, Number(old.unitsPerPack || upp));
+                                const p = Math.max(0, Number(old.packs || 0) + movePacks);
+                                arr[idx] = {
+                                  ...old,
+                                  packs: p,
+                                  unitsPerPack: u,
+                                  unitLabel: old.unitLabel || lbl,
+                                  packsOnly: false,
+                                  ...restockTouch(p, todayISO, u),
+                                };
+                              } else {
+                                const row = {
+                                  name: item.name,
+                                  brand: item.brand || '',
+                                  packs: movePacks,
+                                  unitsPerPack: upp,
+                                  unitLabel: lbl,
+                                  expiresAt: '',
+                                  ...restockTouch(movePacks, todayISO, upp),
+                                  avgDailyUnits: 0,
+                                  packsOnly: false,
+                                };
+                                arr.unshift(withRememberedImage(row, imagesIndex));
+                              }
+                              return arr;
+                            });
+                          }}
+                          style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
+                        >
+                          ✓
+                        </button>
+
+                        <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
+                        <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
+
+                        <button title="OCR riga" onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }} style={styles.ocrPillBtn}>OCR riga</button>
+                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
+                      </div>
+                    </div>
                   );
-                  return next;
-                });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setLists(prev => {
-                    const next = { ...prev };
-                    next[currentList] = (prev[currentList] || []).map(i =>
-                      i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                    );
-                    return next;
-                  });
-                }
-              }}
-              style={{ ...styles.listCardRed, ...(isBought ? styles.listCardRedBought : null) }}
-              className="list-card"    // 👈 per CSS responsive
-            >
-              <div style={styles.rowLeft}>
-                <div style={styles.rowName}>
-                  {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
-                </div>
-                <div style={styles.rowMeta}>
-                  {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
-                  {isBought ? (
-                    <span style={styles.badgeBought}>preso</span>
-                  ) : (
-                    <span style={styles.badgeToBuy}>da prendere</span>
-                  )}
-                </div>
+                })}
               </div>
-
-              <div
-                style={styles.rowActions}
-                onClick={(e) => e.stopPropagation()}
-                className="list-actions"  // 👈 per CSS responsive
-              >
-                <button
-                  title="Segna come comprato"
-                  onClick={() => {
-                    const item = it;
-                    const movePacks = 1;
-
-                    setLists(prev => {
-                      const next = { ...prev };
-                      next[currentList] = (prev[currentList] || [])
-                        .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
-                        .filter(r => Number(r.qty || 0) > 0);
-                      return next;
-                    });
-
-                    setStock(prev => {
-                      const arr = [...prev];
-                      const todayISO = new Date().toISOString().slice(0, 10);
-                      const idx = arr.findIndex(
-                        s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-                      );
-                      const upp = Math.max(1, Number(item.unitsPerPack || 1));
-                      const lbl = item.unitLabel || 'unità';
-
-                      if (idx >= 0) {
-                        const old = arr[idx];
-                        const u = Math.max(1, Number(old.unitsPerPack || upp));
-                        const p = Math.max(0, Number(old.packs || 0) + movePacks);
-                        arr[idx] = {
-                          ...old,
-                          packs: p,
-                          unitsPerPack: u,
-                          unitLabel: old.unitLabel || lbl,
-                          packsOnly: false,
-                          ...restockTouch(p, todayISO, u),
-                        };
-                      } else {
-                        const row = {
-                          name: item.name,
-                          brand: item.brand || '',
-                          packs: movePacks,
-                          unitsPerPack: upp,
-                          unitLabel: lbl,
-                          expiresAt: '',
-                          ...restockTouch(movePacks, todayISO, upp),
-                          avgDailyUnits: 0,
-                          packsOnly: false,
-                        };
-                        arr.unshift(withRememberedImage(row, imagesIndex));
-                      }
-                      return arr;
-                    });
-                  }}
-                  style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
-                >
-                  ✓
-                </button>
-
-                <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
-                <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
-
-                <button
-                  title="OCR riga"
-                  onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
-                  style={styles.ocrPillBtn}
-                >
-                  OCR riga
-                </button>
-                <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-
-  {/* CSS responsive mobile per la lista (SOLO mobile) */}
-  <style jsx global>{`
-    @media (max-width: 640px) {
-      .list-card {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 10px !important;
-      }
-      .list-card .list-actions {
-        display: grid !important;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 8px !important;
-        margin-top: 6px !important;
-      }
-      /* su schermi molto piccoli vai a 2 colonne */
-      @media (max-width: 380px) {
-        .list-card .list-actions {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-      }
-      .list-card .list-actions > button {
-        width: 100% !important;
-        min-height: 42px !important;
-      }
-      /* stringhe lunghe vanno a capo bene */
-      .list-card .${'' /* row di testo principale */} {
-        word-break: break-word;
-      }
-    }
-  `}</style>
-</section>
+            )}
+          </div>
+        </section>
 
         {/* ===== SEZIONE 3 — ESAURIMENTO/SCADENZA ===== */}
 <section style={styles.sectionBox}>
@@ -3166,107 +3120,180 @@ return (
             </div>
           </div>
 
-          {/* Scorte complete — LAYOUT A RIGHE */}
-          <div style={{ marginTop: 12 }}>
-            <h4 style={styles.h4}>Tutte le scorte</h4>
+{/* Scorte complete — LAYOUT A RIGHE */}
+<div style={{ marginTop: 12 }}>
+  <h4 style={styles.h4}>Tutte le scorte</h4>
 
-            {stock.length === 0 ? (
-              <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
+  {stock.length === 0 ? (
+    <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
+  ) : (
+    <div style={styles.stockList}>
+      {stock.map((s, idx) => {
+        const { current, baseline, pct } = residueInfo(s);
+        const w = Math.round(pct * 100);
+        const zebra = idx % 2 === 0;
+
+        return (
+          <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
+            {editingRow === idx ? (
+              /* --- Modalità editing --- */
+              <div>
+                <div style={styles.formRowWrap}>
+                  <input
+                    style={styles.input}
+                    value={editDraft.name}
+                    onChange={e => handleEditDraftChange('name', e.target.value)}
+                  />
+                  <input
+                    style={styles.input}
+                    value={editDraft.brand}
+                    onChange={e => handleEditDraftChange('brand', e.target.value)}
+                    placeholder="Marca"
+                  />
+                </div>
+                <div style={styles.formRowWrap}>
+                  <input
+                    style={{ ...styles.input, width: 120 }}
+                    inputMode="decimal"
+                    value={editDraft.packs}
+                    onChange={e => handleEditDraftChange('packs', e.target.value)}
+                    placeholder="Confezioni"
+                  />
+                  <input
+                    style={{ ...styles.input, width: 140 }}
+                    inputMode="decimal"
+                    value={editDraft.unitsPerPack}
+                    onChange={e => handleEditDraftChange('unitsPerPack', e.target.value)}
+                    placeholder="Unità/conf."
+                  />
+                  <input
+                    style={{ ...styles.input, width: 150 }}
+                    value={editDraft.unitLabel}
+                    onChange={e => handleEditDraftChange('unitLabel', e.target.value)}
+                    placeholder="Etichetta"
+                  />
+                </div>
+                <div style={styles.formRowWrap}>
+                  <input
+                    style={{ ...styles.input, width: 220 }}
+                    value={editDraft.expiresAt}
+                    onChange={e => handleEditDraftChange('expiresAt', e.target.value)}
+                    placeholder="YYYY-MM-DD o 15/08/2025"
+                  />
+                  <input
+                    style={{ ...styles.input, width: 190 }}
+                    inputMode="decimal"
+                    value={editDraft.residueUnits}
+                    onChange={e => handleEditDraftChange('residueUnits', e.target.value)}
+                    placeholder="Residuo unità o pacchi"
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button onClick={() => saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                  <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                  <button
+                    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                    style={styles.smallGhostBtn}
+                  >
+                    OCR riga
+                  </button>
+                </div>
+              </div>
             ) : (
-              <div style={styles.stockList}>
-                {stock.map((s, idx) => {
-                  const { current, baseline, pct } = residueInfo(s);
-                  const w = Math.round(pct * 100);
-                  const zebra = idx % 2 === 0;
+              /* --- Modalità visualizzazione (responsive) --- */
+              <div className="stockRowGrid">
+                {/* thumb */}
+                <div
+                  className="thumb"
+                  role="button"
+                  title="Aggiungi/Modifica immagine"
+                  onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
+                  style={styles.imageBox}
+                >
+                  {s.image ? (
+                    <img src={s.image} alt={s.name} style={styles.imageThumb} />
+                  ) : (
+                    <div style={styles.imagePlaceholder}>＋</div>
+                  )}
+                </div>
 
-                  return (
-                    <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
-                      {editingRow === idx ? (
-                        <div>
-                          <div style={styles.formRowWrap}>
-                            <input style={styles.input} value={editDraft.name} onChange={e => handleEditDraftChange('name', e.target.value)} />
-                            <input style={styles.input} value={editDraft.brand} onChange={e => handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
-                          </div>
-                          <div style={styles.formRowWrap}>
-                            <input style={{ ...styles.input, width: 120 }} inputMode="decimal" value={editDraft.packs} onChange={e => handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
-                            <input style={{ ...styles.input, width: 140 }} inputMode="decimal" value={editDraft.unitsPerPack} onChange={e => handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
-                            <input style={{ ...styles.input, width: 150 }} value={editDraft.unitLabel} onChange={e => handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
-                          </div>
-                          <div style={styles.formRowWrap}>
-                            <input style={{ ...styles.input, width: 220 }} value={editDraft.expiresAt} onChange={e => handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
-                            <input style={{ ...styles.input, width: 190 }} inputMode="decimal" value={editDraft.residueUnits} onChange={e => handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
-                          </div>
-                          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                            <button onClick={() => saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                            <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                            <button onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={styles.stockRow}>
-                          <div
-                            style={styles.imageBox}
-                            role="button"
-                            title="Aggiungi/Modifica immagine"
-                            onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
-                          >
-                            {s.image ? (
-                              <img src={s.image} alt={s.name} style={styles.imageThumb} />
-                            ) : (
-                              <div style={styles.imagePlaceholder}>＋</div>
-                            )}
-                          </div>
+                {/* info principali */}
+                <div className="main" style={{ flex: 1, minWidth: 0 }}>
+                  <div style={styles.stockTitle}>
+                    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                  </div>
+                  <div style={styles.progressOuterBig}>
+                    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                  </div>
+                  <div style={styles.stockLineSmall}>
+                    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                    {s.expiresAt ? (
+                      <span style={styles.expiryChip}>
+                        scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
 
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={styles.stockTitle}>
-                              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                            </div>
-                            <div style={styles.progressOuterBig}>
-                              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                            </div>
-                            <div style={styles.stockLineSmall}>
-                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                            </div>
-                          </div>
+                {/* metriche compatte */}
+                <div className="metrics">
+                  <div className="kv">
+                    <div className="kvL">Confezioni</div>
+                    <div className="kvV">{Number(s.packs || 0)}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="kvL">Unità/conf.</div>
+                    <div className="kvV">{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="kvL">Residuo unità</div>
+                    <div className="kvV">{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
+                  </div>
+                </div>
 
-                          <div style={styles.kvCol}>
-                            <div style={styles.kvLabel}>Confezioni</div>
-                            <div style={styles.kvValue}>{Number(s.packs || 0)}</div>
-                          </div>
-
-                          <div style={styles.kvCol}>
-                            <div style={styles.kvLabel}>Unità/conf.</div>
-                            <div style={styles.kvValue}>{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
-                          </div>
-
-                          <div style={styles.kvCol}>
-                            <div style={styles.kvLabel}>Residuo unità</div>
-                            <div style={styles.kvValue}>{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
-                          </div>
-
-                          <div style={styles.rowActionsRight}>
-                            <button title="Modifica" onClick={() => startRowEdit(idx, s)} style={styles.iconCircle} aria-label="Modifica scorta">
-                              <Pencil size={18} />
-                            </button>
-                            <button title="Imposta scadenza" onClick={() => { setShowExpiryForm(true); setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' }); }} style={styles.iconCircle} aria-label="Imposta scadenza">
-                              <Calendar size={18} />
-                            </button>
-                            <button title="OCR riga" onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.iconCircle} aria-label="OCR riga">
-                              <Camera size={18} />
-                            </button>
-                            <button title="Elimina definitivamente" onClick={() => deleteStockRow(idx)} style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }} aria-label="Elimina scorta">
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {/* azioni */}
+                <div className="actions" style={styles.rowActionsRight}>
+                  <button
+                    title="Modifica"
+                    onClick={() => startRowEdit(idx, s)}
+                    style={styles.iconCircle}
+                    aria-label="Modifica scorta"
+                  >
+                    <Pencil size={18} />
+                  </button>
+                  <button
+                    title="Imposta scadenza"
+                    onClick={() => { setShowExpiryForm(true); setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' }); }}
+                    style={styles.iconCircle}
+                    aria-label="Imposta scadenza"
+                  >
+                    <Calendar size={18} />
+                  </button>
+                  <button
+                    title="OCR riga"
+                    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                    style={styles.iconCircle}
+                    aria-label="OCR riga"
+                  >
+                    <Camera size={18} />
+                  </button>
+                  <button
+                    title="Elimina definitivamente"
+                    onClick={() => deleteStockRow(idx)}
+                    style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
+                    aria-label="Elimina scorta"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
             )}
           </div>
+        );
+      })}
+    </div>
+  )}
+</div>
         </section>
 
       </div>
@@ -4438,6 +4465,7 @@ voiceVideo: {
     objectFit: 'cover',        // 👉 niente bande: riempi e ritaglia
     objectPosition: 'center'   // puoi anche provare 'center 55%' se vuoi scendere leggermente
   }
+  
 }
 
 
