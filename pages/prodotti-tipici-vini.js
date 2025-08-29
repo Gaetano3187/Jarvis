@@ -1,5 +1,5 @@
 // pages/prodotti-tipici-vini.js
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
 import { createClient } from '@supabase/supabase-js';
@@ -12,6 +12,8 @@ const Tooltip      = dynamic(() => import('react-leaflet').then(m => m.Tooltip),
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const MEDIA_BUCKET = process.env.NEXT_PUBLIC_MEDIA_BUCKET || 'jarvis-media';
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default function ProdottiTipiciViniPage() {
@@ -22,19 +24,17 @@ export default function ProdottiTipiciViniPage() {
   const [cellar, setCellar] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // toggle form manuale + luoghi (nascosti finché non clicchi)
   const [showAddArtisan, setShowAddArtisan] = useState(false);
   const [showAddWine, setShowAddWine]       = useState(false);
   const [showAddCellar, setShowAddCellar]   = useState(false);
   const [showPlacesArtisan, setShowPlacesArtisan] = useState(false);
   const [showPlacesWine, setShowPlacesWine]       = useState(false);
 
-  // refs per prefill form
   const artisanFormRef = useRef(null);
   const wineFormRef    = useRef(null);
   const cellarFormRef  = useRef(null);
 
-  // MAPPA in fondo alla pagina
+  // MAPPA
   const [mapCenter, setMapCenter] = useState([12.5, 42.5]); // [lng, lat]
   const [mapZoom, setMapZoom] = useState(5);
   const [selectedPlaceId, setSelectedPlaceId] = useState(null);
@@ -70,7 +70,7 @@ export default function ProdottiTipiciViniPage() {
   }
   useEffect(() => { refreshAll(); }, []);
 
-  // ===== Inserimenti auto da OCR/Voce (dopo normalizzazione) =====
+  // ===== Inserimenti auto =====
   async function autoInsertArtisan(norm) {
     const d = norm?.data || {};
     const raw = norm?._raw || '';
@@ -127,7 +127,6 @@ export default function ProdottiTipiciViniPage() {
       style: d.style || null,
       price_target: d.price_eur ?? null,
       notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null),
-      // nuovi campi (se presenti in DB)
       alcohol: d.alcohol ?? null,
       grape_blend: Array.isArray(d.grape_blend) ? d.grape_blend : null
     };
@@ -183,7 +182,7 @@ export default function ProdottiTipiciViniPage() {
             onAddManual={()=> setShowAddArtisan(v=>!v)}
             onParsed={async (norm)=> {
               if (norm?.kind !== 'artisan') {
-                alert('Rilevati dati vino: sposto su sezione Vini.');
+                alert('Rilevati dati vino: sposto su Vini.');
                 setTab('wines'); setShowAddWine(true);
                 await autoInsertWine(norm, false);
               } else {
@@ -322,32 +321,18 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
     if (!file) return;
     setBusy(true);
     try {
-      // file → base64
       const dataUrl = await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onload = () => res(fr.result);
-        fr.onerror = rej;
-        fr.readAsDataURL(file);
+        const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file);
       });
 
-      // 1) OCR img → testo
-      const r1 = await fetch('/api/ocr', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ dataUrl })
-      });
+      const r1 = await fetch('/api/ocr', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ dataUrl }) });
       const j1 = await r1.json();
       const text = j1?.text || j1?.result || j1?.raw || '';
       if (!text) throw new Error('OCR: nessun testo.');
 
-      // 2) normalizza → schema unico
-      const r2 = await fetch('/api/ingest/normalize', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ text, target })
-      });
+      const r2 = await fetch('/api/ingest/normalize', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ text, target }) });
       const parsed = await r2.json();
-      parsed._raw = text; // passa il testo grezzo
+      parsed._raw = text;
       onParsed && onParsed(parsed, { source:'ocr', raw:text });
     } catch (e) {
       alert('Errore OCR: ' + (e.message || e));
@@ -374,7 +359,6 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
           rec.onend = resolve; rec.start();
         });
       } else {
-        // fallback /api/stt (5s)
         const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
         const rec = new MediaRecorder(stream, { mimeType:'audio/webm' });
         const chunks=[]; rec.ondataavailable = e=> chunks.push(e.data);
@@ -406,8 +390,8 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
 }
 
 /* ===================== Helpers UI ===================== */
-function TCell({ children }) {
-  return <td style={{ padding:'10px 8px', borderBottom:'1px solid #1f2a38' }}>{children}</td>;
+function TCell({ children, colSpan }) {
+  return <td colSpan={colSpan} style={{ padding:'10px 8px', borderBottom:'1px solid #1f2a38' }}>{children}</td>;
 }
 function Table({ children }) {
   return (
@@ -438,9 +422,8 @@ function Stars({ value=0, onChange }) {
   );
 }
 
-/* ===================== Sezioni Tabelle ===================== */
+/* ===================== ARTISAN SECTION ===================== */
 function ArtisanSection({ data, loading, onOpenMap }) {
-  // --- Geocoding helpers (Nominatim, no key) ---
   async function reverseGeocode(lat, lng) {
     try {
       const u = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`;
@@ -460,13 +443,9 @@ function ArtisanSection({ data, loading, onOpenMap }) {
     } catch {}
     return null;
   }
-
-  // --- Bottone: salva luogo di CONSUMO (pin blu) per l’articolo ---
   async function markAteHere(row) {
     try {
       let lat = null, lng = null, place_name = null;
-
-      // 1) prova geolocalizzazione browser
       try {
         const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 })
@@ -475,32 +454,20 @@ function ArtisanSection({ data, loading, onOpenMap }) {
         lng = pos.coords.longitude;
         place_name = await reverseGeocode(lat, lng);
       } catch {
-        // 2) se negata/fallita → chiedi testo e geocodifica
         const manual = prompt('Inserisci il luogo dove l’hai mangiato (es. "Ristorante I Caraceni, Roma")');
         if (!manual) return;
         const hit = await searchGeocode(manual);
-        if (!hit) { alert('Impossibile geocodificare questo luogo. Prova un indirizzo più preciso.'); return; }
+        if (!hit) { alert('Impossibile geocodificare questo luogo.'); return; }
         lat = hit.lat; lng = hit.lng; place_name = hit.name;
       }
-
-      if (lat == null || lng == null) { alert('Posizione non disponibile.'); return; }
-
-      // 3) scrivi su product_places come "purchase" (pin blu)
       const { error } = await supabase.from('product_places').insert([{
-        item_type: 'artisan',
-        item_id: row.id,
-        kind: 'purchase',                             // consumo/acquisto = blu
+        item_type: 'artisan', item_id: row.id, kind: 'purchase',
         place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
-        lat, lng,
-        is_primary: true
+        lat, lng, is_primary: true
       }]);
       if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
-
-      alert('Luogo aggiunto! (pin blu)');
-      location.reload(); // refresh rapido tabella + mappa
-    } catch (e) {
-      alert('Errore: ' + (e.message || e));
-    }
+      alert('Luogo aggiunto! (pin blu)'); location.reload();
+    } catch (e) { alert('Errore: ' + (e.message || e)); }
   }
 
   return (
@@ -540,7 +507,7 @@ function ArtisanSection({ data, loading, onOpenMap }) {
   );
 }
 
-
+/* ===================== WINES SECTION ===================== */
 function WinesSection({ data, loading, onOpenMap }) {
   const [q, setQ] = useState('');
   const [sommelierOpen, setSommelierOpen] = useState(false);
@@ -552,15 +519,11 @@ function WinesSection({ data, loading, onOpenMap }) {
     const r = await fetch('/api/sommelier', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        query: q || 'Consigliami il migliore in base al mio gusto',
-        ...payload
-      })
+      body: JSON.stringify({ query: q || 'Consigliami il migliore in base al mio gusto', ...payload })
     });
     const j = await r.json();
     setSommelierData(j); setSommelierOpen(true);
   }
-
   async function findRetailers(name, region, budget) {
     const r = await fetch('/api/retailers', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -569,14 +532,12 @@ function WinesSection({ data, loading, onOpenMap }) {
     const j = await r.json();
     alert(JSON.stringify(j, null, 2));
   }
-
   async function setRating(id, n) {
     const { error } = await supabase.from('wines').update({ rating_5: n }).eq('id', id);
     if (error) { alert('Errore voto: ' + error.message); return; }
     location.reload();
   }
 
-  // ---------------- Sommelier (OCR immagine lista) ----------------
   function extractTasteHints(text) {
     const t = (q + ' ' + (text||'')).toLowerCase();
     const hints = { tags: [] };
@@ -594,35 +555,21 @@ function WinesSection({ data, loading, onOpenMap }) {
     if (/\baromatico\b/.test(t)) hints.tags.push('aromatico');
     return hints;
   }
-
   async function dataUrlFromFile(file) {
-    return new Promise((res, rej) => {
-      const fr = new FileReader();
-      fr.onload = () => res(fr.result);
-      fr.onerror = rej;
-      fr.readAsDataURL(file);
-    });
+    return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
   }
-
   async function handleSommelierOcrFile(file) {
     try {
       const dataUrl = await dataUrlFromFile(file);
-      const r1 = await fetch('/api/ocr', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ dataUrl })
-      });
+      const r1 = await fetch('/api/ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dataUrl }) });
       const j1 = await r1.json();
       const listText = (j1?.text || '').trim();
       if (!listText) { alert('OCR: nessun testo letto dalla foto.'); return; }
-
       const tasteHints = extractTasteHints(listText);
       await askSommelier({ wineList: listText, qrLinks: [], tasteHints });
-    } catch (e) {
-      alert('Errore Sommelier OCR: ' + (e.message || e));
-    }
+    } catch (e) { alert('Errore Sommelier OCR: ' + (e.message || e)); }
   }
 
-  // ---------------- Scanner QR (fotocamera) ----------------
   async function handleQrResult(url) {
     try {
       const isUrl = /^https?:\/\//i.test(url || '');
@@ -635,12 +582,10 @@ function WinesSection({ data, loading, onOpenMap }) {
       }
       const tasteHints = extractTasteHints(pageText);
       await askSommelier({ wineList: pageText, qrLinks, tasteHints });
-    } catch (e) {
-      alert('Errore lettura QR: ' + (e.message || e));
-    }
+    } catch (e) { alert('Errore lettura QR: ' + (e.message || e)); }
   }
 
-  // ---------------- “Dove l’ho bevuto” (pin blu) ----------------
+  // Geolocalizzazione “Dove l’ho bevuto”
   async function reverseGeocode(lat, lng) {
     try {
       const u = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`;
@@ -702,7 +647,6 @@ function WinesSection({ data, loading, onOpenMap }) {
         <button onClick={()=>setShowQrScanner(true)} style={btn(false)}>Scanner QR (camera)</button>
       </div>
 
-      {/* Scanner QR modal */}
       {showQrScanner && (
         <LiveQrScanner
           onClose={()=>setShowQrScanner(false)}
@@ -764,127 +708,10 @@ function WinesSection({ data, loading, onOpenMap }) {
       {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
     </section>
   );
+}
 
-  }
-
-  // Decodifica QR da immagine (best-effort)
-  async function decodeQrFromDataUrl(dataUrl) {
-    try {
-      const jsQR = (await import('jsqr')).default; // dynamic import
-      const img = await new Promise((res, rej) => {
-        const im = new Image();
-        im.onload = () => res(im);
-        im.onerror = rej;
-        im.src = dataUrl;
-      });
-      const cvs = document.createElement('canvas');
-      cvs.width = img.naturalWidth || img.width;
-      cvs.height = img.naturalHeight || img.height;
-      const ctx = cvs.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const imgData = ctx.getImageData(0, 0, cvs.width, cvs.height);
-      const code = jsQR(imgData.data, imgData.width, imgData.height);
-      if (code && code.data) return [code.data];
-      return [];
-    } catch {
-      return [];
-    }
-  }
-
-  async function handleSommelierOcrFile(file) {
-    try {
-      const dataUrl = await dataUrlFromFile(file);
-      // 1) OCR: foto lista → testo
-      const r1 = await fetch('/api/ocr', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ dataUrl })
-      });
-      const j1 = await r1.json();
-      const listText = (j1?.text || '').trim();
-      if (!listText) { alert('OCR: nessun testo letto dalla foto.'); return; }
-
-      // 2) QR: prova a estrarre URL dal QR nel menu (se presente)
-      const qrLinks = await decodeQrFromDataUrl(dataUrl);
-
-      // 3) Suggerisci in base alla lista fotografata + preferenze gusto
-      const tasteHints = extractTasteHints(listText);
-      await askSommelier({ wineList: listText, qrLinks, tasteHints });
-    } catch (e) {
-      alert('Errore Sommelier OCR: ' + (e.message || e));
-    }
-  }
-
-  return (
-    <section>
-      <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
-        <input
-          value={q}
-          onChange={e=>setQ(e.target.value)}
-          placeholder='Es: "voglio un Barolo non troppo aspro" o "bianco fresco e beverino sotto 20€"'
-          style={{ flex:1, minWidth:280, padding:'10px 12px', borderRadius:12, border:'1px solid #243246', background:'#0b0f14', color:'#e5eeff' }}
-        />
-        <button onClick={()=>askSommelier()} style={btn(true)}>Sommelier</button>
-        <button onClick={()=>fileRef.current?.click()} style={btn(false)}>Sommelier (OCR)</button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
-               onChange={e=> e.target.files?.[0] && handleSommelierOcrFile(e.target.files[0])}/>
-      </div>
-
-      <Table>
-        <thead>
-          <tr>
-            <th style={{ textAlign:'left',  padding:10 }}>Vino</th>
-            <th style={{ textAlign:'left',  padding:10 }}>Cantina</th>
-            <th style={{ textAlign:'left',  padding:10 }}>Denominazione</th>
-            <th style={{ textAlign:'right', padding:10 }}>Grad.</th>
-            <th style={{ textAlign:'left',  padding:10 }}>Vitigni / Blend</th>
-            <th style={{ textAlign:'left',  padding:10 }}>Regione</th>
-            <th style={{ textAlign:'right', padding:10 }}>Annata</th>
-            <th style={{ textAlign:'right', padding:10 }}>Budget</th>
-            <th style={{ textAlign:'left',  padding:10 }}>Voto</th>
-            <th style={{ textAlign:'left',  padding:10 }}>Azioni</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading && <tr><TCell>Caricamento…</TCell></tr>}
-          {!loading && data.length===0 && <tr><TCell>Nessun elemento</TCell></tr>}
-          {data.map(row => {
-            const blend = Array.isArray(row.grape_blend) && row.grape_blend.length
-              ? row.grape_blend.map(b => (b.pct != null ? `${b.pct}% ${b.name}` : b.name)).join(', ')
-              : (Array.isArray(row.grapes) ? row.grapes.join(', ') : '—');
-            return (
-              <tr key={row.id}>
-                <TCell>{row.name}</TCell>
-                <TCell>{row.winery || '—'}</TCell>
-                <TCell>{row.denomination || '—'}</TCell>
-                <TCell style={{ textAlign:'right' }}>{row.alcohol != null ? `${Number(row.alcohol).toFixed(1)}%` : '—'}</TCell>
-                <TCell>{blend}</TCell>
-                <TCell>{row.region || '—'}</TCell>
-                <TCell style={{ textAlign:'right' }}>{row.vintage || '—'}</TCell>
-                <TCell style={{ textAlign:'right' }}>{row.price_target != null ? `€ ${Number(row.price_target).toFixed(2)}` : '—'}</TCell>
-                <TCell><Stars value={row.rating_5 || 0} onChange={(n)=>setRating(row.id, n)} /></TCell>
-                <TCell>
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    <button style={btn(false)} onClick={()=>markDrankHere(row)}>Dove l’ho bevuto</button>
-                    <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'origin')}>Apri mappa (Origine)</button>
-                    <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'purchase')}>Apri mappa (Acquisto)</button>
-                    <button style={btn(false)} onClick={()=>findRetailers(row.name, row.region || undefined, row.price_target || undefined)}>Trova rivenditori</button>
-                    <button style={btn(false)} onClick={()=>navigator.clipboard.writeText(row.name)}>Copia nome</button>
-                  </div>
-                </TCell>
-              </tr>
-            );
-          })}
-        </tbody>
-      </Table>
-
-      {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
-    </section>
-  );
-
-
-
+/* ===================== CANTINA SECTION (con Foto) ===================== */
 function CellarSection({ data, loading }) {
-  // --- helpers geocoding (senza chiavi, via Nominatim) ---
   async function reverseGeocode(lat, lng) {
     try {
       const u = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`;
@@ -905,15 +732,12 @@ function CellarSection({ data, loading }) {
     return null;
   }
 
-  // --- bottone: salva il luogo di ACQUISTO (pin blu) per quel vino ---
   async function markBoughtHere(row) {
     try {
       const wineId = row.wine?.id || row.wine_id;
       if (!wineId) { alert('Vino non disponibile per questa riga.'); return; }
 
       let lat = null, lng = null, place_name = null;
-
-      // 1) prova geolocalizzazione browser
       try {
         const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 })
@@ -922,17 +746,13 @@ function CellarSection({ data, loading }) {
         lng = pos.coords.longitude;
         place_name = await reverseGeocode(lat, lng);
       } catch {
-        // 2) se negata o fallita, chiedi testo e geocodifica
         const manual = prompt('Inserisci il luogo di acquisto (es. "Enoteca X, Alba")');
         if (!manual) return;
         const hit = await searchGeocode(manual);
-        if (!hit) { alert('Impossibile geocodificare questo luogo. Specifica un indirizzo più preciso.'); return; }
+        if (!hit) { alert('Impossibile geocodificare.'); return; }
         lat = hit.lat; lng = hit.lng; place_name = hit.name;
       }
 
-      if (lat == null || lng == null) { alert('Posizione non disponibile.'); return; }
-
-      // 3) scrivi su product_places come "purchase" (blu)
       const { error } = await supabase.from('product_places').insert([{
         item_type: 'wine',
         item_id: wineId,
@@ -944,10 +764,26 @@ function CellarSection({ data, loading }) {
       if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
 
       alert('Luogo di acquisto aggiunto! (pin blu)');
-      location.reload(); // refresh rapido di tabella + mappa
+      location.reload();
     } catch (e) {
       alert('Errore: ' + (e.message || e));
     }
+  }
+
+  async function handlePhotoChange(wineId, file) {
+    try {
+      if (!file) return;
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const filePath = `wines/${wineId}-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from(MEDIA_BUCKET)
+        .upload(filePath, file, { upsert: true, cacheControl: '3600', contentType: file.type || 'image/jpeg' });
+      if (upErr) { alert('Errore upload: ' + upErr.message); return; }
+      const { data: pub } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(filePath);
+      const photo_url = pub?.publicUrl || null;
+      const { error: updErr } = await supabase.from('wines').update({ photo_url }).eq('id', wineId);
+      if (updErr) { alert('Errore aggiornamento record: ' + updErr.message); return; }
+      location.reload();
+    } catch (e) { alert('Errore foto: ' + (e.message || e)); }
   }
 
   return (
@@ -956,6 +792,7 @@ function CellarSection({ data, loading }) {
       <Table>
         <thead>
           <tr>
+            <th style={{ textAlign:'left',  padding:10, width:86 }}>Foto</th>
             <th style={{ textAlign:'left',  padding:10 }}>Vino</th>
             <th style={{ textAlign:'right', padding:10 }}>Bottiglie</th>
             <th style={{ textAlign:'right', padding:10 }}>Prezzo acquisto</th>
@@ -964,10 +801,24 @@ function CellarSection({ data, loading }) {
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><TCell>Caricamento…</TCell></tr>}
-          {!loading && data.length===0 && <tr><TCell>Nessun elemento</TCell></tr>}
+          {loading && <tr><TCell colSpan={6}>Caricamento…</TCell></tr>}
+          {!loading && data.length===0 && <tr><TCell colSpan={6}>Nessun elemento</TCell></tr>}
           {data.map(row => (
             <tr key={row.id}>
+              <TCell>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  {row.wine?.photo_url
+                    ? <img src={row.wine.photo_url} alt="" style={{ width:56, height:56, objectFit:'cover', borderRadius:10, border:'1px solid #1f2a38' }}
+                           onError={(e)=>{ e.currentTarget.style.display='none'; }} />
+                    : <div style={{ width:56, height:56, borderRadius:10, border:'1px solid #243246', background:'#0b0f14', display:'grid', placeItems:'center', opacity:.6 }}>—</div>
+                  }
+                  <label style={btn(false)}>
+                    {row.wine?.photo_url ? 'Cambia' : 'Carica'} foto
+                    <input type="file" accept="image/*" style={{ display:'none' }}
+                           onChange={e=>handlePhotoChange(row.wine?.id || row.wine_id, e.target.files?.[0])}/>
+                  </label>
+                </div>
+              </TCell>
               <TCell>{row.wine?.name || '—'}</TCell>
               <TCell style={{ textAlign:'right' }}>{row.bottles}</TCell>
               <TCell style={{ textAlign:'right' }}>{row.purchase_price_eur != null ? `€ ${Number(row.purchase_price_eur).toFixed(2)}` : '—'}</TCell>
@@ -1013,7 +864,7 @@ function SommelierDrawer({ data, onClose }) {
   );
 }
 
-/* ===================== Form manuali (nascosti finché non clicchi) ===================== */
+/* ===================== Form manuali ===================== */
 const inp = { padding:'10px 12px', borderRadius:12, border:'1px solid #243246', background:'#0b0f14', color:'#e5eeff' };
 
 const AddArtisanForm = React.forwardRef(function AddArtisanForm({ onInserted }, ref) {
@@ -1319,5 +1170,66 @@ function AddPlaceWidget({ items, kindOptions, onInserted }) {
         <button onClick={addPlace} style={btn(true)}>Aggiungi luogo</button>
       </div>
     </section>
+  );
+}
+
+/* ===================== Live QR Scanner (camera) ===================== */
+function LiveQrScanner({ onClose, onResult }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const loopRef = useRef(null);
+
+  useEffect(() => {
+    let stream;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          startScanLoop();
+        }
+      } catch (e) {
+        alert('Impossibile avviare la fotocamera.');
+        onClose?.();
+      }
+    })();
+    return () => {
+      stopScanLoop();
+      if (stream) stream.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  function startScanLoop() { loopRef.current = setInterval(scanFrame, 350); }
+  function stopScanLoop()  { if (loopRef.current) clearInterval(loopRef.current); loopRef.current = null; }
+
+  async function scanFrame() {
+    const jsQR = (await import('jsqr')).default;
+    const video = videoRef.current, canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const code = jsQR(img.data, img.width, img.height);
+    if (code && code.data) { stopScanLoop(); onResult?.(code.data); }
+  }
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, background:'rgba(0,0,0,0.6)',
+      display:'flex', alignItems:'center', justifyContent:'center', zIndex:60
+    }}>
+      <div style={{ width:'min(520px, 96vw)', background:'#0b0f14', border:'1px solid #1f2a38', borderRadius:16, padding:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <h3 style={{ margin:0 }}>Scanner QR</h3>
+          <button onClick={onClose} style={btn(false)}>Chiudi</button>
+        </div>
+        <video ref={videoRef} muted playsInline style={{ width:'100%', borderRadius:12, background:'#000' }} />
+        <canvas ref={canvasRef} style={{ display:'none' }} />
+        <p style={{ opacity:.8, marginTop:8 }}>Inquadra il QR del menù / lista vini. Appena letto, userò la pagina collegata per i suggerimenti.</p>
+      </div>
+    </div>
   );
 }
