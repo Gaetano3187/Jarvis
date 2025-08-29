@@ -29,7 +29,7 @@ export default function ProdottiTipiciViniPage() {
   const [showPlacesArtisan, setShowPlacesArtisan] = useState(false);
   const [showPlacesWine, setShowPlacesWine]       = useState(false);
 
-  // refs per eventuale prefill (restano ma ora l’inserimento da OCR/voce va diretto)
+  // refs per prefill form
   const artisanFormRef = useRef(null);
   const wineFormRef    = useRef(null);
   const cellarFormRef  = useRef(null);
@@ -72,87 +72,84 @@ export default function ProdottiTipiciViniPage() {
 
   // ===== Inserimenti auto da OCR/Voce (dopo normalizzazione) =====
   async function autoInsertArtisan(norm) {
-  const d = norm?.data || {};
-  const raw = norm?._raw || ''; // se lo passiamo dalla toolbar (vedi punto 2)
+    const d = norm?.data || {};
+    const raw = norm?._raw || '';
+    const name = (d.name && String(d.name).trim()) || `Prodotto (da completare) ${new Date().toISOString().slice(0,10)}`;
 
-  // nome di fallback se mancante
-  const name = (d.name && String(d.name).trim())
-    || `Prodotto (da completare) ${new Date().toISOString().slice(0,10)}`;
+    const pr = d.pricing || {};
+    const noteParts = [];
+    if (pr.unit === 'kg' && pr.unit_price_eur != null) noteParts.push(`Prezzo: € ${Number(pr.unit_price_eur).toFixed(2)}/kg`);
+    if (pr.quantity_kg != null)                         noteParts.push(`Peso: ${Number(pr.quantity_kg).toFixed(3)} kg`);
+    if (pr.total_price_eur != null)                     noteParts.push(`Totale: € ${Number(pr.total_price_eur).toFixed(2)}`);
+    if (d.producer)                                     noteParts.push(`Produttore: ${d.producer}`);
+    if (!d.name && raw)                                 noteParts.push(`[OCR] ${raw.slice(0,150)}…`);
 
-  const pr = d.pricing || {};
-  const noteParts = [];
-  if (pr.unit === 'kg' && pr.unit_price_eur != null) noteParts.push(`Prezzo: € ${Number(pr.unit_price_eur).toFixed(2)}/kg`);
-  if (pr.quantity_kg != null)                         noteParts.push(`Peso: ${Number(pr.quantity_kg).toFixed(3)} kg`);
-  if (pr.total_price_eur != null)                     noteParts.push(`Totale: € ${Number(pr.total_price_eur).toFixed(2)}`);
-  if (d.producer)                                     noteParts.push(`Produttore: ${d.producer}`);
-  if (!d.name && raw)                                 noteParts.push(`[OCR] ${raw.slice(0,150)}…`);
+    const priceForDB =
+      (pr.unit === 'kg' && pr.unit_price_eur != null) ? pr.unit_price_eur :
+      (pr.total_price_eur != null ? pr.total_price_eur : (d.price_eur ?? null));
 
-  const priceForDB =
-    (pr.unit === 'kg' && pr.unit_price_eur != null) ? pr.unit_price_eur :
-    (pr.total_price_eur != null ? pr.total_price_eur : (d.price_eur ?? null));
+    const { data: inserted, error } = await supabase.from('artisan_products').insert([{
+      name,
+      category: (d.product_type === 'salume' ? 'salume' : 'formaggio'),
+      designation: d.designation || null,
+      price_eur: priceForDB,
+      notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null)
+    }]).select().single();
+    if (error) { alert('Errore inserimento prodotto: ' + error.message); return; }
 
-  const { data: inserted, error } = await supabase.from('artisan_products').insert([{
-    name,
-    category: (d.product_type === 'salume' ? 'salume' : 'formaggio'),
-    designation: d.designation || null,
-    price_eur: priceForDB,
-    notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null)
-  }]).select().single();
-  if (error) { alert('Errore inserimento prodotto: ' + error.message); return; }
-
-  const rows = [];
-  if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
-  if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
-  if (rows.length) {
-    const { error:e2 } = await supabase.from('product_places').insert(rows);
-    if (e2) alert('Inserito il prodotto, ma errore sui luoghi: ' + e2.message);
+    const rows = [];
+    if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
+    if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
+    if (rows.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(rows);
+      if (e2) alert('Inserito il prodotto, ma errore sui luoghi: ' + e2.message);
+    }
+    await refreshAll();
   }
-  await refreshAll();
-}
-
 
   async function autoInsertWine(norm, alsoCellar = false) {
-  const d = norm?.data || {};
-  const raw = norm?._raw || '';
+    const d = norm?.data || {};
+    const raw = norm?._raw || '';
+    const name = (d.name && String(d.name).trim()) || `Vino (da completare) ${new Date().toISOString().slice(0,10)}`;
 
-  // nome di fallback
-  const name = (d.name && String(d.name).trim())
-    || `Vino (da completare) ${new Date().toISOString().slice(0,10)}`;
+    const noteParts = [];
+    if (d.bottle_l)             noteParts.push(`Bott: ${Number(d.bottle_l).toFixed(2)} l`);
+    if (d.unit_price_l != null) noteParts.push(`~ € ${Number(d.unit_price_l).toFixed(2)}/l`);
+    if (!d.name && raw)         noteParts.push(`[OCR] ${raw.slice(0,150)}…`);
 
-  const noteParts = [];
-  if (d.bottle_l)             noteParts.push(`Bott: ${Number(d.bottle_l).toFixed(2)} l`);
-  if (d.unit_price_l != null) noteParts.push(`~ € ${Number(d.unit_price_l).toFixed(2)}/l`);
-  if (!d.name && raw)         noteParts.push(`[OCR] ${raw.slice(0,150)}…`);
+    const insertBody = {
+      name,
+      winery: d.winery || null,
+      denomination: d.denomination || null,
+      region: d.region || null,
+      grapes: Array.isArray(d.grapes) ? d.grapes : null,
+      vintage: d.vintage ?? null,
+      style: d.style || null,
+      price_target: d.price_eur ?? null,
+      notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null),
+      // nuovi campi (se presenti in DB)
+      alcohol: d.alcohol ?? null,
+      grape_blend: Array.isArray(d.grape_blend) ? d.grape_blend : null
+    };
 
-  const { data: inserted, error } = await supabase.from('wines').insert([{
-    name,
-    winery: d.winery || null,
-    denomination: d.denomination || null,
-    region: d.region || null,
-    grapes: Array.isArray(d.grapes) ? d.grapes : null,
-    vintage: d.vintage ?? null,
-    style: d.style || null,
-    price_target: d.price_eur ?? null,
-    notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null)
-  }]).select().single();
-  if (error) { alert('Errore inserimento vino: ' + error.message); return; }
+    const { data: inserted, error } = await supabase.from('wines').insert([insertBody]).select().single();
+    if (error) { alert('Errore inserimento vino: ' + error.message); return; }
 
-  const rows = [];
-  if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
-  if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
-  if (rows.length) {
-    const { error:e2 } = await supabase.from('product_places').insert(rows);
-    if (e2) alert('Inserito il vino, ma errore sui luoghi: ' + e2.message);
+    const rows = [];
+    if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
+    if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
+    if (rows.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(rows);
+      if (e2) alert('Inserito il vino, ma errore sui luoghi: ' + e2.message);
+    }
+
+    if (alsoCellar) {
+      const price = d.price_eur ?? null;
+      const { error:e3 } = await supabase.from('cellar').insert([{ wine_id: inserted.id, bottles: 1, purchase_price_eur: price }]);
+      if (e3) alert('Inserito vino ma errore in Cantina: ' + e3.message);
+    }
+    await refreshAll();
   }
-
-  if (alsoCellar) {
-    const price = d.price_eur ?? null;
-    const { error:e3 } = await supabase.from('cellar').insert([{ wine_id: inserted.id, bottles: 1, purchase_price_eur: price }]);
-    if (e3) alert('Inserito vino ma errore in Cantina: ' + e3.message);
-  }
-  await refreshAll();
-}
-
 
   return (
     <>
@@ -164,7 +161,7 @@ export default function ProdottiTipiciViniPage() {
         <div style={{
           position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center',
           background:'linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.35))', color:'#fff', fontWeight:700, fontSize:28, letterSpacing:1.2,
-          pointerEvents:'none' // evita sovrapposizioni sul click mappa
+          pointerEvents:'none'
         }}>
           PRODOTTI TIPICI & VINI
         </div>
@@ -185,7 +182,6 @@ export default function ProdottiTipiciViniPage() {
             target="artisan"
             onAddManual={()=> setShowAddArtisan(v=>!v)}
             onParsed={async (norm)=> {
-              // OCR etichette o voce → inserimento diretto + flag mappa
               if (norm?.kind !== 'artisan') {
                 alert('Rilevati dati vino: sposto su sezione Vini.');
                 setTab('wines'); setShowAddWine(true);
@@ -257,7 +253,7 @@ export default function ProdottiTipiciViniPage() {
             onAddManual={()=> setShowAddCellar(v=>!v)}
             onParsed={async (norm)=> {
               if (norm?.kind === 'wine') {
-                await autoInsertWine(norm, true); // aggiungi anche in cantina
+                await autoInsertWine(norm, true);
                 setTab('cellar');
               } else if (norm?.kind === 'artisan') {
                 await autoInsertArtisan(norm);
@@ -323,41 +319,40 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
   }
 
   async function handleOcrFile(file) {
-  if (!file) return;
-  setBusy(true);
-  try {
-    const toDataURL = f => new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result);
-      r.onerror = rej;
-      r.readAsDataURL(f);
-    });
-    const dataUrl = await toDataURL(file);           // <-- base64
-    const r1 = await fetch('/api/ocr', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ dataUrl })              // <-- niente FormData
-    });
-    const j1 = await r1.json();
-    const text = j1?.text || j1?.result || j1?.raw || '';
-    if (!text) throw new Error('OCR: nessun testo.');
+    if (!file) return;
+    setBusy(true);
+    try {
+      // file → base64
+      const dataUrl = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(file);
+      });
 
-    // normalizza → schema
-    const r2 = await fetch('/api/ingest/normalize', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ text, target })
-    });
-    const parsed = await r2.json();
-    onParsed && onParsed(parsed, { source:'ocr', raw:text });
-  } catch (e) {
-    alert('Errore OCR: ' + (e.message || e));
-  } finally { setBusy(false); }
+      // 1) OCR img → testo
+      const r1 = await fetch('/api/ocr', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ dataUrl })
+      });
+      const j1 = await r1.json();
+      const text = j1?.text || j1?.result || j1?.raw || '';
+      if (!text) throw new Error('OCR: nessun testo.');
 
-  parsed._raw = text; // passa il testo originale
-
-
-}
+      // 2) normalizza → schema unico
+      const r2 = await fetch('/api/ingest/normalize', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ text, target })
+      });
+      const parsed = await r2.json();
+      parsed._raw = text; // passa il testo grezzo
+      onParsed && onParsed(parsed, { source:'ocr', raw:text });
+    } catch (e) {
+      alert('Errore OCR: ' + (e.message || e));
+    } finally { setBusy(false); }
+  }
 
   async function handleVoice() {
     setBusy(true);
@@ -370,6 +365,7 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
             const text = ev.results?.[0]?.[0]?.transcript || '';
             if (text) {
               const norm = await normalizeText(text);
+              norm._raw = text;
               onParsed && onParsed(norm, { source:'voice', raw:text });
             }
             resolve();
@@ -378,7 +374,7 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
           rec.onend = resolve; rec.start();
         });
       } else {
-        // fallback: registra 5s e manda a /api/stt
+        // fallback /api/stt (5s)
         const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
         const rec = new MediaRecorder(stream, { mimeType:'audio/webm' });
         const chunks=[]; rec.ondataavailable = e=> chunks.push(e.data);
@@ -391,12 +387,11 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
         const text = j1?.text || '';
         if (!text) throw new Error('STT: nessun testo.');
         const norm = await normalizeText(text);
+        norm._raw = text;
         onParsed && onParsed(norm, { source:'voice', raw:text });
       }
     } catch(e){ alert('Errore voce: ' + (e.message||e)); }
     finally { setBusy(false); }
-    parsed._raw = text; // passa il testo originale
-
   }
 
   return (
@@ -410,7 +405,7 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
   );
 }
 
-/* ===================== Tabelle ===================== */
+/* ===================== Helpers UI ===================== */
 function TCell({ children }) {
   return <td style={{ padding:'10px 8px', borderBottom:'1px solid #1f2a38' }}>{children}</td>;
 }
@@ -431,7 +426,19 @@ function btn(active) {
     color: active ? '#e6f0ff' : '#c7d2fe', cursor:'pointer'
   };
 }
+function Stars({ value=0, onChange }) {
+  return (
+    <span aria-label="rating" style={{ display:'inline-flex', gap:4 }}>
+      {[1,2,3,4,5].map(n=>(
+        <span key={n} role="button" onClick={()=>onChange?.(n)} style={{ cursor:'pointer', fontSize:18, userSelect:'none' }}>
+          {n <= (value||0) ? '★' : '☆'}
+        </span>
+      ))}
+    </span>
+  );
+}
 
+/* ===================== Sezioni Tabelle ===================== */
 function ArtisanSection({ data, loading, onOpenMap }) {
   return (
     <section>
@@ -484,6 +491,11 @@ function WinesSection({ data, loading, onOpenMap }) {
     const j = await r.json();
     alert(JSON.stringify(j, null, 2));
   }
+  async function setRating(id, n) {
+    const { error } = await supabase.from('wines').update({ rating_5: n }).eq('id', id);
+    if (error) { alert('Errore voto: ' + error.message); return; }
+    location.reload();
+  }
 
   return (
     <section>
@@ -496,36 +508,47 @@ function WinesSection({ data, loading, onOpenMap }) {
       <Table>
         <thead>
           <tr>
-            <th style={{ textAlign:'left', padding:10 }}>Vino</th>
-            <th style={{ textAlign:'left', padding:10 }}>Cantina</th>
-            <th style={{ textAlign:'left', padding:10 }}>Denominazione</th>
-            <th style={{ textAlign:'left', padding:10 }}>Regione</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Vino</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Cantina</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Denominazione</th>
+            <th style={{ textAlign:'right', padding:10 }}>Grad.</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Vitigni / Blend</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Regione</th>
             <th style={{ textAlign:'right', padding:10 }}>Annata</th>
             <th style={{ textAlign:'right', padding:10 }}>Budget</th>
-            <th style={{ textAlign:'left', padding:10 }}>Azioni</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Voto</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Azioni</th>
           </tr>
         </thead>
         <tbody>
           {loading && <tr><TCell>Caricamento…</TCell></tr>}
           {!loading && data.length===0 && <tr><TCell>Nessun elemento</TCell></tr>}
-          {data.map(row => (
-            <tr key={row.id}>
-              <TCell>{row.name}</TCell>
-              <TCell>{row.winery || '—'}</TCell>
-              <TCell>{row.denomination || '—'}</TCell>
-              <TCell>{row.region || '—'}</TCell>
-              <TCell style={{ textAlign:'right' }}>{row.vintage || '—'}</TCell>
-              <TCell style={{ textAlign:'right' }}>{row.price_target != null ? `€ ${Number(row.price_target).toFixed(2)}` : '—'}</TCell>
-              <TCell>
-                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                  <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'origin')}>Apri mappa (Origine)</button>
-                  <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'purchase')}>Apri mappa (Acquisto)</button>
-                  <button style={btn(false)} onClick={()=>findRetailers(row.name, row.region || undefined, row.price_target || undefined)}>Trova rivenditori</button>
-                  <button style={btn(false)} onClick={()=>navigator.clipboard.writeText(row.name)}>Copia nome</button>
-                </div>
-              </TCell>
-            </tr>
-          ))}
+          {data.map(row => {
+            const blend = Array.isArray(row.grape_blend) && row.grape_blend.length
+              ? row.grape_blend.map(b => (b.pct != null ? `${b.pct}% ${b.name}` : b.name)).join(', ')
+              : (Array.isArray(row.grapes) ? row.grapes.join(', ') : '—');
+            return (
+              <tr key={row.id}>
+                <TCell>{row.name}</TCell>
+                <TCell>{row.winery || '—'}</TCell>
+                <TCell>{row.denomination || '—'}</TCell>
+                <TCell style={{ textAlign:'right' }}>{row.alcohol != null ? `${Number(row.alcohol).toFixed(1)}%` : '—'}</TCell>
+                <TCell>{blend}</TCell>
+                <TCell>{row.region || '—'}</TCell>
+                <TCell style={{ textAlign:'right' }}>{row.vintage || '—'}</TCell>
+                <TCell style={{ textAlign:'right' }}>{row.price_target != null ? `€ ${Number(row.price_target).toFixed(2)}` : '—'}</TCell>
+                <TCell><Stars value={row.rating_5 || 0} onChange={(n)=>setRating(row.id, n)} /></TCell>
+                <TCell>
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                    <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'origin')}>Apri mappa (Origine)</button>
+                    <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'purchase')}>Apri mappa (Acquisto)</button>
+                    <button style={btn(false)} onClick={()=>findRetailers(row.name, row.region || undefined, row.price_target || undefined)}>Trova rivenditori</button>
+                    <button style={btn(false)} onClick={()=>navigator.clipboard.writeText(row.name)}>Copia nome</button>
+                  </div>
+                </TCell>
+              </tr>
+            );
+          })}
         </tbody>
       </Table>
 
