@@ -1284,6 +1284,52 @@ body.lp-route .lp-sec1 {
     overflow: hidden !important;
   }
 }
+/* GRID: thumb | main | metrics | actions  */
+.stockRowGrid {
+  display: grid;
+  grid-template-columns: 56px 1fr 340px auto;
+  grid-template-areas:
+    "thumb main metrics actions";
+  align-items: center;
+  gap: 10px;
+}
+
+/* Aree */
+.stockRowGrid .thumb   { grid-area: thumb; }
+.stockRowGrid .main    { grid-area: main;  min-width: 0; }
+.stockRowGrid .metrics { grid-area: metrics; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stockRowGrid .actions { grid-area: actions; display: flex; gap: 6px; justify-content: flex-end; }
+
+/* Blocco metrica */
+.stockRowGrid .kv   { text-align: center; padding: 4px 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(255,255,255,.04); }
+.stockRowGrid .kvL  { font-size: .75rem; opacity: .75; }
+.stockRowGrid .kvV  { font-size: 1rem; font-weight: 700; }
+
+/* Responsive: tablet */
+@media (max-width: 1024px) {
+  .stockRowGrid {
+    grid-template-columns: 48px 1fr auto;
+    grid-template-areas:
+      "thumb main actions"
+      "thumb metrics metrics";
+    align-items: start;
+  }
+  .stockRowGrid .metrics { margin-top: 6px; }
+}
+
+/* Mobile: tutto in colonna ordinata */
+@media (max-width: 640px) {
+  .stockRowGrid {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "main actions"
+      "thumb actions"
+      "metrics metrics";
+    gap: 8px;
+  }
+  .stockRowGrid .thumb   { justify-self: start; }
+  .stockRowGrid .actions { align-self: start; }
+}
 
 }
 
