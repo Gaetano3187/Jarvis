@@ -989,6 +989,19 @@ function handleReviewChange(id, field, value){
     }
   } catch {}
 }
+function priceNum(x){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? n : 0; }
+function derivePriceFields({ packs, priceEach, priceTotal }) {
+  const p = Math.max(1, Number(packs || 1));
+  let pe = priceNum(priceEach);
+  let pt = priceNum(priceTotal);
+  if (!pe && pt) pe = pt / p;           // se ho il totale ma non il “cadauno”
+  if (!pt && pe) pt = pe * p;           // se ho il “cadauno” ma non il totale
+  // arrotonda gentile
+  pe = Math.round(pe * 100) / 100;
+  pt = Math.round(pt * 100) / 100;
+  return { priceEach: pe, priceTotal: pt };
+}
+
 
 // Normalizza le righe prima di aggiungerle
 function normalizeReviewedItems(items){
@@ -2790,130 +2803,177 @@ return (
             </div>
           )}
 
-          {/* lista corrente */}
-          <div style={styles.sectionInner}>
-            <h3 style={styles.h3}>
-              Lista corrente:{' '}
-              <span style={{ opacity: .85 }}>
-                {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
-              </span>
-            </h3>
+       {/* lista corrente */}
+  <div style={styles.sectionInner}>
+    <h3 style={styles.h3}>
+      Lista corrente:{' '}
+      <span style={{ opacity: .85 }}>
+        {currentList === LIST_TYPES.ONLINE ? 'Spesa Online' : 'Supermercato'}
+      </span>
+    </h3>
 
-            {(lists[currentList] || []).length === 0 ? (
-              <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {(lists[currentList] || []).map((it) => {
-                  const isBought = !!it.purchased;
-                  return (
-                    <div
-                      key={it.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setLists(prev => {
-                          const next = { ...prev };
-                          next[currentList] = (prev[currentList] || []).map(i =>
-                            i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                          );
-                          return next;
-                        });
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setLists(prev => {
-                            const next = { ...prev };
-                            next[currentList] = (prev[currentList] || []).map(i =>
-                              i.id === it.id ? { ...i, purchased: !i.purchased } : i
-                            );
-                            return next;
-                          });
-                        }
-                      }}
-                      style={{ ...styles.listCardRed, ...(isBought ? styles.listCardRedBought : null) }}
-                    >
-                      <div style={styles.rowLeft}>
-                        <div style={styles.rowName}>
-                          {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
-                        </div>
-                        <div style={styles.rowMeta}>
-                          {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
-                          {isBought ? <span style={styles.badgeBought}>preso</span> : <span style={styles.badgeToBuy}>da prendere</span>}
-                        </div>
-                      </div>
-
-                      <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
-                        <button
-                          title="Segna come comprato"
-                          onClick={() => {
-                            const item = it;
-                            const movePacks = 1;
-
-                            setLists(prev => {
-                              const next = { ...prev };
-                              next[currentList] = (prev[currentList] || [])
-                                .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
-                                .filter(r => Number(r.qty || 0) > 0);
-                              return next;
-                            });
-
-                            setStock(prev => {
-                              const arr = [...prev];
-                              const todayISO = new Date().toISOString().slice(0, 10);
-                              const idx = arr.findIndex(
-                                s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-                              );
-                              const upp = Math.max(1, Number(item.unitsPerPack || 1));
-                              const lbl = item.unitLabel || 'unità';
-
-                              if (idx >= 0) {
-                                const old = arr[idx];
-                                const u = Math.max(1, Number(old.unitsPerPack || upp));
-                                const p = Math.max(0, Number(old.packs || 0) + movePacks);
-                                arr[idx] = {
-                                  ...old,
-                                  packs: p,
-                                  unitsPerPack: u,
-                                  unitLabel: old.unitLabel || lbl,
-                                  packsOnly: false,
-                                  ...restockTouch(p, todayISO, u),
-                                };
-                              } else {
-                                const row = {
-                                  name: item.name,
-                                  brand: item.brand || '',
-                                  packs: movePacks,
-                                  unitsPerPack: upp,
-                                  unitLabel: lbl,
-                                  expiresAt: '',
-                                  ...restockTouch(movePacks, todayISO, upp),
-                                  avgDailyUnits: 0,
-                                  packsOnly: false,
-                                };
-                                arr.unshift(withRememberedImage(row, imagesIndex));
-                              }
-                              return arr;
-                            });
-                          }}
-                          style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
-                        >
-                          ✓
-                        </button>
-
-                        <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
-                        <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
-
-                        <button title="OCR riga" onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }} style={styles.ocrPillBtn}>OCR riga</button>
-                        <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
-                      </div>
-                    </div>
+    {(lists[currentList] || []).length === 0 ? (
+      <p style={{ opacity: .8 }}>Nessun prodotto ancora</p>
+    ) : (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {(lists[currentList] || []).map((it) => {
+          const isBought = !!it.purchased;
+          return (
+            <div
+              key={it.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setLists(prev => {
+                  const next = { ...prev };
+                  next[currentList] = (prev[currentList] || []).map(i =>
+                    i.id === it.id ? { ...i, purchased: !i.purchased } : i
                   );
-                })}
+                  return next;
+                });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setLists(prev => {
+                    const next = { ...prev };
+                    next[currentList] = (prev[currentList] || []).map(i =>
+                      i.id === it.id ? { ...i, purchased: !i.purchased } : i
+                    );
+                    return next;
+                  });
+                }
+              }}
+              style={{ ...styles.listCardRed, ...(isBought ? styles.listCardRedBought : null) }}
+              className="list-card"    // 👈 per CSS responsive
+            >
+              <div style={styles.rowLeft}>
+                <div style={styles.rowName}>
+                  {it.name}{it.brand ? <span style={styles.rowBrand}> · {it.brand}</span> : null}
+                </div>
+                <div style={styles.rowMeta}>
+                  {it.qty} conf. × {it.unitsPerPack} {it.unitLabel}
+                  {isBought ? (
+                    <span style={styles.badgeBought}>preso</span>
+                  ) : (
+                    <span style={styles.badgeToBuy}>da prendere</span>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        </section>
+
+              <div
+                style={styles.rowActions}
+                onClick={(e) => e.stopPropagation()}
+                className="list-actions"  // 👈 per CSS responsive
+              >
+                <button
+                  title="Segna come comprato"
+                  onClick={() => {
+                    const item = it;
+                    const movePacks = 1;
+
+                    setLists(prev => {
+                      const next = { ...prev };
+                      next[currentList] = (prev[currentList] || [])
+                        .map(r => r.id === item.id ? { ...r, qty: Math.max(0, Number(r.qty || 0) - movePacks), purchased: true } : r)
+                        .filter(r => Number(r.qty || 0) > 0);
+                      return next;
+                    });
+
+                    setStock(prev => {
+                      const arr = [...prev];
+                      const todayISO = new Date().toISOString().slice(0, 10);
+                      const idx = arr.findIndex(
+                        s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
+                      );
+                      const upp = Math.max(1, Number(item.unitsPerPack || 1));
+                      const lbl = item.unitLabel || 'unità';
+
+                      if (idx >= 0) {
+                        const old = arr[idx];
+                        const u = Math.max(1, Number(old.unitsPerPack || upp));
+                        const p = Math.max(0, Number(old.packs || 0) + movePacks);
+                        arr[idx] = {
+                          ...old,
+                          packs: p,
+                          unitsPerPack: u,
+                          unitLabel: old.unitLabel || lbl,
+                          packsOnly: false,
+                          ...restockTouch(p, todayISO, u),
+                        };
+                      } else {
+                        const row = {
+                          name: item.name,
+                          brand: item.brand || '',
+                          packs: movePacks,
+                          unitsPerPack: upp,
+                          unitLabel: lbl,
+                          expiresAt: '',
+                          ...restockTouch(movePacks, todayISO, upp),
+                          avgDailyUnits: 0,
+                          packsOnly: false,
+                        };
+                        arr.unshift(withRememberedImage(row, imagesIndex));
+                      }
+                      return arr;
+                    });
+                  }}
+                  style={{ ...styles.iconBtnBase, ...styles.iconBtnGreen }}
+                >
+                  ✓
+                </button>
+
+                <button title="–1" onClick={() => incQty(it.id, -1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>−</button>
+                <button title="+1" onClick={() => incQty(it.id, +1)} style={{ ...styles.iconBtnBase, ...styles.iconBtnDark }}>+</button>
+
+                <button
+                  title="OCR riga"
+                  onClick={() => { setTargetRowIdx(it.id); rowOcrInputRef.current?.click(); }}
+                  style={styles.ocrPillBtn}
+                >
+                  OCR riga
+                </button>
+                <button title="Elimina" onClick={() => removeItem(it.id)} style={styles.trashBtn}>🗑</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+
+  {/* CSS responsive mobile per la lista (SOLO mobile) */}
+  <style jsx global>{`
+    @media (max-width: 640px) {
+      .list-card {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+      }
+      .list-card .list-actions {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px !important;
+        margin-top: 6px !important;
+      }
+      /* su schermi molto piccoli vai a 2 colonne */
+      @media (max-width: 380px) {
+        .list-card .list-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      .list-card .list-actions > button {
+        width: 100% !important;
+        min-height: 42px !important;
+      }
+      /* stringhe lunghe vanno a capo bene */
+      .list-card .${'' /* row di testo principale */} {
+        word-break: break-word;
+      }
+    }
+  `}</style>
+</section>
 
         {/* ===== SEZIONE 3 — ESAURIMENTO/SCADENZA ===== */}
 <section style={styles.sectionBox}>
