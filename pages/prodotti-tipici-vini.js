@@ -440,6 +440,69 @@ function Stars({ value=0, onChange }) {
 
 /* ===================== Sezioni Tabelle ===================== */
 function ArtisanSection({ data, loading, onOpenMap }) {
+  // --- Geocoding helpers (Nominatim, no key) ---
+  async function reverseGeocode(lat, lng) {
+    try {
+      const u = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`;
+      const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
+      const j = await r.json();
+      return j?.display_name || null;
+    } catch { return null; }
+  }
+  async function searchGeocode(query) {
+    try {
+      const u = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=0`;
+      const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
+      const j = await r.json();
+      if (Array.isArray(j) && j.length) {
+        return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      }
+    } catch {}
+    return null;
+  }
+
+  // --- Bottone: salva luogo di CONSUMO (pin blu) per l’articolo ---
+  async function markAteHere(row) {
+    try {
+      let lat = null, lng = null, place_name = null;
+
+      // 1) prova geolocalizzazione browser
+      try {
+        const pos = await new Promise((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 })
+        );
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        place_name = await reverseGeocode(lat, lng);
+      } catch {
+        // 2) se negata/fallita → chiedi testo e geocodifica
+        const manual = prompt('Inserisci il luogo dove l’hai mangiato (es. "Ristorante I Caraceni, Roma")');
+        if (!manual) return;
+        const hit = await searchGeocode(manual);
+        if (!hit) { alert('Impossibile geocodificare questo luogo. Prova un indirizzo più preciso.'); return; }
+        lat = hit.lat; lng = hit.lng; place_name = hit.name;
+      }
+
+      if (lat == null || lng == null) { alert('Posizione non disponibile.'); return; }
+
+      // 3) scrivi su product_places come "purchase" (pin blu)
+      const { error } = await supabase.from('product_places').insert([{
+        item_type: 'artisan',
+        item_id: row.id,
+        kind: 'purchase',                             // consumo/acquisto = blu
+        place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+        lat, lng,
+        is_primary: true
+      }]);
+      if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
+
+      alert('Luogo aggiunto! (pin blu)');
+      location.reload(); // refresh rapido tabella + mappa
+    } catch (e) {
+      alert('Errore: ' + (e.message || e));
+    }
+  }
+
   return (
     <section>
       <h3 style={{ margin:'8px 0 8px' }}>Formaggi & Salumi</h3>
@@ -464,6 +527,7 @@ function ArtisanSection({ data, loading, onOpenMap }) {
               <TCell style={{ textAlign:'right' }}>{row.price_eur != null ? `€ ${Number(row.price_eur).toFixed(2)}` : '—'}</TCell>
               <TCell>
                 <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  <button style={btn(false)} onClick={()=>markAteHere(row)}>Dove l’ho mangiato</button>
                   <button style={btn(false)} onClick={()=>onOpenMap('artisan', row.id, 'origin')}>Apri mappa (Origine)</button>
                   <button style={btn(false)} onClick={()=>onOpenMap('artisan', row.id, 'purchase')}>Apri mappa (Acquisto)</button>
                 </div>
@@ -476,33 +540,301 @@ function ArtisanSection({ data, loading, onOpenMap }) {
   );
 }
 
+
 function WinesSection({ data, loading, onOpenMap }) {
   const [q, setQ] = useState('');
   const [sommelierOpen, setSommelierOpen] = useState(false);
   const [sommelierData, setSommelierData] = useState(null);
+  const fileRef = useRef(null);
+  const [showQrScanner, setShowQrScanner] = useState(false);
 
-  async function askSommelier() {
-    const r = await fetch('/api/sommelier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query:q }) });
+  async function askSommelier(payload = {}) {
+    const r = await fetch('/api/sommelier', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        query: q || 'Consigliami il migliore in base al mio gusto',
+        ...payload
+      })
+    });
     const j = await r.json();
     setSommelierData(j); setSommelierOpen(true);
   }
+
   async function findRetailers(name, region, budget) {
-    const r = await fetch('/api/retailers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ productName:name, region, budget }) });
+    const r = await fetch('/api/retailers', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ productName: name, region, budget })
+    });
     const j = await r.json();
     alert(JSON.stringify(j, null, 2));
   }
+
   async function setRating(id, n) {
     const { error } = await supabase.from('wines').update({ rating_5: n }).eq('id', id);
     if (error) { alert('Errore voto: ' + error.message); return; }
     location.reload();
   }
 
+  // ---------------- Sommelier (OCR immagine lista) ----------------
+  function extractTasteHints(text) {
+    const t = (q + ' ' + (text||'')).toLowerCase();
+    const hints = { tags: [] };
+    if (/\b(non troppo aspro|poco aspro|morbido|rotondo)\b/.test(t)) hints.acidity = 'low';
+    else if (/\bmolto fresco|tagliente|acido\b/.test(t)) hints.acidity = 'high';
+    if (/\bmorbido|setoso|poco tannico\b/.test(t)) hints.tannin = 'low';
+    else if (/\btannico|ruvido|astringente\b/.test(t)) hints.tannin = 'high';
+    if (/\bleggero|fresco beverino|snello\b/.test(t)) hints.body = 'light';
+    else if (/\bstrutturato|corposo|pieno\b/.test(t)) hints.body = 'full';
+    if (/\bsecco\b/.test(t)) hints.sweetness = 'dry';
+    else if (/\bdolce|abboccato|amabile\b/.test(t)) hints.sweetness = 'sweet';
+    if (/\bfruttato\b/.test(t))  hints.tags.push('fruttato');
+    if (/\bspeziato\b/.test(t))  hints.tags.push('speziato');
+    if (/\bminerale\b/.test(t))  hints.tags.push('minerale');
+    if (/\baromatico\b/.test(t)) hints.tags.push('aromatico');
+    return hints;
+  }
+
+  async function dataUrlFromFile(file) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = rej;
+      fr.readAsDataURL(file);
+    });
+  }
+
+  async function handleSommelierOcrFile(file) {
+    try {
+      const dataUrl = await dataUrlFromFile(file);
+      const r1 = await fetch('/api/ocr', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ dataUrl })
+      });
+      const j1 = await r1.json();
+      const listText = (j1?.text || '').trim();
+      if (!listText) { alert('OCR: nessun testo letto dalla foto.'); return; }
+
+      const tasteHints = extractTasteHints(listText);
+      await askSommelier({ wineList: listText, qrLinks: [], tasteHints });
+    } catch (e) {
+      alert('Errore Sommelier OCR: ' + (e.message || e));
+    }
+  }
+
+  // ---------------- Scanner QR (fotocamera) ----------------
+  async function handleQrResult(url) {
+    try {
+      const isUrl = /^https?:\/\//i.test(url || '');
+      const qrLinks = isUrl ? [url] : [];
+      let pageText = '';
+      if (isUrl) {
+        const r = await fetch('/api/qr-text', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ url }) });
+        const j = await r.json();
+        pageText = j?.text || '';
+      }
+      const tasteHints = extractTasteHints(pageText);
+      await askSommelier({ wineList: pageText, qrLinks, tasteHints });
+    } catch (e) {
+      alert('Errore lettura QR: ' + (e.message || e));
+    }
+  }
+
+  // ---------------- “Dove l’ho bevuto” (pin blu) ----------------
+  async function reverseGeocode(lat, lng) {
+    try {
+      const u = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`;
+      const r = await fetch(u, { headers:{ 'Accept':'application/json' } });
+      const j = await r.json();
+      return j?.display_name || null;
+    } catch { return null; }
+  }
+  async function searchGeocode(query) {
+    try {
+      const u = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=0`;
+      const r = await fetch(u, { headers:{ 'Accept':'application/json' } });
+      const j = await r.json();
+      if (Array.isArray(j) && j.length) {
+        return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      }
+    } catch {}
+    return null;
+  }
+  async function markDrankHere(row) {
+    try {
+      let lat=null, lng=null, place_name=null;
+      try {
+        const pos = await new Promise((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy:true, timeout:10000 })
+        );
+        lat = pos.coords.latitude; lng = pos.coords.longitude;
+        place_name = await reverseGeocode(lat, lng);
+      } catch {
+        const manual = prompt('Inserisci il luogo (es. "Enoteca X, Alba")');
+        if (!manual) return;
+        const hit = await searchGeocode(manual);
+        if (!hit) { alert('Impossibile geocodificare.'); return; }
+        lat = hit.lat; lng = hit.lng; place_name = hit.name;
+      }
+      const { error } = await supabase.from('product_places').insert([{
+        item_type:'wine', item_id: row.id, kind:'purchase',
+        place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+        lat, lng, is_primary:true
+      }]);
+      if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
+      alert('Luogo aggiunto! (pin blu)'); location.reload();
+    } catch (e) { alert('Errore: ' + (e.message || e)); }
+  }
+
   return (
     <section>
-      <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px' }}>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder='Es: “Alternative a Barolo 2020 sotto 40€” o “Rosé Sicilia fresco”'
-               style={{ flex:1, padding:'10px 12px', borderRadius:12, border:'1px solid #243246', background:'#0b0f14', color:'#e5eeff' }}/>
-        <button onClick={askSommelier} style={btn(true)}>Sommelier</button>
+      <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
+        <input
+          value={q}
+          onChange={e=>setQ(e.target.value)}
+          placeholder='Es: "Barolo non troppo aspro" • "bianco fresco <€20"'
+          style={{ flex:1, minWidth:280, padding:'10px 12px', borderRadius:12, border:'1px solid #243246', background:'#0b0f14', color:'#e5eeff' }}
+        />
+        <button onClick={()=>askSommelier()} style={btn(true)}>Sommelier</button>
+        <button onClick={()=>fileRef.current?.click()} style={btn(false)}>Sommelier (OCR)</button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+               onChange={e=> e.target.files?.[0] && handleSommelierOcrFile(e.target.files[0])}/>
+        <button onClick={()=>setShowQrScanner(true)} style={btn(false)}>Scanner QR (camera)</button>
+      </div>
+
+      {/* Scanner QR modal */}
+      {showQrScanner && (
+        <LiveQrScanner
+          onClose={()=>setShowQrScanner(false)}
+          onResult={async (code) => {
+            setShowQrScanner(false);
+            await handleQrResult(code);
+          }}
+        />
+      )}
+
+      <Table>
+        <thead>
+          <tr>
+            <th style={{ textAlign:'left',  padding:10 }}>Vino</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Cantina</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Denominazione</th>
+            <th style={{ textAlign:'right', padding:10 }}>Grad.</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Vitigni / Blend</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Regione</th>
+            <th style={{ textAlign:'right', padding:10 }}>Annata</th>
+            <th style={{ textAlign:'right', padding:10 }}>Budget</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Voto</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Azioni</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading && <tr><TCell>Caricamento…</TCell></tr>}
+          {!loading && data.length===0 && <tr><TCell>Nessun elemento</TCell></tr>}
+          {data.map(row => {
+            const blend = Array.isArray(row.grape_blend) && row.grape_blend.length
+              ? row.grape_blend.map(b => (b.pct != null ? `${b.pct}% ${b.name}` : b.name)).join(', ')
+              : (Array.isArray(row.grapes) ? row.grapes.join(', ') : '—');
+            return (
+              <tr key={row.id}>
+                <TCell>{row.name}</TCell>
+                <TCell>{row.winery || '—'}</TCell>
+                <TCell>{row.denomination || '—'}</TCell>
+                <TCell style={{ textAlign:'right' }}>{row.alcohol != null ? `${Number(row.alcohol).toFixed(1)}%` : '—'}</TCell>
+                <TCell>{blend}</TCell>
+                <TCell>{row.region || '—'}</TCell>
+                <TCell style={{ textAlign:'right' }}>{row.vintage || '—'}</TCell>
+                <TCell style={{ textAlign:'right' }}>{row.price_target != null ? `€ ${Number(row.price_target).toFixed(2)}` : '—'}</TCell>
+                <TCell><Stars value={row.rating_5 || 0} onChange={(n)=>setRating(row.id, n)} /></TCell>
+                <TCell>
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                    <button style={btn(false)} onClick={()=>markDrankHere(row)}>Dove l’ho bevuto</button>
+                    <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'origin')}>Apri mappa (Origine)</button>
+                    <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'purchase')}>Apri mappa (Acquisto)</button>
+                    <button style={btn(false)} onClick={()=>findRetailers(row.name, row.region || undefined, row.price_target || undefined)}>Trova rivenditori</button>
+                    <button style={btn(false)} onClick={()=>navigator.clipboard.writeText(row.name)}>Copia nome</button>
+                  </div>
+                </TCell>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
+
+      {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
+    </section>
+  );
+}
+
+  async function dataUrlFromFile(file) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = rej;
+      fr.readAsDataURL(file);
+    });
+  }
+
+  // Decodifica QR da immagine (best-effort)
+  async function decodeQrFromDataUrl(dataUrl) {
+    try {
+      const jsQR = (await import('jsqr')).default; // dynamic import
+      const img = await new Promise((res, rej) => {
+        const im = new Image();
+        im.onload = () => res(im);
+        im.onerror = rej;
+        im.src = dataUrl;
+      });
+      const cvs = document.createElement('canvas');
+      cvs.width = img.naturalWidth || img.width;
+      cvs.height = img.naturalHeight || img.height;
+      const ctx = cvs.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const imgData = ctx.getImageData(0, 0, cvs.width, cvs.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height);
+      if (code && code.data) return [code.data];
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function handleSommelierOcrFile(file) {
+    try {
+      const dataUrl = await dataUrlFromFile(file);
+      // 1) OCR: foto lista → testo
+      const r1 = await fetch('/api/ocr', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ dataUrl })
+      });
+      const j1 = await r1.json();
+      const listText = (j1?.text || '').trim();
+      if (!listText) { alert('OCR: nessun testo letto dalla foto.'); return; }
+
+      // 2) QR: prova a estrarre URL dal QR nel menu (se presente)
+      const qrLinks = await decodeQrFromDataUrl(dataUrl);
+
+      // 3) Suggerisci in base alla lista fotografata + preferenze gusto
+      const tasteHints = extractTasteHints(listText);
+      await askSommelier({ wineList: listText, qrLinks, tasteHints });
+    } catch (e) {
+      alert('Errore Sommelier OCR: ' + (e.message || e));
+    }
+  }
+
+  return (
+    <section>
+      <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
+        <input
+          value={q}
+          onChange={e=>setQ(e.target.value)}
+          placeholder='Es: "voglio un Barolo non troppo aspro" o "bianco fresco e beverino sotto 20€"'
+          style={{ flex:1, minWidth:280, padding:'10px 12px', borderRadius:12, border:'1px solid #243246', background:'#0b0f14', color:'#e5eeff' }}
+        />
+        <button onClick={()=>askSommelier()} style={btn(true)}>Sommelier</button>
+        <button onClick={()=>fileRef.current?.click()} style={btn(false)}>Sommelier (OCR)</button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+               onChange={e=> e.target.files?.[0] && handleSommelierOcrFile(e.target.files[0])}/>
       </div>
 
       <Table>
@@ -540,6 +872,7 @@ function WinesSection({ data, loading, onOpenMap }) {
                 <TCell><Stars value={row.rating_5 || 0} onChange={(n)=>setRating(row.id, n)} /></TCell>
                 <TCell>
                   <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                    <button style={btn(false)} onClick={()=>markDrankHere(row)}>Dove l’ho bevuto</button>
                     <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'origin')}>Apri mappa (Origine)</button>
                     <button style={btn(false)} onClick={()=>onOpenMap('wine', row.id, 'purchase')}>Apri mappa (Acquisto)</button>
                     <button style={btn(false)} onClick={()=>findRetailers(row.name, row.region || undefined, row.price_target || undefined)}>Trova rivenditori</button>
@@ -555,19 +888,87 @@ function WinesSection({ data, loading, onOpenMap }) {
       {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
     </section>
   );
-}
+
+
 
 function CellarSection({ data, loading }) {
+  // --- helpers geocoding (senza chiavi, via Nominatim) ---
+  async function reverseGeocode(lat, lng) {
+    try {
+      const u = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`;
+      const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
+      const j = await r.json();
+      return j?.display_name || null;
+    } catch { return null; }
+  }
+  async function searchGeocode(query) {
+    try {
+      const u = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=0`;
+      const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
+      const j = await r.json();
+      if (Array.isArray(j) && j.length) {
+        return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      }
+    } catch {}
+    return null;
+  }
+
+  // --- bottone: salva il luogo di ACQUISTO (pin blu) per quel vino ---
+  async function markBoughtHere(row) {
+    try {
+      const wineId = row.wine?.id || row.wine_id;
+      if (!wineId) { alert('Vino non disponibile per questa riga.'); return; }
+
+      let lat = null, lng = null, place_name = null;
+
+      // 1) prova geolocalizzazione browser
+      try {
+        const pos = await new Promise((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 })
+        );
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        place_name = await reverseGeocode(lat, lng);
+      } catch {
+        // 2) se negata o fallita, chiedi testo e geocodifica
+        const manual = prompt('Inserisci il luogo di acquisto (es. "Enoteca X, Alba")');
+        if (!manual) return;
+        const hit = await searchGeocode(manual);
+        if (!hit) { alert('Impossibile geocodificare questo luogo. Specifica un indirizzo più preciso.'); return; }
+        lat = hit.lat; lng = hit.lng; place_name = hit.name;
+      }
+
+      if (lat == null || lng == null) { alert('Posizione non disponibile.'); return; }
+
+      // 3) scrivi su product_places come "purchase" (blu)
+      const { error } = await supabase.from('product_places').insert([{
+        item_type: 'wine',
+        item_id: wineId,
+        kind: 'purchase',
+        place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+        lat, lng,
+        is_primary: true
+      }]);
+      if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
+
+      alert('Luogo di acquisto aggiunto! (pin blu)');
+      location.reload(); // refresh rapido di tabella + mappa
+    } catch (e) {
+      alert('Errore: ' + (e.message || e));
+    }
+  }
+
   return (
     <section>
       <h3 style={{ margin:'8px 0 8px' }}>Cantina</h3>
       <Table>
         <thead>
           <tr>
-            <th style={{ textAlign:'left', padding:10 }}>Vino</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Vino</th>
             <th style={{ textAlign:'right', padding:10 }}>Bottiglie</th>
             <th style={{ textAlign:'right', padding:10 }}>Prezzo acquisto</th>
             <th style={{ textAlign:'left',  padding:10 }}>Abbinamenti</th>
+            <th style={{ textAlign:'left',  padding:10 }}>Azioni</th>
           </tr>
         </thead>
         <tbody>
@@ -579,6 +980,11 @@ function CellarSection({ data, loading }) {
               <TCell style={{ textAlign:'right' }}>{row.bottles}</TCell>
               <TCell style={{ textAlign:'right' }}>{row.purchase_price_eur != null ? `€ ${Number(row.purchase_price_eur).toFixed(2)}` : '—'}</TCell>
               <TCell>{(row.pairings || []).join(', ') || '—'}</TCell>
+              <TCell>
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  <button style={btn(false)} onClick={()=>markBoughtHere(row)}>Dove l’ho comprato</button>
+                </div>
+              </TCell>
             </tr>
           ))}
         </tbody>
