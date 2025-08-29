@@ -764,15 +764,7 @@ function WinesSection({ data, loading, onOpenMap }) {
       {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
     </section>
   );
-}
 
-  async function dataUrlFromFile(file) {
-    return new Promise((res, rej) => {
-      const fr = new FileReader();
-      fr.onload = () => res(fr.result);
-      fr.onerror = rej;
-      fr.readAsDataURL(file);
-    });
   }
 
   // Decodifica QR da immagine (best-effort)
