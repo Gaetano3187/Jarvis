@@ -50,15 +50,20 @@ export default function ProdottiTipiciViniPage() {
     setTimeout(() => setSelectedPlaceId(null), 3000);
   }
 
+  // ===== DATA con filtro utente =====
   async function refreshAll() {
     setLoading(true);
     try {
-      const [{ data: p }, { data: a }, { data: w }, { data: c }] = await Promise.all([
-        supabase.from('product_places').select('*').order('created_at', { ascending: false }),
-        supabase.from('artisan_products').select('*').order('created_at', { ascending: false }),
-        supabase.from('wines').select('*').order('created_at', { ascending: false }),
-        supabase.from('cellar').select('*').order('created_at', { ascending: false }),
-      ]);
+      const uid = (await supabase.auth.getUser())?.data?.user?.id || user?.id || null;
+      const byUser = (q) => uid ? q.eq('user_id', uid) : q.limit(0);
+
+      const qp = byUser(supabase.from('product_places').select('*')).order('created_at', { ascending: false });
+      const qa = byUser(supabase.from('artisan_products').select('*')).order('created_at', { ascending: false });
+      const qw = byUser(supabase.from('wines').select('*')).order('created_at', { ascending: false });
+      const qc = byUser(supabase.from('cellar').select('*')).order('created_at', { ascending: false });
+
+      const [{ data: p }, { data: a }, { data: w }, { data: c }] = await Promise.all([qp, qa, qw, qc]);
+
       setPlaces(p || []); setArtisan(a || []); setWines(w || []);
       const mapWine = new Map((w || []).map(x => [x.id, x]));
       setCellar((c || []).map(row => ({ ...row, wine: mapWine.get(row.wine_id) })));
@@ -81,7 +86,9 @@ export default function ProdottiTipiciViniPage() {
     const priceForDB = (pr.unit === 'kg' && pr.unit_price_eur != null) ? pr.unit_price_eur
                          : (pr.total_price_eur != null ? pr.total_price_eur : (d.price_eur ?? null));
 
+    const uid = user?.id || (await supabase.auth.getUser())?.data?.user?.id;
     const { data: inserted, error } = await supabase.from('artisan_products').insert([{
+      user_id: uid,
       name, category: (d.product_type === 'salume' ? 'salume' : 'formaggio'),
       designation: d.designation || null, price_eur: priceForDB,
       notes: noteParts.length ? noteParts.join(' — ') : (d.notes || null)
@@ -89,9 +96,12 @@ export default function ProdottiTipiciViniPage() {
     if (error) { alert('Errore inserimento prodotto: ' + error.message); return; }
 
     const rows = [];
-    if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat, lng:d.origin.lng, is_primary:true });
-    if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'artisan', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
-    if (rows.length) { const { error:e2 } = await supabase.from('product_places').insert(rows); if (e2) alert('Inserito il prodotto, ma errore sui luoghi: ' + e2.message); }
+    if (d.origin?.lat && d.origin?.lng) rows.push({ user_id: uid, item_type:'artisan', item_id:inserted.id, kind:'origin', place_name:d.origin.name||null, lat:d.origin.lat, lng:d.origin.lng, is_primary:true });
+    if (d.purchase?.lat && d.purchase?.lng) rows.push({ user_id: uid, item_type:'artisan', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
+    if (rows.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(rows);
+      if (e2) alert('Inserito il prodotto, ma errore sui luoghi: ' + e2.message);
+    }
     await refreshAll();
   }
 
@@ -111,23 +121,31 @@ export default function ProdottiTipiciViniPage() {
       alcohol: d.alcohol ?? null, grape_blend: Array.isArray(d.grape_blend) ? d.grape_blend : null
     };
 
-    const { data: inserted, error } = await supabase.from('wines').insert([insertBody]).select().single();
+    const uid = user?.id || (await supabase.auth.getUser())?.data?.user?.id;
+    const { data: inserted, error } = await supabase.from('wines').insert([{
+      user_id: uid, ...insertBody
+    }]).select().single();
     if (error) { alert('Errore inserimento vino: ' + error.message); return; }
 
     const rows = [];
-    if (d.origin?.lat && d.origin?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'origin',   place_name:d.origin.name||null,   lat:d.origin.lat,   lng:d.origin.lng,   is_primary:true });
-    if (d.purchase?.lat && d.purchase?.lng) rows.push({ item_type:'wine', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
-    if (rows.length) { const { error:e2 } = await supabase.from('product_places').insert(rows); if (e2) alert('Inserito il vino, ma errore sui luoghi: ' + e2.message); }
+    if (d.origin?.lat && d.origin?.lng) rows.push({ user_id: uid, item_type:'wine', item_id:inserted.id, kind:'origin', place_name:d.origin.name||null, lat:d.origin.lat, lng:d.origin.lng, is_primary:true });
+    if (d.purchase?.lat && d.purchase?.lng) rows.push({ user_id: uid, item_type:'wine', item_id:inserted.id, kind:'purchase', place_name:d.purchase.name||null, lat:d.purchase.lat, lng:d.purchase.lng, is_primary:true });
+    if (rows.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(rows);
+      if (e2) alert('Inserito il vino, ma errore sui luoghi: ' + e2.message);
+    }
 
     if (alsoCellar) {
       const price = d.price_eur ?? null;
-      const { error:e3 } = await supabase.from('cellar').insert([{ wine_id: inserted.id, bottles: 1, purchase_price_eur: price }]);
+      const { error:e3 } = await supabase.from('cellar').insert([{
+        user_id: uid, wine_id: inserted.id, bottles: 1, purchase_price_eur: price
+      }]);
       if (e3) alert('Inserito vino ma errore in Cantina: ' + e3.message);
     }
     await refreshAll();
   }
 
-  // UI
+  // UI toggles
   const [showAddArtisan, setShowAddArtisan] = useState(false);
   const [showAddWine, setShowAddWine]       = useState(false);
   const [showAddCellar, setShowAddCellar]   = useState(false);
@@ -149,7 +167,7 @@ export default function ProdottiTipiciViniPage() {
         </div>
       </div>
 
-      {/* Tabs + (opz.) login rapido se non autenticato */}
+      {/* Tabs + (opz.) login rapido */}
       <div style={{ display:'flex', gap:8, marginBottom:12, alignItems:'center', flexWrap:'wrap' }}>
         <button onClick={()=>setTab('artisan')} style={btn(tab==='artisan')}>Formaggi & Salumi</button>
         <button onClick={()=>setTab('wines')}   style={btn(tab==='wines')}>Vini (Wishlist)</button>
@@ -418,9 +436,11 @@ function ArtisanSection({ data, loading, onOpenMap }) {
         if (!hit) { alert('Impossibile geocodificare questo luogo.'); return; }
         lat = hit.lat; lng = hit.lng; place_name = hit.name;
       }
+      const uid = (await supabase.auth.getUser())?.data?.user?.id;
       const { error } = await supabase.from('product_places').insert([{
-        item_type: 'artisan', item_id: row.id, kind: 'purchase',
-        place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`, lat, lng, is_primary: true
+        user_id: uid, item_type: 'artisan', item_id: row.id, kind: 'purchase',
+        place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+        lat, lng, is_primary: true
       }]);
       if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
       alert('Luogo aggiunto! (pin blu)'); location.reload();
@@ -573,7 +593,9 @@ function WinesSection({ data, loading, onOpenMap }) {
         if (!hit) { alert('Impossibile geocodificare.'); return; }
         lat = hit.lat; lng = hit.lng; place_name = hit.name;
       }
+      const uid = (await supabase.auth.getUser())?.data?.user?.id;
       const { error } = await supabase.from('product_places').insert([{
+        user_id: uid,
         item_type:'wine', item_id: row.id, kind:'purchase',
         place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
         lat, lng, is_primary:true
@@ -730,7 +752,9 @@ function CellarSection({ data, loading }) {
         if (!hit) { alert('Impossibile geocodificare.'); return; }
         lat = hit.lat; lng = hit.lng; place_name = hit.name;
       }
+      const uid = (await supabase.auth.getUser())?.data?.user?.id;
       const { error } = await supabase.from('product_places').insert([{
+        user_id: uid,
         item_type: 'wine', item_id: wineId, kind: 'purchase',
         place_name: place_name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`, lat, lng, is_primary: true
       }]);
@@ -844,7 +868,9 @@ function AddArtisanForm({ onInserted }) {
   const [ocrText, setOcrText] = useState('');
 
   async function handleInsert() {
+    const uid = (await supabase.auth.getUser())?.data?.user?.id;
     const { data, error } = await supabase.from('artisan_products').insert([{
+      user_id: uid,
       name: form.name.trim(),
       category: form.category,
       designation: form.designation || null,
@@ -854,8 +880,8 @@ function AddArtisanForm({ onInserted }) {
     if (error) { alert('Errore prodotto: ' + error.message); return; }
 
     const rows = [];
-    if (form.origin_lat && form.origin_lng) rows.push({ item_type:'artisan', item_id:data.id, kind:'origin', place_name:form.origin_place_name||null, lat:Number(form.origin_lat), lng:Number(form.origin_lng), is_primary:true });
-    if (form.purchase_lat && form.purchase_lng) rows.push({ item_type:'artisan', item_id:data.id, kind:'purchase', place_name:form.purchase_place_name||null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true });
+    if (form.origin_lat && form.origin_lng) rows.push({ user_id: uid, item_type:'artisan', item_id:data.id, kind:'origin', place_name:form.origin_place_name||null, lat:Number(form.origin_lat), lng:Number(form.origin_lng), is_primary:true });
+    if (form.purchase_lat && form.purchase_lng) rows.push({ user_id: uid, item_type:'artisan', item_id:data.id, kind:'purchase', place_name:form.purchase_place_name||null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true });
     if (rows.length) {
       const { error:e2 } = await supabase.from('product_places').insert(rows);
       if (e2) alert('Errore luogo: '+e2.message);
@@ -924,8 +950,10 @@ function AddWineForm({ onInserted }) {
   const [ocrText, setOcrText] = useState('');
 
   async function handleInsert() {
+    const uid = (await supabase.auth.getUser())?.data?.user?.id;
     const grapesArr = form.grapes ? form.grapes.split(',').map(s=>s.trim()).filter(Boolean) : null;
     const { data, error } = await supabase.from('wines').insert([{
+      user_id: uid,
       name: form.name.trim(), winery: form.winery || null, denomination: form.denomination || null, region: form.region || null,
       grapes: grapesArr, vintage: form.vintage ? Number(form.vintage) : null, style: form.style || null,
       price_target: form.price_target ? Number(form.price_target) : null
@@ -933,8 +961,8 @@ function AddWineForm({ onInserted }) {
     if (error) return alert('Errore vino: '+error.message);
 
     const places = [];
-    if (form.origin_lat && form.origin_lng) places.push({ item_type:'wine', item_id:data.id, kind:'origin', place_name:form.origin_place_name||null, lat:Number(form.origin_lat), lng:Number(form.origin_lng), is_primary:true });
-    if (form.purchase_lat && form.purchase_lng) places.push({ item_type:'wine', item_id:data.id, kind:'purchase', place_name:form.purchase_place_name||null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true });
+    if (form.origin_lat && form.origin_lng) places.push({ user_id: uid, item_type:'wine', item_id:data.id, kind:'origin', place_name:form.origin_place_name||null, lat:Number(form.origin_lat), lng:Number(form.origin_lng), is_primary:true });
+    if (form.purchase_lat && form.purchase_lng) places.push({ user_id: uid, item_type:'wine', item_id:data.id, kind:'purchase', place_name:form.purchase_place_name||null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true });
     if (places.length) {
       const { error:e2 } = await supabase.from('product_places').insert(places);
       if (e2) alert('Errore luogo: '+e2.message);
@@ -943,7 +971,7 @@ function AddWineForm({ onInserted }) {
     if (form.addToCellar) {
       const bottles = form.bottles ? Number(form.bottles) : 1;
       const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
-      const { error:e3 } = await supabase.from('cellar').insert([{ wine_id: data.id, bottles, purchase_price_eur: price }]);
+      const { error:e3 } = await supabase.from('cellar').insert([{ user_id: uid, wine_id: data.id, bottles, purchase_price_eur: price }]);
       if (e3) alert('Errore cantina: '+e3.message);
     }
 
@@ -1027,7 +1055,10 @@ const AddCellarForm = React.forwardRef(function AddCellarForm({ wines, onInserte
     const bottles = form.bottles ? Number(form.bottles) : 1;
     const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
     const pair    = form.pairings ? form.pairings.split(',').map(s=>s.trim()).filter(Boolean) : null;
-    const { error } = await supabase.from('cellar').insert([{ wine_id: form.wine_id, bottles, purchase_price_eur: price, pairings: pair }]);
+    const uid = (await supabase.auth.getUser())?.data?.user?.id;
+    const { error } = await supabase.from('cellar').insert([{
+      user_id: uid, wine_id: form.wine_id, bottles, purchase_price_eur: price, pairings: pair
+    }]);
     if (error) return alert('Errore: '+error.message);
     setForm({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' });
     onInserted && onInserted();
@@ -1051,13 +1082,15 @@ const AddCellarForm = React.forwardRef(function AddCellarForm({ wines, onInserte
   );
 });
 
-/* ===== Add Place ===== */
+/* ===== Add Place (con user_id) ===== */
 function AddPlaceWidget({ items, kindOptions, onInserted }) {
   const [f, setF] = useState({ item_type:'wine', item_id:'', kind:'origin', place_name:'', lat:'', lng:'', visited_at:'', is_primary:true });
   useEffect(()=>{ if (items.length && !f.item_id) setF(prev=>({ ...prev, item_id: items[0].id, item_type: items[0].type })); }, [items]);
   async function addPlace(){
     if (!f.item_id || !f.lat || !f.lng) return alert('Seleziona item e inserisci lat/lng');
+    const uid = (await supabase.auth.getUser())?.data?.user?.id;
     const { error } = await supabase.from('product_places').insert([{
+      user_id: uid,
       item_type:f.item_type, item_id:f.item_id, kind:f.kind, place_name:f.place_name || null,
       lat:Number(f.lat), lng:Number(f.lng), visited_at:f.visited_at || null, is_primary: !!f.is_primary
     }]);
