@@ -24,19 +24,17 @@ export default function ProdottiTipiciViniPage() {
   const [cellar, setCellar] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // AUTH per smartphone/desktop coerenti
+  // sessione NON bloccante
   const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  useEffect(() => {
+    const sub = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
+    supabase.auth.getSession().then(({ data }) => setUser(data?.session?.user ?? null));
+    return () => sub?.data?.subscription?.unsubscribe?.();
+  }, []);
 
-  const [showAddArtisan, setShowAddArtisan] = useState(false);
-  const [showAddWine, setShowAddWine]       = useState(false);
-  const [showAddCellar, setShowAddCellar]   = useState(false);
-  const [showPlacesArtisan, setShowPlacesArtisan] = useState(false);
-  const [showPlacesWine, setShowPlacesWine]       = useState(false);
-
-  const artisanFormRef = useRef(null);
-  const wineFormRef    = useRef(null);
-  const cellarFormRef  = useRef(null);
+  // caricamento dati
+  useEffect(() => { refreshAll(); }, []);
+  useEffect(() => { if (user) refreshAll(); }, [user]);
 
   // MAPPA
   const [mapCenter, setMapCenter] = useState([12.5, 42.5]); // [lng, lat]
@@ -51,18 +49,6 @@ export default function ProdottiTipiciViniPage() {
     const el = document.getElementById('map-italia'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => setSelectedPlaceId(null), 3000);
   }
-
-  // ===== AUTH =====
-  useEffect(() => {
-    const sub = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
-    (async () => {
-      const { data } = await supabase.auth.getUser(); setUser(data?.user ?? null); setAuthReady(true);
-    })();
-    return () => sub?.data?.subscription?.unsubscribe?.();
-  }, []);
-
-  // ===== DATA =====
-  useEffect(() => { if (authReady && user) refreshAll(); }, [authReady, user]);
 
   async function refreshAll() {
     setLoading(true);
@@ -113,7 +99,6 @@ export default function ProdottiTipiciViniPage() {
     const d = norm?.data || {};
     const raw = norm?._raw || '';
     const name = (d.name && String(d.name).trim()) || `Vino (da completare) ${new Date().toISOString().slice(0,10)}`;
-
     const noteParts = [];
     if (d.bottle_l)             noteParts.push(`Bott: ${Number(d.bottle_l).toFixed(2)} l`);
     if (d.unit_price_l != null) noteParts.push(`~ € ${Number(d.unit_price_l).toFixed(2)}/l`);
@@ -142,27 +127,12 @@ export default function ProdottiTipiciViniPage() {
     await refreshAll();
   }
 
-  // Gate di login per smartphone/nuovi device
-  if (authReady && !user) {
-    async function signIn() {
-      try {
-        await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: { redirectTo: (typeof window !== 'undefined' ? window.location.href : undefined) }
-        });
-      } catch (e) { alert('Login error: ' + (e.message || e)); }
-    }
-    return (
-      <>
-        <Head><title>Prodotti tipici & Vini • Login</title></Head>
-        <div style={{ maxWidth:720, margin:'40px auto', padding:20, border:'1px solid #1f2a38', borderRadius:16, background:'#0b0f14', color:'#e5eeff' }}>
-          <h2 style={{ marginTop:0 }}>Accedi per vedere i tuoi prodotti e vini</h2>
-          <p style={{ opacity:.85 }}>Usa lo stesso account che utilizzi sul PC.</p>
-          <button onClick={signIn} style={btn(true)}>Accedi con Google</button>
-        </div>
-      </>
-    );
-  }
+  // UI
+  const [showAddArtisan, setShowAddArtisan] = useState(false);
+  const [showAddWine, setShowAddWine]       = useState(false);
+  const [showAddCellar, setShowAddCellar]   = useState(false);
+  const [showPlacesArtisan, setShowPlacesArtisan] = useState(false);
+  const [showPlacesWine, setShowPlacesWine]       = useState(false);
 
   return (
     <>
@@ -179,11 +149,19 @@ export default function ProdottiTipiciViniPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+      {/* Tabs + (opz.) login rapido se non autenticato */}
+      <div style={{ display:'flex', gap:8, marginBottom:12, alignItems:'center', flexWrap:'wrap' }}>
         <button onClick={()=>setTab('artisan')} style={btn(tab==='artisan')}>Formaggi & Salumi</button>
         <button onClick={()=>setTab('wines')}   style={btn(tab==='wines')}>Vini (Wishlist)</button>
         <button onClick={()=>setTab('cellar')}  style={btn(tab==='cellar')}>Cantina</button>
+        {!user && <button onClick={async ()=>{
+          try {
+            await supabase.auth.signInWithOAuth({
+              provider:'google',
+              options:{ redirectTo: (typeof window!=='undefined' ? window.location.href : undefined) }
+            });
+          } catch(e){ alert('Login error: '+(e.message||e)); }
+        }} style={btn(false)}>Accedi</button>}
       </div>
 
       {/* ===== ARTISAN ===== */}
@@ -203,8 +181,11 @@ export default function ProdottiTipiciViniPage() {
               }
             }}
           />
-          {showAddArtisan && <AddArtisanForm ref={artisanFormRef} onInserted={refreshAll} />}
+
+          {showAddArtisan && <AddArtisanForm onInserted={refreshAll} />}
+
           <ArtisanSection data={artisan} loading={loading} onOpenMap={openOnMapForItem} />
+
           <div style={{ marginTop:8, display:'flex', gap:8 }}>
             <button style={btn(false)} onClick={()=> setShowPlacesArtisan(v=>!v)}>{showPlacesArtisan ? 'Chiudi luoghi' : 'Aggiungi luogo'}</button>
           </div>
@@ -235,8 +216,11 @@ export default function ProdottiTipiciViniPage() {
               }
             }}
           />
-          {showAddWine && <AddWineForm ref={wineFormRef} onInserted={refreshAll} />}
+
+          {showAddWine && <AddWineForm onInserted={refreshAll} />}
+
           <WinesSection data={wines} loading={loading} onOpenMap={openOnMapForItem} />
+
           <div style={{ marginTop:8, display:'flex', gap:8 }}>
             <button style={btn(false)} onClick={()=> setShowPlacesWine(v=>!v)}>{showPlacesWine ? 'Chiudi luoghi' : 'Aggiungi luogo'}</button>
           </div>
@@ -263,7 +247,9 @@ export default function ProdottiTipiciViniPage() {
               else { alert('Non riconosciuto. Compila manualmente.'); }
             }}
           />
-          {showAddCellar && <AddCellarForm ref={cellarFormRef} wines={wines} onInserted={refreshAll} />}
+
+          {showAddCellar && <AddCellarForm wines={wines} onInserted={refreshAll} />}
+
           <CellarSection data={cellar} loading={loading} />
         </>
       )}
@@ -288,7 +274,7 @@ export default function ProdottiTipiciViniPage() {
   );
 }
 
-/* ===== Toolbar Manuale / OCR / Vocale ===== */
+/* ========= Toolbar Manuale / OCR / Vocale ========= */
 function SectionToolbar({ label, target, onAddManual, onParsed }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
@@ -322,7 +308,7 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SR) {
         await new Promise((resolve,reject)=>{
-          const rec = new SR(); rec.lang='it-IT'; rec.intermResults=false; rec.maxAlternatives=1;
+          const rec = new SR(); rec.lang='it-IT'; rec.interimResults=false; rec.maxAlternatives=1;
           rec.onresult = async (ev)=>{
             const text = ev.results?.[0]?.[0]?.transcript || '';
             if (text) { const norm = await normalizeText(text); norm._raw = text; onParsed && onParsed(norm, { source:'voice', raw:text }); }
@@ -361,7 +347,7 @@ function SectionToolbar({ label, target, onAddManual, onParsed }) {
   );
 }
 
-/* ===== Helpers UI ===== */
+/* ========== Helpers UI ========== */
 function TCell({ children, colSpan }) {
   return <td colSpan={colSpan} style={{ padding:'10px 8px', borderBottom:'1px solid #1f2a38' }}>{children}</td>;
 }
@@ -394,7 +380,7 @@ function Stars({ value=0, onChange }) {
   );
 }
 
-/* ===== ARTISAN TABLE ===== */
+/* ========== ARTISAN TABLE ========== */
 function ArtisanSection({ data, loading, onOpenMap }) {
   async function reverseGeocode(lat, lng) {
     try {
@@ -409,7 +395,9 @@ function ArtisanSection({ data, loading, onOpenMap }) {
       const u = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=0`;
       const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
       const j = await r.json();
-      if (Array.isArray(j) && j.length) return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      if (Array.isArray(j) && j.length) {
+        return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      }
     } catch {}
     return null;
   }
@@ -420,7 +408,9 @@ function ArtisanSection({ data, loading, onOpenMap }) {
         const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 })
         );
-        lat = pos.coords.latitude; lng = pos.coords.longitude; place_name = await reverseGeocode(lat, lng);
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        place_name = await reverseGeocode(lat, lng);
       } catch {
         const manual = prompt('Inserisci il luogo dove l’hai mangiato (es. "Ristorante I Caraceni, Roma")');
         if (!manual) return;
@@ -474,7 +464,7 @@ function ArtisanSection({ data, loading, onOpenMap }) {
   );
 }
 
-/* ===== WINES TABLE (Sommelier + OCR/QR + dove l'ho bevuto) ===== */
+/* ========== WINES TABLE ========== */
 function WinesSection({ data, loading, onOpenMap }) {
   const [q, setQ] = useState('');
   const [sommelierOpen, setSommelierOpen] = useState(false);
@@ -561,7 +551,9 @@ function WinesSection({ data, loading, onOpenMap }) {
       const u = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=0`;
       const r = await fetch(u, { headers:{ 'Accept':'application/json' } });
       const j = await r.json();
-      if (Array.isArray(j) && j.length) return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      if (Array.isArray(j) && j.length) {
+        return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      }
     } catch {}
     return null;
   }
@@ -591,6 +583,23 @@ function WinesSection({ data, loading, onOpenMap }) {
     } catch (e) { alert('Errore: ' + (e.message || e)); }
   }
 
+  // FOTO (colonna in tabella)
+  async function handlePhotoChange(wineId, file) {
+    try {
+      if (!file) return;
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const filePath = `wines/${wineId}-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from(MEDIA_BUCKET)
+        .upload(filePath, file, { upsert: true, cacheControl: '3600', contentType: file.type || 'image/jpeg' });
+      if (upErr) { alert('Errore upload: ' + upErr.message); return; }
+      const { data: pub } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(filePath);
+      const photo_url = pub?.publicUrl || null;
+      const { error: updErr } = await supabase.from('wines').update({ photo_url }).eq('id', wineId);
+      if (updErr) { alert('Errore aggiornamento record: ' + updErr.message); return; }
+      location.reload();
+    } catch (e) { alert('Errore foto: ' + (e.message || e)); }
+  }
+
   return (
     <section>
       <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
@@ -617,6 +626,7 @@ function WinesSection({ data, loading, onOpenMap }) {
       <Table>
         <thead>
           <tr>
+            <th style={{ textAlign:'left',  padding:10, width:86 }}>Foto</th>
             <th style={{ textAlign:'left',  padding:10 }}>Vino</th>
             <th style={{ textAlign:'left',  padding:10 }}>Cantina</th>
             <th style={{ textAlign:'left',  padding:10 }}>Denominazione</th>
@@ -630,14 +640,30 @@ function WinesSection({ data, loading, onOpenMap }) {
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><TCell>Caricamento…</TCell></tr>}
-          {!loading && data.length===0 && <tr><TCell>Nessun elemento</TCell></tr>}
+          {loading && <tr><TCell colSpan={11}>Caricamento…</TCell></tr>}
+          {!loading && data.length===0 && <tr><TCell colSpan={11}>Nessun elemento</TCell></tr>}
           {data.map(row => {
             const blend = Array.isArray(row.grape_blend) && row.grape_blend.length
               ? row.grape_blend.map(b => (b.pct != null ? `${b.pct}% ${b.name}` : b.name)).join(', ')
               : (Array.isArray(row.grapes) ? row.grapes.join(', ') : '—');
+
             return (
               <tr key={row.id}>
+                <TCell>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    {row.photo_url
+                      ? <img src={row.photo_url} alt="" style={{ width:56, height:56, objectFit:'cover', borderRadius:10, border:'1px solid #1f2a38' }}
+                             onError={(e)=>{ e.currentTarget.style.display='none'; }} />
+                      : <div style={{ width:56, height:56, borderRadius:10, border:'1px solid #243246', background:'#0b0f14', display:'grid', placeItems:'center', opacity:.6 }}>—</div>
+                    }
+                    <label style={btn(false)}>
+                      {row.photo_url ? 'Cambia' : 'Carica'} foto
+                      <input type="file" accept="image/*" style={{ display:'none' }}
+                             onChange={e=>handlePhotoChange(row.id, e.target.files?.[0])}/>
+                    </label>
+                  </div>
+                </TCell>
+
                 <TCell>{row.name}</TCell>
                 <TCell>{row.winery || '—'}</TCell>
                 <TCell>{row.denomination || '—'}</TCell>
@@ -667,7 +693,7 @@ function WinesSection({ data, loading, onOpenMap }) {
   );
 }
 
-/* ===== CELLAR TABLE (con foto) ===== */
+/* ========== CELLAR TABLE (con foto) ========== */
 function CellarSection({ data, loading }) {
   async function reverseGeocode(lat, lng) {
     try {
@@ -681,7 +707,9 @@ function CellarSection({ data, loading }) {
       const u = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=0`;
       const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
       const j = await r.json();
-      if (Array.isArray(j) && j.length) return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      if (Array.isArray(j) && j.length) {
+        return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+      }
     } catch {}
     return null;
   }
@@ -808,33 +836,12 @@ function SommelierDrawer({ data, onClose }) {
 /* ===== Form manuali ===== */
 const inp = { padding:'10px 12px', borderRadius:12, border:'1px solid #243246', background:'#0b0f14', color:'#e5eeff' };
 
-const AddArtisanForm = React.forwardRef(function AddArtisanForm({ onInserted }, ref) {
+function AddArtisanForm({ onInserted }) {
   const [form, setForm] = useState({
     name:'', category:'formaggio', designation:'', price_eur:'', notes:'',
     origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:''
   });
   const [ocrText, setOcrText] = useState('');
-
-  React.useImperativeHandle(ref, () => ({
-    applyParsedData(norm) {
-      const d = norm?.data || {};
-      if (norm?.kind !== 'artisan') return;
-      setForm(prev => ({
-        ...prev,
-        name: d.name || prev.name,
-        category: d.product_type || prev.category || 'formaggio',
-        designation: d.designation || prev.designation,
-        price_eur: (d.price_eur != null ? String(d.price_eur) : prev.price_eur),
-        notes: d.producer ? `Produttore: ${d.producer}${d.notes ? ' — ' + d.notes : ''}` : prev.notes,
-        origin_place_name: d.origin?.name || prev.origin_place_name,
-        origin_lat: d.origin?.lat != null ? String(d.origin.lat) : prev.origin_lat,
-        origin_lng: d.origin?.lng != null ? String(d.origin.lng) : prev.origin_lng,
-        purchase_place_name: d.purchase?.name || prev.purchase_place_name,
-        purchase_lat: d.purchase?.lat != null ? String(d.purchase.lat) : prev.purchase_lat,
-        purchase_lng: d.purchase?.lng != null ? String(d.purchase.lng) : prev.purchase_lng
-      }));
-    }
-  }), []);
 
   async function handleInsert() {
     const { data, error } = await supabase.from('artisan_products').insert([{
@@ -906,41 +913,15 @@ const AddArtisanForm = React.forwardRef(function AddArtisanForm({ onInserted }, 
       </div>
     </section>
   );
-});
+}
 
-const AddWineForm = React.forwardRef(function AddWineForm({ onInserted }, ref) {
+function AddWineForm({ onInserted }) {
   const [form, setForm] = useState({
     name:'', winery:'', denomination:'', region:'', grapes:'', vintage:'', style:'rosso', price_target:'',
     origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:'',
     addToCellar:false, bottles:'', purchase_price_eur:''
   });
   const [ocrText, setOcrText] = useState('');
-
-  React.useImperativeHandle(ref, () => ({
-    applyParsedData(norm, opts={}) {
-      const d = norm?.data || {};
-      if (norm?.kind !== 'wine') return;
-      setForm(prev => ({
-        ...prev,
-        name: d.name || prev.name,
-        winery: d.winery || prev.winery,
-        denomination: d.denomination || prev.denomination,
-        region: d.region || prev.region,
-        grapes: Array.isArray(d.grapes) ? d.grapes.join(', ') : (prev.grapes || ''),
-        vintage: d.vintage != null ? String(d.vintage) : prev.vintage,
-        style: d.style || prev.style,
-        price_target: d.price_eur != null ? String(d.price_eur) : prev.price_target,
-        origin_place_name: d.origin?.name || prev.origin_place_name,
-        origin_lat: d.origin?.lat != null ? String(d.origin.lat) : prev.origin_lat,
-        origin_lng: d.origin?.lng != null ? String(d.origin.lng) : prev.origin_lng,
-        purchase_place_name: d.purchase?.name || prev.purchase_place_name,
-        purchase_lat: d.purchase?.lat != null ? String(d.purchase.lat) : prev.purchase_lat,
-        purchase_lng: d.purchase?.lng != null ? String(d.purchase.lng) : prev.purchase_lng,
-        addToCellar: !!opts.addToCellar,
-        purchase_price_eur: (opts.addToCellar && d.price_eur != null) ? String(d.price_eur) : prev.purchase_price_eur
-      }));
-    }
-  }), []);
 
   async function handleInsert() {
     const grapesArr = form.grapes ? form.grapes.split(',').map(s=>s.trim()).filter(Boolean) : null;
@@ -1016,7 +997,7 @@ const AddWineForm = React.forwardRef(function AddWineForm({ onInserted }, ref) {
         <input placeholder="Acquisto/Consumo - lng" value={form.purchase_lng} onChange={e=>setForm({...form, purchase_lng:e.target.value})} style={inp}/>
       </div>
       <div style={{ marginTop:10, display:'grid', gridTemplateColumns:'1fr auto', gap:8 }}>
-        <textarea placeholder="Incolla testo (etichetta/voce) → Compila" value={form.ocrText} onChange={e=>setOcrText(e.target.value)} style={{ ...inp, minHeight:64 }}/>
+        <textarea placeholder="Incolla testo (etichetta/voce) → Compila" value={ocrText} onChange={e=>setOcrText(e.target.value)} style={{ ...inp, minHeight:64 }}/>
         <button onClick={ingestFromText} style={btn(true)}>Compila dal testo</button>
       </div>
       <div style={{ marginTop:10, display:'flex', gap:12, alignItems:'center' }}>
@@ -1036,9 +1017,8 @@ const AddWineForm = React.forwardRef(function AddWineForm({ onInserted }, ref) {
       </div>
     </section>
   );
-});
+}
 
-/* ===== Add Cantina ===== */
 const AddCellarForm = React.forwardRef(function AddCellarForm({ wines, onInserted }, ref) {
   const [form, setForm] = useState({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' });
   React.useImperativeHandle(ref, () => ({ reset(){ setForm({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' }); } }), []);
