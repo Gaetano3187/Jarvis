@@ -346,6 +346,67 @@ const AddArtisanForm = React.forwardRef(function AddArtisanForm({ userId, onInse
     </section>
   );
 });
+/* ===================== Add Cantina ===================== */
+const AddCellarForm = React.forwardRef(function AddCellarForm({ userId, wines = [], onInserted }, ref) {
+  const [form, setForm] = useState({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' });
+
+  React.useImperativeHandle(ref, () => ({
+    reset(){ setForm({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' }); }
+  }), []);
+
+  const handleInsert = useCallback(async ()=>{
+    try {
+      if (!userId) return alert('Sessione assente.');
+      if (!form.wine_id) return alert('Seleziona un vino');
+
+      const bottles = form.bottles ? Number(form.bottles) : 1;
+      const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
+      const pair    = form.pairings
+        ? form.pairings.split(',').map(s => s.trim()).filter(Boolean)
+        : null;
+
+      const { error } = await supabase.from('cellar').insert([{
+        user_id: userId,
+        wine_id: form.wine_id,
+        bottles,
+        purchase_price_eur: price,
+        pairings: pair
+      }]);
+      if (error) throw error;
+
+      ref?.current?.reset?.();
+      onInserted?.();
+    } catch (e) {
+      alert('Errore: ' + (e.message || e));
+    }
+  }, [form, userId, onInserted, ref]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi in Cantina</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <select value={form.wine_id} onChange={e=>setForm({...form, wine_id:e.target.value})} style={inp}>
+          <option value="">Seleziona vino…</option>
+          {wines.map(w => (
+            <option key={w.id} value={w.id}>
+              {w.name}{w.winery?` - ${w.winery}`:''}
+            </option>
+          ))}
+        </select>
+        <input placeholder="Bottiglie" value={form.bottles}
+               onChange={e=>setForm({...form, bottles:e.target.value})} style={inp}/>
+        <input placeholder="Prezzo acquisto (€)" value={form.purchase_price_eur}
+               onChange={e=>setForm({...form, purchase_price_eur:e.target.value})} style={inp}/>
+        <input placeholder="Abbinamenti (comma)" value={form.pairings}
+               onChange={e=>setForm({...form, pairings:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
+
 
 /* ===================== Pagina ===================== */
 function ProdottiTipiciViniPage() {
