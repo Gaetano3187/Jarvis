@@ -1,459 +1,500 @@
 // pages/api/sommelier.js
-// Sommelier API v1.3 — prompt-first su carta (OCR/QR); web-search Google CSE; fallback sicuri.
+import OpenAI from 'openai';
+import { createClient } from '@supabase/supabase-js';
 
-const UA = 'JarvisSommelier/1.3 (+https://jarvis-gq14.vercel.app)';
-const DEFAULT_REFERER = process.env.GOOGLE_REFERER || 'https://jarvis-gq14.vercel.app';
+/* ===================== ENV ===================== */
+const OPENAI_API_KEY   = process.env.OPENAI_API_KEY;
+const SUPABASE_URL     = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;   // server-only
+const GOOGLE_API_KEY   = process.env.GOOGLE_API_KEY;              // Programmable Search
+const GOOGLE_CX        = process.env.GOOGLE_CX;
 
-/* ---------------- Taste & Price parsing ---------------- */
-function extractTasteHints(text = '', hints = {}) {
-  const t = String(text || '').toLowerCase();
-  const out = { ...hints, tags: Array.isArray(hints?.tags) ? [...hints.tags] : [] };
+const LLM_MODEL = process.env.SOMMELIER_MODEL || 'gpt-4o-mini';
 
-  if (/\bros[ée]\b|rosato\b/.test(t)) out.style = 'rosé';
-  else if (/\bbianco\b/.test(t)) out.style = 'bianco';
-  else if (/\bfrizzante|spumante|metodo classico|prosecco|franciacorta\b/.test(t)) out.style = 'bollicine';
-  else if (/\brosso\b/.test(t)) out.style = 'rosso';
+/* ===================== Clients ===================== */
+const sbAdmin = (SUPABASE_URL && SUPABASE_SERVICE)
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE)
+  : null;
 
-  if (/\bcorpos[oa]|strutturat[oa]|pieno\b/.test(t)) out.body = 'full';
-  else if (/\blegger[oa]|snello|fresco beverino\b/.test(t)) out.body = 'light';
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-  if (/\bnon troppo tannico|poco tannico|setoso|morbido\b/.test(t)) out.tannin = 'low';
-  else if (/\btannico|ruvido|astringente\b/.test(t)) out.tannin = 'high';
-
-  if (/\bnon troppo aspro|poco aspro|rotondo\b/.test(t)) out.acidity = 'low';
-  else if (/\bfresco|tagliente|acido|verticale\b/.test(t)) out.acidity = 'high';
-
-  if (/\bsecco\b/.test(t)) out.sweetness = 'dry';
-  else if (/\bdolce|amabile|abboccato\b/.test(t)) out.sweetness = 'sweet';
-
-  ['fruttato','speziato','minerale','aromatico','floreale','agrumi','tropicale']
-    .forEach(k => { if (new RegExp(`\\b${k}\\b`).test(t)) out.tags.push(k); });
-
-  const m = t.match(/\b(sicilia|piemonte|toscana|veneto|puglia|trentino|alto adige|friuli|campania|abruzzo|sardegna)\b/);
-  if (m) out.region = m[1];
-
-  const budget = parseBudget(t);
-  if (budget.min != null) out.price_min = budget.min;
-  if (budget.max != null) out.price_max = budget.max;
-
-  return out;
-}
-function hasMeaningfulPrefs(pref={}) {
-  return !!(pref.style || pref.body || pref.tannin || pref.acidity || (pref.tags&&pref.tags.length) || pref.region || pref.price_min!=null || pref.price_max!=null);
-}
-function parseBudget(t='') {
-  const out = { min:null, max:null };
-  let m = t.match(/(?:tra|fra)\s+(\d{1,4})\s*(?:e|a)\s*(\d{1,4})\s*€?/);
-  if (!m) m = t.match(/(\d{1,4})\s*[–—-]\s*(\d{1,4})/);
-  if (m) { out.min=+m[1]; out.max=+m[2]; if (out.min>out.max) [out.min,out.max]=[out.max,out.min]; return out; }
-  m = t.match(/\b(sotto|meno di|max)\s+(\d{1,4})\s*€?/); if (!m) m = t.match(/<=?\s*(\d{1,4})\s*€?/);
-  if (m) { out.max=+(m[2]||m[1]); return out; }
-  m = t.match(/\b(sopra|pi[uù] di|min)\s+(\d{1,4})\s*€?/); if (!m) m = t.match(/>=?\s*(\d{1,4})\s*€?/);
-  if (m) { out.min=+(m[2]||m[1]); return out; }
-  m = t.match(/\b(intorno a|sui|circa)\s+(\d{1,4})\s*€?/);
-  if (m) { const c=+m[2]; out.min=Math.max(0,Math.round(c*0.8)); out.max=Math.round(c*1.2); return out; }
-  if (/\beconomic[oa]\b/.test(t)) out.max = 15;
-  if (/\bmedio\b/.test(t)) { out.min = 15; out.max = 30; }
-  if (/\b(importante|alto|premium|costoso)\b/.test(t)) out.min = 30;
-  return out;
-}
-
-/* ---------------- Profili vite sintetici ---------------- */
-const GRAPE_PROFILES = {
-  'nebbiolo': { body:'full', tannin:'high', acidity:'high', style:'rosso' },
-  'sangiovese': { body:'med', tannin:'med', acidity:'high', style:'rosso' },
-  'merlot': { body:'med', tannin:'med', acidity:'med', style:'rosso' },
-  'cabernet': { body:'full', tannin:'high', acidity:'med', style:'rosso' },
-  'nero d avola': { body:'full', tannin:'med', acidity:'med', style:'rosso' },
-  'montepulciano': { body:'full', tannin:'med', acidity:'med', style:'rosso' },
-  'aglianico': { body:'full', tannin:'high', acidity:'high', style:'rosso' },
-  'primitivo': { body:'full', tannin:'med', acidity:'low', style:'rosso' },
-  'frappato': { body:'light', tannin:'low', acidity:'med', style:'rosso' },
-  'pinot nero': { body:'light', tannin:'low', acidity:'med', style:'rosso' },
-  'schiava': { body:'light', tannin:'low', acidity:'med', style:'rosso' },
-  'vermentino': { body:'light', tannin:'low', acidity:'high', style:'bianco' },
-  'pecorino': { body:'med', tannin:'low', acidity:'high', style:'bianco' },
-  'grillo': { body:'med', tannin:'low', acidity:'med', style:'bianco' },
-  'fiano': { body:'med', tannin:'low', acidity:'med', style:'bianco' },
-  'greco': { body:'med', tannin:'low', acidity:'med', style:'bianco' },
-  'garganega': { body:'med', tannin:'low', acidity:'med', style:'bianco' },
-  'chardonnay': { body:'med', tannin:'low', acidity:'med', style:'bianco' },
-  'sauvignon': { body:'light', tannin:'low', acidity:'high', style:'bianco' },
+/* ===================== Budget caps (adattati) ===================== */
+const CAPS = {
+  enoteca: {
+    rosso:   { daily: 25, target: 40, occasion: 70, cap: 120 },
+    bdxLeft: 90,
+    bianco:  40,
+    rosato:  28,
+  },
+  ristorante: {
+    rosso:   { daily: 50, target: 80, occasion: 150, cap: 220 },
+    bdxLeft: 160,
+    bianco:  60,
+    rosato:  45,
+  },
 };
 
-/* ---------------- Parser lista OCR/QR ---------------- */
-function parseWineList(raw = '') {
-  const text = String(raw).replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').trim();
-  if (!text) return [];
-  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-
-  const items = [];
-  let cur = [];
-  const priceRe = /(?:€|\bEUR\b)?\s*([0-9]{1,4}(?:[.,][0-9]{1,2})?)/;
-
-  for (const ln of lines) {
-    cur.push(ln);
-    if (priceRe.test(ln)) { items.push(cur.join(' ')); cur = []; }
-  }
-  if (cur.length) items.push(cur.join(' '));
-
-  return items.map(s => {
-    const priceM = s.match(priceRe);
-    const price = priceM ? parseFloat(priceM[1].replace(',','.')) : null;
-
-    const lower = s.toLowerCase();
-    const style = /\bros[ée]|rosato/.test(lower) ? 'rosé'
-                : /\bbianco\b/.test(lower) ? 'bianco'
-                : /\bfrizzante|spumante|metodo classico|prosecco|franciacorta/.test(lower) ? 'bollicine'
-                : 'rosso';
-    const grapeHit = Object.keys(GRAPE_PROFILES).find(g => lower.includes(g));
-    const regionM = lower.match(/\b(piemonte|toscana|sicilia|veneto|puglia|abruzzo|campania|sardegna|friuli|trentino|alto adige)\b/);
-
-    const name = s.replace(priceRe, '').replace(/\s{2,}/g,' ').trim();
-
-    return { raw:s, name, style, grape:grapeHit||null, region:regionM?.[1]||null, typical_price_eur:price };
-  });
+function capFor(req) {
+  const ctx = req.context ?? 'enoteca';
+  const mood = req.mood ?? 'rosso';
+  if (req.budgetCap) return req.budgetCap;
+  if (mood === 'rosso')  return CAPS[ctx].rosso.cap;
+  if (mood === 'bianco') return CAPS[ctx].bianco;
+  if (mood === 'rosato') return CAPS[ctx].rosato;
+  return CAPS[ctx].rosso.target; // mix
 }
 
-function scoreWine(w, pref) {
-  let sc = 0;
-  if (pref.style) sc += (w.style === pref.style) ? 3 : 0;
-  if (w.grape && GRAPE_PROFILES[w.grape]) {
-    const gp = GRAPE_PROFILES[w.grape];
-    if (pref.body)    sc += (gp.body    === pref.body    ? 2 : 0);
-    if (pref.tannin)  sc += (gp.tannin  === pref.tannin  ? 2 : 0);
-    if (pref.acidity) sc += (gp.acidity === pref.acidity ? 2 : 0);
-    if (pref.style && gp.style === pref.style) sc += 1;
-  }
-  if (pref.region && w.region && pref.region === w.region) sc += 1;
-  if (pref.tags?.includes('minerale') && /etna|sardegna|vermentino|greco|fiano|carricante/.test(w.raw.toLowerCase())) sc += 1;
-  if (pref.tags?.includes('fruttato') && /frappato|primitivo|nero d avola|barbera|dolcetto|chardonnay|sauvignon/.test(w.raw.toLowerCase())) sc += 1;
-  return sc;
-}
+function bandsFor(req) {
+  const ctx = req.context ?? 'enoteca';
+  const mood = req.mood ?? 'rosso';
 
-/* ---------------- Web search providers ---------------- */
-async function searchGoogleCSE(q) {
-  // accetta anche varianti NEXT_PUBLIC_* per comodità
-  const key =
-    process.env.GOOGLE_API_KEY ||
-    process.env.API_KEY ||
-    process.env.NEXT_PUBLIC_GOOGLE_API_KEY ||
-    process.env.NEXT_PUBLIC_API_KEY;
-
-  const cx =
-    process.env.GOOGLE_CSE_ID ||
-    process.env.CSE_ID ||
-    process.env.NEXT_PUBLIC_GOOGLE_CSE_ID ||
-    process.env.NEXT_PUBLIC_CSE_ID;
-
-  if (!key || !cx) {
-    const miss = [];
-    if (!key) miss.push('GOOGLE_API_KEY/API_KEY');
-    if (!cx)  miss.push('GOOGLE_CSE_ID/CSE_ID');
-    const err = `google_cse_missing_env: manca ${miss.join(' e ')}`;
-    throw new Error(err);
-  }
-
-  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(q)}`;
-  const r = await fetch(url, { headers:{ 'User-Agent': UA, 'Referer': DEFAULT_REFERER }});
-  const body = await r.text();
-
-  let j = {};
-  try { j = JSON.parse(body); } catch {} // in errore a volte Google torna HTML
-
-  if (!r.ok || j.error) {
-    const msg = j?.error?.message || `HTTP ${r.status}`;
-    throw new Error(`google_cse_error: ${msg}`);
-  }
-
-  const items = Array.isArray(j.items) ? j.items : [];
-  return items.map(it => ({ name: it.title, url: it.link, typical_price_eur: null, source: 'google' }));
-}
-
-async function searchSerpApi(q) {
-  const key = process.env.SERPAPI_API_KEY;
-  if (!key) return [];
-  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(q)}&gl=it&hl=it&api_key=${key}`;
-  const r = await fetch(url, { headers:{ 'User-Agent': UA }});
-  const j = await r.json().catch(()=> ({}));
-  const out = [];
-  if (Array.isArray(j.shopping_results)) {
-    for (const s of j.shopping_results.slice(0,8)) {
-      const n = s.price ? Number(String(s.price).replace(/[^\d,.-]/g,'').replace(',','.')) : null;
-      out.push({ name: s.title, url: s.link, typical_price_eur: isNaN(n)?null:n, source:'serpapi' });
-    }
-  }
-  if (out.length < 3 && Array.isArray(j.organic_results)) {
-    for (const o of j.organic_results.slice(0,5)) {
-      out.push({ name: o.title, url: o.link, typical_price_eur: null, source:'serpapi' });
-    }
-  }
-  return out;
-}
-
-async function searchBing(q) {
-  const key = process.env.BING_SEARCH_API_KEY;
-  if (!key) return [];
-  const url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(q)}&mkt=it-IT`;
-  const r = await fetch(url, { headers:{ 'Ocp-Apim-Subscription-Key': key, 'User-Agent': UA }});
-  const j = await r.json().catch(()=> ({}));
-  const out = [];
-  if (j?.webPages?.value) {
-    for (const v of j.webPages.value.slice(0,8)) {
-      out.push({ name: v.name, url: v.url, typical_price_eur: null, source:'bing' });
-    }
-  }
-  return out;
-}
-
-/* ---------------- Utils ---------------- */
-async function fetchTextFromUrl(url) {
-  try {
-    const r = await fetch(url, { headers:{ 'User-Agent': UA, 'Referer': DEFAULT_REFERER }});
-    const html = await r.text();
-    const text = html.replace(/<script[\s\S]*?<\/script>/gi,' ')
-                     .replace(/<style[\s\S]*?<\/style>/gi,' ')
-                     .replace(/<[^>]+>/g,' ')
-                     .replace(/\s+/g,' ')
-                     .trim();
-    return text;
-  } catch { return ''; }
-}
-function categorizeBand(price, qLow, qMed) {
-  if (price == null) return null;
-  if (price <= qLow) return 'low';
-  if (price <= qMed) return 'med';
-  return 'high';
-}
-function fallbackByPreference(pref={}) {
-  if (pref.style === 'rosé') {
+  if (mood === 'rosso') {
+    const { daily, target, occasion, cap } = CAPS[ctx].rosso;
     return [
-      { name:'Cerasuolo d’Abruzzo DOC Rosato', typical_price_eur:12 },
-      { name:'Etna Rosato DOC (Nerello Mascalese)', typical_price_eur:20 },
-      { name:'Chiaretto del Garda DOC', typical_price_eur:10 },
-      { name:'Cerasuolo di Vittoria Rosato', typical_price_eur:16 },
-      { name:'Salina IGP Rosato', typical_price_eur:22 },
+      { key: 'daily',    label: `0–${daily} € (${ctx})`,       max: daily },
+      { key: 'target',   label: `${daily+1}–${target} € (${ctx})`, max: target },
+      { key: 'occasion', label: `${target+1}–${occasion} € (${ctx})`, max: occasion },
+      { key: 'premium',  label: `${occasion+1}–${cap} € (${ctx})`, max: cap },
     ];
   }
-  if (pref.style === 'bianco') {
-    return [
-      { name:'Vermentino di Gallura DOCG', typical_price_eur:15 },
-      { name:'Pecorino d’Abruzzo DOC', typical_price_eur:12 },
-      { name:'Fiano di Avellino DOCG', typical_price_eur:22 },
-      { name:'Soave Classico DOC', typical_price_eur:10 },
-      { name:'Etna Bianco DOC (Carricante)', typical_price_eur:25 },
-    ];
-  }
+
+  const cap = capFor(req);
+  let b1, b2, b3;
+  if (mood === 'bianco')     { b1 = 20; b2 = 35; b3 = CAPS[ctx].bianco; }
+  else if (mood === 'rosato'){ b1 = 18; b2 = 25; b3 = CAPS[ctx].rosato; }
+  else                       { b1 = 25; b2 = 45; b3 = 80; } // mix
   return [
-    { name:'Barbera d’Asti DOCG', typical_price_eur:13 },
-    { name:'Frappato DOC', typical_price_eur:15 },
-    { name:'Chianti Classico DOCG', typical_price_eur:18 },
-    { name:'Montepulciano d’Abruzzo DOC', typical_price_eur:12 },
-    { name:'Aglianico del Vulture DOC', typical_price_eur:20 },
+    { key: 'daily',    label: `0–${b1} € (${ctx})`,           max: b1 },
+    { key: 'target',   label: `${b1+1}–${b2} € (${ctx})`,     max: b2 },
+    { key: 'occasion', label: `${b2+1}–${b3} € (${ctx})`,     max: b3 },
+    { key: 'premium',  label: `${b3+1}–${cap} € (${ctx})`,    max: cap },
   ];
 }
 
-/* ---------------- Handler ---------------- */
+/* ===================== Utils ===================== */
+const nowISO = () => new Date().toISOString();
+
+function cleanText(s) {
+  return String(s || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function pickPrice(s) {
+  const m = String(s || '').match(/(\d+[.,]?\d*)\s*€|€\s*(\d+[.,]?\d*)/i);
+  if (!m) return null;
+  const v = Number((m[1] || m[2]).replace(',', '.'));
+  return isNaN(v) ? null : v;
+}
+
+function bandKeyFromPrice(bands, price) {
+  if (price == null) return null;
+  for (const b of bands) if (price <= b.max) return b.key;
+  return 'premium';
+}
+
+/* ===================== Drawer adapter ===================== */
+function toDrawerRec(sugg, bandKey) {
+  const bandMap = { daily: 'low', target: 'med', occasion: 'high', premium: 'high' };
+  return {
+    name: sugg.name,
+    winery: '',
+    denomination: sugg.denomOrGrape || '',
+    region: sugg.area || '',
+    why: sugg.whyMatch || (sugg.notes || []).join(', '),
+    typical_price_eur: sugg.typical_price_eur ?? pickPrice(sugg.priceBand),
+    price_band: bandMap[bandKey] || 'med',
+    out_of_budget: false,
+    links: sugg.links || [],
+    vintage_suggestion: sugg.vintage ? [String(sugg.vintage)] : [],
+    similar_to: sugg.similar_to || []   // <-- nuovo campo
+  };
+}
+
+function ensureMinPerBand(groups, min = 3) {
+  const keys = Object.keys(groups);
+  // prova a bilanciare spostando dagli altri gruppi con surplus
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if ((groups[k] || []).length >= min) continue;
+    for (let j = 0; j < keys.length && groups[k].length < min; j++) {
+      if (j === i) continue;
+      while ((groups[keys[j]] || []).length > min && groups[k].length < min) {
+        groups[k].push(groups[keys[j]].pop());
+      }
+    }
+  }
+  return groups;
+}
+
+/* ===================== Gusti utente (bevuti + rating) ===================== */
+async function fetchUserTaste(userId) {
+  if (!sbAdmin || !userId) return { wines: [], places: [] };
+  const { data: wines } = await sbAdmin
+    .from('wines')
+    .select('id, name, winery, region, style, grapes, grape_blend, rating_5, price_target')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  const { data: places } = await sbAdmin
+    .from('product_places')
+    .select('item_id, kind')
+    .eq('user_id', userId)
+    .eq('item_type', 'wine')
+    .eq('kind', 'purchase');
+
+  const tastedIds = new Set((places || []).map(p => p.item_id));
+  const tasted = (wines || []).filter(w => tastedIds.has(w.id));
+  return { wines: tasted, places: places || [] };
+}
+
+/* Similarità dettagliata per "similar_to" */
+function computeSimilarTo(sugg, tasteWines, topN = 3) {
+  const nm = s => String(s || '').toLowerCase();
+  const out = [];
+
+  for (const t of (tasteWines || [])) {
+    const reasons = [];
+    let score = 0;
+
+    // rating come peso
+    const weight = (Number(t.rating_5) || 0) / 5; // 0..1
+    score += weight * 0.5;
+
+    // regione/area
+    if (nm(t.region) && nm(sugg.area).includes(nm(t.region))) {
+      reasons.push('regione simile');
+      score += 0.7;
+    }
+
+    // cantina (grezzo: match nel nome)
+    if (nm(t.name) && nm(sugg.name).includes(nm(t.name.split(' ')[0]))) {
+      reasons.push('cantina menzionata');
+      score += 0.4;
+    }
+
+    // vitigni vs denom/grape string
+    const list = nm(sugg.denomOrGrape);
+    let grapeHit = 0;
+    for (const g of (t.grapes || []).map(nm)) {
+      if (g && list.includes(g)) grapeHit++;
+    }
+    if (grapeHit > 0) {
+      reasons.push(`${grapeHit} vitigno/i in comune`);
+      score += 0.6 * grapeHit;
+    }
+
+    // stile (“rosso/bianco/rosato”, ecc.) cercato nelle note
+    if (t.style && (sugg.notes || []).join(' ').toLowerCase().includes(nm(t.style))) {
+      reasons.push('stile affine');
+      score += 0.3;
+    }
+
+    // prezzo vicino
+    if (t.price_target != null && sugg.typical_price_eur != null) {
+      const diff = Math.abs(Number(t.price_target) - Number(sugg.typical_price_eur));
+      const closeness = Math.max(0, 1 - diff / 50); // ±50€ → 0
+      if (closeness > 0.2) {
+        reasons.push('fascia prezzo vicina');
+        score += 0.25 * closeness;
+      }
+    }
+
+    if (reasons.length) {
+      out.push({
+        wine_id: t.id,
+        name: t.name,
+        rating_5: t.rating_5 || 0,
+        reasons,
+        score: Number(score.toFixed(3)),
+      });
+    }
+  }
+
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, topN);
+}
+
+/* ===================== LLM Helpers ===================== */
+const SYS_PARSE_REQUEST = `
+Sei un sommelier digitale. Dato un prompt utente, estrai un SommelierRequest JSON con campi:
+{ "mood":"rosso|bianco|rosato|mix", "context":"enoteca|ristorante", "budgetCap": number|undefined,
+  "dish": string|undefined, "locationHint": string|undefined, "must": string[]|undefined, "avoid": string[]|undefined }.
+Rispondi SOLO JSON valido.`;
+
+const SYS_PARSE_WINE_LIST = `
+Sei un parser di carte vini. Estrai un array nel formato:
+[{ "name":"", "denomOrGrape":"", "vintage":"", "area":"", "notes":[], "whyMatch":"", "priceBand":"" }]
+- "priceBand": una stringa tipo "25–40 € (enoteca)" o "≤25 €".
+- "notes": 3–5 descrittori sintetici.
+Rispondi SOLO JSON. Se serve, racchiudi l'array in {"items":[...]}.
+`;
+
+const SYS_WEB_SUMMARIZE = `
+Sei un sommelier. Dati frammenti web su un vino, sintetizza:
+{ "name":"", "denomOrGrape":"", "vintage":"", "area":"", "notes":[], "whyMatch":"", "priceBand":"~XX €" }.
+Rispondi SOLO JSON valido.`;
+
+async function llmJSON(system, userText, fallback) {
+  if (!openai) return fallback;
+  const resp = await openai.chat.completions.create({
+    model: LLM_MODEL,
+    temperature: 0,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user',   content: String(userText).slice(0, 12000) }
+    ]
+  });
+  try {
+    return JSON.parse(resp.choices?.[0]?.message?.content || '{}');
+  } catch { return fallback; }
+}
+
+async function llmJSONArray(system, userText, fallback = []) {
+  if (!openai) return fallback;
+  const resp = await openai.chat.completions.create({
+    model: LLM_MODEL,
+    temperature: 0,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: system + '\nRestituisci come {"items":[...]}.' },
+      { role: 'user',   content: String(userText).slice(0, 12000) }
+    ]
+  });
+  try {
+    const j = JSON.parse(resp.choices?.[0]?.message?.content || '{}');
+    return Array.isArray(j.items) ? j.items : fallback;
+  } catch { return fallback; }
+}
+
+/* ===================== Google Programmable Search ===================== */
+async function googleSearch(q, num = 6) {
+  if (!GOOGLE_API_KEY || !GOOGLE_CX) return [];
+  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(GOOGLE_API_KEY)}&cx=${encodeURIComponent(GOOGLE_CX)}&q=${encodeURIComponent(q)}&num=${num}`;
+  const r = await fetch(url);
+  if (!r.ok) return [];
+  const j = await r.json();
+  const items = j.items || [];
+  return items.map(it => ({ title: it.title, link: it.link, snippet: it.snippet || '' }));
+}
+
+/* ===================== Parse richiesta ===================== */
+async function buildSommelierRequest(queryText) {
+  const txt = cleanText(queryText || '');
+  if (!txt) return { mood:'rosso', context:'enoteca' };
+  const req = await llmJSON(SYS_PARSE_REQUEST, txt, { mood:'rosso', context:'enoteca' });
+  // normalizza
+  req.mood = ['rosso','bianco','rosato','mix'].includes(req.mood) ? req.mood : 'rosso';
+  req.context = ['enoteca','ristorante'].includes(req.context) ? req.context : 'enoteca';
+  if (req.budgetCap && typeof req.budgetCap !== 'number') delete req.budgetCap;
+  if (req.must && !Array.isArray(req.must)) delete req.must;
+  if (req.avoid && !Array.isArray(req.avoid)) delete req.avoid;
+  return req;
+}
+
+/* ===================== Candidate da carta (OCR/QR) ===================== */
+async function parseWineListFromText(listText) {
+  const arr = await llmJSONArray(SYS_PARSE_WINE_LIST, cleanText(listText), []);
+  return arr.map(x => ({
+    name: x.name || '',
+    denomOrGrape: x.denomOrGrape || '',
+    vintage: x.vintage || '',
+    area: x.area || '',
+    notes: Array.isArray(x.notes) ? x.notes.slice(0,5) : [],
+    whyMatch: x.whyMatch || '',
+    priceBand: x.priceBand || '',
+    typical_price_eur: pickPrice(x.priceBand),
+    links: [],
+    source: 'list',
+  })).filter(x => x.name);
+}
+
+/* ===================== Candidate dal web (usato SOLO se non c'è carta) ===================== */
+async function expandCandidatesFromWeb(req) {
+  if (!GOOGLE_API_KEY || !GOOGLE_CX) return [];
+  const terms = [
+    req.locationHint,
+    req.mood === 'bianco' ? 'best white wine' : req.mood === 'rosato' ? 'best rosé wine' : 'best red wine',
+    ...(req.must || []),
+    'value',
+  ].filter(Boolean).join(' ');
+  const hits = await googleSearch(terms, 8);
+  const out = [];
+  for (const h of hits) {
+    const j = await llmJSON(SYS_WEB_SUMMARIZE, `${h.title}\n${h.snippet}\n${h.link}`, null);
+    if (!j) continue;
+    out.push({
+      name: j.name || h.title,
+      denomOrGrape: j.denomOrGrape || '',
+      vintage: j.vintage || '',
+      area: j.area || '',
+      notes: Array.isArray(j.notes) ? j.notes.slice(0,5) : [],
+      whyMatch: j.whyMatch || '',
+      priceBand: j.priceBand || '',
+      typical_price_eur: pickPrice(j.priceBand),
+      links: [{ title: 'Fonte', url: h.link }],
+      source: 'web',
+    });
+  }
+  return out;
+}
+
+/* ===================== Filtra e ranking ===================== */
+function filterByReq(candidates, req) {
+  const must  = (req.must || []).map(s => s.toLowerCase());
+  const avoid = (req.avoid || []).map(s => s.toLowerCase());
+  const mood  = req.mood || 'rosso';
+
+  return candidates.filter(c => {
+    const T = `${c.name} ${c.denomOrGrape} ${c.area} ${(c.notes || []).join(' ')}`.toLowerCase();
+    if (must.length && !must.every(m => T.includes(m))) return false;
+    if (avoid.length && avoid.some(a => T.includes(a))) return false;
+    if (mood === 'bianco' && /rosso|rouge|tinto/.test(T)) return false;
+    if (mood === 'rosato' && !/(rosato|rosé)/.test(T)) return false;
+    if (mood === 'rosso' && /(bianco|white|blanc|rosé|rosato)/.test(T)) return false;
+    return true;
+  });
+}
+
+function scoreAndGroup(candidates, req, taste) {
+  const bands = bandsFor(req);
+  const cap = capFor(req);
+
+  for (const c of candidates) {
+    // similarità dettagliata
+    const similar = computeSimilarTo(c, taste.wines || [], 3);
+    c.similar_to = similar; // arr di { wine_id, name, rating_5, reasons[], score }
+
+    // punteggio
+    let base = 0;
+    if (similar.length) {
+      base += similar.reduce((s, it) => s + it.score, 0); // somma dei top3
+    }
+    // budget proximity
+    const p = c.typical_price_eur;
+    if (p != null) {
+      const target = bands.find(b => b.key === 'target')?.max || cap * 0.5;
+      const budgetScore = Math.max(0, 1 - Math.abs(p - target) / Math.max(1, cap));
+      base += budgetScore * 0.8;
+    }
+    c._score = Number(base.toFixed(3));
+  }
+
+  candidates.sort((a, b) => (b._score || 0) - (a._score || 0));
+
+  const groups = { daily: [], target: [], occasion: [], premium: [] };
+  for (const c of candidates) {
+    const k = bandKeyFromPrice(bands, c.typical_price_eur);
+    if (!k) continue;
+    groups[k]?.push(c);
+  }
+  return { bands, groups };
+}
+
+/* ===================== Risposta finale ===================== */
+function buildResponse(req, bands, groups, source) {
+  const order = ['daily','target','occasion','premium'];
+  const shortlist = [];
+
+  for (const k of order) {
+    for (const c of groups[k]) {
+      shortlist.push({
+        name: c.name,
+        denomOrGrape: c.denomOrGrape || '',
+        vintage: c.vintage || '',
+        area: c.area || '',
+        notes: c.notes || [],
+        whyMatch: c.whyMatch || '',
+        priceBand: c.priceBand || (c.typical_price_eur != null ? `~ ${c.typical_price_eur} €` : ''),
+        service: undefined,
+        alt: undefined,
+        similar_to: c.similar_to || []   // <-- nuovo
+      });
+    }
+  }
+
+  // compat drawer UI
+  const recommendations = [];
+  for (const k of order) {
+    for (const c of groups[k]) {
+      recommendations.push(toDrawerRec(c, k));
+    }
+  }
+
+  return {
+    sommelier: {
+      timestamp: nowISO(),
+      request: req,
+      shortlist,
+      rationale: `Selezione basata su ${source === 'list' ? 'carta del locale' : (source === 'web' ? 'fonti web' : 'regole interne')} e gusti personali.`,
+    },
+    source,
+    budget_filter: { min: 0, max: capFor(req) },
+    recommendations,
+    notes: source === 'list'
+      ? 'Suggerimenti tratti dalla lista fornita (OCR/QR).'
+      : source === 'web'
+      ? 'Suggerimenti tratti dal web (Google Custom Search).'
+      : 'Suggerimenti offline (fallback).'
+  };
+}
+
+/* ===================== Handler ===================== */
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-    const { query = '', wineList = '', wineLists = [], qrLinks = [], tasteHints = {} } = req.body || {};
+    const { query = '', wineLists = [], qrLinks = [], userId } = req.body || {};
+    const requestObj = await buildSommelierRequest(query);
 
-    // preferenze dal prompt
-    const pref = extractTasteHints(query, tasteHints);
+    // 1) Raccogli testi di carta (OCR + QR). Nota: NON farò backfill dal web se c'è carta.
+    const listTexts = [...(wineLists || [])];
 
-    // 1) Aggrega carta da OCR (array + singolo), più pagine dei QR
-    let listText = '';
-    if (Array.isArray(wineLists) && wineLists.length) listText += `\n${wineLists.filter(Boolean).join('\n')}`;
-    if (wineList) listText += `\n${String(wineList)}`;
-    if (Array.isArray(qrLinks) && qrLinks.length) {
-      for (const u of qrLinks) {
-        const t = await fetchTextFromUrl(u);
-        if (t) listText += `\n${t}`;
+    // 2) Estrai candidate
+    let candidates = [];
+    if (listTexts.length) {
+      for (const t of listTexts) {
+        const arr = await parseWineListFromText(t);
+        candidates.push(...arr);
+      }
+    } else {
+      // Nessuna carta → posso usare il web se configurato
+      const arr = await expandCandidatesFromWeb(requestObj);
+      candidates.push(...arr);
+      if (!arr.length && (!GOOGLE_API_KEY || !GOOGLE_CX)) {
+        // fallback “offline” minimo se proprio non c'è nulla
+        candidates = [
+          { name:'Barbera d’Asti', denomOrGrape:'Barbera', vintage:'2021', area:'Piemonte', notes:['fruttato','acidità viva'], priceBand:'12–18 €', typical_price_eur:15, links:[], source:'offline' },
+          { name:'Verdicchio dei Castelli di Jesi', denomOrGrape:'Verdicchio', vintage:'2022', area:'Marche', notes:['agrumi','mandorla'], priceBand:'10–16 €', typical_price_eur:13, links:[], source:'offline' },
+          { name:'Etna Rosso', denomOrGrape:'Nerello Mascalese', vintage:'2020', area:'Etna', notes:['minerale','speziato leggero'], priceBand:'18–30 €', typical_price_eur:24, links:[], source:'offline' },
+        ];
       }
     }
-    listText = listText.trim();
 
-    // ---------------- Carta locale (OCR/QR) ----------------
-    if (listText && listText.split(/\s+/).length > 5) {
-      const candidates = parseWineList(listText);
-      if (candidates.length > 0) {
-        const scored = candidates.map(w => ({ ...w, _score: scoreWine(w, pref) }))
-                                 .sort((a,b) => b._score - a._score);
+    // 3) Personalizzazione gusti in base ai “bevuti” + rating
+    const taste = await fetchUserTaste(userId);
 
-        const withPrice = scored.filter(x => typeof x.typical_price_eur === 'number').sort((a,b)=>a.typical_price_eur-b.typical_price_eur);
-        let qLow = null, qMed = null;
-        if (withPrice.length >= 3) {
-          qLow = withPrice[Math.floor(withPrice.length/3)].typical_price_eur;
-          qMed = withPrice[Math.floor((2*withPrice.length)/3)].typical_price_eur;
-        }
+    // 4) Filtra secondo richiesta, rank, gruppi
+    const filtered = filterByReq(candidates, requestObj);
+    const { bands, groups } = scoreAndGroup(filtered, requestObj, taste);
 
-        const inBudget = (x)=>{
-          const p = x.typical_price_eur;
-          if (p == null) return false;
-          if (pref.price_min != null && p < pref.price_min) return false;
-          if (pref.price_max != null && p > pref.price_max) return false;
-          return true;
-        };
-
-        let picks = [];
-        if (hasMeaningfulPrefs(pref)) {
-          // prompt-first: top3 per score (rispettando budget se possibile)
-          let pool = scored;
-          if (pref.price_min != null || pref.price_max != null) {
-            const b = scored.filter(inBudget);
-            pool = b.length ? b : scored;
-          }
-          picks = pool.slice(0,3);
-        } else {
-          // fallback fasce Low/Med/High
-          const takeTriple = (arr) => {
-            if (arr.length === 0) return [];
-            const a = [...arr].sort((x,y)=>(x.typical_price_eur??999)-(y.typical_price_eur??999));
-            const low = a[0], med = a[Math.floor(a.length/2)], high = a[a.length-1];
-            return [low,med,high].filter(Boolean);
-          };
-          let poolBudget = (pref.price_min!=null || pref.price_max!=null) ? withPrice.filter(inBudget) : withPrice;
-          picks = takeTriple(poolBudget);
-          if (picks.length < 3) {
-            const extra = takeTriple(withPrice).filter(x => !picks.includes(x));
-            picks = [...picks, ...extra].slice(0,3);
-          }
-        }
-
-        const triple = picks.map(x => {
-          const band = (qLow!=null && qMed!=null && x.typical_price_eur!=null) ? categorizeBand(x.typical_price_eur, qLow, qMed) : null;
-          const outOf = (pref.price_min!=null && x.typical_price_eur!=null && x.typical_price_eur < pref.price_min)
-                     || (pref.price_max!=null && x.typical_price_eur!=null && x.typical_price_eur > pref.price_max);
-          return {
-            name: x.name,
-            winery: null,
-            denomination: null,
-            region: x.region,
-            typical_price_eur: x.typical_price_eur ?? null,
-            vintage_suggestion: [],
-            why: buildWhy(x, pref),
-            price_band: band,
-            out_of_budget: !!outOf,
-            links: []
-          };
-        });
-
-        return res.status(200).json({
-          source: 'list',
-          profile: pref,
-          budget_filter: { min: pref.price_min ?? null, max: pref.price_max ?? null },
-          recommendations: triple,
-          notes: hasMeaningfulPrefs(pref)
-            ? 'Scelte basate sulla carta e sulle preferenze del prompt.'
-            : 'Scelte basate sulla carta del locale (3 fasce di prezzo).'
-        });
-      }
-      // se non riconosco righe utili, proseguo con web search
+    // 5) Assicurare almeno 3 per fascia prezzo (solo bilanciamento interno, niente web se c'è carta)
+    const needPerBand = 3;
+    const totalAvail = filtered.length;
+    if (totalAvail >= needPerBand) {
+      ensureMinPerBand(groups, needPerBand);
     }
 
-    // ---------------- Ricerca web ----------------
-    const qWeb = buildWebQuery(query, pref);
-    let web = [];
-    const providerNotes = [];
+    // 6) Build response
+    const source = listTexts.length ? 'list' : (GOOGLE_API_KEY && GOOGLE_CX ? 'web' : 'offline');
+    const payload = buildResponse(requestObj, bands, groups, source);
 
-    // Google CSE (prioritario)
-    try {
-      const googleResults = await searchGoogleCSE(qWeb);
-      if (googleResults.length) web = googleResults;
-    } catch (e) {
-      providerNotes.push(String(e.message || e));
-    }
-
-    // SerpAPI se disponibile
-    try {
-      if (web.length < 3) web = [...web, ...(await searchSerpApi(qWeb))];
-    } catch (e) {
-      providerNotes.push('serpapi_error');
-    }
-
-    // Bing se disponibile
-    try {
-      if (web.length < 3) web = [...web, ...(await searchBing(qWeb))];
-    } catch (e) {
-      providerNotes.push('bing_error');
-    }
-
-    if (web.length === 0) {
-      const fb = fallbackByPreference(pref).slice(0,5).map(x => ({
-        ...x, winery:null, denomination:null, region:null, vintage_suggestion:[], links:[],
-        price_band: x.typical_price_eur!=null ? (x.typical_price_eur<=15?'low':x.typical_price_eur<=30?'med':'high') : null,
-        out_of_budget: (pref.price_min!=null && x.typical_price_eur!=null && x.typical_price_eur < pref.price_min)
-                    || (pref.price_max!=null && x.typical_price_eur!=null && x.typical_price_eur > pref.price_max)
-      }));
-      return res.status(200).json({
-        source:'fallback',
-        profile: pref,
-        budget_filter: { min: pref.price_min ?? null, max: pref.price_max ?? null },
-        recommendations: fb,
-        notes: providerNotes.length
-          ? `Suggerimenti offline (provider web non utilizzabile: ${providerNotes.join(' | ')})`
-          : 'Suggerimenti offline (nessun provider web configurato).'
-      });
-    }
-
-    const inBudgetWeb = (x)=>{
-      const p = x.typical_price_eur;
-      if (p == null) return false;
-      if (pref.price_min != null && p < pref.price_min) return false;
-      if (pref.price_max != null && p > pref.price_max) return false;
-      return true;
-    };
-    const webBudget = (pref.price_min!=null || pref.price_max!=null) ? web.filter(inBudgetWeb) : web;
-    const ordered = (webBudget.length ? webBudget : web).slice(0,5);
-
-    const recs = ordered.map(x => ({
-      name: x.name, winery: null, denomination: null, region: null,
-      typical_price_eur: x.typical_price_eur ?? null,
-      vintage_suggestion: [],
-      why: 'Alternativa coerente con le preferenze richieste.',
-      price_band: x.typical_price_eur!=null ? (x.typical_price_eur<=15?'low':x.typical_price_eur<=30?'med':'high') : null,
-      out_of_budget: (pref.price_min!=null && x.typical_price_eur!=null && x.typical_price_eur < pref.price_min)
-                  || (pref.price_max!=null && x.typical_price_eur!=null && x.typical_price_eur > pref.price_max),
-      links: [{ title:x.source || 'link', url:x.url }]
-    }));
-
-    return res.status(200).json({
-      source:'web',
-      profile: pref,
-      budget_filter: { min: pref.price_min ?? null, max: pref.price_max ?? null },
-      recommendations: recs,
-      notes: providerNotes.length ? `Ricerca web (note: ${providerNotes.join(' | ')})` : 'Ricerca web (Google/SerpAPI/Bing).'
-    });
-
+    return res.status(200).json(payload);
   } catch (e) {
     console.error('sommelier error', e);
-    res.status(500).json({ error: e.message || 'Server error' });
+    return res.status(500).json({ error: e.message || 'Server error' });
   }
-}
-
-function buildWhy(w, pref) {
-  const bits = [];
-  if (pref.style) bits.push(`${w.style} richiesto`);
-  if (w.grape) bits.push(`vitigno ${w.grape}`);
-  if (pref.tannin) bits.push(`tannino ${pref.tannin}`);
-  if (pref.body) bits.push(`corpo ${pref.body}`);
-  if (pref.acidity) bits.push(`acidità ${pref.acidity}`);
-  if (pref.tags?.length) bits.push(pref.tags.join(', '));
-  return 'Scelto per: ' + bits.filter(Boolean).join(' • ');
-}
-function buildWebQuery(query, pref) {
-  const parts = [];
-  if (pref.style) parts.push(pref.style);
-  if (pref.region) parts.push(pref.region);
-  if (pref.tannin === 'low') parts.push('tannino basso');
-  if (pref.body === 'full') parts.push('corposo');
-  if (pref.acidity === 'high') parts.push('acido/fresco');
-  if (pref.tags?.length) parts.push(pref.tags.join(' '));
-  if (pref.price_max != null) parts.push(`sotto ${pref.price_max} euro`);
-  if (pref.price_min != null) parts.push(`sopra ${pref.price_min} euro`);
-  parts.push('vino', 'alternativa', 'recensioni', 'qualità prezzo');
-  const base = parts.filter(Boolean).join(' ');
-  return query ? `${query} ${base}` : base;
 }
