@@ -63,7 +63,7 @@ function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
   );
 }
 
-/* ===== Drawer Sommelier ===== */
+/* ===== Drawer Sommelier (con badge fasce/budget) ===== */
 function SommelierDrawer({ data, onClose }) {
   const recs = data?.recommendations || [];
   const src = data?.source || '';
@@ -125,12 +125,12 @@ function SommelierDrawer({ data, onClose }) {
   );
 }
 
-
-/* ===== Live QR Scanner (best-effort) ===== */
+/* ===== Live QR Scanner (multi-QR) ===== */
 function LiveQrScanner({ onClose, onResult }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const loopRef = useRef(null);
+  const [codes, setCodes] = useState([]);
 
   useEffect(() => {
     let stream;
@@ -152,7 +152,10 @@ function LiveQrScanner({ onClose, onResult }) {
     const w=v.videoWidth,h=v.videoHeight; c.width=w; c.height=h;
     const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,w,h);
     const img=ctx.getImageData(0,0,w,h); const code=jsQR(img.data,img.width,img.height);
-    if(code&&code.data){ stopLoop(); onResult?.(code.data); }
+    if(code&&code.data){
+      const url = code.data.trim();
+      setCodes(prev => prev.includes(url) ? prev : [...prev, url]);
+    }
   }
 
   return (
@@ -164,7 +167,11 @@ function LiveQrScanner({ onClose, onResult }) {
         </div>
         <video ref={videoRef} muted playsInline style={{ width:'100%', borderRadius:12, background:'#000' }} />
         <canvas ref={canvasRef} style={{ display:'none' }} />
-        <p style={{ opacity:.8, marginTop:8 }}>Inquadra il QR del menù. Se leggibile, apro il Sommelier sulla pagina collegata.</p>
+        <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <span style={{ opacity:.85 }}>Link letti: <strong>{codes.length}</strong></span>
+          <button disabled={!codes.length} onClick={()=> onResult?.(codes)} style={btn(true)}>Usa {codes.length} link</button>
+          <button onClick={()=> setCodes([])} style={btn(false)}>Azzera</button>
+        </div>
       </div>
     </div>
   );
@@ -382,12 +389,25 @@ function ProdottiTipiciViniPage() {
   const [showAddWine, setShowAddWine]       = useState(false);
   const [showAddCellar, setShowAddCellar]   = useState(false);
 
+  // allegati per Sommelier
+  const [sommelierLists, setSommelierLists] = useState([]); // testi OCR (multi-foto)
+  const [sommelierQr, setSommelierQr] = useState([]);       // URL QR (multi)
+  const [sommelierBusy, setSommelierBusy] = useState(false);
+
+  // toasts
+  const [toasts, setToasts] = useState([]);
+  const showToast = useCallback((msg) => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t, { id, msg }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
+  }, []);
+
   // MAP
   const [mapCenter, setMapCenter] = useState([12.5, 42.5]); // [lng, lat]
   const [mapZoom, setMapZoom] = useState(5);
   const [selectedPlaceId, setSelectedPlaceId] = useState(null);
 
-  // sessione come spese-casa.js
+  // sessione (come spese-casa.js)
   useEffect(() => {
     let sub = null;
     (async () => {
@@ -468,138 +488,47 @@ function ProdottiTipiciViniPage() {
     alert('Luogo aggiunto!'); refreshAll();
   }
 
-  /* ---------------- Sommelier + OCR/QR ---------------- */
+  /* ---------------- Sommelier: allega e poi premi “Sommelier” ---------------- */
   const [q, setQ] = useState('');
-  const [sommelierOpen, setSommelierOpen] = useState(false);
-  const [sommelierData, setSommelierData] = useState(null);
   const fileRef = useRef(null);
   const [showQr, setShowQr] = useState(false);
+  const [sommelierOpen, setSommelierOpen] = useState(false);
+  const [sommelierData, setSommelierData] = useState(null);
 
-  async function askSommelier(payload={}) {
-    const r = await fetch('/api/sommelier', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ query:q || 'Consigliami il migliore in base al mio gusto', ...payload })
-    });
-    const j = await r.json();
-    setSommelierData(j); setSommelierOpen(true);
-  }
   async function dataUrlFromFile(file) {
     return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
   }
-  function extractTasteHints(text) {
-    const t = (q+' '+(text||'')).toLowerCase(), h={tags:[]};
-    if (/\b(non troppo aspro|poco aspro|morbido|rotondo)\b/.test(t)) h.acidity='low';
-    else if (/\bmolto fresco|tagliente|acido\b/.test(t)) h.acidity='high';
-    if (/\bmorbido|setoso|poco tannico\b/.test(t)) h.tannin='low';
-    else if (/\btannico|ruvido|astringente\b/.test(t)) h.tannin='high';
-    if (/\bleggero|fresco beverino|snello\b/.test(t)) h.body='light';
-    else if (/\bstrutturato|corposo|pieno\b/.test(t)) h.body='full';
-    if (/\bsecco\b/.test(t)) h.sweetness='dry';
-    else if (/\bdolce|abboccato|amabile\b/.test(t)) h.sweetness='sweet';
-    ['fruttato','speziato','minerale','aromatico'].forEach(tg=>{ if (new RegExp(`\\b${tg}\\b`).test(t)) h.tags.push(tg); });
-    return h;
-  }
-  async function handleSommelierOcrFile(file) {
-    try {
-      const dataUrl = await dataUrlFromFile(file);
-      const r1 = await fetch('/api/ocr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataUrl})});
-      const j1 = await r1.json();
-      const listText = (j1?.text || '').trim();
-      if (!listText) { alert('OCR: nessun testo letto dalla foto.'); return; }
-      await askSommelier({ wineList:listText, tasteHints: extractTasteHints(listText), qrLinks:[] });
-    } catch(e){ alert('Errore Sommelier OCR: '+(e?.message||e)); }
-  }
+async function handleSommelierOcrFiles(files) {
+  try {
+    if (!files || !files.length) { alert('Nessun file selezionato'); return; }
 
-  /* ---------- Normalizer (OCR/Vocale per inserimenti) ---------- */
-  async function normalizeText(text,target) {
-    const r = await fetch('/api/ingest/normalize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, target }) });
-    return r.json();
-  }
-  async function ocrToData(target) {
-    const input = document.createElement('input');
-    input.type='file'; input.accept='image/*'; input.capture='environment';
-    input.onchange = async e => {
-      const f = e.target.files?.[0]; if (!f) return;
-      const dataUrl = await dataUrlFromFile(f);
-      const r1 = await fetch('/api/ocr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataUrl})});
-      const j1 = await r1.json();
-      const text = j1?.text || '';
-      if (!text) { alert('OCR: nessun testo.'); return; }
-      const norm = await normalizeText(text,target); norm._raw = text;
-      await autoInsertFromNorm(norm);
-    };
-    input.click();
-  }
-  async function voiceToData(target) {
-    try {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SR) {
-        await new Promise((resolve,reject)=>{
-          const rec=new SR(); rec.lang='it-IT'; rec.interimResults=false; rec.maxAlternatives=1;
-          rec.onresult= async (ev)=>{ const text=ev.results?.[0]?.[0]?.transcript || ''; if (!text) return resolve();
-            const norm=await normalizeText(text,target); norm._raw=text; await autoInsertFromNorm(norm); resolve(); };
-          rec.onerror=(e)=>reject(e?.error||'STT errore'); rec.onend=resolve; rec.start();
-        });
-        return;
-      }
-      // fallback 5s recorder → /api/stt
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      const rec = new MediaRecorder(stream, { mimeType:'audio/webm' }); const chunks=[]; rec.ondataavailable=e=>chunks.push(e.data);
-      const done=new Promise(res=>rec.onstop=res); rec.start(); setTimeout(()=>rec.stop(),5000); await done;
-      const blob = new Blob(chunks,{type:'audio/webm'}); const fd=new FormData(); fd.append('file',blob,'audio.webm');
-      const r = await fetch('/api/stt',{method:'POST',body:fd}); const j=await r.json(); const text=j?.text||'';
-      if (!text) return;
-      const norm=await normalizeText(text,target); norm._raw=text; await autoInsertFromNorm(norm);
-    } catch(e){ alert('Errore voce: '+(e?.message||e)); }
-  }
+    // 1) Prepara multipart/form-data (combino tutte le foto in UNA request)
+    const fd = new FormData();
+    files.forEach((f, i) => fd.append('images', f, f.name || `foto_${i+1}.jpg`));
 
-  async function autoInsertFromNorm(norm) {
-    if (!userId) return alert('Sessione assente');
-    const d = norm?.data || {};
-    const raw = norm?._raw || '';
-    if (norm?.kind === 'artisan') {
-      const pr = d.pricing || {};
-      const name = (d.name?.trim()) || `Prodotto (da completare) ${new Date().toISOString().slice(0,10)}`;
-      const note = [
-        d.producer ? `Produttore: ${d.producer}` : null,
-        pr.unit==='kg' && pr.unit_price_eur!=null ? `€ ${Number(pr.unit_price_eur).toFixed(2)}/kg` : null,
-        pr.quantity_kg!=null ? `Peso ${Number(pr.quantity_kg).toFixed(3)}kg` : null,
-        pr.total_price_eur!=null ? `Totale € ${Number(pr.total_price_eur).toFixed(2)}` : null,
-        !d.name && raw ? `[OCR] ${raw.slice(0,100)}…` : null
-      ].filter(Boolean).join(' — ');
-      const price = (pr.unit==='kg' && pr.unit_price_eur!=null) ? pr.unit_price_eur : (pr.total_price_eur ?? d.price_eur ?? null);
-      const { data: inserted, error } = await supabase.from('artisan_products').insert([{
-        user_id:userId, name, category:(d.product_type==='salume'?'salume':'formaggio'),
-        designation:d.designation || null, price_eur:price, notes:note || null
-      }]).select().single();
-      if (error) return alert('Errore inserimento prodotto: '+error.message);
-      const rows=[];
-      if (d.origin?.lat && d.origin?.lng) rows.push({ user_id:userId,item_type:'artisan',item_id:inserted.id,kind:'origin',place_name:d.origin.name||null,lat:d.origin.lat,lng:d.origin.lng,is_primary:true });
-      if (d.purchase?.lat && d.purchase?.lng) rows.push({ user_id:userId,item_type:'artisan',item_id:inserted.id,kind:'purchase',place_name:d.purchase.name||null,lat:d.purchase.lat,lng:d.purchase.lng,is_primary:true });
-      if (rows.length) await supabase.from('product_places').insert(rows);
-      return refreshAll();
+    // 2) Chiama /api/ocr (il tuo endpoint con formidable si aspetta proprio FormData)
+    const r = await fetch('/api/ocr', { method: 'POST', body: fd });
+
+    if (!r.ok) {
+      // Mostra errore utile (es. 413 Payload Too Large)
+      const txt = await r.text().catch(() => '');
+      throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
     }
-    if (norm?.kind === 'wine') {
-      const name = (d.name?.trim()) || `Vino (da completare) ${new Date().toISOString().slice(0,10)}`;
-      const note = [
-        d.bottle_l ? `Bott ${Number(d.bottle_l).toFixed(2)}L` : null,
-        d.unit_price_l!=null ? `~€ ${Number(d.unit_price_l).toFixed(2)}/L` : null,
-        !d.name && raw ? `[OCR] ${raw.slice(0,100)}…` : null
-      ].filter(Boolean).join(' — ');
-      const { data: inserted, error } = await supabase.from('wines').insert([{
-        user_id:userId, name, winery:d.winery||null, denomination:d.denomination||null, region:d.region||null,
-        grapes:Array.isArray(d.grapes)?d.grapes:null, vintage:d.vintage??null, style:d.style||null,
-        price_target:d.price_eur??null, notes:note || null, alcohol:d.alcohol??null, grape_blend:Array.isArray(d.grape_blend)?d.grape_blend:null
-      }]).select().single();
-      if (error) return alert('Errore inserimento vino: '+error.message);
-      const rows=[];
-      if (d.origin?.lat && d.origin?.lng) rows.push({ user_id:userId,item_type:'wine',item_id:inserted.id,kind:'origin',place_name:d.origin.name||null,lat:d.origin.lat,lng:d.origin.lng,is_primary:true });
-      if (d.purchase?.lat && d.purchase?.lng) rows.push({ user_id:userId,item_type:'wine',item_id:inserted.id,kind:'purchase',place_name:d.purchase.name||null,lat:d.purchase.lat,lng:d.purchase.lng,is_primary:true });
-      if (rows.length) await supabase.from('product_places').insert(rows);
-      return refreshAll();
-    }
-    alert('Non riconosciuto. Compila manualmente.');
+
+    const j = await r.json();
+    const text = (j?.text || '').trim();
+    if (!text) { alert('OCR: nessun testo letto.'); return; }
+
+    // 3) Memorizza il testo carta (prompt-first: premi poi "Sommelier")
+    setSommelierLists(prev => [...prev, text]);
+    showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
+
+  } catch (e) {
+    console.error('OCR upload error', e);
+    alert('Errore Sommelier OCR: ' + (e?.message || e));
   }
+}
+
 
   /* ------------------- Rating ------------------- */
   const setRating = useCallback(async (id,n)=>{
@@ -638,17 +567,47 @@ function ProdottiTipiciViniPage() {
         <input
           value={q}
           onChange={e=>setQ(e.target.value)}
-          placeholder='Es: "Barolo non troppo aspro", "bianco fresco <€20"'
+          placeholder='Es: "rosso non troppo corposo", "rosé fruttato minerale sotto 25€"'
           style={{ flex:1, minWidth:240, ...inp }}
         />
-        <button onClick={()=>askSommelier()} style={btn(true)}>Sommelier</button>
+        <button onClick={runSommelier} style={btn(true)} disabled={sommelierBusy}>{sommelierBusy ? '…' : 'Sommelier'}</button>
         <button onClick={()=>fileRef.current?.click()} style={btn(false)}>Sommelier (OCR)</button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
-               onChange={e=> e.target.files?.[0] && handleSommelierOcrFile(e.target.files[0])}/>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          capture="environment"
+          style={{ display:'none' }}
+          onChange={e=> e.target.files?.length && handleSommelierOcrFiles(Array.from(e.target.files))}
+        />
         <button onClick={()=>setShowQr(true)} style={btn(false)}>Scanner QR</button>
       </div>
 
-      {showQr && <LiveQrScanner onClose={()=>setShowQr(false)} onResult={async (url)=>{ setShowQr(false); await askSommelier({ wineList:'', qrLinks:[url], tasteHints:{} }); }}/>}
+      {(sommelierLists.length || sommelierQr.length) ? (
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginTop:-6, marginBottom:10}}>
+          <span style={{opacity:.85}}>
+            Allegati: {sommelierLists.length} foto OCR • {sommelierQr.length} QR
+          </span>
+          <button
+            onClick={() => { setSommelierLists([]); setSommelierQr([]); showToast('Allegati azzerati'); }}
+            style={btn(false)}
+          >
+            Pulisci allegati
+          </button>
+        </div>
+      ) : null}
+
+      {showQr && (
+        <LiveQrScanner
+          onClose={()=>setShowQr(false)}
+          onResult={(codes) => {
+            setShowQr(false);
+            setSommelierQr(prev => [...prev, ...codes]);
+            showToast(`${codes.length} link QR aggiunti`);
+          }}
+        />
+      )}
       {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
 
       {/* ===== ARTISAN ===== */}
@@ -657,8 +616,8 @@ function ProdottiTipiciViniPage() {
           <SectionToolbar
             label="Formaggi & Salumi"
             onAddManual={()=> setShowAddArtisan(v=>!v)}
-            onOcr={()=> ocrToData('artisan')}
-            onVoice={()=> voiceToData('artisan')}
+            onOcr={()=> alert('Per OCR carta usa i pulsanti Sommelier in alto 😉')}
+            onVoice={()=> alert('Per richiesta vocale usa Sommelier in alto 😉')}
             showAdd={showAddArtisan}
           />
           {showAddArtisan && <AddArtisanForm userId={userId} onInserted={refreshAll} />}
@@ -716,8 +675,8 @@ function ProdottiTipiciViniPage() {
           <SectionToolbar
             label="Vini (Wishlist)"
             onAddManual={()=> setShowAddWine(v=>!v)}
-            onOcr={()=> ocrToData('wine')}
-            onVoice={()=> voiceToData('wine')}
+            onOcr={()=> alert('Per OCR carta usa i pulsanti Sommelier in alto 😉')}
+            onVoice={()=> alert('Per richiesta vocale usa Sommelier in alto 😉')}
             showAdd={showAddWine}
           />
           {showAddWine && <AddWineForm userId={userId} onInserted={refreshAll} />}
@@ -793,8 +752,8 @@ function ProdottiTipiciViniPage() {
           <SectionToolbar
             label="Cantina"
             onAddManual={()=> setShowAddCellar(v=>!v)}
-            onOcr={()=> ocrToData('wine')}
-            onVoice={()=> voiceToData('wine')}
+            onOcr={()=> alert('Per OCR carta usa i pulsanti Sommelier in alto 😉')}
+            onVoice={()=> alert('Per richiesta vocale usa Sommelier in alto 😉')}
             showAdd={showAddCellar}
           />
           {showAddCellar && <AddCellarForm userId={userId} onInserted={refreshAll} wines={wines} />}
@@ -853,11 +812,39 @@ function ProdottiTipiciViniPage() {
         </MapContainer>
       </section>
 
-      {/* responsive CSS (azioni su desktop) */}
+      {/* Toasts */}
+      <div className="toast-wrap">
+        {toasts.map(t => (
+          <div key={t.id} className="toast">{t.msg}</div>
+        ))}
+      </div>
+
+      {/* responsive CSS (azioni su desktop) + toasts */}
       <style jsx>{`
         @media (min-width: 768px){
           .actions-desktop{ display:flex !important; }
           .actions-mobile { display:none; }
+        }
+        .toast-wrap{
+          position: fixed;
+          bottom: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          z-index: 9999;
+          pointer-events: none;
+        }
+        .toast{
+          background: rgba(15,23,42,0.95);
+          border: 1px solid #1f2a38;
+          color: #e5eeff;
+          padding: 10px 12px;
+          border-radius: 12px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.35);
+          font-weight: 600;
+          pointer-events: auto;
         }
       `}</style>
     </>
