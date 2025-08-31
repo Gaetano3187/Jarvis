@@ -1,4 +1,3 @@
-// pages/home.js
 import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -11,8 +10,7 @@ const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr
 // Import dinamico del brain (solo quando serve, lato client)
 const getBrain = () => import('@/lib/brainHub');
 
-/* ============================= Helpers base ============================= */
-
+/* ----------------- Helpers di formattazione ----------------- */
 function safeJSONStringify(obj) {
   try { return JSON.stringify(obj, null, 2); }
   catch {
@@ -26,9 +24,14 @@ function safeJSONStringify(obj) {
     }, 2);
   }
 }
+function formatResult(res) {
+  if (!res && res !== 0) return 'Nessun risultato.';
+  if (typeof res === 'string' || typeof res === 'number' || typeof res === 'boolean') return String(res);
+  return safeJSONStringify(res);
+}
 function fmtEuro(n) {
   if (n == null || isNaN(n)) return '—';
-  try { return Number(n).toLocaleString('it-IT', { style:'currency', currency:'EUR' }); }
+  try { return Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' }); }
   catch { return `${n} €`; }
 }
 function fmtInt(n) {
@@ -46,188 +49,48 @@ function pad(s, len) {
 function smallTable(rows, columns) {
   if (!Array.isArray(rows) || !rows.length) return '(nessun elemento)';
   const colWidths = columns.map(c => Math.max(c.label.length, ...rows.map(r => String(r[c.key] ?? '').length)));
-  const header = columns.map((c,i)=>pad(c.label, colWidths[i])).join('  ');
-  const sep    = colWidths.map(w => '─'.repeat(w)).join('  ');
-  const body   = rows.map(r => columns.map((c,i)=>pad(String(r[c.key] ?? ''), colWidths[i])).join('  ')).join('\n');
+  const header = columns.map((c, i) => pad(c.label, colWidths[i])).join('  ');
+  const sep = colWidths.map(w => '─'.repeat(w)).join('  ');
+  const body = rows.map(r => columns.map((c, i) => pad(String(r[c.key] ?? ''), colWidths[i])).join('  ')).join('\n');
   return `${header}\n${sep}\n${body}`;
 }
-const clampPct = (n) => (n == null || isNaN(n)) ? null : Math.max(0, Math.min(100, Number(n)));
 
-/* ============================= SVG mini-charts ============================= */
-
-function svgDonut(segments, { size = 180, stroke = 16, bg = '#0b0f14' } = {}) {
-  // segments: [{label, value, color}]
-  const total = segments.reduce((t,s)=>t+(Number(s.value)||0), 0);
-  const R = (size/2) - stroke/2;
-  const C = size/2;
-  const circ = 2 * Math.PI * R;
-
-  let offset = 0;
-  const arcs = total > 0
-    ? segments.map((s)=> {
-        const v = Math.max(0, Number(s.value)||0);
-        const dash = (v / total) * circ;
-        const arc = `<circle cx="${C}" cy="${C}" r="${R}" fill="none"
-          stroke="${s.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${circ-dash}"
-          stroke-dashoffset="${-offset}" transform="rotate(-90 ${C} ${C})"/>`;
-        offset += dash;
-        return arc;
-      }).join('\n')
-    : `<circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="#374151" stroke-width="${stroke}"/>`;
-
-  const legend = segments.map((s,i)=>`
-    <g transform="translate(${size+10}, ${14 + i*22})">
-      <rect x="0" y="-10" width="14" height="14" rx="2" fill="${s.color}" />
-      <text x="22" y="0" fill="#e5eeff" font-size="12">${s.label}: ${fmtInt(s.value)}</text>
-    </g>`).join('');
-
-  return `
-  <svg viewBox="0 0 ${size+160} ${size}" width="100%" height="auto" style="background:${bg}; border:1px solid #1f2a38; border-radius:12px">
-    <circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="#1f2a38" stroke-width="${stroke}"/>
-    ${arcs}
-    ${legend}
-  </svg>`;
-}
-
+/* ----------------- Grafici SVG inline (no libs) ----------------- */
 function svgBars(items, { max = 100, unit = '%', bg = '#0b0f14' } = {}) {
-  // items: [{label, value}] (max 10)
   const rows = items.slice(0, 10);
-  const W = 460, H = 18 * rows.length + 24;
-  const barW = 320;
+  const W = 420, H = 18 * rows.length + 24;
+  const barW = 300;
   const svgRows = rows.map((r, i) => {
-    const v = Math.max(0, Math.min(max, Number(r.value)||0));
+    const v = Math.max(0, Math.min(max, Number(r.value) || 0));
     const w = (v / max) * barW;
     const y = 16 + i * 18;
     return `
       <text x="8" y="${y}" fill="#cdeafe" font-size="12">${r.label}</text>
-      <rect x="160" y="${y-10}" width="${barW}" height="12" fill="#111827" rx="3" />
-      <rect x="160" y="${y-10}" width="${w}" height="12" fill="#3b82f6" rx="3" />
-      <text x="${160 + barW + 8}" y="${y}" fill="#cdeafe" font-size="12">${unit === '%' ? fmtPct(v) : fmtEuro(v)}</text>`;
+      <rect x="160" y="${y - 10}" width="${barW}" height="12" fill="#111827" rx="3" />
+      <rect x="160" y="${y - 10}" width="${w}" height="12" fill="#3b82f6" rx="3" />
+      <text x="${160 + barW + 8}" y="${y}" fill="#cdeafe" font-size="12">${v}${unit}</text>`;
   }).join('\n');
-
   return `
   <svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" style="background:${bg}; border:1px solid #1f2a38; border-radius:12px">
     ${svgRows}
   </svg>`;
 }
 
-/* ============================= Intent & normalizzazione ============================= */
-
-function looksLikeSommelierIntent(text='') {
+/* ----------------- Intent router ----------------- */
+function looksLikeSommelierIntent(text = '') {
   const s = text.toLowerCase();
+  // parole tipiche per “consiglio da carta”
   if (/\b(sommelier|carta (dei )?vini|mi consigli|consigliami|tra questi|da questa carta)\b/.test(s)) return true;
+  // richieste vino con aggettivi sensoriali
   if (/\b(vino|barolo|nebbiolo|chianti|amarone|rosso|bianco|ros[ée]?)\b/.test(s) &&
       /\b(corposo|tannico|non troppo tannico|fresco|minerale|fruttato|profumato|aspro|setoso)\b/.test(s)) return true;
   return false;
 }
-const normalizeQueryForUI = (q) => q?.trim() || 'Consigliami il migliore in base al mio gusto';
-
-// Unifica risposte { ok, result }, payload diretto, array
-function unwrapResult(res) {
-  if (res == null) return null;
-  if (typeof res === 'object' && 'result' in res) return res.result;
-  if (Array.isArray(res)) return { kind: 'array', items: res };
-  return res;
+function normalizeQueryForUI(q) {
+  return q?.trim() || 'Consigliami il migliore in base al mio gusto';
 }
 
-/* ============================= Pretty-printer risposte ============================= */
-
-function prettyAnswer(result) {
-  // normalizza
-  let r = unwrapResult(result);
-
-  // inferisci "kind" se assente
-  if (r && !r.kind && r.elenco && (r.summary || r.ok || r.total)) {
-    r = { kind: 'inventory.snapshot', ...r };
-  }
-  if (r && !r.kind && r.intervallo && (r.categorie || r.top_negozi)) {
-    r = { kind: 'finances.month_summary', ...r };
-  }
-
-  // scalari
-  if (r == null || ['string','number','boolean'].includes(typeof r)) {
-    return { text: String(r ?? 'Nessun risultato.'), blocks: [] };
-  }
-
-  // ===== Finanze: riepilogo mese =====
-  if (r.kind === 'finances.month_summary') {
-    const tot = r.totale ?? r.total ?? 0;
-    const topShops = Array.isArray(r.top_negozi) ? r.top_negozi : [];
-    const cats = Array.isArray(r.categorie) ? r.categorie : [];
-
-    const t1 = smallTable(
-      cats.map(c => ({ categoria: c.categoria || c.name || '—', speso: fmtEuro(c.totale ?? c.amount ?? 0) })),
-      [{key:'categoria',label:'Categoria'},{key:'speso',label:'Speso'}]
-    );
-
-    const t2 = smallTable(
-      topShops.map(s => ({ store: s.store || s.nome || '—', speso: fmtEuro(s.speso ?? s.amount ?? 0) })),
-      [{key:'store',label:'Negozio'},{key:'speso',label:'Speso'}]
-    );
-
-    const blocks = [];
-    if (cats.length) {
-      const palette = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a78bfa','#14b8a6','#f472b6'];
-      const segs = cats.map((c,i)=>({ label: (c.categoria || c.name || '').slice(0,18) || '—', value: Number(c.totale ?? c.amount ?? 0), color: palette[i % palette.length] }));
-      blocks.push({ svg: svgDonut(segs), caption: 'Distribuzione per categoria' });
-    }
-    if (topShops.length) {
-      const items = topShops.map(s => ({ label: (s.store || s.nome || '').slice(0,22) || '—', value: Number(s.speso ?? s.amount ?? 0) }));
-      blocks.push({ svg: svgBars(items, { max: Math.max(...items.map(i=>i.value)) || 100, unit:'€' }), caption: 'Top negozi per spesa' });
-    }
-
-    const text =
-`💸 Spese — ${r.intervallo || 'periodo'}
-Totale: ${fmtEuro(tot)} | Transazioni: ${fmtInt(r.transazioni ?? r.count ?? 0)}
-
-Categorie:
-${t1}
-
-Top negozi:
-${t2}`;
-    return { text, blocks };
-  }
-
-  // ===== Scorte: snapshot =====
-if (r.kind === 'inventory.snapshot') {
-  const el = Array.isArray(r.elenco) ? r.elenco : [];
-  const rows = el.map(x => ({
-    nome: (x.name || x.prodotto || '—').slice(0,28),
-    qt: x.qty ?? x.quantita ?? '—',
-    u: x.unit || x.uom || '',
-    riemp: x.fill_pct != null ? fmtPct(x.fill_pct) : '—',
-    stato: x.status || '—'
-  }));
-
-  const text =
-`📦 Scorte
-Totale voci: ${fmtInt(r.summary?.totale ?? el.length)} | In scadenza (<=3gg): ${fmtInt(r.summary?.['in_scadenza_<=3gg'] ?? 0)}
-
-${smallTable(rows.slice(0,20), [
-  {key:'nome',label:'Prodotto'},
-  {key:'qt',label:'Qt'},
-  {key:'u',label:'U'},
-  {key:'riemp',label:'Riemp.'},
-  {key:'stato',label:'Stato'}
-])}${rows.length>20?`\n…(+${rows.length-20})`:''}`;
-
-  const low = el
-    .map(x => ({ label: (x.name || x.prodotto || '').slice(0,26) || '—', value: clampPct(x.fill_pct ?? null) }))
-    .filter(x => x.value != null)
-    .sort((a,b)=>a.value-b.value)
-    .slice(0,8);
-
-  const blocks = [];
-  if (low.length) {
-    blocks.push({ svg: svgBars(low, { max: 100, unit:'%' }), caption: 'Riempimento più basso' });
-  }
-  return { text, blocks };
-}
-}
-
-
-/* ============================= Chat Modal ============================= */
-
+/* ----------------- Chat Modal ----------------- */
 function ChatModal({ open, onClose, onSend, messages, busy }) {
   const [input, setInput] = useState('');
   const bodyRef = useRef(null);
@@ -260,18 +123,25 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
         <div ref={bodyRef} style={S.body}>
           {messages.length === 0 && (
             <div style={{ opacity: .85 }}>
-              Inizia chiedendo: “Quanto ho speso questo mese?” •
-              “Che cosa ho a casa?” • “Mi consigli un rosso da questa carta?” (poi premi <b>OCR</b>).
+              Inizia chiedendo: “Quanto ho speso questo mese?” • “Che cosa ho a casa?” •
+              “Mi consigli un rosso da questa carta?” (poi premi <b>OCR</b>).
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
+            <div key={i} style={{ display: 'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
               <div style={S.bubble}>
                 {m.mono ? <pre style={S.pre}>{m.text}</pre> : <span>{m.text}</span>}
                 {Array.isArray(m.blocks) && m.blocks.map((b, idx) => (
-                  <figure key={idx} style={{ margin:'10px 0 0', padding:0 }}>
-                    <div style={{ borderRadius:12, overflow:'hidden' }} dangerouslySetInnerHTML={{ __html: b.svg }} />
-                    {b.caption && <figcaption style={{ color:'#cdeafe', fontSize:12, opacity:.9, marginTop:4 }}>{b.caption}</figcaption>}
+                  <figure key={idx} style={{ margin: '10px 0 0', padding: 0 }}>
+                    <div
+                      style={{ borderRadius: 12, overflow: 'hidden' }}
+                      dangerouslySetInnerHTML={{ __html: b.svg }}
+                    />
+                    {b.caption && (
+                      <figcaption style={{ color: '#cdeafe', fontSize: 12, opacity: .9, marginTop: 4 }}>
+                        {b.caption}
+                      </figcaption>
+                    )}
                   </figure>
                 ))}
               </div>
@@ -299,70 +169,78 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
   );
 }
 
-/* ============================= Home (cervello) ============================= */
-
+/* ----------------- Home: “cervello” ----------------- */
 const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
-  // per OCR smart (carta/scontrino)
-  const lastUserIntentRef = useRef({ text:'', sommelier:false });
-  const wineListsRef = useRef([]); // buffer carta (multi-foto)
+  // Stato “intento corrente” (serve a OCR per capire se carta/scontrino)
+  const lastUserIntentRef = useRef({ text: '', sommelier: false });
 
-  // ==== bridge verso brain ====
+  // Buffer “carta dei vini” in Home (multi-foto OCR)
+  const wineListsRef = useRef([]);
+
+  // === Funzioni base (brain) ===
   async function doOCR_Receipt(payload) {
     const { ingestOCRLocal } = await getBrain();
-    return ingestOCRLocal(payload); // deve già smistare e aggiornare DB (scorte, finanze)
+    return ingestOCRLocal(payload);
   }
   async function doVoice_Generic(spokenText) {
     const { ingestSpokenLocal } = await getBrain();
     return ingestSpokenLocal(spokenText);
   }
-  async function runBrainQuery(text, opts={}) {
+  async function runBrainQuery(text, opts = {}) {
     const { runQueryFromTextLocal } = await getBrain();
     return runQueryFromTextLocal(text, opts);
   }
 
-  // ==== Sommelier da Home (riusa /api/sommelier) ====
-  async function runSommelierFromHome(userQuery, extra={}) {
+  // === Sommelier dalla Home ===
+  async function runSommelierFromHome(userQuery, extra = {}) {
     const payload = {
       query: normalizeQueryForUI(userQuery),
-      wineLists: wineListsRef.current.slice(),
-      wineList: wineListsRef.current.join('\n'), // compat vecchie API
+      wineLists: wineListsRef.current.slice(),     // array testi OCR (multi)
+      wineList: wineListsRef.current.join('\n'),   // compat vecchie API
       qrLinks: extra.qrLinks || []
     };
     const r = await fetch('/api/sommelier', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    return r.json();
+    const j = await r.json();
+    return j;
   }
+
   function renderSommelierInChat(result) {
     const recs = Array.isArray(result?.recommendations) ? result.recommendations : [];
-    if (!recs.length) return 'Nessun risultato dalla carta. Prova a fotografare meglio o a cambiare richiesta.';
-
+    if (!recs.length) {
+      return 'Nessun risultato dalla carta. Prova a fotografare meglio o a cambiare richiesta.';
+    }
     const byBand = recs.reduce((acc, r) => {
       const k = r.price_band || 'mix';
-      (acc[k] ||= []).push(r);
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(r);
       return acc;
     }, {});
-    let out = `🍷 Sommelier — fonte: ${result?.source || '—'}\n`;
-    for (const band of Object.keys(byBand)) {
-      out += `\n[${band.toUpperCase()}]\n`;
-      byBand[band].slice(0,6).forEach((r)=>{
-        const price = r.typical_price_eur!=null ? ` ~${fmtEuro(r.typical_price_eur)}` : '';
-        out += `• ${r.name} — ${r.winery||'—'}${r.denomination?` • ${r.denomination}`:''}${r.region?` • ${r.region}`:''}${price}\n   ${r.why||''}\n`;
+    let output = '🍷 Sommelier\n';
+    output += `Fonte: ${result?.source || '—'}\n`;
+    Object.keys(byBand).forEach(band => {
+      output += `\n${band.toUpperCase()}\n`;
+      byBand[band].slice(0, 6).forEach(r => {
+        const price = r.typical_price_eur != null ? ` ~${fmtEuro(r.typical_price_eur)}` : '';
+        output += `• ${r.name} — ${r.winery || '—'}${r.denomination ? ` • ${r.denomination}` : ''}${r.region ? ` • ${r.region}` : ''}${price}\n  ${r.why || ''}\n`;
       });
-    }
-    out += `\nApri: /prodotti-tipici-vini`;
-    return out;
+    });
+    output += `\nApri: /prodotti-tipici-vini`;
+    return output;
   }
 
-  // ==== OCR smart (carta o scontrino) ====
+  // === OCR Smart (Carta o Scontrino) ===
   async function handleSmartOCR(files) {
     const wantSommelier =
       lastUserIntentRef.current.sommelier ||
@@ -371,94 +249,241 @@ const Home = () => {
     setChatOpen(true);
 
     if (wantSommelier) {
+      // OCR carta dei vini multi-foto
       try {
         setBusy(true);
-        // OCR della carta (multi immagini)
-        let any = false;
+        let joined = '';
         for (const f of files) {
-          const fd = new FormData(); fd.append('images', f, f.name || 'card.jpg');
-          const r = await fetch('/api/ocr', { method:'POST', body: fd });
+          const fd = new FormData();
+          fd.append('images', f, f.name || 'card.jpg');
+          const r = await fetch('/api/ocr', { method: 'POST', body: fd });
           const j = await r.json();
           const text = (j?.text || '').trim();
-          if (text) { wineListsRef.current.push(text); any = true; }
+          if (text) {
+            wineListsRef.current.push(text);
+            joined += (joined ? '\n' : '') + text;
+          }
         }
-        if (!any) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+        if (!joined) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
           return;
         }
-        setChatMsgs(arr => [...arr, { role:'assistant', text: '📄 Carta acquisita. Avvio il Sommelier…' }]);
-
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta acquisita. Avvio il Sommelier…' }]);
         const q = lastUserIntentRef.current.text || queryText || '';
         const result = await runSommelierFromHome(q);
-        const text = renderSommelierInChat(result);
-        setChatMsgs(arr => [...arr, { role:'assistant', text, mono:true }]);
+        const txt = renderSommelierInChat(result);
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: txt, mono: true }]);
       } catch (err) {
-        setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore Sommelier: ${err?.message || err}` }]);
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore Sommelier: ${err?.message || err}` }]);
       } finally {
         setBusy(false);
       }
       return;
     }
 
-    // OCR scontrino → smistamento / aggiornamento (scorte/finanze)
+    // Altrimenti è scontrino → brain (finanze/scorte)
     try {
       setBusy(true);
-      const res = await doOCR_Receipt({ files }); // il brain salva e può restituire info
-      const payload = unwrapResult(res);
-      const pretty = prettyAnswer(payload ?? 'OCR eseguito');
-
-      // Se il brain segnala pagina di pertinenza, mostra link rapido
-      const redirectHint = res?.redirect
-        ? `\nApri: ${res.redirect}`
-        : (payload?.redirect ? `\nApri: ${payload.redirect}` : '');
-
+      const res = await doOCR_Receipt({ files });
       setChatMsgs(arr => [
         ...arr,
-        { role:'assistant', text: `${pretty.text}${redirectHint}`, mono:true, blocks: pretty.blocks }
+        { role: 'assistant', text: formatResult(res?.result ?? 'OCR eseguito') },
+        { role: 'assistant', text: '✅ Scontrino elaborato. Puoi chiedere: "aggiorna scorte", "quanto ho speso questo mese", "prodotti in esaurimento", ecc.' }
       ]);
     } catch (err) {
-      setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
     } finally {
       setBusy(false);
     }
   }
 
-  // ==== Voce ====
+  // === Voce ===
   async function handleVoiceText(spoken) {
-    const text = String(spoken||'').trim();
+    const text = String(spoken || '').trim();
     if (!text || busy) return;
+
     setChatOpen(true);
-    setChatMsgs(arr => [...arr, { role:'user', text }]);
+    setChatMsgs(arr => [...arr, { role: 'user', text }]);
 
     lastUserIntentRef.current = { text, sommelier: looksLikeSommelierIntent(text) };
 
     if (lastUserIntentRef.current.sommelier) {
       setChatMsgs(arr => [
         ...arr,
-        { role:'assistant', text: '📷 Per consigli mirati, premi **OCR** e fotografa la **carta dei vini**. Poi analizzerò la carta in base alla tua richiesta.' }
+        { role: 'assistant', text: '📷 Per consigli mirati, premi OCR e fotografa la carta dei vini.' }
       ]);
-      return;
+      return; // attende OCR
     }
 
     try {
       setBusy(true);
       const res = await doVoice_Generic(text);
-      const pretty = prettyAnswer(res);
-      setChatMsgs(arr => [
-        ...arr,
-        { role:'assistant', text: pretty.text, mono:true, blocks: pretty.blocks },
-      ]);
+      // RENDER SPECIALIZZAZIONI in base al tipo risposta del brain
+      const rendered = renderBrainResponse(res);
+      setChatMsgs(arr => [...arr, rendered]);
     } catch (err) {
       setChatMsgs(arr => [
         ...arr,
-        { role:'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` },
+        { role: 'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` }
       ]);
     } finally {
       setBusy(false);
     }
   }
 
-  // ==== OCR input (file) ====
+  // === Invio query testo ===
+  const submitQuery = async () => {
+    const q = queryText.trim();
+    if (!q || busy) return;
+
+    setQueryText('');
+    setChatOpen(true);
+    setChatMsgs(arr => [...arr, { role: 'user', text: q }]);
+
+    lastUserIntentRef.current = { text: q, sommelier: looksLikeSommelierIntent(q) };
+
+    if (lastUserIntentRef.current.sommelier) {
+      setChatMsgs(arr => [
+        ...arr,
+        { role: 'assistant', text: 'Per favore premi OCR e fotografa la carta dei vini.' }
+      ]);
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const res = await runBrainQuery(q, { first: chatMsgs.length === 0 });
+      const rendered = renderBrainResponse(res);
+      setChatMsgs(arr => [...arr, rendered]);
+    } catch (err) {
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
+
+  // === Renderer unificato per le risposte del brain ===
+  function renderBrainResponse(res) {
+    // Default: stringify
+    let out = { role: 'assistant', text: formatResult(res?.result ?? res), mono: typeof res?.result !== 'string' };
+
+    // Branch specializzati (usa "kind" che il brain ritorna)
+    const k = res?.kind;
+
+    // 1) Snapshot scorte → tabella + grafico riempimenti minimi
+    if (k === 'inventory.snapshot') {
+      const rendered = renderInventorySnapshot(res);
+      return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
+    }
+
+    // 2) Riepilogo spese mese → tabella basic (se brain lo ritorna già formattato, mantieni)
+    if (k === 'finances.month_summary') {
+      const data = res?.data || {};
+      const tot = fmtEuro(data.total ?? 0);
+      const txs = fmtInt(data.transactions ?? 0);
+      const top = Array.isArray(data.top_stores) ? data.top_stores : [];
+      const table = smallTable(
+        top.slice(0, 10).map(r => ({ store: r.store || '—', speso: fmtEuro(r.speso ?? 0) })),
+        [
+          { key: 'store', label: 'Negozio' },
+          { key: 'speso', label: 'Speso' }
+        ]
+      );
+      const txt = `📊 Spese del mese\nTotale: ${tot} • Transazioni: ${txs}\n\n${table}${top.length > 10 ? `\n…(+${top.length - 10})` : ''}`;
+      return { role: 'assistant', text: txt, mono: true };
+    }
+
+    return out;
+  }
+
+  // === Renderer scorte con fallback fill/status e grafico ===
+  function renderInventorySnapshot(r) {
+    const el = Array.isArray(r?.elenco) ? r.elenco : [];
+
+    const rows = el.map(x => {
+      const name = (x.name || x.product_name || x.prodotto || '—').slice(0, 40);
+      const qty = Number(x.qty ?? x.quantita ?? 0) || 0;
+      const unit = x.unit || x.uom || '';
+      const init = x.initial_qty != null ? Number(x.initial_qty) : null;
+      const cons = x.consumed_pct != null ? Number(x.consumed_pct) : null;
+
+      // fill: priorità DB -> consumed_pct -> qty/initial -> qty>0 => 100
+      let fill = x.fill_pct != null ? Number(x.fill_pct) : null;
+      if (fill == null) {
+        if (cons != null) fill = (1 - cons) * 100;
+        else if (init != null && init > 0) fill = (qty / init) * 100;
+        else if (qty > 0) fill = 100;
+      }
+
+      const dte = x.days_to_expiry ?? (
+        x.expiry_date ? Math.ceil((new Date(x.expiry_date).getTime() - Date.now()) / 86400000) : null
+      );
+
+      let status = x.status || '';
+      if (!status || status === 'unknown') {
+        if (fill != null) {
+          if (fill <= 20) status = 'low';
+          else if (fill <= 60) status = 'med';
+          else status = 'ok';
+        } else {
+          status = 'unknown';
+        }
+      }
+
+      return {
+        nome: name,
+        qt: qty || '—',
+        u: unit,
+        fill_raw: fill,
+        riemp: fill != null ? fmtPct(fill) : '—',
+        stato: status,
+        dte
+      };
+    });
+
+    const stats = rows.reduce((a, it) => {
+      if (it.stato === 'low') a.low++;
+      else if (it.stato === 'med') a.med++;
+      else if (it.stato === 'ok') a.ok++;
+      return a;
+    }, { low: 0, med: 0, ok: 0 });
+
+    const table = smallTable(
+      rows.slice(0, 20).map(({ nome, qt, u, riemp, stato }) => ({ nome, qt, u, riemp, stato })),
+      [
+        { key: 'nome', label: 'Prodotto' },
+        { key: 'qt', label: 'Qt' },
+        { key: 'u', label: 'U' },
+        { key: 'riemp', label: 'Riemp.' },
+        { key: 'stato', label: 'Stato' }
+      ]
+    );
+
+    const lowBars = rows
+      .filter(r => r.fill_raw != null)
+      .sort((a, b) => a.fill_raw - b.fill_raw)
+      .slice(0, 8)
+      .map(r => ({ label: r.nome.slice(0, 28), value: Math.round(r.fill_raw) }));
+
+    const blocks = [];
+    if (lowBars.length) {
+      blocks.push({
+        svg: svgBars(lowBars, { max: 100, unit: '%' }),
+        caption: 'Riempimento più basso'
+      });
+    }
+
+    const text =
+`📦 Scorte
+Totale voci: ${fmtInt(el.length)} • Low: ${fmtInt(stats.low)} • Med: ${fmtInt(stats.med)} • Ok: ${fmtInt(stats.ok)}
+
+${table}${rows.length > 20 ? `\n…(+${rows.length - 20})` : ''}`;
+
+    return { text, blocks };
+  }
+
+  // === Gestione file OCR (multi) ===
   const handleFileChange = (ev) => {
     const files = Array.from(ev.target.files || []);
     if (!files.length || busy) return;
@@ -473,44 +498,6 @@ const Home = () => {
     })();
   };
   const handleSelectOCR = () => { if (!busy) fileInputRef.current?.click(); };
-
-  // ==== Query testo ====
-  const submitQuery = async () => {
-    const q = queryText.trim();
-    if (!q || busy) return;
-    setQueryText('');
-    setChatOpen(true);
-    setChatMsgs(arr => [...arr, { role:'user', text: q }]);
-
-    lastUserIntentRef.current = { text:q, sommelier: looksLikeSommelierIntent(q) };
-
-    if (lastUserIntentRef.current.sommelier) {
-      setChatMsgs(arr => [
-        ...arr,
-        { role:'assistant', text: 'Per favore premi **OCR** e fotografa la **carta dei vini** così ti consiglio al volo dalla lista del locale.' }
-      ]);
-      return;
-    }
-
-    try {
-      setBusy(true);
-      const res = await runBrainQuery(q, { first: chatMsgs.length === 0 });
-      if (res?.redirect) {
-        setChatMsgs(arr => [...arr, { role:'assistant', text: `Apri: ${res.redirect}` }]);
-        return;
-      }
-      const pretty = prettyAnswer(res);
-      setChatMsgs(arr => [
-        ...arr,
-        { role:'assistant', text: pretty.text, mono:true, blocks: pretty.blocks },
-      ]);
-    } catch (err) {
-      setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
 
   return (
     <>
@@ -557,14 +544,13 @@ const Home = () => {
         <section className="advanced-box">
           <h2>Funzionalità Avanzate</h2>
 
-          {/* Stringa di dialogo */}
           <div className="ask-row">
             <input
               className="query-input"
               type="text"
               placeholder='Chiedi a Jarvis… (es. "Quanto ho speso questo mese?" • "Cosa ho a casa?" • "Mi consigli un vino rosso da questa carta?")'
               value={queryText}
-              onChange={(ev)=>setQueryText(ev.target.value)}
+              onChange={(ev) => setQueryText(ev.target.value)}
               onKeyDown={handleQueryKey}
               disabled={busy}
             />
@@ -574,7 +560,6 @@ const Home = () => {
           </div>
 
           <div className="advanced-actions">
-            {/* OCR smart: carta o scontrino */}
             <button className="btn-ocr" onClick={handleSelectOCR} disabled={busy}>
               {busy ? '⏳' : '📷 OCR'}
             </button>
@@ -612,12 +597,11 @@ const Home = () => {
       <ChatModal
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        onSend={submitQuery}
+        onSend={submitQuery /* riuso input alto */}
         messages={chatMsgs}
         busy={busy}
       />
 
-      {/* CSS globale */}
       <style jsx global>{`
         .bg-video {
           position: fixed;
@@ -720,6 +704,7 @@ const Home = () => {
           60%  { transform: translateX(0%)    skewX(-12deg); opacity: 1; }
           100% { transform: translateX(130%)  skewX(-12deg); opacity: 0; }
         }
+
         .advanced-box {
           width: min(1100px, 96vw);
           margin-top: .5rem;
@@ -732,6 +717,7 @@ const Home = () => {
           flex-wrap: wrap;
           gap: .5rem;
         }
+
         .ask-row {
           display: grid;
           grid-template-columns: 1fr auto;
@@ -748,6 +734,7 @@ const Home = () => {
           outline: none;
         }
         .query-input::placeholder { color: rgba(255,255,255,0.65); }
+
         .btn-ask {
           background: linear-gradient(135deg, #6366f1, #06b6d4);
           border: 1px solid rgba(255,255,255,0.2);
@@ -775,19 +762,18 @@ const Home = () => {
   );
 };
 
-/* ============================= Stili inline chat ============================= */
-
+/* ----------------- Stili inline per la chat ----------------- */
 const S = {
-  overlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center', zIndex:9999, backdropFilter:'blur(2px)' },
-  modal:{ width:'min(920px, 92vw)', maxHeight:'82vh', background:'rgba(0,0,0,.85)', border:'1px solid rgba(255,255,255,.18)', borderRadius:12, display:'grid', gridTemplateRows:'auto 1fr auto', overflow:'hidden', boxShadow:'0 12px 30px rgba(0,0,0,.45)' },
-  header:{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', background:'linear-gradient(145deg, rgba(99,102,241,.28), rgba(6,182,212,.22))', borderBottom:'1px solid rgba(255,255,255,.16)' },
-  btnGhost:{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,.25)', borderRadius:10, padding:'4px 8px', cursor:'pointer' },
-  body:{ padding:'10px 12px', overflow:'auto', display:'grid', gap:8, background:'radial-gradient(1200px 500px at 10% 0%, rgba(236,72,153,.05), transparent 60%), radial-gradient(800px 400px at 100% 100%, rgba(59,130,246,.06), transparent 60%), rgba(0,0,0,.15)' },
-  bubble:{ maxWidth:'78ch', whiteSpace:'pre-wrap', wordBreak:'break-word', background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.18)', padding:'8px 10px', borderRadius:12, color:'#fff' },
-  pre:{ margin:0, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' },
-  inputRow:{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,.16)', background:'rgba(0,0,0,.35)' },
-  input:{ width:'100%', background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.2)', borderRadius:10, padding:'10px 12px', color:'#fff', outline:'none' },
-  btnPrimary:{ background:'#6366f1', border:0, borderRadius:10, padding:'10px 12px', color:'#fff', cursor:'pointer' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'grid', placeItems: 'center', zIndex: 9999, backdropFilter: 'blur(2px)' },
+  modal: { width: 'min(920px, 92vw)', maxHeight: '82vh', background: 'rgba(0,0,0,.85)', border: '1px solid rgba(255,255,255,.18)', borderRadius: 12, display: 'grid', gridTemplateRows: 'auto 1fr auto', overflow: 'hidden', boxShadow: '0 12px 30px rgba(0,0,0,.45)' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'linear-gradient(145deg, rgba(99,102,241,.28), rgba(6,182,212,.22))', borderBottom: '1px solid rgba(255,255,255,.16)' },
+  btnGhost: { background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,.25)', borderRadius: 10, padding: '4px 8px', cursor: 'pointer' },
+  body: { padding: '10px 12px', overflow: 'auto', display: 'grid', gap: 8, background: 'radial-gradient(1200px 500px at 10% 0%, rgba(236,72,153,.05), transparent 60%), radial-gradient(800px 400px at 100% 100%, rgba(59,130,246,.06), transparent 60%), rgba(0,0,0,.15)' },
+  bubble: { maxWidth: '78ch', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', padding: '8px 10px', borderRadius: 12, color: '#fff' },
+  pre: { margin: 0, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' },
+  inputRow: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.16)', background: 'rgba(0,0,0,.35)' },
+  input: { width: '100%', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '10px 12px', color: '#fff', outline: 'none' },
+  btnPrimary: { background: '#6366f1', border: 0, borderRadius: 10, padding: '10px 12px', color: '#fff', cursor: 'pointer' }
 };
 
 export default withAuth(Home);
