@@ -1,18 +1,20 @@
 // pages/home.js
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
 
-// Carico il registratore SOLO lato client (evita SSR)
+// Registratore solo client
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
 
-/* ---------- Helpers ---------- */
+// Import dinamico del brain (solo quando serve, lato client)
+const getBrain = () => import('@/lib/brainHub');
+
+/* ---------- Helpers di formattazione ---------- */
 function safeJSONStringify(obj) {
   try { return JSON.stringify(obj, null, 2); }
   catch {
-    // fallback ultra-safe (gestisce referenze circolari)
     const seen = new WeakSet();
     return JSON.stringify(obj, (k, v) => {
       if (typeof v === 'object' && v !== null) {
@@ -28,15 +30,26 @@ function formatResult(res) {
   if (typeof res === 'string' || typeof res === 'number' || typeof res === 'boolean') return String(res);
   return safeJSONStringify(res);
 }
-// Import dinamico del brain (solo quando serve, lato client)
-const getBrain = () => import('@/lib/brainHub');
 
-/* ---------- Chat Modal (inline styles, nessuno styled-jsx qui) ---------- */
+/* ---------- Intent Router ---------- */
+function looksLikeSommelierIntent(text='') {
+  const s = text.toLowerCase();
+  // parole tipiche per “consiglio da carta”
+  if (/\b(sommelier|carta (dei )?vini|mi consigli|consigliami|tra questi|da questa carta)\b/.test(s)) return true;
+  // richieste vino con aggettivi sensoriali
+  if (/\b(vino|barolo|nebbiolo|chianti|amarone|rosso|bianco|ros[ée]?)\b/.test(s) &&
+      /\b(corposo|tannico|non troppo tannico|fresco|minerale|fruttato|profumato|aspro|setoso)\b/.test(s)) return true;
+  return false;
+}
+function normalizeQueryForUI(q) {
+  return q?.trim() || 'Consigliami il migliore in base al mio gusto';
+}
+
+/* ---------- Chat Modal ---------- */
 function ChatModal({ open, onClose, onSend, messages, busy }) {
   const [input, setInput] = useState('');
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
-
   useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages, open]);
   useEffect(() => {
@@ -64,13 +77,13 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
         <div ref={bodyRef} style={S.body}>
           {messages.length === 0 && (
             <div style={{ opacity: .85 }}>
-              Inizia chiedendo: “Quanto ho speso questo mese?” oppure
-              “Il prosciutto San Daniele dove l’ho pagato di meno?”.
+              Inizia chiedendo: “Quanto ho speso questo mese?” •
+              “Che cosa ho a casa?” • “Mi consigli un rosso da questa carta?” (poi premi <strong>OCR</strong>).
             </div>
           )}
           {messages.map((m, i) => (
             <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
-              <div style={S.bubble}>{m.mono ? <pre style={S.pre}>{m.text}</pre> : <span>{m.text}</span>}</div>
+              <div style={S.bubble}>{m.mono ? <pre style={S.pre}>{m.text}</pre> : <span dangerouslySetInnerHTML={{__html:m.text}} />}</div>
             </div>
           ))}
         </div>
@@ -95,108 +108,209 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
   );
 }
 
-/* ---------- Pagina Home ---------- */
+/* ---------- Home: “cervello” ---------- */
 const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Stato chat
+  // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
-  // —— OCR (usa brain importato dinamicamente)
-  async function doOCR(payload) {
+  // Stato “intento corrente” (serve a OCR per capire se carta/scontrino)
+  const lastUserIntentRef = useRef({ text:'', sommelier:false });
+
+  // Buffer “carta dei vini” in Home (multi-foto OCR)
+  const wineListsRef = useRef([]);
+
+  // ============ FUNZIONI BASE GIÀ ESISTENTI ============
+  async function doOCR_Receipt(payload) {
+    const { ingestOCRLocal } = await getBrain();
+    return ingestOCRLocal(payload);
+  }
+  async function doVoice_Generic(spokenText) {
+    const { ingestSpokenLocal } = await getBrain();
+    return ingestSpokenLocal(spokenText);
+  }
+  async function runBrainQuery(text, opts={}) {
+    const { runQueryFromTextLocal } = await getBrain();
+    return runQueryFromTextLocal(text, opts);
+  }
+
+  // ============ SOMMELIER (riuso /api/sommelier della pagina Vini) ============
+  async function runSommelierFromHome(userQuery, extra={}) {
+    const payload = {
+      query: normalizeQueryForUI(userQuery),
+      wineLists: wineListsRef.current.slice(),     // array testi OCR (multi)
+      wineList: wineListsRef.current.join('\n'),   // compat vecchie API
+      qrLinks: extra.qrLinks || []                 // se in futuro aggiungi QR in Home
+    };
+    const r = await fetch('/api/sommelier', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    return j;
+  }
+
+  function renderSommelierInChat(result) {
+    const recs = Array.isArray(result?.recommendations) ? result.recommendations : [];
+    if (!recs.length) {
+      return 'Nessun risultato dalla carta. Prova a fotografare meglio o a cambiare richiesta.';
+    }
+    // Raggruppo per fascia (low/med/high) se presente
+    const byBand = recs.reduce((acc, r) => {
+      const k = r.price_band || 'mix';
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(r);
+      return acc;
+    }, {});
+    let html = `<div>🍷 <b>Sommelier</b> — fonte: <i>${result?.source || '—'}</i></div>`;
+    for (const band of Object.keys(byBand)) {
+      html += `<div style="margin-top:8px"><b>${band.toUpperCase()}</b></div>`;
+      byBand[band].slice(0,6).forEach((r,idx)=>{
+        const price = r.typical_price_eur!=null ? ` ~€${Number(r.typical_price_eur).toFixed(0)}` : '';
+        html += `<div style="margin-left:8px">• <b>${r.name}</b> — ${r.winery||'—'}${r.denomination?` • ${r.denomination}`:''}${r.region?` • ${r.region}`:''}${price}<br/><span style="opacity:.85">${r.why||''}</span></div>`;
+      });
+    }
+    html += `<div style="margin-top:10px"><a href="/prodotti-tipici-vini" style="color:#93c5fd;text-decoration:underline">Apri Prodotti tipici & Vini</a></div>`;
+    return html;
+  }
+
+  // ============ OCR SMART (Carta o Scontrino) ============
+  async function handleSmartOCR(files) {
+    const wantSommelier =
+      lastUserIntentRef.current.sommelier ||
+      looksLikeSommelierIntent(queryText);
+
+    // Apri chat sempre
+    setChatOpen(true);
+
+    if (wantSommelier) {
+      // OCR carta dei vini (multi)
+      try {
+        setBusy(true);
+        // Eseguo OCR locale sull’insieme di file (uno alla volta per compat)
+        let joined = '';
+        for (const f of files) {
+          const fd = new FormData(); fd.append('images', f, f.name || 'card.jpg');
+          const r = await fetch('/api/ocr', { method:'POST', body: fd });
+          const j = await r.json();
+          const text = (j?.text || '').trim();
+          if (text) {
+            wineListsRef.current.push(text);
+            joined += (joined ? '\n' : '') + text;
+          }
+        }
+        if (!joined) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+          return;
+        }
+        setChatMsgs(arr => [...arr, { role:'assistant', text: '📄 Carta acquisita. Avvio il Sommelier…' }]);
+
+        // Sommelier con query (se c’è; altrimenti una neutra)
+        const q = lastUserIntentRef.current.text || queryText || '';
+        const result = await runSommelierFromHome(q);
+        const html = renderSommelierInChat(result);
+        setChatMsgs(arr => [...arr, { role:'assistant', text: html }]);
+      } catch (err) {
+        setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore Sommelier: ${err?.message || err}` }]);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // Altrimenti: OCR scontrino classico (riusa il tuo brain)
     try {
-      const { ingestOCRLocal } = await getBrain();
-      const res = await ingestOCRLocal(payload);
-      setChatOpen(true);
+      setBusy(true);
+      const res = await doOCR_Receipt({ files });
       setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
-      return res;
     } catch (err) {
-      setChatOpen(true);
       setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
-      throw err;
+    } finally {
+      setBusy(false);
     }
   }
 
-  // —— VOCE (usa brain importato dinamicamente)
-  async function doVoice(spokenText) {
-    try {
-      const { ingestSpokenLocal } = await getBrain();
-      const res = await ingestSpokenLocal(spokenText);
-      setChatOpen(true);
+  // ============ VOCE ============
+  async function handleVoiceText(spoken) {
+    const text = String(spoken||'').trim();
+    if (!text || busy) return;
+    setChatOpen(true);
+    setChatMsgs(arr => [...arr, { role:'user', text }]);
+
+    // Memorizza l’intento (serve per OCR successivo)
+    lastUserIntentRef.current = { text, sommelier: looksLikeSommelierIntent(text) };
+
+    // Caso Sommelier: chiedi di fotografare la carta
+    if (lastUserIntentRef.current.sommelier) {
       setChatMsgs(arr => [
         ...arr,
-        { role:'user', text: spokenText },
+        { role:'assistant', text: '📷 Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>. Poi analizzerò la carta in base alla tua richiesta.' }
+      ]);
+      return; // attende l’OCR smart
+    }
+
+    // Altrimenti route a brain generico (Finanze/Scorte ecc.)
+    try {
+      setBusy(true);
+      const res = await doVoice_Generic(text);
+      setChatMsgs(arr => [
+        ...arr,
         { role:'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' },
       ]);
-      return res;
     } catch (err) {
-      setChatOpen(true);
       setChatMsgs(arr => [
         ...arr,
-        { role:'user', text: spokenText || '(vuoto)' },
         { role:'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` },
       ]);
-      throw err;
+    } finally {
+      setBusy(false);
     }
   }
 
-  /* —— OCR → ingest —— */
+  // ============ OCR: onChange (multi) ============
   const handleFileChange = (ev) => {
     const files = Array.from(ev.target.files || []);
     if (!files.length || busy) return;
     (async () => {
       try {
         setBusy(true);
-        await doOCR({ files }); // passa SEMPRE "files"
-        setChatOpen(true);
-        setChatMsgs(arr => [...arr, { role:'assistant', text: '✅ Scontrino riconosciuto e registrato' }]);
-      } catch (err) {
-        // già loggato in chat da doOCR
+        await handleSmartOCR(files);
       } finally {
         setBusy(false);
-        // reset controllo file per permettere lo stesso file 2 volte
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     })();
   };
-  const handleSelectReceipt = () => { if (!busy) fileInputRef.current?.click(); };
+  const handleSelectOCR = () => { if (!busy) fileInputRef.current?.click(); };
 
-  /* —— VOCE → ingest —— */
-  const handleVoiceText = async (spoken) => {
-    if (busy || !spoken?.trim()) return;
-    try {
-      setBusy(true);
-      await doVoice(spoken.trim());
-      setChatOpen(true);
-      setChatMsgs(arr => [...arr, { role:'assistant', text: '✅ Operazione eseguita' }]);
-    } catch (_) {
-      // già riportato in chat
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /* —— Query rapida —— */
+  // ============ Invio Query testo ============
   const submitQuery = async () => {
     const q = queryText.trim();
     if (!q || busy) return;
     setQueryText('');
     setChatOpen(true);
     setChatMsgs(arr => [...arr, { role:'user', text: q }]);
-    await handleChatSend(q);
-  };
-  const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
 
-  /* —— Chat / input —— */
-  const handleChatSend = async (text) => {
+    // Memorizza intento per guidare eventuale OCR successivo
+    lastUserIntentRef.current = { text:q, sommelier: looksLikeSommelierIntent(q) };
+
+    // Se è Sommelier ma non ho carta -> chiedo foto
+    if (lastUserIntentRef.current.sommelier) {
+      setChatMsgs(arr => [
+        ...arr,
+        { role:'assistant', text: 'Per favore premi <b>OCR</b> e fotografa la <b>carta dei vini</b> così ti consiglio al volo dalla lista del locale.' }
+      ]);
+      return;
+    }
+
+    // Altrimenti usa brain per query dati (finanze/scorte ecc.)
     try {
       setBusy(true);
-      const { runQueryFromTextLocal } = await getBrain();
-      const res = await runQueryFromTextLocal(text, { first: chatMsgs.length === 0 });
-
+      const res = await runBrainQuery(q, { first: chatMsgs.length === 0 });
       if (res?.redirect) {
         setChatMsgs(arr => [...arr, { role:'assistant', text: `Apri: ${res.redirect}` }]);
         return;
@@ -217,6 +331,7 @@ const Home = () => {
       setBusy(false);
     }
   };
+  const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
 
   return (
     <>
@@ -246,20 +361,13 @@ const Home = () => {
       {/* Contenuto */}
       <main className="home-shell">
         <section className="primary-grid">
-          <Link
-            href="/liste-prodotti"
-            className="card-cta card-prodotti animate-card pulse-prodotti sheen"
-          >
+          <Link href="/liste-prodotti" className="card-cta card-prodotti animate-card pulse-prodotti sheen">
             <span className="emoji">🛒</span>
             <span className="title">LISTE PRODOTTI</span>
             <span className="hint">Crea e gestisci le tue liste</span>
           </Link>
 
-          <Link
-            href="/finanze"
-            className="card-cta card-finanze animate-card pulse-finanze sheen"
-            style={{ animationDelay: '0.15s' }}
-          >
+          <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
             <span className="emoji">📊</span>
             <span className="title">FINANZE</span>
             <span className="hint">Entrate, spese e report</span>
@@ -275,7 +383,7 @@ const Home = () => {
             <input
               className="query-input"
               type="text"
-              placeholder="Chiedi a Jarvis… (es. Quanto ho speso questo mese? Dove ho pagato meno il prosciutto San Daniele?)"
+              placeholder='Chiedi a Jarvis… (es. "Quanto ho speso questo mese?" • "Cosa ho a casa?" • "Mi consigli un vino rosso da questa carta?")'
               value={queryText}
               onChange={(ev)=>setQueryText(ev.target.value)}
               onKeyDown={handleQueryKey}
@@ -287,8 +395,9 @@ const Home = () => {
           </div>
 
           <div className="advanced-actions">
-            <button className="btn-ocr" onClick={handleSelectReceipt} disabled={busy}>
-              {busy ? '⏳' : '📷 OCR Scontrino'}
+            {/* Unico OCR “smart”: scontrino o carta a seconda della richiesta */}
+            <button className="btn-ocr" onClick={handleSelectOCR} disabled={busy}>
+              {busy ? '⏳' : '📷 OCR'}
             </button>
 
             <VoiceRecorder
@@ -302,11 +411,14 @@ const Home = () => {
             <Link href="/dashboard" className="btn-manuale">
               🔎 Interroga dati
             </Link>
+            <Link href="/prodotti-tipici-vini" className="btn-manuale">
+              🍷 Prodotti tipici & Vini
+            </Link>
           </div>
         </section>
       </main>
 
-      {/* Input OCR nascosto */}
+      {/* Input OCR nascosto (multi) */}
       <input
         type="file"
         accept="image/*"
@@ -321,14 +433,13 @@ const Home = () => {
       <ChatModal
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        onSend={handleChatSend}
+        onSend={submitQuery /* riuso input alto */}
         messages={chatMsgs}
         busy={busy}
       />
 
-      {/* ⚠️ ATTENZIONE: il CSS deve essere tra backtick */}
+      {/* CSS globale */}
       <style jsx global>{`
-        /* —— Video —— */
         .bg-video {
           position: fixed;
           inset: 0;
@@ -346,8 +457,6 @@ const Home = () => {
           background: rgba(0, 0, 0, 0.35);
           pointer-events: none;
         }
-
-        /* —— Shell —— */
         .home-shell {
           min-height: 100vh;
           display: grid;
@@ -359,8 +468,6 @@ const Home = () => {
           color: #fff;
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         }
-
-        /* —— Griglia primaria —— */
         .primary-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(240px, 1fr));
@@ -370,8 +477,6 @@ const Home = () => {
         @media (max-width: 760px) {
           .primary-grid { grid-template-columns: 1fr; }
         }
-
-        /* —— Card CTA —— */
         .card-cta {
           display: grid;
           align-content: center;
@@ -392,19 +497,16 @@ const Home = () => {
         .card-cta .hint  { opacity: .85; font-size: clamp(.85rem, 2vw, .95rem); }
         .card-cta:hover { transform: translateY(-2px) scale(1.02); }
 
-        /* —— Colori a gradiente + tinta sheen —— */
         .card-prodotti {
-          --tint: 236,72,153; /* rosa */
+          --tint: 236,72,153;
           background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85));
           border: 1px solid rgba(236,72,153,0.35);
         }
         .card-finanze {
-          --tint: 59,130,246; /* blu */
+          --tint: 59,130,246;
           background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85));
           border: 1px solid rgba(59,130,246,0.35);
         }
-
-        /* —— Pulsazione bagliore —— */
         .animate-card { animation: cardGlow 3.2s ease-in-out infinite; }
         .pulse-prodotti { --glowA: 236,72,153;  --glowB: 99,102,241; }
         .pulse-finanze  { --glowA: 59,130,246;  --glowB: 6,182,212; }
@@ -413,8 +515,6 @@ const Home = () => {
           50%  { box-shadow: 0 0 35px rgba(var(--glowB), 0.85); }
           100% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
         }
-
-        /* —— Riflesso sheen colorato —— */
         .sheen::before {
           content: "";
           position: absolute;
@@ -441,8 +541,6 @@ const Home = () => {
           60%  { transform: translateX(0%)    skewX(-12deg); opacity: 1; }
           100% { transform: translateX(130%)  skewX(-12deg); opacity: 0; }
         }
-
-        /* —— Funzionalità Avanzate —— */
         .advanced-box {
           width: min(1100px, 96vw);
           margin-top: .5rem;
@@ -455,8 +553,6 @@ const Home = () => {
           flex-wrap: wrap;
           gap: .5rem;
         }
-
-        /* —— Barra domande —— */
         .ask-row {
           display: grid;
           grid-template-columns: 1fr auto;
@@ -481,8 +577,6 @@ const Home = () => {
           color: #fff;
           cursor: pointer;
         }
-
-        /* —— Bottoni —— */
         .btn-vocale, .btn-ocr, .btn-manuale {
           display: inline-flex;
           align-items: center;
