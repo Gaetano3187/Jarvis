@@ -98,26 +98,37 @@ function SommelierDrawer({ data, onClose, onAdd }) {
 function LiveQrScanner({ onClose, onResult }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const loopRef = useRef(null);
-  const [codes, setCodes] = useState([]);
   useEffect(() => {
     let stream;
+    let loop = null;
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); loopRef.current=setInterval(scan, 350); }
+        const localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream = localStream;
+        const v = videoRef.current;
+        if (v) { v.srcObject = stream; await v.play(); loop=setInterval(scan, 350); }
       } catch { alert('Fotocamera non disponibile'); onClose?.(); }
     })();
-    return () => { if(loopRef.current) clearInterval(loopRef.current); try { videoRef.current?.pause(); stream?.getTracks?.().forEach(t=>t.stop()); } catch {} };
+    return () => {
+      if (loop) clearInterval(loop);
+      const v = videoRef.current;
+      try { v?.pause(); stream?.getTracks?.().forEach(t=>t.stop()); } catch {}
+    };
   }, [onClose]);
+
   async function scan(){
     const jsQR = (await import('jsqr')).default;
-    const v=videoRef.current, c=canvasRef.current; if(!v||!c||v.readyState<2) return;
+    const v = videoRef.current, c = canvasRef.current; if(!v||!c||v.readyState<2) return;
     const w=v.videoWidth,h=v.videoHeight; c.width=w; c.height=h;
     const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,w,h);
     const img=ctx.getImageData(0,0,w,h); const code=jsQR(img.data,img.width,img.height);
-    if(code&&code.data){ const url = code.data.trim(); setCodes(prev => prev.includes(url) ? prev : [...prev, url]); }
+    if(code&&code.data){
+      const url = code.data.trim();
+      onResult?.([url]); // invia subito il risultato singolo
+      onClose?.();
+    }
   }
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:60 }}>
       <div style={{ width:'min(520px,96vw)', background:'#0b0f14', border:'1px solid #1f2a38', borderRadius:16, padding:12 }}>
@@ -127,11 +138,6 @@ function LiveQrScanner({ onClose, onResult }) {
         </div>
         <video ref={videoRef} muted playsInline style={{ width:'100%', borderRadius:12, background:'#000' }} />
         <canvas ref={canvasRef} style={{ display:'none' }} />
-        <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-          <span style={{ opacity:.85 }}>Link letti: <strong>{codes.length}</strong></span>
-          <button disabled={!codes.length} onClick={()=> onResult?.(codes)} style={btn(true)}>Usa {codes.length} link</button>
-          <button onClick={()=> setCodes([])} style={btn(false)}>Azzera</button>
-        </div>
       </div>
     </div>
   );
@@ -141,28 +147,220 @@ function LiveQrScanner({ onClose, onResult }) {
 const DENOM_REGION_MAP = [
   { test:/valpolicella|amarone/i, region:'Veneto (VR)' },
   { test:/barolo|langhe|alba|nebbiolo d\'alba/i, region:'Piemonte (CN)' },
-  { test:/chianti|brunello|montalcino|montepulciano d\'abruzzo/i, region:(m)=> m?.includes('abruzzo') ? 'Abruzzo' : 'Toscana' },
+  { test:/chianti|brunello|montalcino/i, region:'Toscana' },
+  { test:/montepulciano d\'abruzzo/i, region:'Abruzzo' },
   { test:/etna|nerello|carricante|catania/i, region:'Sicilia (CT)' },
-  { test:/soave|lugo|gambellara/i, region:'Veneto (VR)' },
+  { test:/soave|gambellara/i, region:'Veneto (VR)' },
   { test:/taurasi|greco di tufo|fiano di avellino/i, region:'Campania (AV)' },
 ];
 
 function inferRegion(name='', denom='') {
   const S = `${name} ${denom}`.toLowerCase();
-  for (const r of DENOM_REGION_MAP) {
-    if (r.test.test(S)) {
-      if (typeof r.region === 'function') return r.region(denom.toLowerCase());
-      return r.region;
-    }
-  }
-  // fallback: capitalizza eventuale regione già presente nel testo
+  for (const r of DENOM_REGION_MAP) { if (r.test.test(S)) return r.region; }
   if (/veneto/i.test(S)) return 'Veneto';
   if (/piemonte/i.test(S)) return 'Piemonte';
   if (/toscana/i.test(S)) return 'Toscana';
   if (/sicilia/i.test(S)) return 'Sicilia';
   if (/lombardia/i.test(S)) return 'Lombardia';
+  if (/abruzzo/i.test(S)) return 'Abruzzo';
   return null;
 }
+
+/* ===================== FORM: VINO ===================== */
+const AddWineForm = React.forwardRef(function AddWineForm({ userId, onInserted }, ref) {
+  const [form, setForm] = useState({
+    name:'', winery:'', denomination:'', region:'', grapes:'', vintage:'', style:'rosso', price_target:'',
+    origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:'',
+    addToCellar:false, bottles:'', purchase_price_eur:''
+  });
+
+  React.useImperativeHandle(ref, () => ({
+    reset(){ setForm({
+      name:'', winery:'', denomination:'', region:'', grapes:'', vintage:'', style:'rosso', price_target:'',
+      origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:'',
+      addToCellar:false, bottles:'', purchase_price_eur:''
+    }); }
+  }), []);
+
+  const handleInsert = useCallback(async () => {
+    if (!userId) return alert('Sessione assente.');
+    const grapesArr = form.grapes ? form.grapes.split(',').map(s=>s.trim()).filter(Boolean) : null;
+
+    const { data: newWine, error } = await supabase.from('wines').insert([{
+      user_id: userId,
+      name: form.name.trim(), winery: form.winery || null, denomination: form.denomination || null,
+      region: form.region || null, grapes: grapesArr, vintage: form.vintage ? Number(form.vintage) : null,
+      style: form.style || null, price_target: form.price_target ? Number(form.price_target) : null
+    }]).select().single();
+    if (error) return alert('Errore vino: ' + error.message);
+
+    const places = [];
+    if (form.origin_lat && form.origin_lng) places.push({
+      user_id: userId, item_type:'wine', item_id:newWine.id, kind:'origin',
+      place_name: form.origin_place_name || null, lat:Number(form.origin_lat), lng:Number(form.origin_lng), is_primary:true
+    });
+    if (form.purchase_lat && form.purchase_lng) places.push({
+      user_id: userId, item_type:'wine', item_id:newWine.id, kind:'purchase',
+      place_name: form.purchase_place_name || null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true
+    });
+    if (places.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(places);
+      if (e2) alert('Errore luogo: ' + e2.message);
+    }
+
+    if (form.addToCellar) {
+      const bottles = form.bottles ? Number(form.bottles) : 1;
+      const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
+      const { error:e3 } = await supabase.from('cellar').insert([{ user_id: userId, wine_id: newWine.id, bottles, purchase_price_eur: price }]);
+      if (e3) alert('Errore cantina: ' + e3.message);
+    }
+
+    onInserted?.();
+    ref?.current?.reset?.();
+  }, [form, userId, onInserted, ref]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi Vino (Wishlist)</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <input placeholder="Nome" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} style={inp}/>
+        <input placeholder="Cantina" value={form.winery} onChange={e=>setForm({...form, winery:e.target.value})} style={inp}/>
+        <input placeholder="Denominazione (DOCG/DOC/IGT)" value={form.denomination} onChange={e=>setForm({...form, denomination:e.target.value})} style={inp}/>
+        <input placeholder="Regione" value={form.region} onChange={e=>setForm({...form, region:e.target.value})} style={inp}/>
+        <input placeholder="Vitigni (comma)" value={form.grapes} onChange={e=>setForm({...form, grapes:e.target.value})} style={inp}/>
+        <input placeholder="Annata" value={form.vintage} onChange={e=>setForm({...form, vintage:e.target.value})} style={inp}/>
+        <select value={form.style} onChange={e=>setForm({...form, style:e.target.value})} style={inp}>
+          <option value="rosso">Rosso</option><option value="bianco">Bianco</option><option value="rosé">Rosé</option><option value="frizzante">Frizzante</option><option value="fortificato">Fortificato</option>
+        </select>
+        <input placeholder="Budget (€)" value={form.price_target} onChange={e=>setForm({...form, price_target:e.target.value})} style={inp}/>
+        <input placeholder="Origine - luogo (opz.)" value={form.origin_place_name} onChange={e=>setForm({...form, origin_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lat (opz.)" value={form.origin_lat} onChange={e=>setForm({...form, origin_lat:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lng (opz.)" value={form.origin_lng} onChange={e=>setForm({...form, origin_lng:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - luogo (opz.)" value={form.purchase_place_name} onChange={e=>setForm({...form, purchase_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lat (opz.)" value={form.purchase_lat} onChange={e=>setForm({...form, purchase_lat:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lng (opz.)" value={form.purchase_lng} onChange={e=>setForm({...form, purchase_lng:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10, display:'flex', gap:12, alignItems:'center' }}>
+        <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <input type="checkbox" checked={form.addToCellar} onChange={e=>setForm({...form, addToCellar:e.target.checked})}/>
+          <span>Aggiungi anche in Cantina</span>
+        </label>
+        {form.addToCellar && (
+          <>
+            <input placeholder="Bottiglie" value={form.bottles} onChange={e=>setForm({...form, bottles:e.target.value})} style={inp}/>
+            <input placeholder="Prezzo acquisto (€)" value={form.purchase_price_eur} onChange={e=>setForm({...form, purchase_price_eur:e.target.value})} style={inp}/>
+          </>
+        )}
+      </div>
+      <div style={{ marginTop:10, display:'flex', gap:8 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
+
+/* ===================== FORM: ARTISAN ===================== */
+const AddArtisanForm = React.forwardRef(function AddArtisanForm({ userId, onInserted }, ref) {
+  const [form, setForm] = useState({
+    name:'', category:'formaggio', designation:'', price_eur:'', notes:'',
+    origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:''
+  });
+
+  React.useImperativeHandle(ref, () => ({
+    reset(){ setForm({
+      name:'', category:'formaggio', designation:'', price_eur:'', notes:'',
+      origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:''
+    }); }
+  }), []);
+
+  const handleInsert = useCallback( async () => {
+    if (!userId) return alert('Sessione assente.');
+    const { data, error } = await supabase.from('artisan_products').insert([{
+      user_id: userId, name: form.name.trim(), category: form.category,
+      designation: form.designation || null, price_eur: form.price_eur ? Number(form.price_eur) : null, notes: form.notes || null
+    }]).select().single();
+    if (error) return alert('Errore prodotto: ' + error.message);
+
+    const rows = [];
+    if (form.origin_lat && form.origin_lng) rows.push({ user_id:userId, item_type:'artisan', item_id:data.id, kind:'origin',   place_name:form.origin_place_name||null,   lat:Number(form.origin_lat),   lng:Number(form.origin_lng),   is_primary:true });
+    if (form.purchase_lat && form.purchase_lng) rows.push({ user_id:userId, item_type:'artisan', item_id:data.id, kind:'purchase', place_name:form.purchase_place_name||null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true });
+    if (rows.length) { const { error:e2 } = await supabase.from('product_places').insert(rows); if (e2) alert('Errore luogo: '+e2.message); }
+    onInserted?.();
+    ref?.current?.reset?.();
+  }, [form, onInserted, ref, userId]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi Formaggio/Salume</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <input placeholder="Nome" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} style={inp}/>
+        <select value={form.category} onChange={e=>setForm({...form, category:e.target.value})} style={inp}>
+          <option value="formaggio">Formaggio</option><option value="salume">Salume</option>
+        </select>
+        <input placeholder="Designazione (DOP/IGP…)" value={form.designation} onChange={e=>setForm({...form, designation:e.target.value})} style={inp}/>
+        <input placeholder="Prezzo (€ o €/kg)" value={form.price_eur} onChange={e=>setForm({...form, price_eur:e.target.value})} style={inp}/>
+        <input placeholder="Note" value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})} style={inp}/>
+        <input placeholder="Origine - luogo (opz.)" value={form.origin_place_name} onChange={e=>setForm({...form, origin_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lat (opz.)" value={form.origin_lat} onChange={e=>setForm({...form, origin_lat:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lng (opz.)" value={form.origin_lng} onChange={e=>setForm({...form, origin_lng:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - luogo (opz.)" value={form.purchase_place_name} onChange={e=>setForm({...form, purchase_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lat (opz.)" value={form.purchase_lat} onChange={e=>setForm({...form, purchase_lat:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lng (opz.)" value={form.purchase_lng} onChange={e=>setForm({...form, purchase_lng:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10, display:'flex', gap:8 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
+
+/* ===================== Add Cantina ===================== */
+const AddCellarForm = React.forwardRef(function AddCellarForm({ userId, wines = [], onInserted }, ref) {
+  const [form, setForm] = useState({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' });
+
+  React.useImperativeHandle(ref, () => ({
+    reset(){ setForm({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' }); }
+  }), []);
+
+  const handleInsert = useCallback(async ()=>{
+    try {
+      if (!userId) return alert('Sessione assente.');
+      if (!form.wine_id) return alert('Seleziona un vino');
+
+      const bottles = form.bottles ? Number(form.bottles) : 1;
+      const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
+      const pair    = form.pairings ? form.pairings.split(',').map(s => s.trim()).filter(Boolean) : null;
+
+      const { error } = await supabase.from('cellar').insert([{
+        user_id: userId, wine_id: form.wine_id, bottles, purchase_price_eur: price, pairings: pair
+      }]);
+      if (error) throw error;
+
+      ref?.current?.reset?.();
+      onInserted?.();
+    } catch (e) {
+      alert('Errore: ' + (e?.message || e));
+    }
+  }, [form, userId, onInserted, ref]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi in Cantina</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <select value={form.wine_id} onChange={e=>setForm({...form, wine_id:e.target.value})} style={inp}>
+          <option value="">Seleziona vino…</option>
+          {wines.map(w => (<option key={w.id} value={w.id}>{w.name}{w.winery?` - ${w.winery}`:''}</option>))}
+        </select>
+        <input placeholder="Bottiglie" value={form.bottles} onChange={e=>setForm({...form, bottles:e.target.value})} style={inp}/>
+        <input placeholder="Prezzo acquisto (€)" value={form.purchase_price_eur} onChange={e=>setForm({...form, purchase_price_eur:e.target.value})} style={inp}/>
+        <input placeholder="Abbinamenti (comma)" value={form.pairings} onChange={e=>setForm({...form, pairings:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
 
 /* ===================== Pagina ===================== */
 function ProdottiTipiciViniPage() {
@@ -253,7 +451,7 @@ function ProdottiTipiciViniPage() {
     setMapCenter([target.lng, target.lat]); setMapZoom(7); setSelectedPlaceId(target.id);
     document.getElementById('map-italia')?.scrollIntoView({behavior:'smooth',block:'start'});
     setTimeout(()=> setSelectedPlaceId(null), 3000);
-  }, [placesByWine]);
+  }, [placesByWine, showToast]);
 
   async function loadPopupInfo(place) {
     try {
@@ -284,7 +482,6 @@ function ProdottiTipiciViniPage() {
       const j=await r.json(); if (Array.isArray(j)&&j.length) return { name:j[0].display_name||query, lat:Number(j[0].lat), lng:Number(j[0].lon) }; } catch {}
     return null;
   }
-
   async function getCurrentPositionStrict() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new Error('Geolocalizzazione non supportata'));
@@ -293,14 +490,9 @@ function ProdottiTipiciViniPage() {
       });
     });
   }
-
   async function ensureOriginForWine(wine) {
-    // se ha già un'origine, stop
     const hasOrigin = (placesByWine.get(wine.id) || []).some(p => p.kind==='origin');
     if (hasOrigin) return;
-
-    // prova da lat/lng eventuali (non disponibili di solito)
-    // altrimenti inferisci da denominazione/regione → geocoding
     const regionGuess = inferRegion(wine.name, wine.denomination) || wine.region || wine.denomination || '';
     if (!regionGuess) return;
     const hit = await searchGeocode(regionGuess);
@@ -310,45 +502,38 @@ function ProdottiTipiciViniPage() {
       place_name: hit.name, lat: hit.lat, lng: hit.lng, is_primary: true
     }]);
   }
-
-  async function addPlaceFor(wineOrArt, itemId, kind) {
+  async function addPlaceFor(itemType, itemId, kind) {
     if (!userId) return alert('Sessione assente');
     try {
-      // per i vini: prima di salvare il "bevuto", provo a impostare l'origine se manca
-      if (wineOrArt === 'wine' && kind === 'purchase') {
+      if (itemType === 'wine' && kind === 'purchase') {
         const wine = wineById[itemId];
         if (wine) await ensureOriginForWine(wine);
       }
-
       showToast('Richiesta posizione in corso…');
       const pos = await getCurrentPositionStrict();
       const lat = pos.coords.latitude, lng = pos.coords.longitude;
       const name = await reverseGeocode(lat, lng);
-
       const { error } = await supabase.from('product_places').insert([{
-        user_id: userId, item_type: wineOrArt, item_id: itemId, kind,
+        user_id:userId, item_type:itemType, item_id:itemId, kind,
         place_name: name || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`, lat, lng, is_primary: true
       }]);
       if (error) throw error;
-
       showToast(kind==='purchase' ? 'Luogo di consumo/acquisto aggiunto!' : 'Origine aggiunta!');
       await refreshAll();
-      // focus subito sulla mappa
-      if (wineOrArt==='wine') focusWineOnMap(itemId);
-    } catch (err) {
-      // fallback manuale SOLO se rifiutata/errore
+      if (itemType==='wine') focusWineOnMap(itemId);
+    } catch {
       const manual = prompt('Localizzazione non disponibile. Inserisci il luogo (es. "Enoteca X, Alba")');
       if (!manual) return;
       const hit = await searchGeocode(manual);
       if (!hit) { alert('Impossibile geocodificare il luogo'); return; }
       const { error:e2 } = await supabase.from('product_places').insert([{
-        user_id: userId, item_type: wineOrArt, item_id: itemId, kind,
+        user_id:userId, item_type:itemType, item_id:itemId, kind,
         place_name: hit.name, lat: hit.lat, lng: hit.lng, is_primary: true
       }]);
       if (e2) return alert('Errore salvataggio: ' + e2.message);
       showToast('Luogo aggiunto!');
       await refreshAll();
-      if (wineOrArt==='wine') focusWineOnMap(itemId);
+      if (itemType==='wine') focusWineOnMap(itemId);
     }
   }
 
@@ -371,7 +556,6 @@ function ProdottiTipiciViniPage() {
       const name  = (d.name && String(d.name).trim()) || `Vino (${new Date().toISOString().slice(0,10)})`;
       let region = d.region || inferRegion(name, d.denomination) || null;
 
-      // INSERT wine
       const { data: newWine, error } = await supabase.from('wines').insert([{
         user_id: userId,
         name, winery: d.winery || null, denomination: d.denomination || null,
@@ -381,18 +565,12 @@ function ProdottiTipiciViniPage() {
       }]).select().single();
       if (error) throw error;
 
-      // ORIGIN
       const rows = [];
-      if (d.origin?.lat && d.origin?.lng) rows.push({
-        user_id:userId, item_type:'wine', item_id:newWine.id, kind:'origin',
-        place_name:d.origin.name||null, lat:d.origin.lat, lng:d.origin.lng, is_primary:true
-      });
-      // se non avevamo lat/lng ma ho inferito regione → geocoding per origine
+      if (d.origin?.lat && d.origin?.lng) rows.push({ user_id:userId, item_type:'wine', item_id:newWine.id, kind:'origin',
+        place_name:d.origin.name||null, lat:d.origin.lat, lng:d.origin.lng, is_primary:true });
       if (!rows.length && region) {
-        const hit = await searchGeocode(region); if (hit) rows.push({
-          user_id:userId, item_type:'wine', item_id:newWine.id, kind:'origin',
-          place_name:hit.name, lat:hit.lat, lng:hit.lng, is_primary:true
-        });
+        const hit = await searchGeocode(region); if (hit) rows.push({ user_id:userId, item_type:'wine', item_id:newWine.id, kind:'origin',
+          place_name:hit.name, lat:hit.lat, lng:hit.lng, is_primary:true });
       }
       if (rows.length) {
         const { error:e2 } = await supabase.from('product_places').insert(rows);
@@ -435,7 +613,6 @@ function ProdottiTipiciViniPage() {
         region: rec.region || null, style: rec.style || null, price_target: rec.typical_price_eur ?? null
       }]).select().single();
       if (error) throw error;
-      // localizza consumo
       const pos = await getCurrentPositionStrict();
       const lat = pos.coords.latitude, lng = pos.coords.longitude;
       const name = await reverseGeocode(lat, lng);
@@ -675,7 +852,6 @@ function ProdottiTipiciViniPage() {
             return (
               <CircleMarker key={p.id} center={[p.lat,p.lng]} radius={isSel ? 7 : 5} pathOptions={{color,fillColor:color,fillOpacity:1}}
                             eventHandlers={{ click: ()=> loadPopupInfo(p) }}>
-                {/* halo per "pulse" */}
                 {isSel ? <CircleMarker center={[p.lat,p.lng]} radius={12} pathOptions={{color,fillColor:color,fillOpacity:0.12}}/> : null}
                 <Tooltip direction="top">{p.place_name || (wine?.name || '')}</Tooltip>
                 {p.item_type==='wine' && (
