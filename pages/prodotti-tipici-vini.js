@@ -63,7 +63,7 @@ function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
   );
 }
 
-/* ===== Drawer Sommelier (con badge fasce/budget) ===== */
+/* ===== Drawer Sommelier ===== */
 function SommelierDrawer({ data, onClose }) {
   const recs = data?.recommendations || [];
   const src = data?.source || '';
@@ -90,8 +90,7 @@ function SommelierDrawer({ data, onClose }) {
 
         <div style={{ fontSize:13, opacity:.85, marginBottom:10 }}>
           Fonte: <strong>{src === 'list' ? 'Carta del locale' : src === 'web' ? 'Ricerca web' : 'Suggerimenti offline'}</strong>
-          {hasBudget && <>
-            {' • '}Filtro prezzo:
+          {hasBudget && <> • Filtro prezzo:
             {bf.min != null && <> ≥ € {Number(bf.min).toFixed(0)}</>}
             {bf.max != null && <> ≤ € {Number(bf.max).toFixed(0)}</>}
           </>}
@@ -108,9 +107,7 @@ function SommelierDrawer({ data, onClose }) {
                 <OutOf flag={r.out_of_budget} />
               </div>
             </div>
-            <div style={{ opacity:0.85, marginTop:4 }}>
-              {(r.winery || '—')} • {(r.denomination || '—')} {r.region ? `• ${r.region}` : ''}
-            </div>
+            <div style={{ opacity:0.85, marginTop:4 }}>{(r.winery || '—')} • {(r.denomination || '—')} {r.region ? `• ${r.region}` : ''}</div>
             <div style={{ marginTop:6 }}>{r.why}</div>
             <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
               {r.typical_price_eur != null && <span style={{ opacity:0.9 }}>~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
@@ -195,8 +192,8 @@ const AddWineForm = React.forwardRef(function AddWineForm({ userId, onInserted }
 
   const handleInsert = useCallback(async () => {
     if (!userId) return alert('Sessione assente.');
-
     const grapesArr = form.grapes ? form.grapes.split(',').map(s=>s.trim()).filter(Boolean) : null;
+
     const { data: newWine, error } = await supabase.from('wines').insert([{
       user_id: userId,
       name: form.name.trim(),
@@ -389,7 +386,7 @@ function ProdottiTipiciViniPage() {
   const [showAddWine, setShowAddWine]       = useState(false);
   const [showAddCellar, setShowAddCellar]   = useState(false);
 
-  // allegati per Sommelier
+  // allegati Sommelier
   const [sommelierLists, setSommelierLists] = useState([]); // testi OCR (multi-foto)
   const [sommelierQr, setSommelierQr] = useState([]);       // URL QR (multi)
   const [sommelierBusy, setSommelierBusy] = useState(false);
@@ -402,12 +399,12 @@ function ProdottiTipiciViniPage() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
   }, []);
 
-  // MAP
+  // Map
   const [mapCenter, setMapCenter] = useState([12.5, 42.5]); // [lng, lat]
   const [mapZoom, setMapZoom] = useState(5);
   const [selectedPlaceId, setSelectedPlaceId] = useState(null);
 
-  // sessione (come spese-casa.js)
+  // sessione
   useEffect(() => {
     let sub = null;
     (async () => {
@@ -448,7 +445,7 @@ function ProdottiTipiciViniPage() {
     setTimeout(()=>setSelectedPlaceId(null), 2500);
   }, [places]);
 
-  /* ---------- Geocoding & geolocation (senza chiavi) ---------- */
+  /* ---------- Geocoding & geolocation ---------- */
   async function reverseGeocode(lat, lng) {
     try {
       const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`);
@@ -488,82 +485,54 @@ function ProdottiTipiciViniPage() {
     alert('Luogo aggiunto!'); refreshAll();
   }
 
-  /* ---------------- Sommelier: allega e poi premi “Sommelier” ---------------- */
+  /* ---------------- Sommelier ---------------- */
   const [q, setQ] = useState('');
   const fileRef = useRef(null);
   const [showQr, setShowQr] = useState(false);
   const [sommelierOpen, setSommelierOpen] = useState(false);
   const [sommelierData, setSommelierData] = useState(null);
 
-  async function dataUrlFromFile(file) {
-    return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
-  }
-async function handleSommelierOcrFiles(files) {
-  try {
-    if (!files || !files.length) { alert('Nessun file selezionato'); return; }
-
-    // 1) Prepara multipart/form-data (combino tutte le foto in UNA request)
-    const fd = new FormData();
-    files.forEach((f, i) => fd.append('images', f, f.name || `foto_${i+1}.jpg`));
-
-    // 2) Chiama /api/ocr (il tuo endpoint con formidable si aspetta proprio FormData)
-    const r = await fetch('/api/ocr', { method: 'POST', body: fd });
-
-    if (!r.ok) {
-      // Mostra errore utile (es. 413 Payload Too Large)
-      const txt = await r.text().catch(() => '');
-      throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
+  // OCR multi-foto: invia FormData a /api/ocr e memorizza il testo carta
+  async function handleSommelierOcrFiles(files) {
+    try {
+      if (!files || !files.length) { alert('Nessun file selezionato'); return; }
+      const fd = new FormData();
+      files.forEach((f, i) => fd.append('images', f, f.name || `foto_${i+1}.jpg`));
+      const r = await fetch('/api/ocr', { method:'POST', body: fd });
+      if (!r.ok) {
+        const txt = await r.text().catch(()=>'');
+        throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
+      }
+      const j = await r.json();
+      const text = (j?.text || '').trim();
+      if (!text) { alert('OCR: nessun testo letto.'); return; }
+      setSommelierLists(prev => [...prev, text]);
+      showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
+    } catch (e) {
+      console.error('OCR upload error', e);
+      alert('Errore Sommelier OCR: ' + (e?.message || e));
     }
-
-    const j = await r.json();
-    const text = (j?.text || '').trim();
-    if (!text) { alert('OCR: nessun testo letto.'); return; }
-
-    // 3) Memorizza il testo carta (prompt-first: premi poi "Sommelier")
-    setSommelierLists(prev => [...prev, text]);
-    showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
-
-  } catch (e) {
-    console.error('OCR upload error', e);
-    alert('Errore Sommelier OCR: ' + (e?.message || e));
   }
-  // avvia la ricerca Sommelier usando prompt + OCR/QR memorizzati
-async function runSommelier() {
-  try {
-    setSommelierBusy(true);
-    const payload = {
-      query: q || '',
-      wineLists: sommelierLists, // testi OCR accumulati
-      qrLinks: sommelierQr       // URL QR accumulati
-    };
-    const r = await fetch('/api/sommelier', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const j = await r.json();
-    setSommelierData(j);
-    setSommelierOpen(true);
-  } catch (e) {
-    alert('Sommelier error: ' + (e?.message || e));
-  } finally {
-    setSommelierBusy(false);
+
+  // Avvia la ricerca con prompt + carta OCR/QR accumulata
+  async function runSommelier() {
+    try {
+      setSommelierBusy(true);
+      const payload = { query: q || '', wineLists: sommelierLists, qrLinks: sommelierQr };
+      const r = await fetch('/api/sommelier', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json();
+      setSommelierData(j);
+      setSommelierOpen(true);
+    } catch (e) {
+      alert('Sommelier error: ' + (e?.message || e));
+    } finally {
+      setSommelierBusy(false);
+    }
   }
-}
-
-// Se in qualche punto del file avevi ancora il vecchio nome:
-const askSommelier = runSommelier;
-
-}
-
-
-  /* ------------------- Rating ------------------- */
-  const setRating = useCallback(async (id,n)=>{
-    if (!userId) return;
-    const { error } = await supabase.from('wines').update({ rating_5:n }).eq('id',id).eq('user_id',userId);
-    if (error) return alert('Errore voto: '+error.message);
-    refreshAll();
-  },[userId,refreshAll]);
 
   /* ------------------- Render ------------------- */
   return (
@@ -841,12 +810,10 @@ const askSommelier = runSommelier;
 
       {/* Toasts */}
       <div className="toast-wrap">
-        {toasts.map(t => (
-          <div key={t.id} className="toast">{t.msg}</div>
-        ))}
+        {toasts.map(t => (<div key={t.id} className="toast">{t.msg}</div>))}
       </div>
 
-      {/* responsive CSS (azioni su desktop) + toasts */}
+      {/* CSS extra */}
       <style jsx>{`
         @media (min-width: 768px){
           .actions-desktop{ display:flex !important; }
