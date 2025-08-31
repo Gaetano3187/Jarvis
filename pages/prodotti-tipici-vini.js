@@ -66,30 +66,65 @@ function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
 /* ===== Drawer Sommelier ===== */
 function SommelierDrawer({ data, onClose }) {
   const recs = data?.recommendations || [];
+  const src = data?.source || '';
+  const bf = data?.budget_filter || {};
+  const hasBudget = bf && (bf.min != null || bf.max != null);
+
+  const Band = ({band}) => {
+    if (!band) return null;
+    const map = { low:'#10b981', med:'#f59e0b', high:'#ef4444' };
+    const label = { low:'Low', med:'Med', high:'High' }[band] || band;
+    return <span style={{ background:map[band], color:'#0b0f14', padding:'2px 8px', borderRadius:999, fontSize:12, fontWeight:700 }}>{label}</span>;
+  };
+  const OutOf = ({flag}) => flag ? (
+    <span style={{ border:'1px solid #ef4444', color:'#ef4444', padding:'2px 8px', borderRadius:999, fontSize:12, fontWeight:700 }}>Fuori budget</span>
+  ) : null;
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', justifyContent:'flex-end', zIndex:50 }}>
       <div style={{ width:'min(520px,96vw)', height:'100%', background:'#0b0f14', borderLeft:'1px solid #1f2a38', padding:16, overflowY:'auto' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
           <h3 style={{ margin:0 }}>Sommelier – risultati</h3>
           <button onClick={onClose} style={btn(false)}>Chiudi</button>
         </div>
+
+        <div style={{ fontSize:13, opacity:.85, marginBottom:10 }}>
+          Fonte: <strong>{src === 'list' ? 'Carta del locale' : src === 'web' ? 'Ricerca web' : 'Suggerimenti offline'}</strong>
+          {hasBudget && <>
+            {' • '}Filtro prezzo:
+            {bf.min != null && <> ≥ € {Number(bf.min).toFixed(0)}</>}
+            {bf.max != null && <> ≤ € {Number(bf.max).toFixed(0)}</>}
+          </>}
+        </div>
+
         {recs.length === 0 && <p style={{ opacity:0.8 }}>{data?.notes || 'Nessun risultato.'}</p>}
+
         {recs.map((r,i)=>(
           <div key={i} style={{ border:'1px solid #1f2a38', borderRadius:12, padding:12, marginBottom:10 }}>
-            <div style={{ fontWeight:700 }}>{r.name} {r.vintage_suggestion?.length ? `(${r.vintage_suggestion.join(', ')})` : ''}</div>
-            <div style={{ opacity:0.85 }}>{r.winery || '—'} • {r.denomination || '—'} • {r.region || '—'}</div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+              <div style={{ fontWeight:700, lineHeight:1.2 }}>{r.name}</div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                <Band band={r.price_band} />
+                <OutOf flag={r.out_of_budget} />
+              </div>
+            </div>
+            <div style={{ opacity:0.85, marginTop:4 }}>
+              {(r.winery || '—')} • {(r.denomination || '—')} {r.region ? `• ${r.region}` : ''}
+            </div>
             <div style={{ marginTop:6 }}>{r.why}</div>
-            <div style={{ marginTop:6, display:'flex', gap:8, flexWrap:'wrap' }}>
+            <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+              {r.typical_price_eur != null && <span style={{ opacity:0.9 }}>~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
               {(r.links || []).map((l,idx)=>(<a key={idx} href={l.url} target="_blank" rel="noreferrer" style={btn(false)}>{l.title || 'Link'}</a>))}
-              {r.typical_price_eur != null && <span style={{ alignSelf:'center', opacity:0.9 }}>~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
             </div>
           </div>
         ))}
+
         {data?.notes && recs.length>0 && <p style={{ opacity:0.8, marginTop:12 }}>{data.notes}</p>}
       </div>
     </div>
   );
 }
+
 
 /* ===== Live QR Scanner (best-effort) ===== */
 function LiveQrScanner({ onClose, onResult }) {
