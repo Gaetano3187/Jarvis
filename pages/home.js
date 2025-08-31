@@ -363,39 +363,67 @@ const Home = () => {
   };
   const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
 
-  // === Renderer unificato per le risposte del brain ===
-  function renderBrainResponse(res) {
-    // Default: stringify
-    let out = { role: 'assistant', text: formatResult(res?.result ?? res), mono: typeof res?.result !== 'string' };
+// === Renderer unificato per le risposte del brain (FIX) ===
+function renderBrainResponse(res) {
+  // Alcuni endpoint ritornano { result: {...} }, altri direttamente l’oggetto
+  const payload = (res && typeof res === 'object' && 'result' in res) ? res.result : res;
+  const kind = payload?.kind;
 
-    // Branch specializzati (usa "kind" che il brain ritorna)
-    const k = res?.kind;
+  // -------- 1) INVENTORY / SCORTE ----------
+  // Riconoscimento sia via kind che via forma ({ ok:true, elenco:[...] })
+  const looksLikeInventory =
+    kind === 'inventory.snapshot' ||
+    (payload && typeof payload === 'object' && Array.isArray(payload.elenco));
 
-    // 1) Snapshot scorte → tabella + grafico riempimenti minimi
-    if (k === 'inventory.snapshot') {
-      const rendered = renderInventorySnapshot(res);
-      return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
-    }
-
-    // 2) Riepilogo spese mese → tabella basic (se brain lo ritorna già formattato, mantieni)
-    if (k === 'finances.month_summary') {
-      const data = res?.data || {};
-      const tot = fmtEuro(data.total ?? 0);
-      const txs = fmtInt(data.transactions ?? 0);
-      const top = Array.isArray(data.top_stores) ? data.top_stores : [];
-      const table = smallTable(
-        top.slice(0, 10).map(r => ({ store: r.store || '—', speso: fmtEuro(r.speso ?? 0) })),
-        [
-          { key: 'store', label: 'Negozio' },
-          { key: 'speso', label: 'Speso' }
-        ]
-      );
-      const txt = `📊 Spese del mese\nTotale: ${tot} • Transazioni: ${txs}\n\n${table}${top.length > 10 ? `\n…(+${top.length - 10})` : ''}`;
-      return { role: 'assistant', text: txt, mono: true };
-    }
-
-    return out;
+  if (looksLikeInventory) {
+    const rendered = renderInventorySnapshot(payload);
+    return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
   }
+
+  // -------- 2) FINANZE / RIEPILOGO MESE ----------
+  // Supporta sia kind, sia struttura { totale, transazioni, top_negozi|top_stores }
+  const topList = payload?.top_negozi || payload?.top_stores;
+  const looksLikeMonthFinances =
+    kind === 'finances.month_summary' ||
+    (payload && typeof payload === 'object' &&
+      (payload.totale != null || payload.total != null) &&
+      (Array.isArray(topList)));
+
+  if (looksLikeMonthFinances) {
+    const totRaw = payload.total ?? payload.totale ?? 0;
+    const txs = payload.transactions ?? payload.transazioni ?? 0;
+    const top = Array.isArray(topList) ? topList : [];
+
+    // Normalizza chiavi per la tabella (store/speso oppure name/amount)
+    const rows = top.map(r => ({
+      store: r.store || r.nome || r.name || '—',
+      speso: fmtEuro(r.speso ?? r.amount ?? 0)
+    }));
+
+    const table = smallTable(
+      rows.slice(0, 10),
+      [
+        { key: 'store', label: 'Negozio' },
+        { key: 'speso', label: 'Speso' }
+      ]
+    );
+
+    const txt =
+`📊 Spese del mese
+Intervallo: ${payload.intervallo || 'mese corrente'}
+Totale: ${fmtEuro(totRaw)} • Transazioni: ${fmtInt(txs)}
+
+${table}${rows.length > 10 ? `\n…(+${rows.length - 10})` : ''}`;
+
+    return { role: 'assistant', text: txt, mono: true };
+  }
+
+  // -------- 3) DEFAULT ----------
+  // Se non riconosciuto, mostro una stringa o un JSON formattato
+  const text = formatResult(payload ?? res);
+  return { role: 'assistant', text, mono: typeof (payload ?? res) !== 'string' };
+}
+
 
   // === Renderer scorte con fallback fill/status e grafico ===
   function renderInventorySnapshot(r) {
