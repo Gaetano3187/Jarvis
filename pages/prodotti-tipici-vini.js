@@ -51,6 +51,287 @@ function ActionsMobile({ options, onAction }) {
   );
 }
 
+/* ===== Toolbar sezione (Manuale / OCR / Vocale) ===== */
+function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
+  return (
+    <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
+      <span style={{ color:'#cdeafe', fontWeight:700 }}>{label}</span>
+      <button onClick={onAddManual} style={btn(true)}>{showAdd ? 'Chiudi' : 'Aggiungi manuale'}</button>
+      <button onClick={onOcr} style={btn(false)}>OCR (foto)</button>
+      <button onClick={onVoice} style={btn(false)}>Vocale</button>
+    </div>
+  );
+}
+
+/* ===== Drawer Sommelier ===== */
+function SommelierDrawer({ data, onClose }) {
+  const recs = data?.recommendations || [];
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', justifyContent:'flex-end', zIndex:50 }}>
+      <div style={{ width:'min(520px,96vw)', height:'100%', background:'#0b0f14', borderLeft:'1px solid #1f2a38', padding:16, overflowY:'auto' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+          <h3 style={{ margin:0 }}>Sommelier – risultati</h3>
+          <button onClick={onClose} style={btn(false)}>Chiudi</button>
+        </div>
+        {recs.length === 0 && <p style={{ opacity:0.8 }}>{data?.notes || 'Nessun risultato.'}</p>}
+        {recs.map((r,i)=>(
+          <div key={i} style={{ border:'1px solid #1f2a38', borderRadius:12, padding:12, marginBottom:10 }}>
+            <div style={{ fontWeight:700 }}>{r.name} {r.vintage_suggestion?.length ? `(${r.vintage_suggestion.join(', ')})` : ''}</div>
+            <div style={{ opacity:0.85 }}>{r.winery || '—'} • {r.denomination || '—'} • {r.region || '—'}</div>
+            <div style={{ marginTop:6 }}>{r.why}</div>
+            <div style={{ marginTop:6, display:'flex', gap:8, flexWrap:'wrap' }}>
+              {(r.links || []).map((l,idx)=>(<a key={idx} href={l.url} target="_blank" rel="noreferrer" style={btn(false)}>{l.title || 'Link'}</a>))}
+              {r.typical_price_eur != null && <span style={{ alignSelf:'center', opacity:0.9 }}>~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
+            </div>
+          </div>
+        ))}
+        {data?.notes && recs.length>0 && <p style={{ opacity:0.8, marginTop:12 }}>{data.notes}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ===== Live QR Scanner (best-effort) ===== */
+function LiveQrScanner({ onClose, onResult }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const loopRef = useRef(null);
+
+  useEffect(() => {
+    let stream;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); startLoop(); }
+      } catch (e) { alert('Fotocamera non disponibile'); onClose?.(); }
+    })();
+    return () => { stopLoop(); try { stream?.getTracks?.().forEach(t=>t.stop()); } catch {} };
+  }, [onClose]);
+
+  function startLoop(){ loopRef.current=setInterval(scan, 350); }
+  function stopLoop(){ if(loopRef.current) clearInterval(loopRef.current); loopRef.current=null; }
+
+  async function scan(){
+    const jsQR = (await import('jsqr')).default;
+    const v=videoRef.current, c=canvasRef.current; if(!v||!c||v.readyState<2) return;
+    const w=v.videoWidth,h=v.videoHeight; c.width=w; c.height=h;
+    const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,w,h);
+    const img=ctx.getImageData(0,0,w,h); const code=jsQR(img.data,img.width,img.height);
+    if(code&&code.data){ stopLoop(); onResult?.(code.data); }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:60 }}>
+      <div style={{ width:'min(520px,96vw)', background:'#0b0f14', border:'1px solid #1f2a38', borderRadius:16, padding:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <h3 style={{ margin:0 }}>Scanner QR</h3>
+          <button onClick={onClose} style={btn(false)}>Chiudi</button>
+        </div>
+        <video ref={videoRef} muted playsInline style={{ width:'100%', borderRadius:12, background:'#000' }} />
+        <canvas ref={canvasRef} style={{ display:'none' }} />
+        <p style={{ opacity:.8, marginTop:8 }}>Inquadra il QR del menù. Se leggibile, apro il Sommelier sulla pagina collegata.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== FORM: VINO ===================== */
+const AddWineForm = React.forwardRef(function AddWineForm({ userId, onInserted }, ref) {
+  const [form, setForm] = useState({
+    name:'', winery:'', denomination:'', region:'', grapes:'', vintage:'', style:'rosso', price_target:'',
+    origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:'',
+    addToCellar:false, bottles:'', purchase_price_eur:''
+  });
+
+  React.useImperativeHandle(ref, () => ({
+    reset(){ setForm({
+      name:'', winery:'', denomination:'', region:'', grapes:'', vintage:'', style:'rosso', price_target:'',
+      origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:'',
+      addToCellar:false, bottles:'', purchase_price_eur:''
+    }); }
+  }), []);
+
+  const handleInsert = useCallback(async () => {
+    if (!userId) return alert('Sessione assente.');
+
+    const grapesArr = form.grapes ? form.grapes.split(',').map(s=>s.trim()).filter(Boolean) : null;
+    const { data: newWine, error } = await supabase.from('wines').insert([{
+      user_id: userId,
+      name: form.name.trim(),
+      winery: form.winery || null,
+      denomination: form.denomination || null,
+      region: form.region || null,
+      grapes: grapesArr,
+      vintage: form.vintage ? Number(form.vintage) : null,
+      style: form.style || null,
+      price_target: form.price_target ? Number(form.price_target) : null
+    }]).select().single();
+    if (error) return alert('Errore vino: ' + error.message);
+
+    const places = [];
+    if (form.origin_lat && form.origin_lng) places.push({
+      user_id: userId, item_type:'wine', item_id:newWine.id, kind:'origin',
+      place_name: form.origin_place_name || null,
+      lat: Number(form.origin_lat), lng: Number(form.origin_lng), is_primary:true
+    });
+    if (form.purchase_lat && form.purchase_lng) places.push({
+      user_id: userId, item_type:'wine', item_id:newWine.id, kind:'purchase',
+      place_name: form.purchase_place_name || null,
+      lat: Number(form.purchase_lat), lng: Number(form.purchase_lng), is_primary:true
+    });
+    if (places.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(places);
+      if (e2) alert('Errore luogo: ' + e2.message);
+    }
+
+    if (form.addToCellar) {
+      const bottles = form.bottles ? Number(form.bottles) : 1;
+      const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
+      const { error:e3 } = await supabase.from('cellar').insert([{ user_id: userId, wine_id: newWine.id, bottles, purchase_price_eur: price }]);
+      if (e3) alert('Errore cantina: ' + e3.message);
+    }
+
+    onInserted?.();
+    ref?.current?.reset?.();
+  }, [form, userId, onInserted, ref]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi Vino (Wishlist)</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <input placeholder="Nome" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} style={inp}/>
+        <input placeholder="Cantina" value={form.winery} onChange={e=>setForm({...form, winery:e.target.value})} style={inp}/>
+        <input placeholder="Denominazione (DOCG/DOC/IGT)" value={form.denomination} onChange={e=>setForm({...form, denomination:e.target.value})} style={inp}/>
+        <input placeholder="Regione" value={form.region} onChange={e=>setForm({...form, region:e.target.value})} style={inp}/>
+        <input placeholder="Vitigni (comma)" value={form.grapes} onChange={e=>setForm({...form, grapes:e.target.value})} style={inp}/>
+        <input placeholder="Annata" value={form.vintage} onChange={e=>setForm({...form, vintage:e.target.value})} style={inp}/>
+        <select value={form.style} onChange={e=>setForm({...form, style:e.target.value})} style={inp}>
+          <option value="rosso">Rosso</option><option value="bianco">Bianco</option><option value="rosé">Rosé</option><option value="frizzante">Frizzante</option><option value="fortificato">Fortificato</option>
+        </select>
+        <input placeholder="Budget (€)" value={form.price_target} onChange={e=>setForm({...form, price_target:e.target.value})} style={inp}/>
+        <input placeholder="Origine - luogo (opz.)" value={form.origin_place_name} onChange={e=>setForm({...form, origin_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lat (opz.)" value={form.origin_lat} onChange={e=>setForm({...form, origin_lat:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lng (opz.)" value={form.origin_lng} onChange={e=>setForm({...form, origin_lng:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - luogo (opz.)" value={form.purchase_place_name} onChange={e=>setForm({...form, purchase_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lat (opz.)" value={form.purchase_lat} onChange={e=>setForm({...form, purchase_lat:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lng (opz.)" value={form.purchase_lng} onChange={e=>setForm({...form, purchase_lng:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10, display:'flex', gap:12, alignItems:'center' }}>
+        <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <input type="checkbox" checked={form.addToCellar} onChange={e=>setForm({...form, addToCellar:e.target.checked})}/>
+          <span>Aggiungi anche in Cantina</span>
+        </label>
+        {form.addToCellar && (
+          <>
+            <input placeholder="Bottiglie" value={form.bottles} onChange={e=>setForm({...form, bottles:e.target.value})} style={inp}/>
+            <input placeholder="Prezzo acquisto (€)" value={form.purchase_price_eur} onChange={e=>setForm({...form, purchase_price_eur:e.target.value})} style={inp}/>
+          </>
+        )}
+      </div>
+      <div style={{ marginTop:10, display:'flex', gap:8 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
+
+/* ===================== FORM: ARTISAN ===================== */
+const AddArtisanForm = React.forwardRef(function AddArtisanForm({ userId, onInserted }, ref) {
+  const [form, setForm] = useState({
+    name:'', category:'formaggio', designation:'', price_eur:'', notes:'',
+    origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:''
+  });
+
+  React.useImperativeHandle(ref, () => ({
+    reset(){ setForm({
+      name:'', category:'formaggio', designation:'', price_eur:'', notes:'',
+      origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:''
+    }); }
+  }), []);
+
+  const handleInsert = useCallback( async () => {
+    if (!userId) return alert('Sessione assente.');
+    const { data, error } = await supabase.from('artisan_products').insert([{
+      user_id: userId,
+      name: form.name.trim(),
+      category: form.category,
+      designation: form.designation || null,
+      price_eur: form.price_eur ? Number(form.price_eur) : null,
+      notes: form.notes || null
+    }]).select().single();
+    if (error) return alert('Errore prodotto: ' + error.message);
+
+    const rows = [];
+    if (form.origin_lat && form.origin_lng) rows.push({ user_id:userId, item_type:'artisan', item_id:data.id, kind:'origin',   place_name:form.origin_place_name||null,   lat:Number(form.origin_lat),   lng:Number(form.origin_lng),   is_primary:true });
+    if (form.purchase_lat && form.purchase_lng) rows.push({ user_id:userId, item_type:'artisan', item_id:data.id, kind:'purchase', place_name:form.purchase_place_name||null, lat:Number(form.purchase_lat), lng:Number(form.purchase_lng), is_primary:true });
+    if (rows.length) {
+      const { error:e2 } = await supabase.from('product_places').insert(rows);
+      if (e2) alert('Errore luogo: '+e2.message);
+    }
+    onInserted?.();
+    ref?.current?.reset?.();
+  }, [form, onInserted, ref, userId]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi Formaggio/Salume</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <input placeholder="Nome" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} style={inp}/>
+        <select value={form.category} onChange={e=>setForm({...form, category:e.target.value})} style={inp}>
+          <option value="formaggio">Formaggio</option><option value="salume">Salume</option>
+        </select>
+        <input placeholder="Designazione (DOP/IGP…)" value={form.designation} onChange={e=>setForm({...form, designation:e.target.value})} style={inp}/>
+        <input placeholder="Prezzo (€ o €/kg)" value={form.price_eur} onChange={e=>setForm({...form, price_eur:e.target.value})} style={inp}/>
+        <input placeholder="Note" value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})} style={inp}/>
+        <input placeholder="Origine - luogo (opz.)" value={form.origin_place_name} onChange={e=>setForm({...form, origin_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lat (opz.)" value={form.origin_lat} onChange={e=>setForm({...form, origin_lat:e.target.value})} style={inp}/>
+        <input placeholder="Origine - lng (opz.)" value={form.origin_lng} onChange={e=>setForm({...form, origin_lng:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - luogo (opz.)" value={form.purchase_place_name} onChange={e=>setForm({...form, purchase_place_name:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lat (opz.)" value={form.purchase_lat} onChange={e=>setForm({...form, purchase_lat:e.target.value})} style={inp}/>
+        <input placeholder="Acquisto/Consumo - lng (opz.)" value={form.purchase_lng} onChange={e=>setForm({...form, purchase_lng:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10, display:'flex', gap:8 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
+
+/* ===================== FORM: CANTINA ===================== */
+const AddCellarForm = React.forwardRef(function AddCellarForm({ userId, wines, onInserted }, ref) {
+  const [form, setForm] = useState({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' });
+  React.useImperativeHandle(ref, () => ({ reset(){ setForm({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' }); } }), []);
+  const handleInsert = useCallback(async ()=>{
+    if (!userId) return alert('Sessione assente.');
+    if (!form.wine_id) return alert('Seleziona un vino');
+    const bottles = form.bottles ? Number(form.bottles) : 1;
+    const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
+    const pair    = form.pairings ? form.pairings.split(',').map(s=>s.trim()).filter(Boolean) : null;
+    const { error } = await supabase.from('cellar').insert([{ user_id: userId, wine_id: form.wine_id, bottles, purchase_price_eur: price, pairings: pair }]);
+    if (error) return alert('Errore: '+error.message);
+    onInserted?.();
+    ref?.current?.reset?.();
+  }, [form, onInserted, ref, userId]);
+
+  return (
+    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
+      <h3 style={{ margin:'0 0 8px' }}>Aggiungi in Cantina</h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
+        <select value={form.wine_id} onChange={e=>setForm({...form, wine_id:e.target.value})} style={inp}>
+          <option value="">Seleziona vino…</option>
+          {wines.map(w => <option key={w.id} value={w.id}>{w.name}{w.winery?` - ${w.winery}`:''}</option>)}
+        </select>
+        <input placeholder="Bottiglie" value={form.bottles} onChange={e=>setForm({...form, bottles:e.target.value})} style={inp}/>
+        <input placeholder="Prezzo acquisto (€)" value={form.purchase_price_eur} onChange={e=>setForm({...form, purchase_price_eur:e.target.value})} style={inp}/>
+        <input placeholder="Abbinamenti (comma)" value={form.pairings} onChange={e=>setForm({...form, pairings:e.target.value})} style={inp}/>
+      </div>
+      <div style={{ marginTop:10 }}>
+        <button onClick={handleInsert} style={btn(true)}>Salva</button>
+      </div>
+    </section>
+  );
+});
+
 /* ===================== Pagina ===================== */
 function ProdottiTipiciViniPage() {
   const [tab, setTab] = useState('wines'); // 'artisan' | 'wines' | 'cellar'
@@ -65,8 +346,6 @@ function ProdottiTipiciViniPage() {
   const [showAddArtisan, setShowAddArtisan] = useState(false);
   const [showAddWine, setShowAddWine]       = useState(false);
   const [showAddCellar, setShowAddCellar]   = useState(false);
-  const [showPlacesArtisan, setShowPlacesArtisan] = useState(false);
-  const [showPlacesWine, setShowPlacesWine]       = useState(false);
 
   // MAP
   const [mapCenter, setMapCenter] = useState([12.5, 42.5]); // [lng, lat]
@@ -141,8 +420,6 @@ function ProdottiTipiciViniPage() {
       return hit;
     }
   }
-
-  /* ---------------- Insert helpers con user_id ---------------- */
   async function addPlaceFor(itemType, itemId, kind) {
     if (!userId) return alert('Sessione assente');
     const p = await getCurrentPlaceOrAsk(kind==='purchase'?'dove l’hai acquistato/consumato':'origine');
@@ -321,7 +598,7 @@ function ProdottiTipiciViniPage() {
         <button onClick={()=>setTab('cellar')}  style={btn(tab==='cellar')}>Cantina</button>
       </div>
 
-      {/* SOMMELIER (globale, sempre visibile) */}
+      {/* SOMMELIER (globale) */}
       <div style={{ display:'flex', gap:8, alignItems:'center', margin:'0 0 14px', flexWrap:'wrap' }}>
         <input
           value={q}
@@ -371,13 +648,11 @@ function ProdottiTipiciViniPage() {
                   <TCell>{row.designation || '—'}</TCell>
                   <TCell right>{row.price_eur!=null ? `€ ${Number(row.price_eur).toFixed(2)}` : '—'}</TCell>
                   <TCell>
-                    {/* Desktop buttons */}
                     <div className="actions-desktop" style={{display:'none',gap:6,flexWrap:'wrap'}}>
                       <button style={btn(false)} onClick={()=>addPlaceFor('artisan',row.id,'purchase')}>Dove l’ho mangiato</button>
                       <button style={btn(false)} onClick={()=>openOnMapForItem('artisan',row.id,'origin')}>Mappa Origine</button>
                       <button style={btn(false)} onClick={()=>openOnMapForItem('artisan',row.id,'purchase')}>Mappa Acquisto</button>
                     </div>
-                    {/* Mobile select */}
                     <div className="actions-mobile">
                       <ActionsMobile
                         options={[
@@ -487,7 +762,7 @@ function ProdottiTipiciViniPage() {
             onVoice={()=> voiceToData('wine')}
             showAdd={showAddCellar}
           />
-          {showAddCellar && <AddCellarForm userId={userId} wines={wines} onInserted={refreshAll} />}
+          {showAddCellar && <AddCellarForm userId={userId} onInserted={refreshAll} wines={wines} />}
 
           <Table>
             <thead>
@@ -551,90 +826,6 @@ function ProdottiTipiciViniPage() {
         }
       `}</style>
     </>
-  );
-}
-
-/* ===== Toolbar sezione (Manuale / OCR / Vocale) ===== */
-function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
-  return (
-    <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
-      <span style={{ color:'#cdeafe', fontWeight:700 }}>{label}</span>
-      <button onClick={onAddManual} style={btn(true)}>{showAdd ? 'Chiudi' : 'Aggiungi manuale'}</button>
-      <button onClick={onOcr} style={btn(false)}>OCR (foto)</button>
-      <button onClick={onVoice} style={btn(false)}>Vocale</button>
-    </div>
-  );
-}
-
-/* ===== Drawer Sommelier ===== */
-function SommelierDrawer({ data, onClose }) {
-  const recs = data?.recommendations || [];
-  return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', justifyContent:'flex-end', zIndex:50 }}>
-      <div style={{ width:'min(520px,96vw)', height:'100%', background:'#0b0f14', borderLeft:'1px solid #1f2a38', padding:16, overflowY:'auto' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-          <h3 style={{ margin:0 }}>Sommelier – risultati</h3>
-          <button onClick={onClose} style={btn(false)}>Chiudi</button>
-        </div>
-        {recs.length === 0 && <p style={{ opacity:0.8 }}>{data?.notes || 'Nessun risultato.'}</p>}
-        {recs.map((r,i)=>(
-          <div key={i} style={{ border:'1px solid #1f2a38', borderRadius:12, padding:12, marginBottom:10 }}>
-            <div style={{ fontWeight:700 }}>{r.name} {r.vintage_suggestion?.length ? `(${r.vintage_suggestion.join(', ')})` : ''}</div>
-            <div style={{ opacity:0.85 }}>{r.winery || '—'} • {r.denomination || '—'} • {r.region || '—'}</div>
-            <div style={{ marginTop:6 }}>{r.why}</div>
-            <div style={{ marginTop:6, display:'flex', gap:8, flexWrap:'wrap' }}>
-              {(r.links || []).map((l,idx)=>(<a key={idx} href={l.url} target="_blank" rel="noreferrer" style={btn(false)}>{l.title || 'Link'}</a>))}
-              {r.typical_price_eur != null && <span style={{ alignSelf:'center', opacity:0.9 }}>~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
-            </div>
-          </div>
-        ))}
-        {data?.notes && recs.length>0 && <p style={{ opacity:0.8, marginTop:12 }}>{data.notes}</p>}
-      </div>
-    </div>
-  );
-}
-
-/* ===== Live QR Scanner (best-effort) ===== */
-function LiveQrScanner({ onClose, onResult }) {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const loopRef = useRef(null);
-
-  useEffect(() => {
-    let stream;
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); startLoop(); }
-      } catch (e) { alert('Fotocamera non disponibile'); onClose?.(); }
-    })();
-    return () => { stopLoop(); try { stream?.getTracks?.().forEach(t=>t.stop()); } catch {} };
-  }, [onClose]);
-
-  function startLoop(){ loopRef.current=setInterval(scan, 350); }
-  function stopLoop(){ if(loopRef.current) clearInterval(loopRef.current); loopRef.current=null; }
-
-  async function scan(){
-    const jsQR = (await import('jsqr')).default;
-    const v=videoRef.current, c=canvasRef.current; if(!v||!c||v.readyState<2) return;
-    const w=v.videoWidth,h=v.videoHeight; c.width=w; c.height=h;
-    const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,w,h);
-    const img=ctx.getImageData(0,0,w,h); const code=jsQR(img.data,img.width,img.height);
-    if(code&&code.data){ stopLoop(); onResult?.(code.data); }
-  }
-
-  return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:60 }}>
-      <div style={{ width:'min(520px,96vw)', background:'#0b0f14', border:'1px solid #1f2a38', borderRadius:16, padding:12 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-          <h3 style={{ margin:0 }}>Scanner QR</h3>
-          <button onClick={onClose} style={btn(false)}>Chiudi</button>
-        </div>
-        <video ref={videoRef} muted playsInline style={{ width:'100%', borderRadius:12, background:'#000' }} />
-        <canvas ref={canvasRef} style={{ display:'none' }} />
-        <p style={{ opacity:.8, marginTop:8 }}>Inquadra il QR del menù. Se leggibile, apro il Sommelier sulla pagina collegata.</p>
-      </div>
-    </div>
   );
 }
 
