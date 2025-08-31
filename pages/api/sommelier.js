@@ -95,6 +95,46 @@ function bandKeyFromPrice(bands, price) {
   return 'premium';
 }
 
+/* ===================== Color helpers ===================== */
+function normColor(v) {
+  const x = String(v || '').toLowerCase();
+  if (x.startsWith('rosat')) return 'rosato';
+  if (x.startsWith('bianc') || x === 'blanc' || x === 'white') return 'bianco';
+  if (x.startsWith('ross') || x === 'rouge' || x === 'red' || x === 'tinto') return 'rosso';
+  return null;
+}
+
+const RED_GRAPES = [
+  'nebbiolo','sangiovese','barbera','merlot','cabernet','cabernet sauvignon','cabernet franc',
+  'aglianico','primitivo','negroamaro','nero d\'avola','syrah','pinot nero','montepulciano',
+  'frappato','teroldego','refosco','lagrein','schiava','pignolo','sagrantino','corvina','molinara','rondinella'
+];
+const WHITE_GRAPES = [
+  'chardonnay','sauvignon','sauvignon blanc','riesling','vermentino','fiano','greco','garganega',
+  'trebbiano','malvasia','moscato','gewürztraminer','traminer','pinot grigio','pinot bianco',
+  'carricante','inzolia','catarratto','pecorino','passerina','cortese','falanghina','timorasso'
+];
+
+function detectColorFromText(name, denomOrGrape, notes='') {
+  const T = `${name} ${denomOrGrape} ${notes}`.toLowerCase();
+
+  // token espliciti
+  if (/\b(rosé|rosato)\b/.test(T)) return 'rosato';
+  if (/\b(bianco|blanc|white|weiß|weiss)\b/.test(T)) return 'bianco';
+  if (/\b(rosso|rouge|red|tinto)\b/.test(T)) return 'rosso';
+
+  // vitigni
+  const g = denomOrGrape.toLowerCase();
+  for (const w of RED_GRAPES)   if (g.includes(w)) return 'rosso';
+  for (const w of WHITE_GRAPES) if (g.includes(w)) return 'bianco';
+
+  // denominazioni tipicamente rosse o bianche (quick heuristics)
+  if (/\bbarolo|barbaresco|brunello|chianti|amarone|taurasi|rosso\b/.test(T)) return 'rosso';
+  if (/\bsoave|gavi|verdicchio|fiano|greco|lugana|frascati|vernaccia|bianco\b/.test(T)) return 'bianco';
+
+  return 'unknown';
+}
+
 /* ===================== Drawer adapter ===================== */
 function toDrawerRec(sugg, bandKey) {
   const bandMap = { daily: 'low', target: 'med', occasion: 'high', premium: 'high' };
@@ -109,13 +149,12 @@ function toDrawerRec(sugg, bandKey) {
     out_of_budget: false,
     links: sugg.links || [],
     vintage_suggestion: sugg.vintage ? [String(sugg.vintage)] : [],
-    similar_to: sugg.similar_to || []   // <-- nuovo campo
+    similar_to: sugg.similar_to || []
   };
 }
 
 function ensureMinPerBand(groups, min = 3) {
   const keys = Object.keys(groups);
-  // prova a bilanciare spostando dagli altri gruppi con surplus
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
     if ((groups[k] || []).length >= min) continue;
@@ -150,7 +189,6 @@ async function fetchUserTaste(userId) {
   return { wines: tasted, places: places || [] };
 }
 
-/* Similarità dettagliata per "similar_to" */
 function computeSimilarTo(sugg, tasteWines, topN = 3) {
   const nm = s => String(s || '').toLowerCase();
   const out = [];
@@ -159,23 +197,14 @@ function computeSimilarTo(sugg, tasteWines, topN = 3) {
     const reasons = [];
     let score = 0;
 
-    // rating come peso
     const weight = (Number(t.rating_5) || 0) / 5; // 0..1
     score += weight * 0.5;
 
-    // regione/area
     if (nm(t.region) && nm(sugg.area).includes(nm(t.region))) {
       reasons.push('regione simile');
       score += 0.7;
     }
 
-    // cantina (grezzo: match nel nome)
-    if (nm(t.name) && nm(sugg.name).includes(nm(t.name.split(' ')[0]))) {
-      reasons.push('cantina menzionata');
-      score += 0.4;
-    }
-
-    // vitigni vs denom/grape string
     const list = nm(sugg.denomOrGrape);
     let grapeHit = 0;
     for (const g of (t.grapes || []).map(nm)) {
@@ -186,16 +215,14 @@ function computeSimilarTo(sugg, tasteWines, topN = 3) {
       score += 0.6 * grapeHit;
     }
 
-    // stile (“rosso/bianco/rosato”, ecc.) cercato nelle note
     if (t.style && (sugg.notes || []).join(' ').toLowerCase().includes(nm(t.style))) {
       reasons.push('stile affine');
       score += 0.3;
     }
 
-    // prezzo vicino
     if (t.price_target != null && sugg.typical_price_eur != null) {
       const diff = Math.abs(Number(t.price_target) - Number(sugg.typical_price_eur));
-      const closeness = Math.max(0, 1 - diff / 50); // ±50€ → 0
+      const closeness = Math.max(0, 1 - diff / 50);
       if (closeness > 0.2) {
         reasons.push('fascia prezzo vicina');
         score += 0.25 * closeness;
@@ -226,17 +253,18 @@ Rispondi SOLO JSON valido.`;
 
 const SYS_PARSE_WINE_LIST = `
 Sei un parser di carte vini. Estrai un array nel formato:
-[{ "name":"", "denomOrGrape":"", "vintage":"", "area":"", "notes":[], "whyMatch":"", "priceBand":"" }]
-- "priceBand": una stringa tipo "25–40 € (enoteca)" o "≤25 €".
-- "notes": 3–5 descrittori sintetici.
-Rispondi SOLO JSON. Se serve, racchiudi l'array in {"items":[...]}.
-`;
+[{ "name":"", "denomOrGrape":"", "vintage":"", "area":"", "notes":[], "whyMatch":"", "priceBand":"", "color":"rosso|bianco|rosato|unknown" }]
+- "color": DEDUCI il colore se possibile (parole chiave, vitigni, denominazione). Se incerto metti "unknown".
+- "priceBand": es. "25–40 € (enoteca)" o "≤25 €".
+- "notes": 3–5 descrittori.
+Rispondi SOLO JSON. Se serve, racchiudi l'array in {"items":[...]}.`;
 
 const SYS_WEB_SUMMARIZE = `
-Sei un sommelier. Dati frammenti web su un vino, sintetizza:
-{ "name":"", "denomOrGrape":"", "vintage":"", "area":"", "notes":[], "whyMatch":"", "priceBand":"~XX €" }.
+Sei un sommelier. Dati frammenti web su un vino, sintetizza un oggetto:
+{ "name":"", "denomOrGrape":"", "vintage":"", "area":"", "notes":[], "whyMatch":"", "priceBand":"~XX €", "color":"rosso|bianco|rosato|unknown" }.
 Rispondi SOLO JSON valido.`;
 
+/* ===================== LLM wrappers ===================== */
 async function llmJSON(system, userText, fallback) {
   if (!openai) return fallback;
   const resp = await openai.chat.completions.create({
@@ -298,18 +326,23 @@ async function buildSommelierRequest(queryText) {
 /* ===================== Candidate da carta (OCR/QR) ===================== */
 async function parseWineListFromText(listText) {
   const arr = await llmJSONArray(SYS_PARSE_WINE_LIST, cleanText(listText), []);
-  return arr.map(x => ({
-    name: x.name || '',
-    denomOrGrape: x.denomOrGrape || '',
-    vintage: x.vintage || '',
-    area: x.area || '',
-    notes: Array.isArray(x.notes) ? x.notes.slice(0,5) : [],
-    whyMatch: x.whyMatch || '',
-    priceBand: x.priceBand || '',
-    typical_price_eur: pickPrice(x.priceBand),
-    links: [],
-    source: 'list',
-  })).filter(x => x.name);
+  return arr.map(x => {
+    const colorFromLLM = normColor(x.color);
+    const color = colorFromLLM || detectColorFromText(x.name || '', x.denomOrGrape || '', (x.notes || []).join(' '));
+    return {
+      name: x.name || '',
+      denomOrGrape: x.denomOrGrape || '',
+      vintage: x.vintage || '',
+      area: x.area || '',
+      notes: Array.isArray(x.notes) ? x.notes.slice(0,5) : [],
+      whyMatch: x.whyMatch || '',
+      priceBand: x.priceBand || '',
+      typical_price_eur: pickPrice(x.priceBand),
+      color: color || 'unknown',
+      links: [],
+      source: 'list',
+    };
+  }).filter(x => x.name);
 }
 
 /* ===================== Candidate dal web (usato SOLO se non c'è carta) ===================== */
@@ -326,6 +359,7 @@ async function expandCandidatesFromWeb(req) {
   for (const h of hits) {
     const j = await llmJSON(SYS_WEB_SUMMARIZE, `${h.title}\n${h.snippet}\n${h.link}`, null);
     if (!j) continue;
+    const colorFromLLM = normColor(j.color);
     out.push({
       name: j.name || h.title,
       denomOrGrape: j.denomOrGrape || '',
@@ -335,6 +369,7 @@ async function expandCandidatesFromWeb(req) {
       whyMatch: j.whyMatch || '',
       priceBand: j.priceBand || '',
       typical_price_eur: pickPrice(j.priceBand),
+      color: colorFromLLM || detectColorFromText(j.name||h.title, j.denomOrGrape||'', (j.notes||[]).join(' ')),
       links: [{ title: 'Fonte', url: h.link }],
       source: 'web',
     });
@@ -342,38 +377,49 @@ async function expandCandidatesFromWeb(req) {
   return out;
 }
 
-/* ===================== Filtra e ranking ===================== */
-function filterByReq(candidates, req) {
+/* ===================== Filtro forte sul colore ===================== */
+function filterByReq_strictColor(candidates, req) {
   const must  = (req.must || []).map(s => s.toLowerCase());
   const avoid = (req.avoid || []).map(s => s.toLowerCase());
   const mood  = req.mood || 'rosso';
 
   return candidates.filter(c => {
+    // colore: se l'utente ha scelto rosso/bianco/rosato, accettiamo SOLO match esatto;
+    // gli "unknown" verranno considerati solo in fallback se i risultati sono pochi.
+    if (mood !== 'mix') {
+      if ((c.color || 'unknown') !== mood) return false;
+    }
+
     const T = `${c.name} ${c.denomOrGrape} ${c.area} ${(c.notes || []).join(' ')}`.toLowerCase();
     if (must.length && !must.every(m => T.includes(m))) return false;
     if (avoid.length && avoid.some(a => T.includes(a))) return false;
-    if (mood === 'bianco' && /rosso|rouge|tinto/.test(T)) return false;
-    if (mood === 'rosato' && !/(rosato|rosé)/.test(T)) return false;
-    if (mood === 'rosso' && /(bianco|white|blanc|rosé|rosato)/.test(T)) return false;
     return true;
   });
 }
 
+/* fallback: se troppo pochi, includi anche "unknown" ma MAI l'opposto esplicito */
+function widenWithUnknownIfFew(candidates, req, minGlobal = 6) {
+  if (req.mood === 'mix') return candidates; // nessun vincolo
+  const strict = candidates.filter(c => (c.color || 'unknown') === req.mood);
+  if (strict.length >= minGlobal) return strict;
+
+  // aggiungi solo gli unknown
+  const unknowns = candidates.filter(c => (c.color || 'unknown') === 'unknown');
+  return [...strict, ...unknowns];
+}
+
+/* ===================== Ranking & grouping ===================== */
 function scoreAndGroup(candidates, req, taste) {
   const bands = bandsFor(req);
   const cap = capFor(req);
 
   for (const c of candidates) {
-    // similarità dettagliata
     const similar = computeSimilarTo(c, taste.wines || [], 3);
-    c.similar_to = similar; // arr di { wine_id, name, rating_5, reasons[], score }
+    c.similar_to = similar;
 
-    // punteggio
     let base = 0;
-    if (similar.length) {
-      base += similar.reduce((s, it) => s + it.score, 0); // somma dei top3
-    }
-    // budget proximity
+    if (similar.length) base += similar.reduce((s, it) => s + it.score, 0);
+
     const p = c.typical_price_eur;
     if (p != null) {
       const target = bands.find(b => b.key === 'target')?.max || cap * 0.5;
@@ -395,10 +441,9 @@ function scoreAndGroup(candidates, req, taste) {
 }
 
 /* ===================== Risposta finale ===================== */
-function buildResponse(req, bands, groups, source) {
+function toShortlist(groups) {
   const order = ['daily','target','occasion','premium'];
   const shortlist = [];
-
   for (const k of order) {
     for (const c of groups[k]) {
       shortlist.push({
@@ -411,29 +456,33 @@ function buildResponse(req, bands, groups, source) {
         priceBand: c.priceBand || (c.typical_price_eur != null ? `~ ${c.typical_price_eur} €` : ''),
         service: undefined,
         alt: undefined,
-        similar_to: c.similar_to || []   // <-- nuovo
+        similar_to: c.similar_to || []
       });
     }
   }
+  return shortlist;
+}
 
-  // compat drawer UI
-  const recommendations = [];
+function toDrawer(groups) {
+  const order = ['daily','target','occasion','premium'];
+  const out = [];
   for (const k of order) {
-    for (const c of groups[k]) {
-      recommendations.push(toDrawerRec(c, k));
-    }
+    for (const c of groups[k]) out.push(toDrawerRec(c, k));
   }
+  return out;
+}
 
+function buildResponse(req, groups, source) {
   return {
     sommelier: {
       timestamp: nowISO(),
       request: req,
-      shortlist,
+      shortlist: toShortlist(groups),
       rationale: `Selezione basata su ${source === 'list' ? 'carta del locale' : (source === 'web' ? 'fonti web' : 'regole interne')} e gusti personali.`,
     },
     source,
     budget_filter: { min: 0, max: capFor(req) },
-    recommendations,
+    recommendations: toDrawer(groups),
     notes: source === 'list'
       ? 'Suggerimenti tratti dalla lista fornita (OCR/QR).'
       : source === 'web'
@@ -450,10 +499,10 @@ export default async function handler(req, res) {
     const { query = '', wineLists = [], qrLinks = [], userId } = req.body || {};
     const requestObj = await buildSommelierRequest(query);
 
-    // 1) Raccogli testi di carta (OCR + QR). Nota: NON farò backfill dal web se c'è carta.
+    // 1) Carta (OCR/QR) — se c'è, NON cerchiamo sul web
     const listTexts = [...(wineLists || [])];
 
-    // 2) Estrai candidate
+    // 2) Candidati
     let candidates = [];
     if (listTexts.length) {
       for (const t of listTexts) {
@@ -461,36 +510,46 @@ export default async function handler(req, res) {
         candidates.push(...arr);
       }
     } else {
-      // Nessuna carta → posso usare il web se configurato
       const arr = await expandCandidatesFromWeb(requestObj);
       candidates.push(...arr);
       if (!arr.length && (!GOOGLE_API_KEY || !GOOGLE_CX)) {
-        // fallback “offline” minimo se proprio non c'è nulla
         candidates = [
-          { name:'Barbera d’Asti', denomOrGrape:'Barbera', vintage:'2021', area:'Piemonte', notes:['fruttato','acidità viva'], priceBand:'12–18 €', typical_price_eur:15, links:[], source:'offline' },
-          { name:'Verdicchio dei Castelli di Jesi', denomOrGrape:'Verdicchio', vintage:'2022', area:'Marche', notes:['agrumi','mandorla'], priceBand:'10–16 €', typical_price_eur:13, links:[], source:'offline' },
-          { name:'Etna Rosso', denomOrGrape:'Nerello Mascalese', vintage:'2020', area:'Etna', notes:['minerale','speziato leggero'], priceBand:'18–30 €', typical_price_eur:24, links:[], source:'offline' },
+          { name:'Barbera d’Asti', denomOrGrape:'Barbera', vintage:'2021', area:'Piemonte', notes:['fruttato','acidità viva'], priceBand:'12–18 €', typical_price_eur:15, color:'rosso', links:[], source:'offline' },
+          { name:'Verdicchio dei Castelli di Jesi', denomOrGrape:'Verdicchio', vintage:'2022', area:'Marche', notes:['agrumi','mandorla'], priceBand:'10–16 €', typical_price_eur:13, color:'bianco', links:[], source:'offline' },
+          { name:'Etna Rosso', denomOrGrape:'Nerello Mascalese', vintage:'2020', area:'Etna', notes:['minerale','speziato leggero'], priceBand:'18–30 €', typical_price_eur:24, color:'rosso', links:[], source:'offline' },
         ];
       }
     }
 
-    // 3) Personalizzazione gusti in base ai “bevuti” + rating
-    const taste = await fetchUserTaste(userId);
-
-    // 4) Filtra secondo richiesta, rank, gruppi
-    const filtered = filterByReq(candidates, requestObj);
-    const { bands, groups } = scoreAndGroup(filtered, requestObj, taste);
-
-    // 5) Assicurare almeno 3 per fascia prezzo (solo bilanciamento interno, niente web se c'è carta)
-    const needPerBand = 3;
-    const totalAvail = filtered.length;
-    if (totalAvail >= needPerBand) {
-      ensureMinPerBand(groups, needPerBand);
+    // 3) Colore fallback (se qualche candidato è ancora senza color)
+    for (const c of candidates) {
+      if (!c.color || c.color === 'unknown') {
+        c.color = detectColorFromText(c.name || '', c.denomOrGrape || '', (c.notes || []).join(' '));
+      }
     }
 
-    // 6) Build response
+    // 4) Personalizzazione con “bevuti”
+    const taste = await fetchUserTaste(userId);
+
+    // 5) Filtro forte sul colore, poi eventuale allargamento con "unknown"
+    let filtered = filterByReq_strictColor(candidates, requestObj);
+    if (filtered.length < 6) {
+      filtered = widenWithUnknownIfFew(candidates, requestObj, 6);
+      // rimuovi esplicitamente possibili "opposti" (in caso di dati sporchi)
+      if (requestObj.mood !== 'mix') {
+        filtered = filtered.filter(c => c.color === requestObj.mood || c.color === 'unknown');
+      }
+    }
+
+    // 6) Rank e gruppi
+    const { groups } = scoreAndGroup(filtered, requestObj, taste);
+
+    // 7) Minimo 3 per banda, senza pescare dal web se c'è carta
+    const totalAvail = filtered.length;
+    if (totalAvail >= 3) ensureMinPerBand(groups, 3);
+
     const source = listTexts.length ? 'list' : (GOOGLE_API_KEY && GOOGLE_CX ? 'web' : 'offline');
-    const payload = buildResponse(requestObj, bands, groups, source);
+    const payload = buildResponse(requestObj, groups, source);
 
     return res.status(200).json(payload);
   } catch (e) {
