@@ -1,7 +1,7 @@
 // pages/api/sommelier.js
-// Sommelier API v1.2 — prompt-first su carta (OCR/QR); web-search Google CSE; fallback sicuri.
+// Sommelier API v1.3 — prompt-first su carta (OCR/QR); web-search Google CSE; fallback sicuri.
 
-const UA = 'JarvisSommelier/1.2 (+https://jarvis-gq14.vercel.app)';
+const UA = 'JarvisSommelier/1.3 (+https://jarvis-gq14.vercel.app)';
 const DEFAULT_REFERER = process.env.GOOGLE_REFERER || 'https://jarvis-gq14.vercel.app';
 
 /* ---------------- Taste & Price parsing ---------------- */
@@ -132,6 +132,44 @@ function scoreWine(w, pref) {
 }
 
 /* ---------------- Web search providers ---------------- */
+async function searchGoogleCSE(q) {
+  // accetta anche varianti NEXT_PUBLIC_* per comodità
+  const key =
+    process.env.GOOGLE_API_KEY ||
+    process.env.API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_API_KEY ||
+    process.env.NEXT_PUBLIC_API_KEY;
+
+  const cx =
+    process.env.GOOGLE_CSE_ID ||
+    process.env.CSE_ID ||
+    process.env.NEXT_PUBLIC_GOOGLE_CSE_ID ||
+    process.env.NEXT_PUBLIC_CSE_ID;
+
+  if (!key || !cx) {
+    const miss = [];
+    if (!key) miss.push('GOOGLE_API_KEY/API_KEY');
+    if (!cx)  miss.push('GOOGLE_CSE_ID/CSE_ID');
+    const err = `google_cse_missing_env: manca ${miss.join(' e ')}`;
+    throw new Error(err);
+  }
+
+  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(q)}`;
+  const r = await fetch(url, { headers:{ 'User-Agent': UA, 'Referer': DEFAULT_REFERER }});
+  const body = await r.text();
+
+  let j = {};
+  try { j = JSON.parse(body); } catch {} // in errore a volte Google torna HTML
+
+  if (!r.ok || j.error) {
+    const msg = j?.error?.message || `HTTP ${r.status}`;
+    throw new Error(`google_cse_error: ${msg}`);
+  }
+
+  const items = Array.isArray(j.items) ? j.items : [];
+  return items.map(it => ({ name: it.title, url: it.link, typical_price_eur: null, source: 'google' }));
+}
+
 async function searchSerpApi(q) {
   const key = process.env.SERPAPI_API_KEY;
   if (!key) return [];
@@ -152,6 +190,7 @@ async function searchSerpApi(q) {
   }
   return out;
 }
+
 async function searchBing(q) {
   const key = process.env.BING_SEARCH_API_KEY;
   if (!key) return [];
@@ -162,21 +201,6 @@ async function searchBing(q) {
   if (j?.webPages?.value) {
     for (const v of j.webPages.value.slice(0,8)) {
       out.push({ name: v.name, url: v.url, typical_price_eur: null, source:'bing' });
-    }
-  }
-  return out;
-}
-async function searchGoogleCSE(q) {
-  const key = process.env.GOOGLE_API_KEY || process.env.API_KEY;   // consente API_KEY
-  const cx  = process.env.GOOGLE_CSE_ID || process.env.CSE_ID;     // CSE ID obbligatorio
-  if (!key || !cx) return [];
-  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(q)}`;
-  const r = await fetch(url, { headers:{ 'User-Agent': UA, 'Referer': DEFAULT_REFERER }});
-  const j = await r.json().catch(()=> ({}));
-  const out = [];
-  if (Array.isArray(j.items)) {
-    for (const it of j.items.slice(0,8)) {
-      out.push({ name: it.title, url: it.link, typical_price_eur: null, source:'google' });
     }
   }
   return out;
@@ -236,7 +260,7 @@ export default async function handler(req, res) {
 
     const { query = '', wineList = '', wineLists = [], qrLinks = [], tasteHints = {} } = req.body || {};
 
-    // preferenze dal prompt (più eventuale tasteHints dal client)
+    // preferenze dal prompt
     const pref = extractTasteHints(query, tasteHints);
 
     // 1) Aggrega carta da OCR (array + singolo), più pagine dei QR
@@ -326,19 +350,35 @@ export default async function handler(req, res) {
             : 'Scelte basate sulla carta del locale (3 fasce di prezzo).'
         });
       }
-      // se non ho riconosciuto righe utili, si andrà a web search sotto
+      // se non riconosco righe utili, proseguo con web search
     }
 
     // ---------------- Ricerca web ----------------
     const qWeb = buildWebQuery(query, pref);
     let web = [];
+    const providerNotes = [];
 
     // Google CSE (prioritario)
-    const googleResults = await searchGoogleCSE(qWeb);
-    if (googleResults.length) web = googleResults;
+    try {
+      const googleResults = await searchGoogleCSE(qWeb);
+      if (googleResults.length) web = googleResults;
+    } catch (e) {
+      providerNotes.push(String(e.message || e));
+    }
 
-    if (web.length < 3) web = [...web, ...(await searchSerpApi(qWeb))];
-    if (web.length < 3) web = [...web, ...(await searchBing(qWeb))];
+    // SerpAPI se disponibile
+    try {
+      if (web.length < 3) web = [...web, ...(await searchSerpApi(qWeb))];
+    } catch (e) {
+      providerNotes.push('serpapi_error');
+    }
+
+    // Bing se disponibile
+    try {
+      if (web.length < 3) web = [...web, ...(await searchBing(qWeb))];
+    } catch (e) {
+      providerNotes.push('bing_error');
+    }
 
     if (web.length === 0) {
       const fb = fallbackByPreference(pref).slice(0,5).map(x => ({
@@ -352,7 +392,9 @@ export default async function handler(req, res) {
         profile: pref,
         budget_filter: { min: pref.price_min ?? null, max: pref.price_max ?? null },
         recommendations: fb,
-        notes: 'Suggerimenti offline (nessun provider web configurato o nessun risultato).'
+        notes: providerNotes.length
+          ? `Suggerimenti offline (provider web non utilizzabile: ${providerNotes.join(' | ')})`
+          : 'Suggerimenti offline (nessun provider web configurato).'
       });
     }
 
@@ -382,7 +424,7 @@ export default async function handler(req, res) {
       profile: pref,
       budget_filter: { min: pref.price_min ?? null, max: pref.price_max ?? null },
       recommendations: recs,
-      notes: 'Ricerca web basata sulle preferenze (Google/SerpAPI/Bing).'
+      notes: providerNotes.length ? `Ricerca web (note: ${providerNotes.join(' | ')})` : 'Ricerca web (Google/SerpAPI/Bing).'
     });
 
   } catch (e) {

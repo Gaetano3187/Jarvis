@@ -1,4 +1,3 @@
-// pages/prodotti-tipici-vini.js
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
@@ -64,7 +63,7 @@ function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
 }
 
 /* ===== Drawer Sommelier ===== */
-function SommelierDrawer({ data, onClose }) {
+function SommelierDrawer({ data, onClose, onAdd }) {
   const recs = data?.recommendations || [];
   const src = data?.source || '';
   const bf = data?.budget_filter || {};
@@ -112,11 +111,23 @@ function SommelierDrawer({ data, onClose }) {
             <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
               {r.typical_price_eur != null && <span style={{ opacity:0.9 }}>~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
               {(r.links || []).map((l,idx)=>(<a key={idx} href={l.url} target="_blank" rel="noreferrer" style={btn(false)}>{l.title || 'Link'}</a>))}
+              <button
+                style={btn(true)}
+                onClick={()=> onAdd?.(r)}
+                title="Salva tra i vini bevuti con localizzazione"
+              >
+                Aggiungi tra i bevuti
+              </button>
             </div>
           </div>
         ))}
 
-        {data?.notes && recs.length>0 && <p style={{ opacity:0.8, marginTop:12 }}>{data.notes}</p>}
+        {/* footer sticky: chiudi anche in basso */}
+        <div style={{ position:'sticky', bottom:0, background:'#0b0f14', paddingTop:8 }}>
+          <div style={{ borderTop:'1px solid #1f2a38', paddingTop:8, display:'flex', justifyContent:'flex-end' }}>
+            <button onClick={onClose} style={btn(false)}>Chiudi suggerimenti</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -336,41 +347,6 @@ const AddArtisanForm = React.forwardRef(function AddArtisanForm({ userId, onInse
   );
 });
 
-/* ===================== FORM: CANTINA ===================== */
-const AddCellarForm = React.forwardRef(function AddCellarForm({ userId, wines, onInserted }, ref) {
-  const [form, setForm] = useState({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' });
-  React.useImperativeHandle(ref, () => ({ reset(){ setForm({ wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' }); } }), []);
-  const handleInsert = useCallback(async ()=>{
-    if (!userId) return alert('Sessione assente.');
-    if (!form.wine_id) return alert('Seleziona un vino');
-    const bottles = form.bottles ? Number(form.bottles) : 1;
-    const price   = form.purchase_price_eur ? Number(form.purchase_price_eur) : null;
-    const pair    = form.pairings ? form.pairings.split(',').map(s=>s.trim()).filter(Boolean) : null;
-    const { error } = await supabase.from('cellar').insert([{ user_id: userId, wine_id: form.wine_id, bottles, purchase_price_eur: price, pairings: pair }]);
-    if (error) return alert('Errore: '+error.message);
-    onInserted?.();
-    ref?.current?.reset?.();
-  }, [form, onInserted, ref, userId]);
-
-  return (
-    <section style={{ marginBottom:16, padding:12, borderRadius:16, background:'#0b0f14', border:'1px solid #1f2a38' }}>
-      <h3 style={{ margin:'0 0 8px' }}>Aggiungi in Cantina</h3>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
-        <select value={form.wine_id} onChange={e=>setForm({...form, wine_id:e.target.value})} style={inp}>
-          <option value="">Seleziona vino…</option>
-          {wines.map(w => <option key={w.id} value={w.id}>{w.name}{w.winery?` - ${w.winery}`:''}</option>)}
-        </select>
-        <input placeholder="Bottiglie" value={form.bottles} onChange={e=>setForm({...form, bottles:e.target.value})} style={inp}/>
-        <input placeholder="Prezzo acquisto (€)" value={form.purchase_price_eur} onChange={e=>setForm({...form, purchase_price_eur:e.target.value})} style={inp}/>
-        <input placeholder="Abbinamenti (comma)" value={form.pairings} onChange={e=>setForm({...form, pairings:e.target.value})} style={inp}/>
-      </div>
-      <div style={{ marginTop:10 }}>
-        <button onClick={handleInsert} style={btn(true)}>Salva</button>
-      </div>
-    </section>
-  );
-});
-
 /* ===================== Pagina ===================== */
 function ProdottiTipiciViniPage() {
   const [tab, setTab] = useState('wines'); // 'artisan' | 'wines' | 'cellar'
@@ -492,7 +468,7 @@ function ProdottiTipiciViniPage() {
   const [sommelierOpen, setSommelierOpen] = useState(false);
   const [sommelierData, setSommelierData] = useState(null);
 
-  // OCR multi-foto: invia FormData a /api/ocr e memorizza il testo carta
+  // OCR multi-foto → /api/ocr
   async function handleSommelierOcrFiles(files) {
     try {
       if (!files || !files.length) { alert('Nessun file selezionato'); return; }
@@ -500,7 +476,7 @@ function ProdottiTipiciViniPage() {
       files.forEach((f, i) => fd.append('images', f, f.name || `foto_${i+1}.jpg`));
       const r = await fetch('/api/ocr', { method:'POST', body: fd });
       if (!r.ok) {
-        const txt = await r.text().catch(()=>'');
+        const txt = await r.text().catch(()=> '');
         throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
       }
       const j = await r.json();
@@ -514,11 +490,20 @@ function ProdottiTipiciViniPage() {
     }
   }
 
-  // Avvia la ricerca con prompt + carta OCR/QR accumulata
+  // Avvia la ricerca con prompt + carta OCR/QR
   async function runSommelier() {
     try {
       setSommelierBusy(true);
-      const payload = { query: q || '', wineLists: sommelierLists, qrLinks: sommelierQr };
+
+      const aggregatedList = (sommelierLists || []).filter(Boolean).join('\n').trim();
+
+      const payload = {
+        query: q || '',
+        wineLists: sommelierLists,        // array (nuove API)
+        wineList: aggregatedList || null, // singolo (compat vecchie API)
+        qrLinks: sommelierQr
+      };
+
       const r = await fetch('/api/sommelier', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
@@ -533,6 +518,56 @@ function ProdottiTipiciViniPage() {
       setSommelierBusy(false);
     }
   }
+
+  // Salva una raccomandazione fra i "bevuti" con localizzazione
+  async function addRecommendationToBevuti(rec) {
+    try {
+      if (!userId) { alert('Sessione assente'); return; }
+
+      const { data: newWine, error } = await supabase
+        .from('wines')
+        .insert([{
+          user_id: userId,
+          name: rec.name?.trim() || 'Vino senza nome',
+          winery: rec.winery || null,
+          denomination: rec.denomination || null,
+          region: rec.region || null,
+          style: rec.style || null,
+          price_target: rec.typical_price_eur ?? null
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const p = await getCurrentPlaceOrAsk('dove l’hai bevuto');
+      if (p) {
+        const { error: e2 } = await supabase.from('product_places').insert([{
+          user_id: userId,
+          item_type: 'wine',
+          item_id: newWine.id,
+          kind: 'purchase',
+          place_name: p.name || `(${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})`,
+          lat: p.lat, lng: p.lng, is_primary: true
+        }]);
+        if (e2) throw e2;
+      }
+
+      showToast('Aggiunto ai “vini bevuti”');
+      await refreshAll();
+    } catch (e) {
+      console.error(e);
+      alert('Errore salvataggio: ' + (e.message || e));
+    }
+  }
+
+  /* ------------------- Rating ------------------- */
+  const setRating = useCallback(async (id,n)=>{
+    if (!userId) return;
+    const { error } = await supabase.from('wines').update({ rating_5:n }).eq('id',id).eq('user_id',userId);
+    if (error) return alert('Errore voto: '+error.message);
+    refreshAll();
+  },[userId,refreshAll]);
 
   /* ------------------- Render ------------------- */
   return (
@@ -604,7 +639,13 @@ function ProdottiTipiciViniPage() {
           }}
         />
       )}
-      {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={()=>setSommelierOpen(false)} />}
+      {sommelierOpen && (
+        <SommelierDrawer
+          data={sommelierData}
+          onClose={()=>setSommelierOpen(false)}
+          onAdd={addRecommendationToBevuti}
+        />
+      )}
 
       {/* ===== ARTISAN ===== */}
       {tab === 'artisan' && (
