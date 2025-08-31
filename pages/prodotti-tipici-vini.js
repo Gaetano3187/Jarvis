@@ -56,8 +56,8 @@ function SectionToolbar({ label, onAddManual, onOcr, onVoice, showAdd }) {
     <div style={{ display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px', flexWrap:'wrap' }}>
       <span style={{ color:'#cdeafe', fontWeight:700 }}>{label}</span>
       <button onClick={onAddManual} style={btn(true)}>{showAdd ? 'Chiudi' : 'Aggiungi manuale'}</button>
-      <button onClick={onOcr} style={btn(false)}>OCR (foto)</button>
-      <button onClick={onVoice} style={btn(false)}>Vocale</button>
+      {!!onOcr   && <button onClick={onOcr}   style={btn(false)}>OCR (foto)</button>}
+      {!!onVoice && <button onClick={onVoice} style={btn(false)}>Vocale</button>}
     </div>
   );
 }
@@ -441,6 +441,9 @@ function ProdottiTipiciViniPage() {
   const [mapZoom, setMapZoom] = useState(5);
   const [selectedPlaceId, setSelectedPlaceId] = useState(null);
 
+  // input OCR diretto per vini
+  const wineOcrRef = useRef(null);
+
   // sessione
   useEffect(() => {
     let sub = null;
@@ -496,6 +499,10 @@ function ProdottiTipiciViniPage() {
     } catch {}
     return null;
   }
+  async function geocodeLoose(text) {
+    if (!text) return null;
+    return searchGeocode(text);
+  }
   async function getCurrentPlaceOrAsk(kindLabel) {
     try {
       const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy:true, timeout:10000 }));
@@ -510,16 +517,31 @@ function ProdottiTipiciViniPage() {
     }
   }
   async function addPlaceFor(itemType, itemId, kind) {
-    if (!userId) return alert('Sessione assente');
-    const p = await getCurrentPlaceOrAsk(kind==='purchase'?'dove l’hai acquistato/consumato':'origine');
-    if (!p) return;
-    const { error } = await supabase.from('product_places').insert([{
-      user_id:userId, item_type:itemType, item_id:itemId, kind,
-      place_name: p.name || `(${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})`,
-      lat:p.lat, lng:p.lng, is_primary:true
-    }]);
-    if (error) return alert('Errore salvataggio luogo: ' + error.message);
-    alert('Luogo aggiunto!'); refreshAll();
+    try {
+      if (!userId) return alert('Sessione assente');
+      const p = await getCurrentPlaceOrAsk(kind==='purchase'?'dove l’hai acquistato/consumato':'origine');
+      if (!p) return;
+      const { data, error } = await supabase.from('product_places').insert([{
+        user_id:userId, item_type:itemType, item_id:itemId, kind,
+        place_name: p.name || `(${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})`,
+        lat:p.lat, lng:p.lng, is_primary:true
+      }]).select();
+      if (error) throw error;
+
+      // centra mappa e highlight
+      const row = (data && data[0]) || null;
+      if (row?.id) {
+        setSelectedPlaceId(row.id);
+        setMapCenter([row.lng, row.lat]); setMapZoom(6);
+        setTimeout(()=>setSelectedPlaceId(null), 2500);
+      } else {
+        setMapCenter([p.lng, p.lat]); setMapZoom(6);
+      }
+      showToast(kind==='purchase' ? 'Luogo “bevuto/acquistato” salvato' : 'Origine salvata');
+      await refreshAll();
+    } catch (e) {
+      alert('Errore salvataggio luogo: ' + (e.message || e));
+    }
   }
 
   /* ---------------- Sommelier ---------------- */
@@ -598,7 +620,6 @@ function ProdottiTipiciViniPage() {
         }])
         .select()
         .single();
-
       if (error) throw error;
 
       const p = await getCurrentPlaceOrAsk('dove l’hai bevuto');
@@ -620,6 +641,111 @@ function ProdottiTipiciViniPage() {
       console.error(e);
       alert('Errore salvataggio: ' + (e.message || e));
     }
+  }
+
+  /* ================== OCR/Vocale diretti per Vini ================== */
+  async function normalizeWineText(text) {
+    const r = await fetch('/api/ingest/normalize', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ text, target:'wine' })
+    });
+    return r.json();
+  }
+  async function insertWineFromNormalized(norm, { alsoGuessOrigin = true } = {}) {
+    const d = norm?.data || {};
+    const name = (d.name && String(d.name).trim()) || `Vino (da completare) ${new Date().toISOString().slice(0,10)}`;
+
+    const { data: newWine, error } = await supabase.from('wines').insert([{
+      user_id: userId,
+      name,
+      winery: d.winery || null,
+      denomination: d.denomination || null,
+      region: d.region || null,
+      grapes: Array.isArray(d.grapes) ? d.grapes : null,
+      vintage: d.vintage ?? null,
+      style: d.style || null,
+      price_target: d.price_eur ?? null,
+      notes: d.notes || null,
+      alcohol: d.alcohol ?? null,
+      grape_blend: Array.isArray(d.grape_blend) ? d.grape_blend : null
+    }]).select().single();
+    if (error) throw error;
+
+    const toInsert = [];
+    if (d.origin?.lat && d.origin?.lng) {
+      toInsert.push({
+        user_id: userId, item_type:'wine', item_id:newWine.id, kind:'origin',
+        place_name: d.origin.name || null, lat: d.origin.lat, lng: d.origin.lng, is_primary:true
+      });
+    } else if (alsoGuessOrigin) {
+      const guess = await geocodeLoose(d.region || d.denomination || d.winery);
+      if (guess) toInsert.push({
+        user_id: userId, item_type:'wine', item_id:newWine.id, kind:'origin',
+        place_name: guess.name, lat: guess.lat, lng: guess.lng, is_primary:true
+      });
+    }
+    if (toInsert.length) await supabase.from('product_places').insert(toInsert);
+
+    showToast('Vino aggiunto alla lista');
+    await refreshAll();
+    return newWine;
+  }
+  async function handleWineOcrFiles(files) {
+    try {
+      if (!userId) return alert('Sessione assente.');
+      if (!files?.length) return;
+      for (const file of files) {
+        const dataUrl = await new Promise((res, rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
+        const r1 = await fetch('/api/ocr', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ dataUrl }) });
+        const j1 = await r1.json();
+        const text = j1?.text || j1?.result || j1?.raw || '';
+        if (!text) continue;
+        const norm = await normalizeWineText(text);
+        if (norm?.kind === 'wine') await insertWineFromNormalized(norm, { alsoGuessOrigin:true });
+        else {
+          const fallback = text.trim().split('\n').map(s=>s.trim()).filter(Boolean)[0] || 'Vino da etichetta';
+          await supabase.from('wines').insert([{ user_id:userId, name:fallback }]);
+          showToast('Vino aggiunto (solo nome — etichetta poco leggibile)');
+          await refreshAll();
+        }
+      }
+    } catch (e) { alert('Errore OCR: ' + (e.message || e)); }
+  }
+  async function handleWineVoice() {
+    try {
+      if (!userId) return alert('Sessione assente.');
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      let text = '';
+
+      if (SR) {
+        text = await new Promise((resolve, reject) => {
+          const rec = new SR(); rec.lang='it-IT'; rec.interimResults=false; rec.maxAlternatives=1;
+          rec.onresult = ev => resolve(ev.results?.[0]?.[0]?.transcript || '');
+          rec.onerror   = e  => reject(new Error(e.error||'Errore riconoscimento vocale'));
+          rec.onend     = () => resolve(text);
+          rec.start();
+        });
+      } else {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+        const rec    = new MediaRecorder(stream, { mimeType:'audio/webm' });
+        const chunks = []; rec.ondataavailable = e => chunks.push(e.data);
+        const done   = new Promise(res => rec.onstop = res);
+        rec.start(); setTimeout(()=>rec.stop(), 5000); await done;
+        const blob   = new Blob(chunks, { type:'audio/webm' });
+        const fd     = new FormData(); fd.append('file', blob, 'audio.webm');
+        const r      = await fetch('/api/stt', { method:'POST', body: fd });
+        const j      = await r.json(); text = j?.text || '';
+      }
+
+      if (!text) { alert('Nessun testo rilevato'); return; }
+      const norm = await normalizeWineText(text);
+      if (norm?.kind === 'wine') await insertWineFromNormalized(norm, { alsoGuessOrigin:true });
+      else {
+        await supabase.from('wines').insert([{ user_id:userId, name: text.slice(0,80) }]);
+        showToast('Vino aggiunto (solo nome — comando poco chiaro)');
+        await refreshAll();
+      }
+    } catch (e) { alert('Errore voce: ' + (e.message || e)); }
   }
 
   /* ------------------- Rating ------------------- */
@@ -773,10 +899,21 @@ function ProdottiTipiciViniPage() {
           <SectionToolbar
             label="Vini (Wishlist)"
             onAddManual={()=> setShowAddWine(v=>!v)}
-            onOcr={()=> alert('Per OCR carta usa i pulsanti Sommelier in alto 😉')}
-            onVoice={()=> alert('Per richiesta vocale usa Sommelier in alto 😉')}
+            onOcr={()=> wineOcrRef.current?.click()}
+            onVoice={handleWineVoice}
             showAdd={showAddWine}
           />
+          {/* input nascosto per OCR diretto (vini) */}
+          <input
+            ref={wineOcrRef}
+            type="file"
+            accept="image/*"
+            multiple
+            capture="environment"
+            style={{ display:'none' }}
+            onChange={e=> e.target.files?.length && handleWineOcrFiles(Array.from(e.target.files))}
+          />
+
           {showAddWine && <AddWineForm userId={userId} onInserted={refreshAll} />}
 
           <Table>
