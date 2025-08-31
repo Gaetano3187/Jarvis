@@ -527,6 +527,33 @@ async function handleSommelierOcrFiles(files) {
     console.error('OCR upload error', e);
     alert('Errore Sommelier OCR: ' + (e?.message || e));
   }
+  // avvia la ricerca Sommelier usando prompt + OCR/QR memorizzati
+async function runSommelier() {
+  try {
+    setSommelierBusy(true);
+    const payload = {
+      query: q || '',
+      wineLists: sommelierLists, // testi OCR accumulati
+      qrLinks: sommelierQr       // URL QR accumulati
+    };
+    const r = await fetch('/api/sommelier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    setSommelierData(j);
+    setSommelierOpen(true);
+  } catch (e) {
+    alert('Sommelier error: ' + (e?.message || e));
+  } finally {
+    setSommelierBusy(false);
+  }
+}
+
+// Se in qualche punto del file avevi ancora il vecchio nome:
+const askSommelier = runSommelier;
+
 }
 
 
