@@ -18,7 +18,7 @@ const sbAdmin = (SUPABASE_URL && SUPABASE_SERVICE)
 
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-/* ===================== Budget caps (adattati) ===================== */
+/* ===================== Budget caps ===================== */
 const CAPS = {
   enoteca: {
     rosso:   { daily: 25, target: 40, occasion: 70, cap: 120 },
@@ -51,10 +51,10 @@ function bandsFor(req) {
   if (mood === 'rosso') {
     const { daily, target, occasion, cap } = CAPS[ctx].rosso;
     return [
-      { key: 'daily',    label: `0–${daily} € (${ctx})`,       max: daily },
-      { key: 'target',   label: `${daily+1}–${target} € (${ctx})`, max: target },
+      { key: 'daily',    label: `0–${daily} € (${ctx})`,            max: daily },
+      { key: 'target',   label: `${daily+1}–${target} € (${ctx})`,  max: target },
       { key: 'occasion', label: `${target+1}–${occasion} € (${ctx})`, max: occasion },
-      { key: 'premium',  label: `${occasion+1}–${cap} € (${ctx})`, max: cap },
+      { key: 'premium',  label: `${occasion+1}–${cap} € (${ctx})`,  max: cap },
     ];
   }
 
@@ -64,10 +64,10 @@ function bandsFor(req) {
   else if (mood === 'rosato'){ b1 = 18; b2 = 25; b3 = CAPS[ctx].rosato; }
   else                       { b1 = 25; b2 = 45; b3 = 80; } // mix
   return [
-    { key: 'daily',    label: `0–${b1} € (${ctx})`,           max: b1 },
-    { key: 'target',   label: `${b1+1}–${b2} € (${ctx})`,     max: b2 },
-    { key: 'occasion', label: `${b2+1}–${b3} € (${ctx})`,     max: b3 },
-    { key: 'premium',  label: `${b3+1}–${cap} € (${ctx})`,    max: cap },
+    { key: 'daily',    label: `0–${b1} € (${ctx})`,        max: b1 },
+    { key: 'target',   label: `${b1+1}–${b2} € (${ctx})`,  max: b2 },
+    { key: 'occasion', label: `${b2+1}–${b3} € (${ctx})`,  max: b3 },
+    { key: 'premium',  label: `${b3+1}–${cap} € (${ctx})`, max: cap },
   ];
 }
 
@@ -117,33 +117,73 @@ const WHITE_GRAPES = [
 
 function detectColorFromText(name, denomOrGrape, notes='') {
   const T = `${name} ${denomOrGrape} ${notes}`.toLowerCase();
-
-  // token espliciti
   if (/\b(rosé|rosato)\b/.test(T)) return 'rosato';
   if (/\b(bianco|blanc|white|weiß|weiss)\b/.test(T)) return 'bianco';
   if (/\b(rosso|rouge|red|tinto)\b/.test(T)) return 'rosso';
-
-  // vitigni
   const g = denomOrGrape.toLowerCase();
   for (const w of RED_GRAPES)   if (g.includes(w)) return 'rosso';
   for (const w of WHITE_GRAPES) if (g.includes(w)) return 'bianco';
-
-  // denominazioni tipicamente rosse o bianche (quick heuristics)
   if (/\bbarolo|barbaresco|brunello|chianti|amarone|taurasi|rosso\b/.test(T)) return 'rosso';
   if (/\bsoave|gavi|verdicchio|fiano|greco|lugana|frascati|vernaccia|bianco\b/.test(T)) return 'bianco';
-
   return 'unknown';
+}
+
+/* ===================== Pairing (abbinamento lampo) ===================== */
+function pairingHint(c, req) {
+  // 1) Se l'utente ha indicato un piatto preciso → priorità assoluta
+  if (req?.dish) return `Ideale con ${req.dish.toLowerCase()}`;
+
+  const color = (c.color || 'unknown');
+  const text  = `${(c.notes || []).join(' ')}`.toLowerCase() + ' ' + (c.denomOrGrape || '').toLowerCase();
+
+  const has = (kw) => kw.split('|').some(k => text.includes(k));
+
+  // segnali comuni
+  const tannic = has('tannico|ruvido|astringente|strutturato|corposo|barrique|legno');
+  const fresh  = has('fresco|beverino|snello|agrumi|citric|acido');
+  const mineral= has('minerale|sapido|salino|pietra|gesso');
+  const oaky   = has('vaniglia|burro|crema|legno|tostato');
+  const spicy  = has('speziato|pepe|chiodi|cannella');
+  const aromatic = has('aromatico|floreale|moscato|gewürz|traminer');
+  const sweet  = has('dolce|abboccato|passito');
+
+  // 2) Heuristics per colore
+  if (color === 'rosso') {
+    if (tannic) return 'Ideale con brasati, selvaggina, carni rosse arrosto e formaggi stagionati';
+    if (spicy)  return 'Perfetto con carni alla griglia, salumi speziati, primi al ragù';
+    if (fresh)  return 'Perfetto con salumi, primi al pomodoro, pollo arrosto e pizza';
+    return       'Versatile su piatti di terra: paste al sugo, carni alla griglia e formaggi';
+  }
+  if (color === 'bianco') {
+    if (mineral || fresh) return 'Eccezionale con crudi di mare, molluschi e fritture leggere';
+    if (oaky)             return 'Ottimo con carni bianche, risotti ai funghi e formaggi semi-stagionati';
+    if (aromatic || sweet)return 'Benissimo con cucina asiatica, piatti speziati o leggermente piccanti';
+    return                 'Ideale per pesce alla griglia, verdure e insalate ricche';
+  }
+  if (color === 'rosato') {
+    if (fresh) return 'Perfetto da aperitivo, con antipasti, pizza e pesce alla griglia';
+    return      'Molto duttile: antipasti, cucina mediterranea e secondi leggeri';
+  }
+
+  // 3) Fallback per unknown
+  if (aromatic) return 'Benissimo con cucina asiatica e piatti speziati';
+  if (sweet)    return 'Abbinamento da dessert o formaggi erborinati';
+  return 'Abbinamento versatile su piatti di terra o mare non troppo intensi';
 }
 
 /* ===================== Drawer adapter ===================== */
 function toDrawerRec(sugg, bandKey) {
   const bandMap = { daily: 'low', target: 'med', occasion: 'high', premium: 'high' };
+  // append abbinamento alla riga "why"
+  const baseWhy = sugg.whyMatch || (sugg.notes || []).join(', ');
+  const withPairing = sugg.pairing_hint ? `${baseWhy} • Abbinamento: ${sugg.pairing_hint}` : baseWhy;
+
   return {
     name: sugg.name,
     winery: '',
     denomination: sugg.denomOrGrape || '',
     region: sugg.area || '',
-    why: sugg.whyMatch || (sugg.notes || []).join(', '),
+    why: withPairing,
     typical_price_eur: sugg.typical_price_eur ?? pickPrice(sugg.priceBand),
     price_band: bandMap[bandKey] || 'med',
     out_of_budget: false,
@@ -168,7 +208,7 @@ function ensureMinPerBand(groups, min = 3) {
   return groups;
 }
 
-/* ===================== Gusti utente (bevuti + rating) ===================== */
+/* ===================== Gusti utente ===================== */
 async function fetchUserTaste(userId) {
   if (!sbAdmin || !userId) return { wines: [], places: [] };
   const { data: wines } = await sbAdmin
@@ -192,11 +232,9 @@ async function fetchUserTaste(userId) {
 function computeSimilarTo(sugg, tasteWines, topN = 3) {
   const nm = s => String(s || '').toLowerCase();
   const out = [];
-
   for (const t of (tasteWines || [])) {
     const reasons = [];
     let score = 0;
-
     const weight = (Number(t.rating_5) || 0) / 5; // 0..1
     score += weight * 0.5;
 
@@ -239,7 +277,6 @@ function computeSimilarTo(sugg, tasteWines, topN = 3) {
       });
     }
   }
-
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, topN);
 }
@@ -314,7 +351,6 @@ async function buildSommelierRequest(queryText) {
   const txt = cleanText(queryText || '');
   if (!txt) return { mood:'rosso', context:'enoteca' };
   const req = await llmJSON(SYS_PARSE_REQUEST, txt, { mood:'rosso', context:'enoteca' });
-  // normalizza
   req.mood = ['rosso','bianco','rosato','mix'].includes(req.mood) ? req.mood : 'rosso';
   req.context = ['enoteca','ristorante'].includes(req.context) ? req.context : 'enoteca';
   if (req.budgetCap && typeof req.budgetCap !== 'number') delete req.budgetCap;
@@ -323,7 +359,7 @@ async function buildSommelierRequest(queryText) {
   return req;
 }
 
-/* ===================== Candidate da carta (OCR/QR) ===================== */
+/* ===================== Candidate da carta ===================== */
 async function parseWineListFromText(listText) {
   const arr = await llmJSONArray(SYS_PARSE_WINE_LIST, cleanText(listText), []);
   return arr.map(x => {
@@ -345,7 +381,7 @@ async function parseWineListFromText(listText) {
   }).filter(x => x.name);
 }
 
-/* ===================== Candidate dal web (usato SOLO se non c'è carta) ===================== */
+/* ===================== Candidate dal web (SOLO se non c'è carta) ===================== */
 async function expandCandidatesFromWeb(req) {
   if (!GOOGLE_API_KEY || !GOOGLE_CX) return [];
   const terms = [
@@ -384,12 +420,9 @@ function filterByReq_strictColor(candidates, req) {
   const mood  = req.mood || 'rosso';
 
   return candidates.filter(c => {
-    // colore: se l'utente ha scelto rosso/bianco/rosato, accettiamo SOLO match esatto;
-    // gli "unknown" verranno considerati solo in fallback se i risultati sono pochi.
     if (mood !== 'mix') {
       if ((c.color || 'unknown') !== mood) return false;
     }
-
     const T = `${c.name} ${c.denomOrGrape} ${c.area} ${(c.notes || []).join(' ')}`.toLowerCase();
     if (must.length && !must.every(m => T.includes(m))) return false;
     if (avoid.length && avoid.some(a => T.includes(a))) return false;
@@ -397,13 +430,10 @@ function filterByReq_strictColor(candidates, req) {
   });
 }
 
-/* fallback: se troppo pochi, includi anche "unknown" ma MAI l'opposto esplicito */
 function widenWithUnknownIfFew(candidates, req, minGlobal = 6) {
-  if (req.mood === 'mix') return candidates; // nessun vincolo
+  if (req.mood === 'mix') return candidates;
   const strict = candidates.filter(c => (c.color || 'unknown') === req.mood);
   if (strict.length >= minGlobal) return strict;
-
-  // aggiungi solo gli unknown
   const unknowns = candidates.filter(c => (c.color || 'unknown') === 'unknown');
   return [...strict, ...unknowns];
 }
@@ -456,6 +486,7 @@ function toShortlist(groups) {
         priceBand: c.priceBand || (c.typical_price_eur != null ? `~ ${c.typical_price_eur} €` : ''),
         service: undefined,
         alt: undefined,
+        pairingHint: c.pairing_hint || undefined,
         similar_to: c.similar_to || []
       });
     }
@@ -521,30 +552,30 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3) Colore fallback (se qualche candidato è ancora senza color)
+    // 3) Colore e abbinamenti
     for (const c of candidates) {
       if (!c.color || c.color === 'unknown') {
         c.color = detectColorFromText(c.name || '', c.denomOrGrape || '', (c.notes || []).join(' '));
       }
+      c.pairing_hint = pairingHint(c, requestObj);
     }
 
     // 4) Personalizzazione con “bevuti”
     const taste = await fetchUserTaste(userId);
 
-    // 5) Filtro forte sul colore, poi eventuale allargamento con "unknown"
+    // 5) Filtro forte sul colore (con fallback unknown)
     let filtered = filterByReq_strictColor(candidates, requestObj);
     if (filtered.length < 6) {
       filtered = widenWithUnknownIfFew(candidates, requestObj, 6);
-      // rimuovi esplicitamente possibili "opposti" (in caso di dati sporchi)
       if (requestObj.mood !== 'mix') {
         filtered = filtered.filter(c => c.color === requestObj.mood || c.color === 'unknown');
       }
     }
 
-    // 6) Rank e gruppi
+    // 6) Ranking & grouping
     const { groups } = scoreAndGroup(filtered, requestObj, taste);
 
-    // 7) Minimo 3 per banda, senza pescare dal web se c'è carta
+    // 7) Assicurare almeno 3 per fascia quando possibile
     const totalAvail = filtered.length;
     if (totalAvail >= 3) ensureMinPerBand(groups, 3);
 
