@@ -1,9 +1,10 @@
-// pages/home.js
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
+
+/* eslint-disable react/no-danger */
 
 // Registratore solo client
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
@@ -25,18 +26,92 @@ function safeJSONStringify(obj) {
     }, 2);
   }
 }
-function formatResult(res) {
-  if (!res && res !== 0) return 'Nessun risultato.';
-  if (typeof res === 'string' || typeof res === 'number' || typeof res === 'boolean') return String(res);
-  return safeJSONStringify(res);
+function fmtEuro(n) {
+  if (n == null || isNaN(n)) return '—';
+  try { return Number(n).toLocaleString('it-IT', { style:'currency', currency:'EUR' }); }
+  catch { return `${n} €`; }
+}
+function fmtInt(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('it-IT');
+}
+function fmtPct(n) {
+  if (n == null || isNaN(n)) return '—';
+  return `${Math.round(Number(n))}%`;
+}
+function pad(s, len) {
+  const t = String(s ?? '');
+  return t.length >= len ? t.slice(0, len) : (t + ' '.repeat(len - t.length));
+}
+function smallTable(rows, columns) {
+  if (!Array.isArray(rows) || !rows.length) return '(nessun elemento)';
+  const colWidths = columns.map(c => Math.max(c.label.length, ...rows.map(r => String(r[c.key] ?? '').length)));
+  const header = columns.map((c,i)=>pad(c.label, colWidths[i])).join('  ');
+  const sep    = colWidths.map(w => '─'.repeat(w)).join('  ');
+  const body   = rows.map(r => columns.map((c,i)=>pad(String(r[c.key] ?? ''), colWidths[i])).join('  ')).join('\n');
+  return `${header}\n${sep}\n${body}`;
+}
+
+/* ---------- SVG charts helpers (inline, no libs) ---------- */
+function svgDonut(segments, { size = 180, stroke = 16, bg = '#0b0f14' } = {}) {
+  const total = segments.reduce((t,s)=>t+(Number(s.value)||0), 0);
+  const R = (size/2) - stroke/2;
+  const C = size/2;
+  const circ = 2 * Math.PI * R;
+
+  let offset = 0;
+  const arcs = total > 0
+    ? segments.map((s)=> {
+        const v = Math.max(0, Number(s.value)||0);
+        const frac = v / total;
+        const dash = frac * circ;
+        const arc = `<circle cx="${C}" cy="${C}" r="${R}" fill="none"
+          stroke="${s.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${circ-dash}"
+          stroke-dashoffset="${-offset}" transform="rotate(-90 ${C} ${C})"/>`;
+        offset += dash;
+        return arc;
+      }).join('\n')
+    : `<circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="#374151" stroke-width="${stroke}"/>`;
+
+  const legend = segments.map((s,i)=>`
+    <g transform="translate(${size+10}, ${14 + i*22})">
+      <rect x="0" y="-10" width="14" height="14" rx="2" fill="${s.color}" />
+      <text x="22" y="0" fill="#e5eeff" font-size="12">${s.label}: ${s.value_fmt ?? s.value}</text>
+    </g>`).join('');
+
+  return `
+  <svg viewBox="0 0 ${size+160} ${size}" width="100%" height="auto" style="background:${bg}; border:1px solid #1f2a38; border-radius:12px">
+    <circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="#1f2a38" stroke-width="${stroke}"/>
+    ${arcs}
+    ${legend}
+  </svg>`;
+}
+function svgBars(items, { max = null, unit = '', bg = '#0b0f14' } = {}) {
+  const rows = items.slice(0, 10);
+  const localMax = max ?? Math.max(...rows.map(r => Number(r.value)||0), 1);
+  const W = 460, H = 18 * rows.length + 24;
+  const barW = 300;
+  const svgRows = rows.map((r, i) => {
+    const v = Math.max(0, Number(r.value)||0);
+    const w = (v / localMax) * barW;
+    const y = 16 + i * 18;
+    return `
+      <text x="8" y="${y}" fill="#cdeafe" font-size="12">${r.label}</text>
+      <rect x="160" y="${y-10}" width="${barW}" height="12" fill="#111827" rx="3" />
+      <rect x="160" y="${y-10}" width="${w}" height="12" fill="#3b82f6" rx="3" />
+      <text x="${160 + barW + 8}" y="${y}" fill="#cdeafe" font-size="12">${unit ? fmtInt(v) + unit : fmtInt(v)}</text>`;
+  }).join('\n');
+
+  return `
+  <svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" style="background:${bg}; border:1px solid #1f2a38; border-radius:12px">
+    ${svgRows}
+  </svg>`;
 }
 
 /* ---------- Intent Router ---------- */
 function looksLikeSommelierIntent(text='') {
   const s = text.toLowerCase();
-  // parole tipiche per “consiglio da carta”
   if (/\b(sommelier|carta (dei )?vini|mi consigli|consigliami|tra questi|da questa carta)\b/.test(s)) return true;
-  // richieste vino con aggettivi sensoriali
   if (/\b(vino|barolo|nebbiolo|chianti|amarone|rosso|bianco|ros[ée]?)\b/.test(s) &&
       /\b(corposo|tannico|non troppo tannico|fresco|minerale|fruttato|profumato|aspro|setoso)\b/.test(s)) return true;
   return false;
@@ -45,11 +120,120 @@ function normalizeQueryForUI(q) {
   return q?.trim() || 'Consigliami il migliore in base al mio gusto';
 }
 
-/* ---------- Chat Modal ---------- */
+/* ---------- Formatter intelligente risultati + grafici ---------- */
+function prettyAnswer(result) {
+  if (result == null || ['string','number','boolean'].includes(typeof result)) {
+    return { text: String(result ?? 'Nessun risultato.'), blocks: [] };
+  }
+
+  if (result.kind === 'finances.month_summary') {
+    const r = result;
+    const righe = [];
+    righe.push(`📅 Intervallo: ${r.intervallo || '—'}`);
+    righe.push(`💶 Totale: ${r.totale_fmt || fmtEuro(r.totale)}  •  Transazioni: ${fmtInt(r.transazioni)}`);
+    if (Array.isArray(r.top_negozi) && r.top_negozi.length) {
+      righe.push('\n🏪 Top negozi:');
+      righe.push(
+        smallTable(
+          r.top_negozi.slice(0, 8).map(x => ({ store: x.store, speso: x.speso_fmt || fmtEuro(x.speso) })),
+          [{key:'store', label:'Negozio'}, {key:'speso', label:'Speso'}]
+        )
+      );
+    }
+    if (Array.isArray(r.categorie) && r.categorie.length) {
+      righe.push('\n📂 Categorie:');
+      righe.push(
+        smallTable(
+          r.categorie.slice(0, 8).map(x => ({ categoria: x.categoria || x.label, speso: x.speso_fmt || fmtEuro(x.speso) })),
+          [{key:'categoria', label:'Categoria'}, {key:'speso', label:'Speso'}]
+        )
+      );
+    }
+    if (r.note) righe.push(`\n📝 ${r.note}`);
+
+    const blocks = [];
+    if (Array.isArray(r.categorie) && r.categorie.length) {
+      const palette = ['#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#22c55e','#fde047'];
+      const segs = r.categorie.slice(0, 6).map((c,i)=>({
+        label: (c.categoria || c.label || '—').slice(0,18),
+        value: Number(c.speso)||0,
+        value_fmt: c.speso_fmt || fmtEuro(c.speso),
+        color: palette[i % palette.length],
+      }));
+      blocks.push({
+        svg: svgDonut(segs, { size: 180 }),
+        caption: 'Ripartizione per categoria (prime 6)'
+      });
+    }
+    if (Array.isArray(r.top_negozi) && r.top_negozi.length) {
+      const bars = r.top_negozi.slice(0, 8).map(n => ({ label: n.store.slice(0,18), value: Number(n.speso)||0 }));
+      blocks.push({
+        svg: svgBars(bars, { unit:' €' }),
+        caption: 'Top negozi per spesa'
+      });
+    }
+
+    return { text: righe.join('\n'), blocks };
+  }
+
+  if (result.kind === 'inventory.snapshot') {
+    const r = result;
+    const s = r.summary || {};
+    const stati = s.stati || {};
+    const righe = [];
+    righe.push(`📦 Totale articoli: ${fmtInt(s.totale ?? r.total ?? 0)}`);
+    righe.push(`🧭 Stato → LOW: ${fmtInt(stati.low || 0)}  •  MED: ${fmtInt(stati.med || 0)}  •  OK: ${fmtInt(stati.ok || 0)}`);
+
+    if (Array.isArray(r.elenco) && r.elenco.length) {
+      righe.push('\n🗒️  Elenco (prime 10 voci):');
+      const rows = r.elenco.slice(0,10).map(x => ({
+        nome: (x.name || '').slice(0,28),
+        qta:  x.qty ?? '—',
+        um:   x.unit ?? '',
+        fill: (x.fill_pct == null ? '—' : fmtPct(x.fill_pct)),
+        st:   x.status || '—'
+      }));
+      righe.push(
+        smallTable(rows, [
+          {key:'nome', label:'Prodotto'},
+          {key:'qta',  label:'Qtà'},
+          {key:'um',   label:'U.M.'},
+          {key:'fill', label:'Riemp.'},
+          {key:'st',   label:'Stato'}
+        ])
+      );
+    }
+    if (r.note) righe.push(`\n📝 ${r.note}`);
+
+    const blocks = [];
+    const stateBars = [
+      { label:'LOW', value:Number(stati.low)||0 },
+      { label:'MED', value:Number(stati.med)||0 },
+      { label:'OK',  value:Number(stati.ok)||0 },
+    ];
+    blocks.push({ svg: svgBars(stateBars, {}), caption:'Distribuzione per stato' });
+
+    const lowList = (r.elenco||[])
+      .filter(x => typeof x.fill_pct === 'number')
+      .sort((a,b)=>(a.fill_pct)-(b.fill_pct))
+      .slice(0,8)
+      .map(x => ({ label:(x.name||'').slice(0,18), value: Math.max(0, Math.min(100, x.fill_pct)) }));
+    if (lowList.length) {
+      blocks.push({ svg: svgBars(lowList, { max:100, unit:'%' }), caption:'Articoli con riempimento più basso' });
+    }
+
+    return { text: righe.join('\n'), blocks };
+  }
+
+  return { text: safeJSONStringify(result), blocks: [] };
+}
+
+/* ---------- Chat Modal (supporta testo, HTML e blocchi grafici) ---------- */
 function ChatModal({ open, onClose, onSend, messages, busy }) {
   const [input, setInput] = useState('');
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
+
   useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages, open]);
   useEffect(() => {
@@ -83,7 +267,21 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
           )}
           {messages.map((m, i) => (
             <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
-              <div style={S.bubble}>{m.mono ? <pre style={S.pre}>{m.text}</pre> : <span dangerouslySetInnerHTML={{__html:m.text}} />}</div>
+              <div style={S.bubble}>
+                {m.html
+                  ? <div dangerouslySetInnerHTML={{ __html: m.text }} />
+                  : (m.mono ? <pre style={S.pre}>{m.text}</pre> : <span>{m.text}</span>)
+                }
+                {Array.isArray(m.blocks) && m.blocks.map((b, idx) => (
+                  <figure key={idx} style={{ margin:'10px 0 0', padding:0 }}>
+                    <div
+                      style={{ borderRadius:12, overflow:'hidden' }}
+                      dangerouslySetInnerHTML={{ __html: b.svg }}
+                    />
+                    {b.caption && <figcaption style={{ color:'#cdeafe', fontSize:12, opacity:.9, marginTop:4 }}>{b.caption}</figcaption>}
+                  </figure>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -114,17 +312,12 @@ const Home = () => {
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
-  // Stato “intento corrente” (serve a OCR per capire se carta/scontrino)
   const lastUserIntentRef = useRef({ text:'', sommelier:false });
-
-  // Buffer “carta dei vini” in Home (multi-foto OCR)
   const wineListsRef = useRef([]);
 
-  // ============ FUNZIONI BASE GIÀ ESISTENTI ============
   async function doOCR_Receipt(payload) {
     const { ingestOCRLocal } = await getBrain();
     return ingestOCRLocal(payload);
@@ -138,13 +331,12 @@ const Home = () => {
     return runQueryFromTextLocal(text, opts);
   }
 
-  // ============ SOMMELIER (riuso /api/sommelier della pagina Vini) ============
   async function runSommelierFromHome(userQuery, extra={}) {
     const payload = {
       query: normalizeQueryForUI(userQuery),
-      wineLists: wineListsRef.current.slice(),     // array testi OCR (multi)
-      wineList: wineListsRef.current.join('\n'),   // compat vecchie API
-      qrLinks: extra.qrLinks || []                 // se in futuro aggiungi QR in Home
+      wineLists: wineListsRef.current.slice(),
+      wineList: wineListsRef.current.join('\n'),
+      qrLinks: extra.qrLinks || []
     };
     const r = await fetch('/api/sommelier', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -154,44 +346,38 @@ const Home = () => {
     return j;
   }
 
-  function renderSommelierInChat(result) {
+  function renderSommelierPlainText(result) {
     const recs = Array.isArray(result?.recommendations) ? result.recommendations : [];
-    if (!recs.length) {
-      return 'Nessun risultato dalla carta. Prova a fotografare meglio o a cambiare richiesta.';
-    }
-    // Raggruppo per fascia (low/med/high) se presente
+    if (!recs.length) return 'Nessun risultato dalla carta. Fotografa meglio o specifica meglio la richiesta.';
     const byBand = recs.reduce((acc, r) => {
       const k = r.price_band || 'mix';
       if (!acc[k]) acc[k] = [];
       acc[k].push(r);
       return acc;
     }, {});
-    let html = `<div>🍷 <b>Sommelier</b> — fonte: <i>${result?.source || '—'}</i></div>`;
+    const out = ['🍷 Sommelier — fonte: ' + (result?.source || '—')];
     for (const band of Object.keys(byBand)) {
-      html += `<div style="margin-top:8px"><b>${band.toUpperCase()}</b></div>`;
-      byBand[band].slice(0,6).forEach((r,idx)=>{
-        const price = r.typical_price_eur!=null ? ` ~€${Number(r.typical_price_eur).toFixed(0)}` : '';
-        html += `<div style="margin-left:8px">• <b>${r.name}</b> — ${r.winery||'—'}${r.denomination?` • ${r.denomination}`:''}${r.region?` • ${r.region}`:''}${price}<br/><span style="opacity:.85">${r.why||''}</span></div>`;
+      out.push(`\n${band.toUpperCase()}`);
+      byBand[band].slice(0,6).forEach(r=>{
+        const price = r.typical_price_eur!=null ? ` ~${fmtEuro(r.typical_price_eur)}` : '';
+        out.push(`• ${r.name} — ${r.winery||'—'}${r.denomination?` • ${r.denomination}`:''}${r.region?` • ${r.region}`:''}${price}`);
+        if (r.why) out.push(`  ${r.why}`);
       });
     }
-    html += `<div style="margin-top:10px"><a href="/prodotti-tipici-vini" style="color:#93c5fd;text-decoration:underline">Apri Prodotti tipici & Vini</a></div>`;
-    return html;
+    out.push('\nApri: /prodotti-tipici-vini');
+    return out.join('\n');
   }
 
-  // ============ OCR SMART (Carta o Scontrino) ============
   async function handleSmartOCR(files) {
     const wantSommelier =
       lastUserIntentRef.current.sommelier ||
       looksLikeSommelierIntent(queryText);
 
-    // Apri chat sempre
     setChatOpen(true);
 
     if (wantSommelier) {
-      // OCR carta dei vini (multi)
       try {
         setBusy(true);
-        // Eseguo OCR locale sull’insieme di file (uno alla volta per compat)
         let joined = '';
         for (const f of files) {
           const fd = new FormData(); fd.append('images', f, f.name || 'card.jpg');
@@ -209,11 +395,10 @@ const Home = () => {
         }
         setChatMsgs(arr => [...arr, { role:'assistant', text: '📄 Carta acquisita. Avvio il Sommelier…' }]);
 
-        // Sommelier con query (se c’è; altrimenti una neutra)
         const q = lastUserIntentRef.current.text || queryText || '';
         const result = await runSommelierFromHome(q);
-        const html = renderSommelierInChat(result);
-        setChatMsgs(arr => [...arr, { role:'assistant', text: html }]);
+        const plain = renderSommelierPlainText(result);
+        setChatMsgs(arr => [...arr, { role:'assistant', text: plain, mono:true }]);
       } catch (err) {
         setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore Sommelier: ${err?.message || err}` }]);
       } finally {
@@ -222,11 +407,11 @@ const Home = () => {
       return;
     }
 
-    // Altrimenti: OCR scontrino classico (riusa il tuo brain)
     try {
       setBusy(true);
       const res = await doOCR_Receipt({ files });
-      setChatMsgs(arr => [...arr, { role:'assistant', text: formatResult(res?.result ?? 'OCR eseguito') }]);
+      const pretty = prettyAnswer(res?.result ?? 'OCR eseguito');
+      setChatMsgs(arr => [...arr, { role:'assistant', text: pretty.text, mono:true, blocks: pretty.blocks }]);
     } catch (err) {
       setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
     } finally {
@@ -234,44 +419,34 @@ const Home = () => {
     }
   }
 
-  // ============ VOCE ============
   async function handleVoiceText(spoken) {
     const text = String(spoken||'').trim();
     if (!text || busy) return;
     setChatOpen(true);
     setChatMsgs(arr => [...arr, { role:'user', text }]);
 
-    // Memorizza l’intento (serve per OCR successivo)
     lastUserIntentRef.current = { text, sommelier: looksLikeSommelierIntent(text) };
 
-    // Caso Sommelier: chiedi di fotografare la carta
     if (lastUserIntentRef.current.sommelier) {
       setChatMsgs(arr => [
         ...arr,
-        { role:'assistant', text: '📷 Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>. Poi analizzerò la carta in base alla tua richiesta.' }
+        { role:'assistant', html:true, text: '📷 Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }
       ]);
-      return; // attende l’OCR smart
+      return;
     }
 
-    // Altrimenti route a brain generico (Finanze/Scorte ecc.)
     try {
       setBusy(true);
       const res = await doVoice_Generic(text);
-      setChatMsgs(arr => [
-        ...arr,
-        { role:'assistant', text: formatResult(res?.result ?? ''), mono: typeof res?.result !== 'string' },
-      ]);
+      const pretty = prettyAnswer(res?.result ?? '');
+      setChatMsgs(arr => [...arr, { role:'assistant', text: pretty.text, mono:true, blocks: pretty.blocks }]);
     } catch (err) {
-      setChatMsgs(arr => [
-        ...arr,
-        { role:'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` },
-      ]);
+      setChatMsgs(arr => [...arr, { role:'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` }]);
     } finally {
       setBusy(false);
     }
   }
 
-  // ============ OCR: onChange (multi) ============
   const handleFileChange = (ev) => {
     const files = Array.from(ev.target.files || []);
     if (!files.length || busy) return;
@@ -287,7 +462,6 @@ const Home = () => {
   };
   const handleSelectOCR = () => { if (!busy) fileInputRef.current?.click(); };
 
-  // ============ Invio Query testo ============
   const submitQuery = async () => {
     const q = queryText.trim();
     if (!q || busy) return;
@@ -295,31 +469,27 @@ const Home = () => {
     setChatOpen(true);
     setChatMsgs(arr => [...arr, { role:'user', text: q }]);
 
-    // Memorizza intento per guidare eventuale OCR successivo
     lastUserIntentRef.current = { text:q, sommelier: looksLikeSommelierIntent(q) };
 
-    // Se è Sommelier ma non ho carta -> chiedo foto
     if (lastUserIntentRef.current.sommelier) {
       setChatMsgs(arr => [
         ...arr,
-        { role:'assistant', text: 'Per favore premi <b>OCR</b> e fotografa la <b>carta dei vini</b> così ti consiglio al volo dalla lista del locale.' }
+        { role:'assistant', html:true, text: 'Premi <b>OCR</b> e fotografa la <b>carta dei vini</b> per il consiglio dalla lista del locale.' }
       ]);
       return;
     }
 
-    // Altrimenti usa brain per query dati (finanze/scorte ecc.)
     try {
       setBusy(true);
       const res = await runBrainQuery(q, { first: chatMsgs.length === 0 });
+
       if (res?.redirect) {
         setChatMsgs(arr => [...arr, { role:'assistant', text: `Apri: ${res.redirect}` }]);
         return;
       }
       if (res?.ok && res?.result !== undefined) {
-        setChatMsgs(arr => [
-          ...arr,
-          { role:'assistant', text: formatResult(res.result), mono: typeof res.result !== 'string' },
-        ]);
+        const pretty = prettyAnswer(res.result);
+        setChatMsgs(arr => [...arr, { role:'assistant', text: pretty.text, mono:true, blocks: pretty.blocks }]);
       } else {
         const dbg = res?.debug ? safeJSONStringify(res.debug) : 'Nessuna risposta.';
         setChatMsgs(arr => [...arr, { role:'assistant', text: dbg, mono: true }]);
@@ -340,7 +510,6 @@ const Home = () => {
         <meta property="og:title" content="Home - Jarvis-Assistant" />
       </Head>
 
-      {/* Video di sfondo */}
       <video
         className="bg-video"
         src="/composizione%201.mp4"
@@ -355,10 +524,8 @@ const Home = () => {
         aria-hidden="true"
       />
 
-      {/* Overlay */}
       <div className="bg-overlay" aria-hidden="true" />
 
-      {/* Contenuto */}
       <main className="home-shell">
         <section className="primary-grid">
           <Link href="/liste-prodotti" className="card-cta card-prodotti animate-card pulse-prodotti sheen">
@@ -374,11 +541,9 @@ const Home = () => {
           </Link>
         </section>
 
-        {/* Funzionalità Avanzate */}
         <section className="advanced-box">
           <h2>Funzionalità Avanzate</h2>
 
-          {/* —— STRINGA DI DIALOGO —— */}
           <div className="ask-row">
             <input
               className="query-input"
@@ -395,7 +560,6 @@ const Home = () => {
           </div>
 
           <div className="advanced-actions">
-            {/* Unico OCR “smart”: scontrino o carta a seconda della richiesta */}
             <button className="btn-ocr" onClick={handleSelectOCR} disabled={busy}>
               {busy ? '⏳' : '📷 OCR'}
             </button>
@@ -408,17 +572,12 @@ const Home = () => {
               disabled={busy}
             />
 
-            <Link href="/dashboard" className="btn-manuale">
-              🔎 Interroga dati
-            </Link>
-            <Link href="/prodotti-tipici-vini" className="btn-manuale">
-              🍷 Prodotti tipici & Vini
-            </Link>
+            <Link href="/dashboard" className="btn-manuale">🔎 Interroga dati</Link>
+            <Link href="/prodotti-tipici-vini" className="btn-manuale">🍷 Prodotti tipici & Vini</Link>
           </div>
         </section>
       </main>
 
-      {/* Input OCR nascosto (multi) */}
       <input
         type="file"
         accept="image/*"
@@ -429,16 +588,14 @@ const Home = () => {
         style={{ display: 'none' }}
       />
 
-      {/* —— CHAT MODAL —— */}
       <ChatModal
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        onSend={submitQuery /* riuso input alto */}
+        onSend={submitQuery}
         messages={chatMsgs}
         busy={busy}
       />
 
-      {/* CSS globale */}
       <style jsx global>{`
         .bg-video {
           position: fixed;
