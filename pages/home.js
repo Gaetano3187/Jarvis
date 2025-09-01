@@ -507,7 +507,7 @@ const Home = () => {
             <span className="hint">Crea e gestisci le tue liste</span>
           </Link>
 
-          <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
+        <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
             <span className="emoji">📊</span>
             <span className="title">FINANZE</span>
             <span className="hint">Entrate, spese e report</span>
