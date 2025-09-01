@@ -175,35 +175,31 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
 
 /* ================= Inventory renderer (nomi, non codici) ================= */
 function renderInventorySnapshot(payload) {
+  // elenco è quello che torna dal brain: ogni item deve avere `name`
   const list = Array.isArray(payload?.elenco) ? payload.elenco : [];
 
-  const rows = list.map(it => {
-    const nome =
-      it.product_name ||
-      it.name ||
-      it.label ||
-      it.product ||
-      String(it.product_id ?? it.code ?? '—');
-    return {
-      nome,
-      qty: (it.qty ?? it.quantity ?? it.qta ?? null),
-      pct: clampPct(it.consumed_pct ?? it.consumo_pct ?? null)
-    };
-  });
+  // Costruisco righe usando SOLO il nome reale già risolto (come nella pagina Stato Scorte)
+  const rows = list.map(it => ({
+    nome:  (it.name ?? '').trim() || '—',
+    qty:   (it.qty ?? it.quantity ?? it.qta ?? null),
+    pct:   clampPct(it.consumed_pct ?? it.consumo_pct ?? it.fill_pct ?? null) // uso consumed se c'è, altrimenti fill
+  }));
 
+  // Tabella testuale
   const table = smallTable(
     rows.map(r => ({
       prodotto: r.nome,
-      qta: r.qty ?? '—',
-      consumo: (r.pct != null ? fmtPct(r.pct) : '—')
+      qta:      r.qty ?? '—',
+      consumo:  (r.pct != null ? fmtPct(r.pct) : '—')
     })),
     [
       { key: 'prodotto', label: 'Prodotto' },
-      { key: 'qta',      label: 'Qtà' },
+      { key: 'qta',      label: 'Qtà'     },
       { key: 'consumo',  label: 'Consumo' },
     ]
   );
 
+  // Minichart: prime 10 voci con una % disponibile
   const barsData = rows
     .filter(r => r.pct != null)
     .sort((a,b)=> (a.pct - b.pct))
