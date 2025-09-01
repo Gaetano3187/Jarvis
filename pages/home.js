@@ -448,16 +448,7 @@ Restituisci testo breve o una tabellina semplice.
     } finally {
       setBusy(false);
     }
-  }
-
-  async function submitQuery() {
-    const q = queryText.trim();
-    if (!q || busy) return;
-    setQueryText('');
-
-    setChatOpen(true);
-    setChatMsgs(arr => [...arr, { role: 'user', text: q }]);
-
+  
     // Memorizza intento per OCR carta
     lastUserIntentRef.current = { text: q, sommelier: looksLikeSommelierIntent(q) };
 
