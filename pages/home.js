@@ -179,13 +179,13 @@ const Home = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
-  // Stato “intento corrente” (serve a OCR per capire se carta/scontrino)
+  // Intent corrente (utile per far capire all’OCR se deve trattare la carta)
   const lastUserIntentRef = useRef({ text: '', sommelier: false });
 
-  // Buffer “carta dei vini” in Home (multi-foto OCR)
+  // Buffer “carta dei vini” (multi-foto OCR)
   const wineListsRef = useRef([]);
 
-  // === Funzioni base (brain) ===
+  /* ========== Bridge verso il brain ========== */
   async function doOCR_Receipt(payload) {
     const { ingestOCRLocal } = await getBrain();
     return ingestOCRLocal(payload);
@@ -199,12 +199,12 @@ const Home = () => {
     return runQueryFromTextLocal(text, opts);
   }
 
-  // === Sommelier dalla Home ===
+  /* ========== Sommelier dalla Home ========== */
   async function runSommelierFromHome(userQuery, extra = {}) {
     const payload = {
       query: normalizeQueryForUI(userQuery),
-      wineLists: wineListsRef.current.slice(),     // array testi OCR (multi)
-      wineList: wineListsRef.current.join('\n'),   // compat vecchie API
+      wineLists: wineListsRef.current.slice(),      // array testi OCR (multi)
+      wineList: wineListsRef.current.join('\n'),    // compat vecchie API
       qrLinks: extra.qrLinks || []
     };
     const r = await fetch('/api/sommelier', {
@@ -240,8 +240,137 @@ const Home = () => {
     return output;
   }
 
-  // === OCR Smart (Carta o Scontrino) ===
+  /* ========== MINI-ROUTER INTENTI ========== */
+  // Pattern “umani” → azioni specifiche sul brain
+  function routeHomeIntent(text = '') {
+    const s = text.toLowerCase();
+
+    // Sommelier: chiedo consigli dalla carta
+    if (looksLikeSommelierIntent(s)) {
+      return { kind: 'sommelier', hint: null };
+    }
+
+    // Scorte: “cosa ho a casa”, “scorte”, “magazzino”
+    if (/\b(cosa ho a casa|che cosa ho a casa|scorte|magazzino|inventario)\b/.test(s)) {
+      return {
+        kind: 'inventory.snapshot',
+        hint:
+`[SYSTEM_HINT]
+Se puoi, restituisci:
+{ "kind":"inventory.snapshot",
+  "elenco":[{"name":string,"qty":number,"unit":string,"consumed_pct":number|null}],
+  "charts":true }
+[/SYSTEM_HINT]`
+      };
+    }
+
+    // Scorte in esaurimento
+    if (/\b(esauriment|in esaurimento|quasi finito|quasi finite)\b/.test(s)) {
+      return {
+        kind: 'inventory.low',
+        hint:
+`[SYSTEM_HINT]
+Trova prodotti con consumed_pct >= 70 oppure qty molto bassa.
+Restituisci:
+{ "kind":"inventory.snapshot","elenco":[...],"charts":false }
+[/SYSTEM_HINT]`
+      };
+    }
+
+    // Aggiorna scorte (dal documento OCR appena inserito)
+    if (/\b(aggiorna|sincronizza)\b.*\b(scorte|magazzino|inventario)\b/.test(s)) {
+      return {
+        kind: 'inventory.update_from_last',
+        hint:
+`[SYSTEM_HINT]
+Aggiorna le scorte a partire dagli ultimi movimenti/ocr registrati (se disponibili).
+Restituisci un breve esito stringa.
+[/SYSTEM_HINT]`
+      };
+    }
+
+    // Finanze: mese corrente
+    if (/\b(spes[eo] (di|del)? (questo|quest')?mese|quanto ho speso (questo|quest')?mese)\b/.test(s)) {
+      return {
+        kind: 'finances.month_summary',
+        hint:
+`[SYSTEM_HINT]
+Riepiloga il mese corrente.
+Restituisci:
+{ "kind":"finances.month_summary",
+  "intervallo":"YYYY-MM",
+  "total":number,
+  "transactions":number,
+  "top_stores":[{"store":string,"amount":number}] }
+[/SYSTEM_HINT]`
+      };
+    }
+
+    // Finanze: dove spendo di più
+    if (/\b(dove spendo di più|in quali prodotti spendo di più|top spese|classifica spese)\b/.test(s)) {
+      return {
+        kind: 'finances.top_spend',
+        hint:
+`[SYSTEM_HINT]
+Mostra 5-10 voci principali (negozi o categorie) su base recente.
+Restituisci nella stessa forma di finances.month_summary (usa top_stores o top_negozi).
+[/SYSTEM_HINT]`
+      };
+    }
+
+    // Prezzo pagato / storico
+    if (/\b(quanto pago|quanto ho pagato|storico prezzo)\b/.test(s)) {
+      return {
+        kind: 'finances.product_price',
+        hint:
+`[SYSTEM_HINT]
+Se l'utente menziona un prodotto, mostra prezzo minimo/medio/massimo e negozi.
+Restituisci testo breve o una tabellina semplice.
+[/SYSTEM_HINT]`
+      };
+    }
+
+    // Fallback: generic → usa il cervello così com’è
+    return { kind: 'generic', hint: null };
+  }
+
+  async function handleRoutedIntent(userText) {
+    // Determina l’intento
+    const route = routeHomeIntent(userText);
+    // Se è sommelier → chiedi la carta e basta (non interrogo web/DB qui)
+    if (route.kind === 'sommelier') {
+      lastUserIntentRef.current = { text: userText, sommelier: true };
+      setChatMsgs(arr => [
+        ...arr,
+        { role: 'assistant', text: '📷 Per consigli mirati, premi **OCR** e fotografa la **carta dei vini**. Poi ti suggerisco 3×3 alternative per fascia di prezzo.' }
+      ]);
+      return;
+    }
+
+    // Altrimenti: arricchisco il prompt con l’hint (se c’è), così il cervello risponde strutturato
+    const enriched = route.hint
+      ? `${userText}\n\n${route.hint}`
+      : userText;
+
+    const res = await runBrainQuery(enriched, { first: chatMsgs.length === 0 });
+
+    // Provo a usare il tuo renderer unificato (se lo hai già definito in questa pagina)
+    if (typeof renderBrainResponse === 'function') {
+      const rendered = renderBrainResponse(res);
+      setChatMsgs(arr => [...arr, rendered]);
+      return;
+    }
+
+    // Fallback: testo normale
+    setChatMsgs(arr => [
+      ...arr,
+      { role: 'assistant', text: formatResult(res?.result ?? res ?? 'Nessuna risposta.'), mono: typeof (res?.result ?? res) !== 'string' }
+    ]);
+  }
+
+  /* ========== OCR Smart (Carta o Scontrino) ========== */
   async function handleSmartOCR(files) {
+    // Sommelier attivo **solo** se l’utente ha chiesto vino/carta
     const wantSommelier =
       lastUserIntentRef.current.sommelier ||
       looksLikeSommelierIntent(queryText);
@@ -249,7 +378,6 @@ const Home = () => {
     setChatOpen(true);
 
     if (wantSommelier) {
-      // OCR carta dei vini multi-foto
       try {
         setBusy(true);
         let joined = '';
@@ -269,10 +397,14 @@ const Home = () => {
           return;
         }
         setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta acquisita. Avvio il Sommelier…' }]);
+
         const q = lastUserIntentRef.current.text || queryText || '';
         const result = await runSommelierFromHome(q);
         const txt = renderSommelierInChat(result);
         setChatMsgs(arr => [...arr, { role: 'assistant', text: txt, mono: true }]);
+
+        // pulizia buffer carta (così la prossima carta non si mescola)
+        wineListsRef.current = [];
       } catch (err) {
         setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore Sommelier: ${err?.message || err}` }]);
       } finally {
@@ -281,7 +413,7 @@ const Home = () => {
       return;
     }
 
-    // Altrimenti è scontrino → brain (finanze/scorte)
+    // Altrimenti è scontrino → smista a finanze/scorte via brain
     try {
       setBusy(true);
       const res = await doOCR_Receipt({ files });
@@ -297,7 +429,7 @@ const Home = () => {
     }
   }
 
-  // === Voce ===
+  /* ========== VOCE / TESTO: usa il router ========== */
   async function handleVoiceText(spoken) {
     const text = String(spoken || '').trim();
     if (!text || busy) return;
@@ -305,31 +437,42 @@ const Home = () => {
     setChatOpen(true);
     setChatMsgs(arr => [...arr, { role: 'user', text }]);
 
+    // Memorizza l’intento per guidare eventuale OCR carta
     lastUserIntentRef.current = { text, sommelier: looksLikeSommelierIntent(text) };
-
-    if (lastUserIntentRef.current.sommelier) {
-      setChatMsgs(arr => [
-        ...arr,
-        { role: 'assistant', text: '📷 Per consigli mirati, premi OCR e fotografa la carta dei vini.' }
-      ]);
-      return; // attende OCR
-    }
 
     try {
       setBusy(true);
-      const res = await doVoice_Generic(text);
-      // RENDER SPECIALIZZAZIONI in base al tipo risposta del brain
-      const rendered = renderBrainResponse(res);
-      setChatMsgs(arr => [...arr, rendered]);
+      await handleRoutedIntent(text);
     } catch (err) {
-      setChatMsgs(arr => [
-        ...arr,
-        { role: 'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` }
-      ]);
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore comando vocale: ${err?.message || err}` }]);
     } finally {
       setBusy(false);
     }
   }
+
+  async function submitQuery() {
+    const q = queryText.trim();
+    if (!q || busy) return;
+    setQueryText('');
+
+    setChatOpen(true);
+    setChatMsgs(arr => [...arr, { role: 'user', text: q }]);
+
+    // Memorizza intento per OCR carta
+    lastUserIntentRef.current = { text: q, sommelier: looksLikeSommelierIntent(q) };
+
+    try {
+      setBusy(true);
+      await handleRoutedIntent(q);
+    } catch (err) {
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ========== Fine blocco “cervello” — il resto del file (UI) resta uguale ==========
+
 
   // === Invio query testo ===
   const submitQuery = async () => {
