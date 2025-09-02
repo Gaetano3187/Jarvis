@@ -4,6 +4,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
+import { useRouter } from 'next/router';   // << NEW
 
 // Registratore (solo client)
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
@@ -311,6 +312,11 @@ const Home = () => {
   // Buffer “carta dei vini” (OCR multi)
   const wineListsRef = useRef([]);
 
+  // Deep-link Siri
+  const router = useRouter();                 // << NEW
+  const deepLinkHandledRef = useRef(false);   // << NEW
+  const speakModeRef = useRef(false);         // << NEW
+
   // === Brain calls ===
   async function doOCR_Receipt(payload) {
     const { ingestOCRLocal } = await getBrain();
@@ -336,6 +342,19 @@ const Home = () => {
     });
     const j = await r.json();
     return j;
+  }
+
+  // === TTS (parla la risposta se mode=voice) ===
+  function maybeSpeakMessage(msg) {            // << NEW
+    try {
+      if (!speakModeRef.current) return;
+      const text = (msg?.text || '').replace(/<[^>]+>/g,'').trim();
+      if (!text) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'it-IT';
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    } catch {}
   }
 
   // === OCR Smart (Carta o Scontrino) ===
@@ -369,7 +388,9 @@ const Home = () => {
         const q = lastUserIntentRef.current.text || queryText || '';
         const result = await runSommelierFromHome(q);
         const txt = renderSommelierInChat(result);
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: txt, mono: true }]);
+        const msg = { role:'assistant', text: txt, mono: true };
+        setChatMsgs(arr => [...arr, msg]);
+        maybeSpeakMessage(msg);                // << NEW
       } catch (err) {
         setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore Sommelier: ${err?.message || err}` }]);
       } finally {
@@ -388,6 +409,7 @@ const Home = () => {
         msg,
         { role: 'assistant', text: '✅ Scontrino elaborato. Puoi chiedere: "aggiorna scorte", "quanto ho speso questo mese", "prodotti in esaurimento", ecc.' }
       ]);
+      maybeSpeakMessage(msg);                  // << NEW
     } catch (err) {
       setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
     } finally {
@@ -422,6 +444,7 @@ const Home = () => {
       const out = await runBrainQuery(raw, { first: chatMsgs.length === 0 });
       const msg = renderBrainResponse(out);
       setChatMsgs(prev => [...prev, msg]);
+      maybeSpeakMessage(msg);                  // << NEW
     } catch (err) {
       setChatMsgs(prev => [...prev, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
     } finally {
@@ -468,6 +491,34 @@ const Home = () => {
     await submitQuery(text);
   };
 
+  // === Deep-link da Siri (?q=...&src=siri&mode=voice) ===
+  useEffect(() => {                            // << NEW
+    if (!router.isReady || deepLinkHandledRef.current) return;
+
+    const qParam = typeof router.query.q === 'string' ? router.query.q.trim() : '';
+    const src    = typeof router.query.src === 'string' ? router.query.src : '';
+    const mode   = typeof router.query.mode === 'string' ? router.query.mode : '';
+
+    if (mode === 'voice') speakModeRef.current = true;
+
+    if (qParam) {
+      deepLinkHandledRef.current = true;
+
+      if (src === 'siri') {
+        setChatOpen(true);
+        setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]);
+      }
+      submitQuery(qParam);
+
+      // ripulisci l’URL
+      try {
+        const url = new URL(window.location.href);
+        ['q','src','mode'].forEach(p => url.searchParams.delete(p));
+        window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''));
+      } catch {}
+    }
+  }, [router.isReady]);
+
   // === invio dalla barra in alto ===
   const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
 
@@ -503,7 +554,7 @@ const Home = () => {
             <span className="hint">Crea e gestisci le tue liste</span>
           </Link>
 
-        <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
+          <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
             <span className="emoji">📊</span>
             <span className="title">FINANZE</span>
             <span className="hint">Entrate, spese e report</span>
