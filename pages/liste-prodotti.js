@@ -993,23 +993,13 @@ function nonEmpty(s){ return String(s||'').trim(); }
 /* ====================== Review helpers ====================== */
 // Modifica una riga nella modale (usa i setter globali se disponibili)
 function handleReviewChange(id, field, value){
-  try {
-    if (typeof __reviewSetters !== 'undefined' && __reviewSetters) {
-      const { setReviewItems /*, setReviewPick*/ } = __reviewSetters;
-      setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
-    } else {
-      // fallback: se in closure del componente
-      setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
-      try {
-        const it = reviewItems.find(i => i.id === id);
-        if (it) {
-          const key = productKey(it.name, it.brand || '');
-          setReviewPick(prev => ({ ...prev, [key]: true }));
-        }
-      } catch {}
-    }
-  } catch {}
+  const s = __reviewSetters;
+  if (!s?.setReviewItems) return;
+  s.setReviewItems(prev =>
+    prev.map(it => it.id === id ? { ...it, [field]: value } : it)
+  );
 }
+
 function priceNum(x){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? n : 0; }
 function derivePriceFields({ packs, priceEach, priceTotal }) {
   const p = Math.max(1, Number(packs || 1));
@@ -1041,15 +1031,19 @@ function normalizeReviewedItems(items){
 
 // Auto-normalizza le righe in modale in base ad alias/normalizzatori appresi
 function autoNormalizeReview(){
-  setReviewItems(prev => prev.map(it => {
+  const s = __reviewSetters;
+  if (!s?.setReviewItems) return;
+  const L = s?.getLearned?.() || {};
+  s.setReviewItems(prev => prev.map(it => {
     const ab = (typeof applyLearnedAliases === 'function')
-      ? applyLearnedAliases({ name: it.name, brand: it.brand }, learned)
+      ? applyLearnedAliases({ name: it.name, brand: it.brand }, L)
       : { name: it.name, brand: it.brand };
     const brand = (typeof normalizeBrandName === 'function') ? normalizeBrandName(ab.brand) : ab.brand;
     const name  = (typeof normalizeProductName === 'function') ? normalizeProductName(ab.name, brand, `${ab.name} ${brand}`) : ab.name;
     return { ...it, name: name || it.name, brand: brand || it.brand };
   }));
 }
+
 
 // Raccoglie voci NON riconosciute dall'OCR per la modale di validazione
 function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
@@ -1281,9 +1275,16 @@ export default function ListeProdotti() {
   const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
 
   // registra i setter per gli helper globali
-  useEffect(() => {
-    registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
-  }, []);
+ useEffect(() => {
+  registerReviewSetters({
+    setReviewItems,
+    setReviewPick,
+    setPendingOcrMeta,
+    setReviewOpen,
+    getLearned: () => learned, // 👈 così autoNormalizeReview vede l’ultimo learned
+  });
+}, [learned]);
+
 
   // Learning (memoria prodotti/alias/keep)
   const [learned, setLearned] = useState({
