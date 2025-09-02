@@ -68,7 +68,8 @@ function rememberItems(arr){ /* no-op minimo: evita errori; puoi collegarlo a se
 
 /* ====================== Costanti / Config ====================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
-const DEBUG = false;
+const DEBUG = true;
+
 
 /* ====================== Feature toggles / safety ====================== */
 // Se l’OCR / vocale trova il prodotto ma non capisce le quantità,
@@ -243,30 +244,50 @@ function persistNow(snapshot) {
   [LEX_DELI,LEX_DAIRY,LEX_BAKERY,LEX_PASTA,LEX_PANTRY,LEX_BREAKFAST,LEX_SNACKS,LEX_BEVERAGES,LEX_FROZEN,LEX_VEG,LEX_FRUIT,LEX_BABY_PET,LEX_LAUNDRY,LEX_DISH,LEX_SURF,LEX_CONSUM,LEX_PERSONAL].forEach(__lexAdd);
 })();
 
-// ——— Sanitizzazione quantità: NON toccare “pezzi” (pz/capsule/pods ecc.), neutralizza pesi/volumi/dimensioni ———
+// ——— Sanitizzazione quantità: NON toccare multipack se espliciti ———
 const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
 const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
 const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,450,454,500,700,720,733,750,800,900,910,930,950,1000,1250,1500,1750,2000]);
 
 function cleanupPurchasesQuantities(list) {
+  const UNIT_TOK = new RegExp(UNIT_SYNONYMS || __DEFAULT_UNIT_SYNONYMS, 'i');
+  const PACK_TOK = new RegExp(PACK_SYNONYMS || __DEFAULT_PACK_SYNONYMS, 'i');
+
+  const hasExplicitPack = (txt) => {
+    const t = normKey(txt);
+    return (
+      /\b\d+\s*[x×]\s*\d+\b/.test(t) ||                                    // 4x6
+      /(?:conf(?:e(?:zioni)?)?|pack|pacc?hi?|scatol[ae])\s*(?:da|x)\s*\d+/.test(t) // 2 confezioni da 6
+    );
+  };
+
   return (Array.isArray(list) ? list : []).map(p => {
     const out = { ...p };
-    const joined = `${String(out.name||'')} ${String(out.brand||'')}`.toLowerCase();
-    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 || (joined.match(DIMENSION_RE) || []).length > 0;
-    const u = Math.max(0, Number(out.unitsPerPack || 0));
+    const joined = `${String(out.name||'')} ${String(out.brand||'')} ${String(out.unitLabel||'')}`;
+    const t = joined.toLowerCase();
+
+    const u     = Math.max(0, Number(out.unitsPerPack || 0));
     const packs = Math.max(0, Number(out.packs || 0));
-    const piecesHit = /\b(pz|pezzi|bottigli|capsul|pods|bust|lattin|vasett|rotol|fogli|uova|brick)\b/i.test(
-      normKey(`${out.unitLabel||''} ${joined}`)
-    );
-    const looksWeightNumber = !piecesHit && (hasMeasure || SUSPECT_UPP.has(u));
-    if ((hasMeasure && u > 1) || looksWeightNumber) {
+
+    const hasMeasure = (t.match(MEASURE_TOKEN_RE) || []).length > 0 || (t.match(DIMENSION_RE) || []).length > 0;
+    const hasPieces  = UNIT_TOK.test(joined);           // pz, bottiglie, capsule, …
+    const explicit   = hasExplicitPack(joined);
+    const suspiciousUPP = SUSPECT_UPP.has(u);           // numeri tipici di pesi (125, 250, 500…)
+
+    // COLLASSA solo se: misura presente, NESSUN indizio di pezzi/multipack
+    // e UPP sembra un peso o non significativo
+    if (hasMeasure && !hasPieces && !explicit && (suspiciousUPP || u <= 1)) {
       out.unitsPerPack = 1;
       out.unitLabel = 'unità';
       if (!packs) out.packs = 1;
+    } else {
+      // altrimenti, conserva i multipack e normalizza solo l'etichetta
+      out.unitLabel = normalizeUnitLabel(out.unitLabel || (u > 1 ? 'pezzi' : 'unità'));
     }
     return out;
   });
 }
+
 
 // ——— PROMPT per scontrino ———
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
@@ -1860,6 +1881,8 @@ async function handleOCR(files) {
     }
 
     if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
+    if (DEBUG) console.log('[OCR] txtLen', (ocrText||'').length, 'visionItems', Array.isArray(ocrAns?.items) ? ocrAns.items.length : 0);
+
 
     // ——— 2) Preferisci items strutturati (foto busta) ———
     let purchases = [];
@@ -1940,6 +1963,8 @@ async function handleOCR(files) {
     if (!purchases.length && ocrText) {
       purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
     }
+    if (DEBUG) console.log('[OCR] parsed purchases', Array.isArray(purchases) ? purchases.length : 0);
+
 
     // ——— 6) Aliases/normalizza/sanifica quantità ———
 if (Array.isArray(purchases)) {
@@ -1952,6 +1977,8 @@ if (Array.isArray(purchases)) {
   });
   if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
   if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
+  if (DEBUG) console.log('[OCR] after cleanup', Array.isArray(purchases) ? purchases.length : 0);
+
 }
 
 // (opzionale) Canonicalizza + unisci duplicati se hai definito mergeAndCanonizePurchases()
@@ -1992,9 +2019,11 @@ if (discardedForReview.length) {
 }
 
 // ——— 9) Apri la modale (NON blocca l’inserimento dei riconosciuti) ———
+if (DEBUG) console.log('[OCR] review candidates', reviewCandidates.length);
 if (reviewCandidates.length && typeof openValidation === 'function') {
   openValidation(reviewCandidates, { store, purchaseDate });
 }
+
 
 // ——— 10) Se non abbiamo riconosciuti MA abbiamo candidati → ferma qui (solo review) ———
 if ((!Array.isArray(purchases) || purchases.length === 0) && reviewCandidates.length) {
