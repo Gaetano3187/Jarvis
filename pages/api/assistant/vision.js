@@ -1,6 +1,5 @@
 // pages/api/assistant/vision.js
 export const config = { api: { bodyParser: false } };
-
 import formidable from 'formidable';
 
 function setCORS(req, res) {
@@ -8,7 +7,7 @@ function setCORS(req, res) {
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
@@ -52,7 +51,6 @@ async function callOpenAIVision({ base64, mime, prompt }){
       temperature: 0.1
     })
   });
-
   const data = await r.json();
   if (!r.ok) throw new Error(data?.error?.message || 'Vision API error');
 
@@ -67,6 +65,8 @@ async function callOpenAIVision({ base64, mime, prompt }){
 export default async function handler(req, res){
   setCORS(req, res);
   if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'GET') return res.status(200).json({ ok:true, info:'vision alive' }); // health
+
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
   try {
@@ -76,7 +76,6 @@ export default async function handler(req, res){
     const json = await callOpenAIVision({ base64, mime, prompt });
     return res.status(200).json({ ok:true, answer: JSON.stringify(json) });
   } catch (e) {
-    // non fallire duro: il client farà fallback OCR testo
     return res.status(200).json({ ok:false, error: String(e?.message || e) });
   }
 }
