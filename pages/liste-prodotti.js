@@ -696,7 +696,10 @@ useEffect(() => {
 /* =================== Cloud Sync (Supabase) — opzionale =================== */
 const userIdRef = useRef(null);
 useEffect(() => {
+  // ⛑ evita crash in SSR/prerender e se la flag fosse falsy
+  if (typeof window === 'undefined') return;
   if (!CLOUD_SYNC) return;
+
   let mounted = true;
 
   (async () => {
@@ -730,7 +733,7 @@ useEffect(() => {
 
       setLists({
         [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
+        [LIST_TYPES.ONLINE]:      Array.isArray(st.lists?.[LIST_TYPES.ONLINE])      ? st.lists[LIST_TYPES.ONLINE]      : [],
       });
       if (Array.isArray(st.stock)) setStock(st.stock);
       if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
@@ -746,43 +749,33 @@ useEffect(() => {
   return () => { mounted = false; };
 }, []);
 
-  // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
-  function stripForCloud({ lists, stock, currentList, learned }) {
-    const safeLists = {
-      [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
-      [LIST_TYPES.ONLINE]: (lists?.[LIST_TYPES.ONLINE] || []).map(({ image, ...r }) => r),
-    };
-    const safeStock = (stock || []).map(({ image, ...r }) => r);
-    const safeLearned =
-      learned && typeof learned === 'object'
-        ? learned
-        : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
-    return { lists: safeLists, stock: safeStock, currentList, learned: safeLearned };
-  }
+/* 👉 stripForCloud resta com’è */
 
-  const cloudTimerRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC || !__supabase) return;
-    if (!userIdRef.current) return;
+/* =================== Upsert stato (debounced) =================== */
+const cloudTimerRef = useRef(null);
+useEffect(() => {
+  // ⛑ evita errori se il client non è ancora pronto o non c’è utente
+  if (!CLOUD_SYNC || !__supabase) return;
+  if (!userIdRef.current) return;
 
-    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
 
-    // NON mandiamo imagesIndex in cloud, e togliamo field .image
-    const cloudState = stripForCloud({ lists, stock, currentList, learned });
-    const payload = { user_id: userIdRef.current, state: cloudState };
+  // NON mandiamo imagesIndex in cloud, e togliamo field .image
+  const cloudState = stripForCloud({ lists, stock, currentList, learned });
+  const payload = { user_id: userIdRef.current, state: cloudState };
 
-    cloudTimerRef.current = setTimeout(async () => {
-      try {
-        await __supabase
-          .from(CLOUD_TABLE)
-          .upsert(payload, { onConflict: 'user_id' }); // returning minimal
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud upsert] fail', e);
-      }
-    }, 5000);
+  cloudTimerRef.current = setTimeout(async () => {
+    try {
+      await __supabase
+        .from(CLOUD_TABLE)
+        .upsert(payload, { onConflict: 'user_id' }); // returning minimal
+    } catch (e) {
+      if (DEBUG) console.warn('[cloud upsert] fail', e);
+    }
+  }, 5000);
 
-    return () => clearTimeout(cloudTimerRef.current);
-  }, [lists, stock, currentList, learned]);
+  return () => clearTimeout(cloudTimerRef.current);
+}, [lists, stock, currentList, learned]);
 
   /* === Brain Hub – versione robusta (evita forme incompatibili) === */
   const HUB_KEY = '__jarvisBrainHub_v2';
