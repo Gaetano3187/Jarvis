@@ -13,99 +13,125 @@ export default async function handler(req, res) {
     const out = [];
 
     // Fallback categorie semplici
-    const CATS = [
-      { re: /\b(spugna|spugne|sponge|ondattiva)\b/i, cat: 'Pulizia casa · Spugne' },
-      { re: /\b(paglietta|scouring|steel wool)\b/i,  cat: 'Pulizia casa · Pagliette' },
-      { re: /\b(detersivo|detergente|ammorbidente|lavatrice)\b/i, cat: 'Pulizia casa · Detergenti' },
-      { re: /\b(shampoo|bagnoschiuma|sapone|doccia|dentifricio)\b/i, cat: 'Igiene personale' },
-      { re: /\b(carta igienica|carta casa|rotoli|fazzoletti|tovaglioli)\b/i, cat: 'Casa · Carta' },
-      { re: /\b(capsule|cialde|caff[eè])\b/i, cat: 'Alimentari · Caffè' },
-      { re: /\b(pasta|spaghetti|penne|riso|biscotti|merendine|tonno|passata)\b/i, cat: 'Alimentari' },
-    ];
+const CATS = [
+  { re: /\b(spugna|spugne|sponge|ondattiva)\b/i,                cat: 'Pulizia casa · Spugne' },
+  { re: /\b(paglietta|scouring|steel wool)\b/i,                 cat: 'Pulizia casa · Pagliette' },
+  { re: /\b(detersivo|detergente|ammorbidente|lavatrice)\b/i,   cat: 'Pulizia casa · Detergenti' },
+  { re: /\b(shampoo|bagnoschiuma|sapone|doccia|dentifricio)\b/i,cat: 'Igiene personale' },
+  { re: /\b(carta igienica|carta casa|rotoli|fazzoletti|tovaglioli)\b/i, cat: 'Casa · Carta' },
+  { re: /\b(capsule|cialde|caff[eè])\b/i,                       cat: 'Alimentari · Caffè' },
+  { re: /\b(pasta|spaghetti|penne|riso|biscotti|merendine|tonno|passata)\b/i, cat: 'Alimentari' },
+];
 
-    const bingSearch = async (q) => {
-      const u = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(q)}&mkt=it-IT&setLang=it`;
-      const r = await fetch(u, { headers: { 'Ocp-Apim-Subscription-Key': BING }});
-      if (!r.ok) throw new Error('bing web ' + r.status);
-      return r.json();
-    };
+// 🔑 Chiavi Google CSE (web) + opzionale CSE immagini
+const GOOGLE_KEY    = process.env.GOOGLE_API_KEY?.trim();
+const GOOGLE_CX     = process.env.GOOGLE_CSE_ID?.trim();           // web search
+const GOOGLE_CX_IMG = (process.env.GOOGLE_CSE_ID_IMG || GOOGLE_CX)?.trim(); // image search (fallback al CX web)
 
-    const bingImages = async (q) => {
-      const u = `https://api.bing.microsoft.com/v7.0/images/search?q=${encodeURIComponent(q)}&mkt=it-IT&safeSearch=Moderate&imageType=Photo`;
-      const r = await fetch(u, { headers: { 'Ocp-Apim-Subscription-Key': BING }});
-      if (!r.ok) throw new Error('bing img ' + r.status);
-      return r.json();
-    };
+// Web Search
+const googleWeb = async (q) => {
+  if (!GOOGLE_KEY || !GOOGLE_CX) return null;
+  const p = new URLSearchParams({
+    key: GOOGLE_KEY, cx: GOOGLE_CX, q,
+    lr: 'lang_it', gl: 'it', cr: 'countryIT', num: '5', safe: 'active'
+  });
+  const r = await fetch(`https://www.googleapis.com/customsearch/v1?${p}`);
+  if (!r.ok) throw new Error('google web ' + r.status);
+  return r.json();
+};
 
-    for (const it of items) {
-      const name = String(it?.name || '').trim();
-      const brand = String(it?.brand || '').trim();
-      if (!name) continue;
+// Image Search
+const googleImages = async (q) => {
+  if (!GOOGLE_KEY || !GOOGLE_CX_IMG) return null;
+  const p = new URLSearchParams({
+    key: GOOGLE_KEY, cx: GOOGLE_CX_IMG, q,
+    searchType: 'image', imgType: 'photo', safe: 'active',
+    lr: 'lang_it', gl: 'it', num: '10'
+  });
+  const r = await fetch(`https://www.googleapis.com/customsearch/v1?${p}`);
+  if (!r.ok) throw new Error('google img ' + r.status);
+  return r.json();
+};
 
-      let norm = name;
-      let category = '';
-      let desc = '';
-      let imageUrl = '';
+for (const it of items) {
+  const name  = String(it?.name || '').trim();
+  const brand = String(it?.brand || '').trim();
+  if (!name) continue;
 
-      // Costruisci query
-      const q = brand ? `${brand} ${name}` : name;
+  let norm = name;
+  let category = '';
+  let desc = '';
+  let imageUrl = '';
 
-      // Prova web + immagini
-      let page = null, pics = null;
-      if (BING) {
-        try { page = await bingSearch(q); } catch {}
-        try { pics = await bingImages(q); } catch {}
-      }
+  // Query
+  const q = brand ? `${brand} ${name}` : name;
 
-      // Usa risultati testo per desc/categoria
-      if (page?.webPages?.value?.length) {
-        // prendi prime 2-3 fonti
-        const first = page.webPages.value.slice(0, 3);
-        const joinedTitle = first.map(v => v.name || '').join(' • ');
-        const joinedSnippet = first.map(v => v.snippet || '').join(' • ');
-        const hay = `${name} ${brand} ${joinedTitle} ${joinedSnippet}`;
+  // Web + Img
+  let web = null, imgs = null;
+  try { web  = await googleWeb(q); }  catch {}
+  try { imgs = await googleImages(q);} catch {}
 
-        // categoria
-        for (const c of CATS) { if (c.re.test(hay)) { category = c.cat; break; } }
+  // Testo → categoria + descrizione
+  if (web?.items?.length) {
+    const first = web.items.slice(0, 3);
+    const joinedTitle   = first.map(v => v.title   || '').join(' • ');
+    const joinedSnippet = first.map(v => v.snippet || '').join(' • ');
+    const hay = `${name} ${brand} ${joinedTitle} ${joinedSnippet}`;
 
-        // descrizione breve
-        desc = (first[0]?.snippet || first[1]?.snippet || first[0]?.name || '').trim();
-      }
-
-      // Nome "umano": se capiamo che sono spugne Vileda Ondattiva etc.
-      const all = `${brand} ${name} ${(desc||'')}`.toLowerCase();
-      if (/\b(ondattiva|spugna|spugne|sponge)\b/.test(all) && /\bvileda\b/.test(all)) {
-        norm = 'Spugne Vileda Ondattiva Colors';
-        if (!category) category = 'Pulizia casa · Spugne';
-        if (!desc) desc = 'spugne multiuso antigraffio adatte anche a superfici delicate';
-      } else if (category && brand) {
-        const tail = category.split('·')[1]?.trim() || category;
-        norm = `${tail} ${brand}`.trim(); // es. "Spugne Vileda"
-      }
-
-      // Immagine: scegli una “photo” coerente
-      if (pics?.value?.length) {
-        // preferisci immagini col brand nel titolo
-        const cand = [...pics.value]
-          .sort((a, b) => ((b.encodingFormat === 'jpeg') - (a.encodingFormat === 'jpeg')))
-          .slice(0, 8);
-
-        let best = cand.find(x => (x.name||'').toLowerCase().includes((brand||'').toLowerCase())) || cand[0];
-        imageUrl = (best?.contentUrl || best?.hostPageUrl || '').trim();
-      }
-
-      out.push({
-        sourceName: name,
-        brand,
-        normalizedName: norm,
-        category,
-        desc,
-        imageUrl,
-      });
-    }
-
-    return res.status(200).json({ ok: true, items: out });
-  } catch (e) {
-    return res.status(200).json({ ok:false, error: e?.message || String(e) });
+    for (const c of CATS) { if (c.re.test(hay)) { category = c.cat; break; } }
+    desc = (first[0]?.snippet || first[1]?.snippet || first[0]?.title || '').trim();
   }
+
+  // Nome "umano": regola spugne Vileda / altrimenti usa categoria+brand
+  const all = `${brand} ${name} ${desc}`.toLowerCase();
+  if (/(\bondattiva\b|\bspugna\b|\bspugne\b|\bsponge\b)/.test(all) && /\bvileda\b/.test(all)) {
+    norm = 'Spugne Vileda Ondattiva Colors';
+    if (!category) category = 'Pulizia casa · Spugne';
+    if (!desc) desc = 'spugne multiuso antigraffio adatte anche a superfici delicate';
+  } else if (category && brand) {
+    const tail = category.split('·')[1]?.trim() || category;
+    norm = `${tail} ${brand}`.trim(); // es. "Spugne Vileda"
+  }
+
+  // Immagine: preferisci immagini col brand nel titolo
+  if (imgs?.items?.length) {
+    const cand = imgs.items.slice(0, 10);
+    let best = cand.find(x => (x.title||'').toLowerCase().includes((brand||'').toLowerCase())) || cand[0];
+    imageUrl = (best?.link || '').trim();
+  }
+
+  // 🔁 Fallback da risultati web (pagemap: og:image / cse_image)
+  if (!imageUrl && web?.items?.length) {
+    for (const w of web.items) {
+      const og = w.pagemap?.metatags?.[0]?.['og:image'];
+      const cs = w.pagemap?.cse_image?.[0]?.src;
+      const any = og || cs;
+      if (any && /^https?:\/\//i.test(any)) { imageUrl = any; break; }
+    }
+  }
+
+  // 🔁 Secondo tentativo image search (query arricchita)
+  if (!imageUrl && GOOGLE_CX_IMG) {
+    try {
+      const imgs2 = await googleImages(`${q} foto`);
+      const cand2 = imgs2?.items?.slice(0, 10) || [];
+      let best2 = cand2.find(x => (x.title||'').toLowerCase().includes((brand||'').toLowerCase())) || cand2[0];
+      imageUrl = (best2?.link || '').trim();
+    } catch {}
+  }
+
+  out.push({
+    sourceName: name,
+    brand,
+    normalizedName: norm,
+    category,
+    desc,
+    imageUrl,
+  });
+}
+
+return res.status(200).json({ ok: true, items: out });
+} catch (e) {
+  return res.status(200).json({ ok:false, error: e?.message || String(e) });
+}
 }

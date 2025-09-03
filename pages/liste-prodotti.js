@@ -2040,28 +2040,17 @@ if (purchases.length) {
   if (imap && Object.keys(imap).length) {
     setImagesIndex(prev => ({ ...prev, ...imap }));
   }
-}
 // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
+let mergedImagesIndex = imagesIndex;
 if (purchases.length) {
   const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
   purchases = enriched;
 
-  // salva le immagini in imagesIndex PRIMA dell'aggiornamento scorte,
-  // così withRememberedImage le aggancia alle nuove righe
-  if (imap && Object.keys(imap).length) {
-    setImagesIndex(prev => ({ ...prev, ...imap }));
-  }
-  // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
-if (purchases.length) {
-  const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
-  purchases = enriched;
-
-  // salva le immagini in imagesIndex PRIMA dell'aggiornamento scorte,
-  // così withRememberedImage le aggancia alle nuove righe
-  if (imap && Object.keys(imap).length) {
-    setImagesIndex(prev => ({ ...prev, ...imap }));
-  }
+  // ✅ crea una mappa immagini SINCRONA da usare SUBITO anche dentro setStock
+  mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
+  setImagesIndex(mergedImagesIndex); // async: noi useremo mergedImagesIndex nel closure
 }
+
 
 }
 
@@ -2111,9 +2100,8 @@ if (purchases.length) {
           }// se non c'è immagine sulla riga esistente, prova a impostarla dal nuovo imagesIndex
 try {
   const kImg = productKey(p.name, p.brand || '');
-  const remembered = imagesIndex && imagesIndex[kImg];
-  if (remembered && !arr[idx].image) {
-    arr[idx] = { ...arr[idx], image: remembered };
+const remembered = mergedImagesIndex && mergedImagesIndex[kImg];
+if (remembered && !arr[idx].image) {
   }
 } catch {}
 
