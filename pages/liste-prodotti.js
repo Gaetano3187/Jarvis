@@ -1202,6 +1202,40 @@ const ASSIST_TIMEOUT_MS = 15000;  // timeout breve per l'agente
 const OCR_IMAGE_MAXSIDE = 1200;
 const OCR_IMAGE_QUALITY = 0.66;
 
+/* ==== DIRECT RECOGNITION (stile ChatGPT Web) ==== */
+const DIRECT_RECOGNITION = true;
+
+/** Prompt “diretto”: nessuna normalizzazione, nessun sinonimo, mantieni i nomi come sullo scontrino */
+function buildDirectReceiptPrompt(ocrText) {
+  return [
+    'Sei Jarvis. Estrai le righe di UN SCONTRINO da TESTO OCR.',
+    '⚠️ IMPORTANTISSIMO: NON normalizzare, NON tradurre, NON sostituire sinonimi.',
+    'Mantieni i nomi (name) esattamente come appaiono sullo scontrino. "brand" solo se è scritto in riga; altrimenti stringa vuota.',
+    '',
+    'Rispondi SOLO JSON (nessun commento) con schema esatto:',
+    '{ "store":"", "purchaseDate":"", "purchases":[{"name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","priceEach":0,"priceTotal":0,"currency":"EUR","expiresAt":""}] }',
+    '',
+    'Regole quantità:',
+    '- Compila packs/unitsPerPack SOLO se il formato è esplicito (es. "2x6", "2 confezioni da 6", "6 bottiglie").',
+    '- Pesi/volumi/dimensioni (g, kg, ml, L, cm, ecc.) NON sono quantità: non usarli per packs/unitsPerPack.',
+    '- Se manca la quantità esplicita, lascia packs=0, unitsPerPack=0, unitLabel="".',
+    '',
+    'Regole prezzi:',
+    '- priceEach se presente prezzo unitario; altrimenti 0.',
+    '- priceTotal è il totale della riga (non il totale scontrino).',
+    '- currency in "EUR" se non indicato.',
+    '',
+    'Date/Store:',
+    '- purchaseDate nel formato YYYY-MM-DD se presente.',
+    '- store è il nome dell’esercizio (testo dell’intestazione), non i metodi di pagamento.',
+    '',
+    '--- INIZIO OCR ---',
+    ocrText,
+    '--- FINE OCR ---'
+  ].join('\n');
+}
+
+
 /* ====================== Component principale ====================== */
 export default function ListeProdotti() {
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
