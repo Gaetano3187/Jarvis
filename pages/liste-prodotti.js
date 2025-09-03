@@ -1078,16 +1078,10 @@ function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
   return out;
 }
 
-// Apri la modale con i candidati (usa i setter registrati)
 function openValidation(/*discardedList, meta*/) {
-  if (!ENABLE_REVIEW) return; // <- modale disabilitata
+  return; // modale disattivata
 }
-  if (items.length) {
-    setReviewItems(items);
-    setReviewPick(items.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}));
-    setPendingOcrMeta(meta || null);
-    setReviewOpen(true);
-  }
+
 
 
 /* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
@@ -1223,7 +1217,6 @@ function buildDirectReceiptPrompt(ocrText) {
 
 /* ====================== Component principale ====================== */
 function ListeProdotti() {
-
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
   const [lists, setLists] = useState({
     [LIST_TYPES.SUPERMARKET]: [],
@@ -2564,7 +2557,6 @@ if (unitsUpdated.size > 0) {
     invMediaRef.current = null;
     invStreamRef.current = null;
   }
-  
 }
 
 
@@ -3308,101 +3300,6 @@ return (
      )}
     {/* Modale disattivata */}
 
-      {/* Body */}
-      <div style={{ padding:'10px 14px', overflowY:'auto', maxHeight:'58vh', display:'flex', flexDirection:'column', gap:10 }}>
-        {reviewItems.map((it) => {
-          const key = productKey(it.name, it.brand || '');
-          const checked = !!reviewPick[key];
-
-          return (
-            <div key={it.id || key} style={{
-              display:'grid',
-              gridTemplateColumns:'24px 1.2fr 1fr 0.6fr 0.8fr 0.9fr 0.9fr auto',
-              gap:10, alignItems:'center',
-              padding:'10px 12px', borderRadius:10,
-              background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.10)'
-            }}>
-              {/* Check */}
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => setReviewPick(prev => ({ ...prev, [key]: !checked }))}
-                style={{ width:18, height:18 }}
-              />
-
-              {/* Nome */}
-              <input
-                value={it.name}
-                onChange={(e) => handleReviewChange(it.id, 'name', e.target.value)}
-                placeholder="Nome prodotto"
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              />
-
-              {/* Marca */}
-              <input
-                value={it.brand || ''}
-                onChange={(e) => handleReviewChange(it.id, 'brand', e.target.value)}
-                placeholder="Marca"
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              />
-
-              {/* Packs */}
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button type="button" onClick={() => handleReviewChange(it.id, 'packs', Math.max(0, (parseInt(it.packs||1,10)||1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="-1">−</button>
-                <input inputMode="numeric" value={String(it.packs ?? 1)} onChange={(e) => handleReviewChange(it.id, 'packs', Math.max(0, parseInt(e.target.value||'1',10)||1))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
-                <button type="button" onClick={() => handleReviewChange(it.id, 'packs', (parseInt(it.packs||1,10)||1)+1)} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="+1">+</button>
-              </div>
-
-              {/* UPP */}
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button type="button" onClick={() => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, (parseInt(it.unitsPerPack||1,10)||1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="-1">−</button>
-                <input inputMode="numeric" value={String(it.unitsPerPack ?? 1)} onChange={(e) => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, parseInt(e.target.value||'1',10)||1))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
-                <button type="button" onClick={() => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, (parseInt(it.unitsPerPack||1,10)||1)+1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="+1">+</button>
-              </div>
-
-              {/* Etichetta unità */}
-              <select
-                value={it.unitLabel || 'unità'}
-                onChange={(e) => handleReviewChange(it.id, 'unitLabel', e.target.value)}
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              >
-                {['unità','pezzi','bottiglie','buste','lattine','vasetti','rotoli','capsule','brick','uova'].map(l => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
-
-              {/* Scadenza */}
-              <input
-                type="date"
-                value={it.expiresAt || ''}
-                onChange={(e) => handleReviewChange(it.id, 'expiresAt', e.target.value)}
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              />
-
-              {/* Scarta riga */}
-              <button
-                type="button"
-                onClick={() => setReviewPick(prev => ({ ...prev, [key]: false }))}
-                style={{ ...styles.iconSquareBase, ...styles.iconDanger, width:36, height:36 }}
-                title="Scarta"
-              >🗑</button>
-            </div>
-          );
-        })}
-        {reviewItems.length === 0 && <p style={{ opacity:.8 }}>Nessun candidato da convalidare.</p>}
-      </div>
-
-      {/* Footer */}
-      <div style={{ padding:'10px 14px', display:'flex', gap:8, borderTop:'1px solid rgba(255,255,255,.08)'}}>
-        <button
-          onClick={() => setReviewPick(reviewItems.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}))}
-          style={styles.smallGhostBtn}
-        >Seleziona tutti</button>
-        <button onClick={() => setReviewPick({})} style={styles.smallGhostBtn}>Deseleziona</button>
-        <div style={{ flex:1 }} />
-        <button onClick={() => { setReviewOpen(false); setReviewItems([]); setReviewPick({}); setPendingOcrMeta(null); }} style={styles.smallGhostBtn}>Annulla</button>
-        <button onClick={applyReviewSelection} style={styles.smallOkBtn}>Aggiungi selezionati</button>
-      </div>
 
     {/* INPUT NASCOSTI */}
     <input
@@ -3580,11 +3477,8 @@ return (
     />
   </>
 );
-      {/* SAFE OVERRIDES SOLO per /liste-prodotti */}
-
-
-
-
+ // SAFE OVERRIDES SOLO per /liste-prodotti
+   
 }
 /* =================== Styles (identici) =================== */
 const styles = {
@@ -4428,9 +4322,11 @@ voiceVideo: {
     objectFit: 'cover',        // 👉 niente bande: riempi e ritaglia
     objectPosition: 'center'   // puoi anche provare 'center 55%' se vuoi scendere leggermente
   }
-  } // <-- fine function ListeProdotti
+  
+}; 
+const ListeProdottiNoSSR = dynamic(() => Promise.resolve(ListeProdotti), { ssr: false });
+export default ListeProdottiNoSSR;
 
-export default dynamic(() => Promise.resolve(ListeProdotti), { ssr: false });
 
 
 
