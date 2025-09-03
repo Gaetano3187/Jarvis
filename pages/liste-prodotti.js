@@ -10,14 +10,22 @@ import {
 } from '@/lib/receipt-pipeline';
 
 /* ===========================================================
-   SHIMS REVIEW (se la modale non è più usata, evita errori)
+   SHIMS REVIEW (safe, no-redeclare)
+   - Non dichiara variabili locali con gli stessi nomi.
+   - Espone solo proprietà su globalThis se mancano.
 =========================================================== */
-// eslint-disable-next-line no-var
-var registerReviewSetters = (typeof registerReviewSetters === 'function') ? registerReviewSetters : function noop(){};
-// eslint-disable-next-line no-var
-var openValidation       = (typeof openValidation       === 'function') ? openValidation       : function noop(){};
-// eslint-disable-next-line no-var
-var handleReviewChange   = (typeof handleReviewChange   === 'function') ? handleReviewChange   : function noop(){};
+if (typeof globalThis !== 'undefined') {
+  if (typeof globalThis.registerReviewSetters !== 'function') {
+    globalThis.registerReviewSetters = function noop() {};
+  }
+  if (typeof globalThis.openValidation !== 'function') {
+    globalThis.openValidation = function noop() {};
+  }
+  if (typeof globalThis.handleReviewChange !== 'function') {
+    globalThis.handleReviewChange = function noop() {};
+  }
+}
+
 
 /* ===========================================================
    BASE LEXICON (minimo, espandibile)
@@ -647,10 +655,15 @@ export default function ListeProdotti() {
   const [reviewPick, setReviewPick] = useState({});
   const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
 
-  // registra i setter per gli helper globali
-  useEffect(() => {
+// registra i setter per gli helper globali (safe)
+useEffect(() => {
+  if (typeof registerReviewSetters === 'function') {
     registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
-  }, []);
+  } else if (typeof globalThis.registerReviewSetters === 'function') {
+    globalThis.registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
+  }
+}, []);
+
 
   // Learning (memoria prodotti/alias/keep)
   const [learned, setLearned] = useState({
