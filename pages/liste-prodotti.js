@@ -4,6 +4,8 @@ import Head from 'next/head';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
+import dynamic from 'next/dynamic';
+
 
 
 
@@ -1220,7 +1222,8 @@ function buildDirectReceiptPrompt(ocrText) {
 
 
 /* ====================== Component principale ====================== */
-export default function ListeProdotti() {
+function ListeProdotti() {
+
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
   const [lists, setLists] = useState({
     [LIST_TYPES.SUPERMARKET]: [],
@@ -2561,6 +2564,7 @@ if (unitsUpdated.size > 0) {
     invMediaRef.current = null;
     invStreamRef.current = null;
   }
+  
 }
 
 
@@ -3578,7 +3582,9 @@ return (
 );
       {/* SAFE OVERRIDES SOLO per /liste-prodotti */}
 
-   
+
+
+
 }
 /* =================== Styles (identici) =================== */
 const styles = {
@@ -4422,8 +4428,10 @@ voiceVideo: {
     objectFit: 'cover',        // 👉 niente bande: riempi e ritaglia
     objectPosition: 'center'   // puoi anche provare 'center 55%' se vuoi scendere leggermente
   }
-  
-}
+  } // <-- fine function ListeProdotti
+
+export default dynamic(() => Promise.resolve(ListeProdotti), { ssr: false });
+
 
 
 
