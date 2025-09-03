@@ -121,70 +121,100 @@ function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
 /* ====================== Cloud: sanitizer stato per upsert ====================== */
+// 👉 Versione aggiornata: include _ts (timestamp), sincronizza imagesIndex (solo URL http/https brevi)
+//    e mantiene l’immagine in stock SOLO se è un URL http/https (no base64 pesanti).
 function stripForCloud(state = {}) {
-  // 1) Liste (tieni solo campi essenziali)
-  const safeList = (arr) => (Array.isArray(arr) ? arr : []).map(it => ({
-    id: String(it?.id ?? ''),
-    name: String(it?.name ?? ''),
-    brand: String(it?.brand ?? ''),
-    qty: Number(it?.qty ?? 0),
-    unitsPerPack: Number(it?.unitsPerPack ?? 1),
-    unitLabel: String(it?.unitLabel ?? 'unità'),
-    purchased: !!it?.purchased,
-  }));
+  // 1) Liste (tieni solo campi essenziali; NON salviamo image nelle liste)
+  const safeList = (arr) =>
+    (Array.isArray(arr) ? arr : []).map((it) => ({
+      id: String(it?.id ?? ''),
+      name: String(it?.name ?? ''),
+      brand: String(it?.brand ?? ''),
+      qty: Number(it?.qty ?? 0),
+      unitsPerPack: Number(it?.unitsPerPack ?? 1),
+      unitLabel: String(it?.unitLabel ?? 'unità'),
+      purchased: !!it?.purchased,
+    }));
 
   const lists = state.lists || {};
   const safeLists = {
     [LIST_TYPES.SUPERMARKET]: safeList(lists[LIST_TYPES.SUPERMARKET]),
-    [LIST_TYPES.ONLINE]:      safeList(lists[LIST_TYPES.ONLINE]),
+    [LIST_TYPES.ONLINE]: safeList(lists[LIST_TYPES.ONLINE]),
   };
 
-  // 2) Scorte (solo campi persistibili)
-  const safeStock = (Array.isArray(state.stock) ? state.stock : []).map(s => ({
-    name: String(s?.name ?? ''),
-    brand: String(s?.brand ?? ''),
-    packs: Number(s?.packs ?? 0),
-    unitsPerPack: Number(s?.unitsPerPack ?? 1),
-    unitLabel: String(s?.unitLabel ?? 'unità'),
-    expiresAt: String(s?.expiresAt ?? ''),
-    baselinePacks: Number(s?.baselinePacks ?? 0),
-    lastRestockAt: String(s?.lastRestockAt ?? ''),
-    avgDailyUnits: Number(s?.avgDailyUnits ?? 0),
-    residueUnits: Number(
-      s?.residueUnits ?? (Number(s?.packs ?? 0) * Number(s?.unitsPerPack ?? 1))
-    ),
-    packsOnly: !!s?.packsOnly,
-  }));
+  // 2) Scorte: copia campi persistibili.
+  //    Mantieni s.image SOLO se è un URL http/https "breve" (evita base64).
+  const safeStock = (Array.isArray(state.stock) ? state.stock : []).map((s) => {
+    const base = {
+      name: String(s?.name ?? ''),
+      brand: String(s?.brand ?? ''),
+      packs: Number(s?.packs ?? 0),
+      unitsPerPack: Number(s?.unitsPerPack ?? 1),
+      unitLabel: String(s?.unitLabel ?? 'unità'),
+      expiresAt: String(s?.expiresAt ?? ''),
+      baselinePacks: Number(s?.baselinePacks ?? 0),
+      lastRestockAt: String(s?.lastRestockAt ?? ''),
+      avgDailyUnits: Number(s?.avgDailyUnits ?? 0),
+      residueUnits:
+        Number(
+          s?.residueUnits ??
+            Number(s?.packs ?? 0) * Number(s?.unitsPerPack ?? 1)
+        ),
+      packsOnly: !!s?.packsOnly,
+    };
 
-  // 3) imagesIndex: opzionale e limitato (evita base64 giganteschi)
-  const srcIdx = state.imagesIndex && typeof state.imagesIndex === 'object' ? state.imagesIndex : {};
+    // Mantieni immagine solo se è URL http/https e non troppo lunga
+    const img = s?.image;
+    if (
+      typeof img === 'string' &&
+      /^https?:\/\//i.test(img) &&
+      img.length <= 500
+    ) {
+      base.image = img;
+    }
+
+    return base;
+  });
+
+  // 3) imagesIndex: includi solo URL http/https brevi (no base64)
+  const srcIdx =
+    state.imagesIndex && typeof state.imagesIndex === 'object'
+      ? state.imagesIndex
+      : {};
   const imagesIndex = {};
   for (const [k, v] of Object.entries(srcIdx)) {
-    if (typeof v === 'string' && v.length <= 4000) {
-      imagesIndex[k] = v; // tieni solo thumb brevi
+    if (typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500) {
+      imagesIndex[k] = v;
     }
   }
 
   // 4) learned (solo quello utile)
-  const learned = state.learned && typeof state.learned === 'object'
-    ? {
-        products: state.learned.products || {},
-        aliases: state.learned.aliases || { product: {}, brand: {} },
-        keepTerms: state.learned.keepTerms || {},
-      }
-    : undefined;
+  const learned =
+    state.learned && typeof state.learned === 'object'
+      ? {
+          products: state.learned.products || {},
+          aliases: state.learned.aliases || { product: {}, brand: {} },
+          keepTerms: state.learned.keepTerms || {},
+        }
+      : undefined;
 
   // 5) currentList sicuro
-  const currentList = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(state.currentList)
+  const currentList = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(
+    state.currentList
+  )
     ? state.currentList
     : LIST_TYPES.SUPERMARKET;
 
-  return { lists: safeLists, stock: safeStock, currentList, imagesIndex, learned };
+  // 6) timestamp per risoluzione conflitti (last-write-wins)
+  const _ts = Date.now();
+
+  return { _ts, lists: safeLists, stock: safeStock, currentList, imagesIndex, learned };
 }
 
 function loadPersisted() {
   try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
+    const raw =
+      typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null;
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || data.v !== LS_VER) return null;
@@ -192,7 +222,6 @@ function loadPersisted() {
   } catch {
     return null;
   }
-  
 }
 function persistNow(snapshot) {
   try {
@@ -219,45 +248,366 @@ function persistNow(snapshot) {
   if (typeof GROCERY_LEXICON === 'undefined') return;
 
   const __hasLex = (term) =>
-    Array.isArray(GROCERY_LEXICON) && GROCERY_LEXICON.some(x => normKey(x) === normKey(term));
-  const __lexAdd = (arr) => { arr.forEach(t => { if (t && !__hasLex(t)) GROCERY_LEXICON.push(t); }); };
+    Array.isArray(GROCERY_LEXICON) &&
+    GROCERY_LEXICON.some((x) => normKey(x) === normKey(term));
+  const __lexAdd = (arr) => {
+    arr.forEach((t) => {
+      if (t && !__hasLex(t)) GROCERY_LEXICON.push(t);
+    });
+  };
 
   // ——— ALIMENTARI & CASA (esteso) ———
-  const LEX_DELI = ['prosciutto cotto','prosciutto crudo','bresaola','speck','mortadella','salame','pancetta','salsiccia','wurstel','porchetta','arrosto di tacchino'];
-  const LEX_DAIRY = ['latte','latte uht','latte senza lattosio','latte zymil','yogurt','yogurt greco','burro','panna','ricotta','mozzarella','burrata','scamorza','provola','parmigiano reggiano','grana padano','pecorino','gorgonzola','stracchino','robiola','brie','crescenza','philadelphia','formaggio spalmabile','kefir'];
-  const LEX_BAKERY = ['pane','panini','pan bauletto','pan carrè','grissini','cracker','taralli','piadina','tortillas','focaccia','cornetti','croissant','fette biscottate','pangrattato','pan grattugiato','pan carré'];
-  const LEX_PASTA = ['pasta','spaghetti','penne','fusilli','rigatoni','lasagne','gnocchi','ravioli','tortellini','riso','riso arborio','riso carnaroli','riso basmati','farina 00','semola','lievito per dolci','lievito di birra','cous cous','farro','orzo','quinoa','polenta'];
-  const LEX_PANTRY = ['passata di pomodoro','polpa di pomodoro','pomodori pelati','concentrato di pomodoro','pesto','ragù','olio extravergine di oliva','olio evo','olio di semi','aceto balsamico','zucchero','zucchero di canna','sale fino','sale grosso','pepe','tonno in scatola','sgombro','legumi in scatola','ceci','fagioli borlotti','lenticchie','piselli','mais','olive','capperi','dado da brodo','maionese','ketchup','senape','salsa barbecue','salsa di soia','spezie','origano','basilico','rosmarino','curry','paprika','curcuma','cannella','zafferano'];
-  const LEX_BREAKFAST = ['cereali','corn flakes','muesli','granola','biscotti','biscotti integrali','merendine','crostatine','plumcake','marmellata','confettura','miele','nutella','crema di arachidi'];
-  const LEX_SNACKS = ['cioccolato','barrette','caramelle','liquirizia','gomme da masticare','salatini','mandorle','nocciole','pistacchi','anacardi','noci','pinoli','patatine','popcorn','grissini snack','batticuori','fette rigate','yo-yo','fiesta'];
-  const LEX_BEVERAGES = ['acqua naturale','acqua frizzante','succo di frutta','tè freddo','caffè','caffè capsule','caffè cialde','bevanda vegetale','bibita cola','aranciata','birra','vino','spumante'];
-  const LEX_FROZEN = ['piselli surgelati','spinaci surgelati','minestrone surgelato','patatine surgelate','bastoncini di pesce','pizza surgelata','gelato','sorbetto'];
-  const LEX_VEG = ['insalata','lattuga','rucola','pomodori','zucchine','melanzane','peperoni','carote','sedano','cetrioli','cipolle','aglio','patate','zucca','broccoli','cavolfiore','asparagi','carciofi','funghi','finocchi','verza'];
-  const LEX_FRUIT = ['banane','mele','pere','arance','limoni','mandarini','kiwi','uva','fragole','mirtilli','lamponi','ananas','mango','melone','anguria','pesche','albicocche','prugne','fichi','melagrana','avocado','cachi'];
-  const LEX_BABY_PET = ['pannolini','salviettine umidificate','omogeneizzati','latte in polvere','crocchette cane','crocchette gatto','lettiera gatti'];
-  const LEX_LAUNDRY = ['detersivo lavatrice','pods lavatrice','ammorbidente','smacchiatore','candeggina','igienizzante bucato','detersivo capi delicati','perle profuma-bucato'];
-  const LEX_DISH = ['detersivo piatti','pastiglie lavastoviglie','gel lavastoviglie','sale lavastoviglie','brillantante lavastoviglie'];
-  const LEX_SURF = ['sgrassatore cucina','detergente multiuso','detergente vetri','detergente pavimenti','detergente bagno','anticalcare','gel wc','igienizzante superfici','cera parquet'];
-  const LEX_CONSUM = ['carta igienica','carta casa','scottex','fazzoletti','tovaglioli','sacchi spazzatura','sacchetti immondizia','sacchetti freezer','pellicola','alluminio','carta forno','guanti lattice','panni microfibra','buste gelo','sacchetti zip','mocio','ricariche mocio','scopa','teli copritutto','accendifuoco','sacchetti aspirapolvere','deumidificatore ricariche','rotolo bio con maniglie'];
-  const LEX_PERSONAL = ['sapone mani','bagnoschiuma','shampoo','balsamo','dentifricio','collutorio','spazzolino','deodorante','assorbenti','cotton fioc','crema mani'];
+  const LEX_DELI = [
+    'prosciutto cotto',
+    'prosciutto crudo',
+    'bresaola',
+    'speck',
+    'mortadella',
+    'salame',
+    'pancetta',
+    'salsiccia',
+    'wurstel',
+    'porchetta',
+    'arrosto di tacchino',
+  ];
+  const LEX_DAIRY = [
+    'latte',
+    'latte uht',
+    'latte senza lattosio',
+    'latte zymil',
+    'yogurt',
+    'yogurt greco',
+    'burro',
+    'panna',
+    'ricotta',
+    'mozzarella',
+    'burrata',
+    'scamorza',
+    'provola',
+    'parmigiano reggiano',
+    'grana padano',
+    'pecorino',
+    'gorgonzola',
+    'stracchino',
+    'robiola',
+    'brie',
+    'crescenza',
+    'philadelphia',
+    'formaggio spalmabile',
+    'kefir',
+  ];
+  const LEX_BAKERY = [
+    'pane',
+    'panini',
+    'pan bauletto',
+    'pan carrè',
+    'grissini',
+    'cracker',
+    'taralli',
+    'piadina',
+    'tortillas',
+    'focaccia',
+    'cornetti',
+    'croissant',
+    'fette biscottate',
+    'pangrattato',
+    'pan grattugiato',
+    'pan carré',
+  ];
+  const LEX_PASTA = [
+    'pasta',
+    'spaghetti',
+    'penne',
+    'fusilli',
+    'rigatoni',
+    'lasagne',
+    'gnocchi',
+    'ravioli',
+    'tortellini',
+    'riso',
+    'riso arborio',
+    'riso carnaroli',
+    'riso basmati',
+    'farina 00',
+    'semola',
+    'lievito per dolci',
+    'lievito di birra',
+    'cous cous',
+    'farro',
+    'orzo',
+    'quinoa',
+    'polenta',
+  ];
+  const LEX_PANTRY = [
+    'passata di pomodoro',
+    'polpa di pomodoro',
+    'pomodori pelati',
+    'concentrato di pomodoro',
+    'pesto',
+    'ragù',
+    'olio extravergine di oliva',
+    'olio evo',
+    'olio di semi',
+    'aceto balsamico',
+    'zucchero',
+    'zucchero di canna',
+    'sale fino',
+    'sale grosso',
+    'pepe',
+    'tonno in scatola',
+    'sgombro',
+    'legumi in scatola',
+    'ceci',
+    'fagioli borlotti',
+    'lenticchie',
+    'piselli',
+    'mais',
+    'olive',
+    'capperi',
+    'dado da brodo',
+    'maionese',
+    'ketchup',
+    'senape',
+    'salsa barbecue',
+    'salsa di soia',
+    'spezie',
+    'origano',
+    'basilico',
+    'rosmarino',
+    'curry',
+    'paprika',
+    'curcuma',
+    'cannella',
+    'zafferano',
+  ];
+  const LEX_BREAKFAST = [
+    'cereali',
+    'corn flakes',
+    'muesli',
+    'granola',
+    'biscotti',
+    'biscotti integrali',
+    'merendine',
+    'crostatine',
+    'plumcake',
+    'marmellata',
+    'confettura',
+    'miele',
+    'nutella',
+    'crema di arachidi',
+  ];
+  const LEX_SNACKS = [
+    'cioccolato',
+    'barrette',
+    'caramelle',
+    'liquirizia',
+    'gomme da masticare',
+    'salatini',
+    'mandorle',
+    'nocciole',
+    'pistacchi',
+    'anacardi',
+    'noci',
+    'pinoli',
+    'patatine',
+    'popcorn',
+    'grissini snack',
+    'batticuori',
+    'fette rigate',
+    'yo-yo',
+    'fiesta',
+  ];
+  const LEX_BEVERAGES = [
+    'acqua naturale',
+    'acqua frizzante',
+    'succo di frutta',
+    'tè freddo',
+    'caffè',
+    'caffè capsule',
+    'caffè cialde',
+    'bevanda vegetale',
+    'bibita cola',
+    'aranciata',
+    'birra',
+    'vino',
+    'spumante',
+  ];
+  const LEX_FROZEN = [
+    'piselli surgelati',
+    'spinaci surgelati',
+    'minestrone surgelato',
+    'patatine surgelate',
+    'bastoncini di pesce',
+    'pizza surgelata',
+    'gelato',
+    'sorbetto',
+  ];
+  const LEX_VEG = [
+    'insalata',
+    'lattuga',
+    'rucola',
+    'pomodori',
+    'zucchine',
+    'melanzane',
+    'peperoni',
+    'carote',
+    'sedano',
+    'cetrioli',
+    'cipolle',
+    'aglio',
+    'patate',
+    'zucca',
+    'broccoli',
+    'cavolfiore',
+    'asparagi',
+    'carciofi',
+    'funghi',
+    'finocchi',
+    'verza',
+  ];
+  const LEX_FRUIT = [
+    'banane',
+    'mele',
+    'pere',
+    'arance',
+    'limoni',
+    'mandarini',
+    'kiwi',
+    'uva',
+    'fragole',
+    'mirtilli',
+    'lamponi',
+    'ananas',
+    'mango',
+    'melone',
+    'anguria',
+    'pesche',
+    'albicocche',
+    'prugne',
+    'fichi',
+    'melagrana',
+    'avocado',
+    'cachi',
+  ];
+  const LEX_BABY_PET = [
+    'pannolini',
+    'salviettine umidificate',
+    'omogeneizzati',
+    'latte in polvere',
+    'crocchette cane',
+    'crocchette gatto',
+    'lettiera gatti',
+  ];
+  const LEX_LAUNDRY = [
+    'detersivo lavatrice',
+    'pods lavatrice',
+    'ammorbidente',
+    'smacchiatore',
+    'candeggina',
+    'igienizzante bucato',
+    'detersivo capi delicati',
+    'perle profuma-bucato',
+  ];
+  const LEX_DISH = [
+    'detersivo piatti',
+    'pastiglie lavastoviglie',
+    'gel lavastoviglie',
+    'sale lavastoviglie',
+    'brillantante lavastoviglie',
+  ];
+  const LEX_SURF = [
+    'sgrassatore cucina',
+    'detergente multiuso',
+    'detergente vetri',
+    'detergente pavimenti',
+    'detergente bagno',
+    'anticalcare',
+    'gel wc',
+    'igienizzante superfici',
+    'cera parquet',
+  ];
+  const LEX_CONSUM = [
+    'carta igienica',
+    'carta casa',
+    'scottex',
+    'fazzoletti',
+    'tovaglioli',
+    'sacchi spazzatura',
+    'sacchetti immondizia',
+    'sacchetti freezer',
+    'pellicola',
+    'alluminio',
+    'carta forno',
+    'guanti lattice',
+    'panni microfibra',
+    'buste gelo',
+    'sacchetti zip',
+    'mocio',
+    'ricariche mocio',
+    'scopa',
+    'teli copritutto',
+    'accendifuoco',
+    'sacchetti aspirapolvere',
+    'deumidificatore ricariche',
+    'rotolo bio con maniglie',
+  ];
+  const LEX_PERSONAL = [
+    'sapone mani',
+    'bagnoschiuma',
+    'shampoo',
+    'balsamo',
+    'dentifricio',
+    'collutorio',
+    'spazzolino',
+    'deodorante',
+    'assorbenti',
+    'cotton fioc',
+    'crema mani',
+  ];
 
-  [LEX_DELI,LEX_DAIRY,LEX_BAKERY,LEX_PASTA,LEX_PANTRY,LEX_BREAKFAST,LEX_SNACKS,LEX_BEVERAGES,LEX_FROZEN,LEX_VEG,LEX_FRUIT,LEX_BABY_PET,LEX_LAUNDRY,LEX_DISH,LEX_SURF,LEX_CONSUM,LEX_PERSONAL].forEach(__lexAdd);
+  [
+    LEX_DELI,
+    LEX_DAIRY,
+    LEX_BAKERY,
+    LEX_PASTA,
+    LEX_PANTRY,
+    LEX_BREAKFAST,
+    LEX_SNACKS,
+    LEX_BEVERAGES,
+    LEX_FROZEN,
+    LEX_VEG,
+    LEX_FRUIT,
+    LEX_BABY_PET,
+    LEX_LAUNDRY,
+    LEX_DISH,
+    LEX_SURF,
+    LEX_CONSUM,
+    LEX_PERSONAL,
+  ].forEach(__lexAdd);
 })();
 
 // ——— Sanitizzazione quantità: NON toccare “pezzi” (pz/capsule/pods ecc.), neutralizza pesi/volumi/dimensioni ———
-const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
-const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
-const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,450,454,500,700,720,733,750,800,900,910,930,950,1000,1250,1500,1750,2000]);
+const MEASURE_TOKEN_RE =
+  /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
+const DIMENSION_RE =
+  /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
+const SUSPECT_UPP = new Set([
+  125, 200, 220, 225, 230, 240, 250, 280, 300, 330, 350, 375, 400, 450, 454,
+  500, 700, 720, 733, 750, 800, 900, 910, 930, 950, 1000, 1250, 1500, 1750,
+  2000,
+]);
 
 function cleanupPurchasesQuantities(list) {
-  return (Array.isArray(list) ? list : []).map(p => {
+  return (Array.isArray(list) ? list : []).map((p) => {
     const out = { ...p };
-    const joined = `${String(out.name||'')} ${String(out.brand||'')}`.toLowerCase();
-    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 || (joined.match(DIMENSION_RE) || []).length > 0;
+    const joined = `${String(out.name || '')} ${String(out.brand || '')}`.toLowerCase();
+    const hasMeasure =
+      (joined.match(MEASURE_TOKEN_RE) || []).length > 0 ||
+      (joined.match(DIMENSION_RE) || []).length > 0;
     const u = Math.max(0, Number(out.unitsPerPack || 0));
     const packs = Math.max(0, Number(out.packs || 0));
     const piecesHit = /\b(pz|pezzi|bottigli|capsul|pods|bust|lattin|vasett|rotol|fogli|uova|brick)\b/i.test(
-      normKey(`${out.unitLabel||''} ${joined}`)
+      normKey(`${out.unitLabel || ''} ${joined}`)
     );
     const looksWeightNumber = !piecesHit && (hasMeasure || SUSPECT_UPP.has(u));
     if ((hasMeasure && u > 1) || looksWeightNumber) {
@@ -271,68 +621,102 @@ function cleanupPurchasesQuantities(list) {
 
 // ——— PROMPT per scontrino ———
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
-  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pasta, biscotti, detersivi, ...';
+  const LEX =
+    Array.isArray(lexicon) && lexicon.length
+      ? lexicon.join(', ')
+      : 'latte, pasta, biscotti, detersivi, ...';
   return [
     'Sei Jarvis, estrattore strutturato di SCONTRINI. RISPONDI SOLO JSON con lo schema esatto:',
     '{ "store":"", "purchaseDate":"", "purchases":[{"name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","priceEach":0,"priceTotal":0,"currency":"","expiresAt":""}] }',
     'Regole: normalizza i nomi rispetto a questo lessico: ' + LEX,
     'NON interpretare pesi/volumi/dimensioni come quantità; packs/unitsPerPack solo con pattern espliciti (2x6, 2 conf da 6, 6 bottiglie).',
     'Ignora subtotali, IVA, metodi di pagamento, sconti (OFF.).',
-    '--- INIZIO ---', ocrText, '--- FINE ---'
+    '--- INIZIO ---',
+    ocrText,
+    '--- FINE ---',
   ].join('\n');
 }
 
 // ——— PROMPT per foto “busta prodotti” / etichette ———
 function buildOcrStockBagPrompt(ocrText, lexicon = []) {
-  const LEX = Array.isArray(lexicon) && lexicon.length ? lexicon.join(', ') : 'latte, pane, buste freezer, ...';
+  const LEX =
+    Array.isArray(lexicon) && lexicon.length
+      ? lexicon.join(', ')
+      : 'latte, pane, buste freezer, ...';
   return [
     'Sei Jarvis: da foto di prodotti/buste estrai SOLO JSON { "items":[{ "name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","expiresAt":"" }] }',
     'NON usare pesi/volumi/dimensioni come quantità; quantità solo con pattern espliciti.',
     'Lessico: ' + LEX,
-    '--- INIZIO ---', ocrText, '--- FINE ---'
+    '--- INIZIO ---',
+    ocrText,
+    '--- FINE ---',
   ].join('\n');
 }
 
 /* ====================== Parser liste rapide ====================== */
-function extractPackInfo(str){
+function extractPackInfo(str) {
   const raw = normKey(str);
 
   // parole → numeri (un|uno|una = 1, ecc.)
-  const WORD_MAP = { un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
-  const s = raw.replace(/\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/g, (w)=>String(WORD_MAP[w]||w));
+  const WORD_MAP = {
+    un: 1,
+    uno: 1,
+    una: 1,
+    due: 2,
+    tre: 3,
+    quattro: 4,
+    cinque: 5,
+    sei: 6,
+    sette: 7,
+    otto: 8,
+    nove: 9,
+    dieci: 10,
+  };
+  const s = raw.replace(
+    /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/g,
+    (w) => String(WORD_MAP[w] || w)
+  );
 
   let packs = 1;
   let unitsPerPack = 1;
   let unitLabel = 'unità';
 
   // include anche 'unit' senza accento per tollerare "unit"
-  const UNIT_TERMS = '(?:pz|pezzi|unit(?:a|à)?|unit\\b|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
+  const UNIT_TERMS =
+    '(?:pz|pezzi|unit(?:a|à)?|unit\\b|barrett[e]?|vasett[i]?|uova|bottiglie?|merendine?|bustin[ae]|monouso)';
 
   let m;
 
   // "2 confezioni da 6 bottiglie" / "1 confezione da 6 unità"
-  m = s.match(new RegExp(`(\\d+)\\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\\s*(?:da|x)\\s*(\\d+)\\s*(${UNIT_TERMS})?`, 'i'));
-  if (m){
+  m = s.match(
+    new RegExp(
+      `(\\d+)\\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?|scatol[ae])\\s*(?:da|x)\\s*(\\d+)\\s*(${UNIT_TERMS})?`,
+      'i'
+    )
+  );
+  if (m) {
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    const lab = (m[3] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/,'unità');
+    const lab = (m[3] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/, 'unità');
     unitLabel = /bottigl/i.test(lab) ? 'bottiglie' : 'unità';
     return { packs, unitsPerPack, unitLabel, explicit: true };
   }
 
   // "2 confezioni 6 bottiglie" / "2 confezioni 6 unità"
-  m = s.match(new RegExp(`(\\d+)\\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\\b.*?\\b(\\d+)\\s*(${UNIT_TERMS})?`, 'i'));
-  if (m){
+  m = s.match(
+    new RegExp(`(\\d+)\\s*(?:conf(?:e(?:zioni)?)?|pacc?hi?)\\b.*?\\b(\\d+)\\s*(${UNIT_TERMS})?`, 'i')
+  );
+  if (m) {
     packs = Number(m[1]);
     unitsPerPack = Number(m[2]);
-    const lab = (m[3] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/,'unità');
+    const lab = (m[3] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/, 'unità');
     unitLabel = /bottigl/i.test(lab) ? 'bottiglie' : 'unità';
     return { packs, unitsPerPack, unitLabel, explicit: true };
   }
 
   // "4x125" → prendo 4 come unitsPerPack
   m = s.match(/(\d+)\s*[x×]\s*\d+/i);
-  if (m){
+  if (m) {
     packs = 1;
     unitsPerPack = Number(m[1]);
     return { packs, unitsPerPack, unitLabel, explicit: true };
@@ -340,17 +724,22 @@ function extractPackInfo(str){
 
   // "... 6 bottiglie" | "... 6 unit"
   m = s.match(new RegExp(`(\\d+)\\s*(${UNIT_TERMS})\\b`, 'i'));
-  if (m){
+  if (m) {
     packs = 1;
     unitsPerPack = Number(m[1]);
-    const lab = (m[2] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/,'unità');
+    const lab = (m[2] || 'unità').replace(/^(?:pz|pezzi|unit|unita?)$/, 'unità');
     unitLabel = /bottigl/i.test(lab) ? 'bottiglie' : 'unità';
     return { packs, unitsPerPack, unitLabel, explicit: false };
   }
 
   // "... 2 confezioni" (solo pacchi)
-  m = s.match(new RegExp(`(\\d+)\\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`, 'i'));
-  if (m){
+  m = s.match(
+    new RegExp(
+      `(\\d+)\\s*(bottiglie?|pacc?hi?|scatol[ae]|conf(?:e(?:zioni)?)?)`,
+      'i'
+    )
+  );
+  if (m) {
     packs = Number(m[1]);
     unitsPerPack = 1;
     const tok = m[2] || '';
@@ -360,8 +749,8 @@ function extractPackInfo(str){
 
   // "2 kg zucchero" → tratta come pacchi=2
   m = s.match(/^(\d+(?:[.,]\d+)?)(?=\s+[a-z])/i);
-  if (m){
-    packs = Number(String(m[1]).replace(',','.')) || 1;
+  if (m) {
+    packs = Number(String(m[1]).replace(',', '.')) || 1;
     unitsPerPack = 1;
     return { packs, unitsPerPack, unitLabel, explicit: false };
   }
@@ -372,7 +761,7 @@ function extractPackInfo(str){
 function parseLinesToItems(text) {
   const chunks = String(text || '')
     .split(/[\n,;]+/g)
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 
   const items = [];
@@ -425,7 +814,6 @@ function parseLinesToItems(text) {
   return items;
 }
 
-
 /* ====================== Scadenze utils ====================== */
 function toISODate(any) {
   const s = String(any || '').trim();
@@ -439,16 +827,29 @@ function toISODate(any) {
     if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
     return `${y}-${M}-${d}`;
   }
-  const mIt = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+  const mIt = [
+    'gen',
+    'feb',
+    'mar',
+    'apr',
+    'mag',
+    'giu',
+    'lug',
+    'ago',
+    'set',
+    'ott',
+    'nov',
+    'dic',
+  ];
   const mm = s.toLowerCase().match(/(\d{1,2})\s+([a-zà-ú]+)\s+(\d{2,4})/i);
   if (mm) {
     const d = String(mm[1]).padStart(2, '0');
-    const mon = mm[2].slice(0,3);
+    const mon = mm[2].slice(0, 3);
     const idx = mIt.indexOf(mon);
     if (idx >= 0) {
       let y = String(mm[3]);
       if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
-      const M = String(idx+1).padStart(2, '0');
+      const M = String(idx + 1).padStart(2, '0');
       return `${y}-${M}-${d}`;
     }
   }
@@ -457,11 +858,25 @@ function toISODate(any) {
 function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
   if (DEBUG) console.log('[parseExpiryPairs] input:', text);
   const out = [];
-  const norm = (x) => String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const norm = (x) =>
+    String(x || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
   const s = norm(text);
 
-  const KW = ['scad','scadenza','scade','entro','consumare','preferibilmente','da consumarsi','da consumare'];
-  const DATE_RE = /((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(?:\d{1,2}\s+[a-zà-ú]+\s+\d{2,4}))/i;
+  const KW = [
+    'scad',
+    'scadenza',
+    'scade',
+    'entro',
+    'consumare',
+    'preferibilmente',
+    'da consumarsi',
+    'da consumare',
+  ];
+  const DATE_RE =
+    /((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})|(?:\d{1,2}\s+[a-zà-ú]+\s+\d{2,4}))/i;
 
   const tokensArr = s.split(/\s+/);
   for (let i = 0; i < tokensArr.length; i++) {
@@ -469,30 +884,42 @@ function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
     const dm = win.match(DATE_RE);
     if (!dm) continue;
 
-    const hasKW = KW.some(k => win.includes(k));
+    const hasKW = KW.some((k) => win.includes(k));
     const iso = toISODate(dm[1]);
     if (!iso) continue;
 
     const synonyms = [
-      ['caffe','caffè'],
-      ['latte ps','latte parzialmente scremato','latte p.s.','latte p.s','latte p s'],
-      ['latte uht','latte lunga conservazione']
+      ['caffe', 'caffè'],
+      [
+        'latte ps',
+        'latte parzialmente scremato',
+        'latte p.s.',
+        'latte p.s',
+        'latte p s',
+      ],
+      ['latte uht', 'latte lunga conservazione'],
     ];
     let chosen = '';
     let bestLen = 0;
 
     const testList = [...lexicon];
-    synonyms.forEach(group => group.forEach(g => testList.push(g)));
+    synonyms.forEach((group) => group.forEach((g) => testList.push(g)));
 
     for (const p of testList) {
       const k = norm(p);
-      if (k && win.includes(k) && k.length > bestLen) { chosen = p; bestLen = k.length; }
+      if (k && win.includes(k) && k.length > bestLen) {
+        chosen = p;
+        bestLen = k.length;
+      }
     }
 
     if (!chosen && Array.isArray(knownProducts) && knownProducts.length) {
       for (const kp of knownProducts) {
         const k = norm(kp);
-        if (k && win.includes(k)) { chosen = kp; break; }
+        if (k && win.includes(k)) {
+          chosen = kp;
+          break;
+        }
       }
     }
 
@@ -506,34 +933,60 @@ function parseExpiryPairs(text, lexicon = [], knownProducts = []) {
 /* ====================== Fetch helpers / util varie ====================== */
 async function readJsonSafe(res) {
   const ct = (res.headers.get?.('content-type') || '').toLowerCase();
-  const raw = await res.text?.() || '';
-  if (DEBUG) console.log('[readJsonSafe] status:', res.status, 'ct:', ct, 'raw len:', raw.length, 'raw preview:', raw.slice(0,200));
-  if (!raw.trim()) return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
+  const raw = (await res.text?.()) || '';
+  if (DEBUG)
+    console.log(
+      '[readJsonSafe] status:',
+      res.status,
+      'ct:',
+      ct,
+      'raw len:',
+      raw.length,
+      'raw preview:',
+      raw.slice(0, 200)
+    );
+  if (!raw.trim())
+    return { ok: res.ok, data: null, error: res.ok ? null : `HTTP ${res.status}` };
   if (ct.includes('application/json')) {
-    try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
-    catch (e) { return { ok: res.ok, data: null, error: `JSON parse error: ${e?.message || e}` }; }
+    try {
+      return { ok: res.ok, ...(JSON.parse(raw) || {}) };
+    } catch (e) {
+      return { ok: res.ok, data: null, error: `JSON parse error: ${e?.message || e}` };
+    }
   }
-  try { return { ok: res.ok, ...(JSON.parse(raw) || {}) }; }
-  catch { return { ok: res.ok, data: null, error: raw.slice(0,200) || `HTTP ${res.status}` }; }
+  try {
+    return { ok: res.ok, ...(JSON.parse(raw) || {}) };
+  } catch {
+    return { ok: res.ok, data: null, error: raw.slice(0, 200) || `HTTP ${res.status}` };
+  }
 }
 
-function ensureArray(x) { return Array.isArray(x) ? x : []; }
+function ensureArray(x) {
+  return Array.isArray(x) ? x : [];
+}
 
-function timeoutFetch(url, opts={}, ms=25000) {
+function timeoutFetch(url, opts = {}, ms = 25000) {
   if (DEBUG) console.log('[fetch] →', url, opts);
   const ctrl = new AbortController();
-  const t = setTimeout(()=>ctrl.abort(), ms);
+  const t = setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { ...opts, signal: ctrl.signal })
-    .then(r => { if (DEBUG) console.log('[fetch] ←', url, r.status); return r; })
-    .finally(()=>clearTimeout(t));
+    .then((r) => {
+      if (DEBUG) console.log('[fetch] ←', url, r.status);
+      return r;
+    })
+    .finally(() => clearTimeout(t));
 }
 
 /* === NEW: helper per errori chiari e JSON rigoroso === */
-async function readTextSafe(res){
-  try { return await res.text(); } catch { return ''; }
+async function readTextSafe(res) {
+  try {
+    return await res.text();
+  } catch {
+    return '';
+  }
 }
 
-async function fetchJSONStrict(url, opts={}, timeoutMs=40000){
+async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   const r = await timeoutFetch(url, opts, timeoutMs);
   const ct = (r.headers.get?.('content-type') || '').toLowerCase();
   const raw = await readTextSafe(r);
@@ -546,15 +999,26 @@ async function fetchJSONStrict(url, opts={}, timeoutMs=40000){
         msg = j.error || j.message || JSON.stringify(j);
       } catch {}
     }
-    throw new Error(`HTTP ${r.status} ${r.statusText || ''} — ${String(msg).slice(0,250)}`);
+    throw new Error(
+      `HTTP ${r.status} ${r.statusText || ''} — ${String(msg).slice(0, 250)}`
+    );
   }
 
   if (!raw.trim()) return {};
   if (ct.includes('application/json')) {
-    try { return JSON.parse(raw); } catch (e) { throw new Error(`JSON parse error: ${e?.message||e}`); }
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`JSON parse error: ${e?.message || e}`);
+    }
   }
-  try { return JSON.parse(raw); } catch { return { data: raw }; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { data: raw };
+  }
 }
+
 // ===== ENRICH: normalizza nome/categoria e recupera immagine dal web =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
@@ -563,28 +1027,40 @@ async function enrichPurchasesViaWeb(purchases = []) {
 
   // invio al nostro endpoint solo i campi necessari
   const payload = {
-    items: purchases.map(p => ({ name: String(p.name||''), brand: String(p.brand||'') })),
+    items: purchases.map((p) => ({
+      name: String(p.name || ''),
+      brand: String(p.brand || ''),
+    })),
   };
 
   try {
-    const r = await timeoutFetch(API_PRODUCTS_ENRICH, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify(payload),
-    }, 25000);
+    const r = await timeoutFetch(
+      API_PRODUCTS_ENRICH,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      25000
+    );
 
-    const { ok, items, error } = await r.json().catch(() => ({ ok:false, error:'bad json' }));
+    const { ok, items, error } = await r
+      .json()
+      .catch(() => ({ ok: false, error: 'bad json' }));
     if (!ok || !Array.isArray(items)) throw new Error(error || 'enrich failed');
 
     // mappa per ricerca veloce: key "name|brand" → arricchimento
     const m = new Map(
-      items.map(x => [`${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x])
+      items.map((x) => [
+        `${normKey(x.sourceName)}|${normKey(x.brand || '')}`,
+        x,
+      ])
     );
 
     const imagesMap = {}; // productKey(name, brand) -> imageUrl
 
-    const out = purchases.map(p => {
-      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
+    const out = purchases.map((p) => {
+      const k = `${normKey(p.name)}|${normKey(p.brand || '')}`;
       const e = m.get(k);
       if (!e) return p;
 
