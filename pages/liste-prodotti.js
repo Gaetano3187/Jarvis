@@ -695,9 +695,12 @@ useEffect(() => {
 
   /* =================== Cloud Sync (Supabase) — opzionale =================== */
   const userIdRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC) return;
-    let mounted = true;
+useEffect(() => {
+  if (!CLOUD_SYNC) return;
+  // non rompere se (per ordine o bundling) non è ancora visibile
+ if (typeof CLOUD_SYNC === 'undefined' || !CLOUD_SYNC) return;
+ if (typeof window === 'undefined') return; // evita run in SSR/prerender
+  let mounted = true;
 
     (async () => {
       try {
