@@ -124,6 +124,38 @@ var isSimilar = isSimilar || function isSimilar(a, b) {
 function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
+// Merge sicuro (usa il tuo mergeAndCanonizePurchases se esiste, altrimenti fallback)
+function localMerge(items = []) {
+  if (typeof mergeAndCanonizePurchases === 'function') {
+    return mergeAndCanonizePurchases(items);
+  }
+  const map = new Map();
+  for (const p of (Array.isArray(items) ? items : [])) {
+    const name  = String(p?.name || '').trim();
+    if (!name) continue;
+    const brand = String(p?.brand || '').trim();
+    const upp   = Math.max(1, Number(p?.unitsPerPack || 1));
+    const key   = `${productKey(name, brand)}|${upp}`;
+
+    const prev = map.get(key) || {
+      name, brand,
+      packs: 0,
+      unitsPerPack: upp,
+      unitLabel: normalizeUnitLabel(p?.unitLabel || (upp > 1 ? 'pezzi' : 'unità')),
+      priceEach: Number(p?.priceEach || 0),
+      priceTotal: 0,
+      currency: p?.currency || 'EUR',
+      expiresAt: p?.expiresAt || ''
+    };
+
+    prev.packs      += Math.max(1, Number(p?.packs || 1));
+    prev.priceTotal += Number(p?.priceTotal || 0);
+
+    map.set(key, prev);
+  }
+  return [...map.values()];
+}
+
 /* ====================== Cloud: sanitizer stato per upsert ====================== */
 function stripForCloud(state = {}) {
   // 1) Liste (tieni solo campi essenziali)
