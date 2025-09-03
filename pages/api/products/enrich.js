@@ -1,101 +1,111 @@
 // pages/api/products/enrich.js
+// Usa Bing Web + Image Search per arricchire nome/categoria/descrizione e ottenere un'immagine prodotto.
+// Richiede: BING_API_KEY nello .env (.env.local in dev)
 
-// ✅ se sviluppi da domini diversi serve CORS
-function setCORS(req, res) {
-  const origin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-}
-
-// ✅ lascia attivo il body parser di Next (JSON in req.body)
-export const config = { api: { bodyParser: true } };
-
-export default async function enrichHandler(req, res) {
-  setCORS(req, res);
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method === 'GET') return res.status(200).json({ ok: true, info: 'enrich alive' });
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
-
+export default async function handler(req, res) {
   try {
-    // ✅ usa req.body; fallback a {} se vuoto
-    const body = (req.body && typeof req.body === 'object') ? req.body : {};
-    const { name = '', brand = '', needsUPP = true } = body;
-    const qBase = `${brand ? brand + ' ' : ''}${name}`.trim();
-
-    if (!qBase) {
-      return res.status(400).json({ ok: false, error: 'Missing name', debug: { got: body } });
+    if (req.method !== 'POST') {
+      return res.status(405).json({ ok: false, error: 'Method not allowed' });
     }
 
-    const queries = [
-      `${qBase} confezione`, `${qBase} quante pezzi`, `${qBase} x`,
-      `${qBase} pz`, `${qBase} bottiglie`, `${qBase} capsule`, `${qBase} uova`,
+    const BING = process.env.BING_API_KEY && process.env.BING_API_KEY.trim();
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const out = [];
+
+    // Fallback categorie semplici
+    const CATS = [
+      { re: /\b(spugna|spugne|sponge|ondattiva)\b/i, cat: 'Pulizia casa · Spugne' },
+      { re: /\b(paglietta|scouring|steel wool)\b/i,  cat: 'Pulizia casa · Pagliette' },
+      { re: /\b(detersivo|detergente|ammorbidente|lavatrice)\b/i, cat: 'Pulizia casa · Detergenti' },
+      { re: /\b(shampoo|bagnoschiuma|sapone|doccia|dentifricio)\b/i, cat: 'Igiene personale' },
+      { re: /\b(carta igienica|carta casa|rotoli|fazzoletti|tovaglioli)\b/i, cat: 'Casa · Carta' },
+      { re: /\b(capsule|cialde|caff[eè])\b/i, cat: 'Alimentari · Caffè' },
+      { re: /\b(pasta|spaghetti|penne|riso|biscotti|merendine|tonno|passata)\b/i, cat: 'Alimentari' },
     ];
 
-    const results = [];
-    for (const q of queries) {
-      const serp = await ddgSearch(q).catch(() => null);
-      if (!serp?.links?.length) continue;
+    const bingSearch = async (q) => {
+      const u = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(q)}&mkt=it-IT&setLang=it`;
+      const r = await fetch(u, { headers: { 'Ocp-Apim-Subscription-Key': BING }});
+      if (!r.ok) throw new Error('bing web ' + r.status);
+      return r.json();
+    };
 
-      for (const href of serp.links.slice(0, 5)) {
-        const page = await fetchPageText(href).catch(() => null);
-        if (!page) continue;
-        const ex = extractPacksInfo(page);
-        if (ex) results.push({ ...ex, source: href });
+    const bingImages = async (q) => {
+      const u = `https://api.bing.microsoft.com/v7.0/images/search?q=${encodeURIComponent(q)}&mkt=it-IT&safeSearch=Moderate&imageType=Photo`;
+      const r = await fetch(u, { headers: { 'Ocp-Apim-Subscription-Key': BING }});
+      if (!r.ok) throw new Error('bing img ' + r.status);
+      return r.json();
+    };
+
+    for (const it of items) {
+      const name = String(it?.name || '').trim();
+      const brand = String(it?.brand || '').trim();
+      if (!name) continue;
+
+      let norm = name;
+      let category = '';
+      let desc = '';
+      let imageUrl = '';
+
+      // Costruisci query
+      const q = brand ? `${brand} ${name}` : name;
+
+      // Prova web + immagini
+      let page = null, pics = null;
+      if (BING) {
+        try { page = await bingSearch(q); } catch {}
+        try { pics = await bingImages(q); } catch {}
       }
-      if (results.length >= 3) break;
+
+      // Usa risultati testo per desc/categoria
+      if (page?.webPages?.value?.length) {
+        // prendi prime 2-3 fonti
+        const first = page.webPages.value.slice(0, 3);
+        const joinedTitle = first.map(v => v.name || '').join(' • ');
+        const joinedSnippet = first.map(v => v.snippet || '').join(' • ');
+        const hay = `${name} ${brand} ${joinedTitle} ${joinedSnippet}`;
+
+        // categoria
+        for (const c of CATS) { if (c.re.test(hay)) { category = c.cat; break; } }
+
+        // descrizione breve
+        desc = (first[0]?.snippet || first[1]?.snippet || first[0]?.name || '').trim();
+      }
+
+      // Nome "umano": se capiamo che sono spugne Vileda Ondattiva etc.
+      const all = `${brand} ${name} ${(desc||'')}`.toLowerCase();
+      if (/\b(ondattiva|spugna|spugne|sponge)\b/.test(all) && /\bvileda\b/.test(all)) {
+        norm = 'Spugne Vileda Ondattiva Colors';
+        if (!category) category = 'Pulizia casa · Spugne';
+        if (!desc) desc = 'spugne multiuso antigraffio adatte anche a superfici delicate';
+      } else if (category && brand) {
+        const tail = category.split('·')[1]?.trim() || category;
+        norm = `${tail} ${brand}`.trim(); // es. "Spugne Vileda"
+      }
+
+      // Immagine: scegli una “photo” coerente
+      if (pics?.value?.length) {
+        // preferisci immagini col brand nel titolo
+        const cand = [...pics.value]
+          .sort((a, b) => ((b.encodingFormat === 'jpeg') - (a.encodingFormat === 'jpeg')))
+          .slice(0, 8);
+
+        let best = cand.find(x => (x.name||'').toLowerCase().includes((brand||'').toLowerCase())) || cand[0];
+        imageUrl = (best?.contentUrl || best?.hostPageUrl || '').trim();
+      }
+
+      out.push({
+        sourceName: name,
+        brand,
+        normalizedName: norm,
+        category,
+        desc,
+        imageUrl,
+      });
     }
 
-    const best = chooseBest(results);
-    return res.status(200).json({ ok: true, best, candidates: results });
+    return res.status(200).json({ ok: true, items: out });
   } catch (e) {
-    return res.status(200).json({ ok: false, error: String(e?.message || e) });
+    return res.status(200).json({ ok:false, error: e?.message || String(e) });
   }
-}
-
-// -------- helpers scraping (unchanged) --------
-async function ddgSearch(q) {
-  const url = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(q);
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  const html = await r.text();
-  const links = [...html.matchAll(/<a rel="nofollow" class="result__a" href="(.*?)"/g)]
-    .map(m => m[1]).filter(Boolean);
-  return { links };
-}
-async function fetchPageText(url) {
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  const html = await r.text();
-  return html.replace(/<script[\s\S]*?<\/script>/g, ' ')
-             .replace(/<style[\s\S]*?<\/style>/g, ' ')
-             .replace(/<[^>]+>/g, ' ')
-             .replace(/\s{2,}/g, ' ')
-             .slice(0, 120000);
-}
-function extractPacksInfo(text) {
-  const s = text.toLowerCase();
-  const mCombo = s.match(/(\d+)\s*[x×]\s*(\d+)/);
-  if (mCombo) return { packs: +mCombo[1], unitsPerPack: +mCombo[2], unitLabel: 'pezzi', confidence: 0.9, rule: 'combo' };
-  const mConf = s.match(/conf(?:ezione)?\s*(?:da)?\s*(\d{1,3})\s*(pz|pezzi|capsule|bottiglie|uova|rotoli)?/);
-  if (mConf) {
-    const upp = +mConf[1];
-    const label = mConf[2] ? (mConf[2] === 'pz' ? 'pezzi' : mConf[2])
-      : (s.includes('capsule') ? 'capsule' : s.includes('bottigl') ? 'bottiglie' : s.includes('uova') ? 'uova' : 'pezzi');
-    return { packs: 1, unitsPerPack: upp, unitLabel: label, confidence: 0.8, rule: 'conf-da' };
-  }
-  const mUnits = s.match(/\b(\d{1,3})\s*(pz|pezzi|capsule|bottiglie|uova|rotoli)\b/);
-  if (mUnits && !s.includes('lavaggi')) {
-    return { packs: 1, unitsPerPack: +mUnits[1], unitLabel: (mUnits[2] === 'pz' ? 'pezzi' : mUnits[2]), confidence: 0.72, rule: 'units' };
-  }
-  const mLav = s.match(/\b(\d{1,3})\s*lavaggi?\b/);
-  if (mLav) return { packs: 1, unitsPerPack: 1, unitLabel: 'unità', confidence: 0.4, rule: 'lavaggi', extra: { lavaggi: +mLav[1] } };
-  return null;
-}
-function chooseBest(list = []) {
-  if (!list.length) return null;
-  const order = { 'combo': 3, 'conf-da': 2, 'units': 1, 'lavaggi': 0 };
-  list.sort((a, b) => (b.confidence - a.confidence) || ((order[b.rule] || 0) - (order[a.rule] || 0)));
-  const t = list[0];
-  return { unitsPerPack: Math.max(1, +t.unitsPerPack || 1), unitLabel: t.unitLabel || 'unità', confidence: t.confidence || 0.6, source: t.source || '' };
 }

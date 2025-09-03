@@ -84,6 +84,7 @@ let __supabase = null;
 const API_ASSISTANT_TEXT = '/api/assistant';
 const API_OCR = '/api/ocr';
 const API_FINANCES_INGEST = '/api/finances/ingest';
+const API_PRODUCTS_ENRICH = '/api/products/enrich';
 
 /* ====================== Persistenza locale ====================== */
 const LS_VER = 1;
@@ -553,6 +554,55 @@ async function fetchJSONStrict(url, opts={}, timeoutMs=40000){
     try { return JSON.parse(raw); } catch (e) { throw new Error(`JSON parse error: ${e?.message||e}`); }
   }
   try { return JSON.parse(raw); } catch { return { data: raw }; }
+}
+// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web =====
+async function enrichPurchasesViaWeb(purchases = []) {
+  if (!Array.isArray(purchases) || purchases.length === 0) {
+    return { items: purchases, images: {} };
+  }
+
+  // invio al nostro endpoint solo i campi necessari
+  const payload = {
+    items: purchases.map(p => ({ name: String(p.name||''), brand: String(p.brand||'') })),
+  };
+
+  try {
+    const r = await timeoutFetch(API_PRODUCTS_ENRICH, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(payload),
+    }, 25000);
+
+    const { ok, items, error } = await r.json().catch(() => ({ ok:false, error:'bad json' }));
+    if (!ok || !Array.isArray(items)) throw new Error(error || 'enrich failed');
+
+    // mappa per ricerca veloce: key "name|brand" → arricchimento
+    const m = new Map(
+      items.map(x => [`${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x])
+    );
+
+    const imagesMap = {}; // productKey(name, brand) -> imageUrl
+
+    const out = purchases.map(p => {
+      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
+      const e = m.get(k);
+      if (!e) return p;
+
+      const prettyName = String(e.normalizedName || p.name).trim();
+      const prettyBrand = String(e.brand || p.brand || '').trim();
+
+      // prepara key per imagesIndex (si basa sul nome/brand FINALi)
+      const key = productKey(prettyName, prettyBrand);
+      if (e.imageUrl) imagesMap[key] = e.imageUrl;
+
+      return { ...p, name: prettyName, brand: prettyBrand };
+    });
+
+    return { items: out, images: imagesMap };
+  } catch {
+    // fallback: nessuna modifica
+    return { items: purchases, images: {} };
+  }
 }
 
 
@@ -1980,6 +2030,41 @@ async function handleOCR(files) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
     }
+    // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
+if (purchases.length) {
+  const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
+  purchases = enriched;
+
+  // salva le immagini in imagesIndex PRIMA dell'aggiornamento scorte,
+  // così withRememberedImage le aggancia alle nuove righe
+  if (imap && Object.keys(imap).length) {
+    setImagesIndex(prev => ({ ...prev, ...imap }));
+  }
+}
+// ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
+if (purchases.length) {
+  const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
+  purchases = enriched;
+
+  // salva le immagini in imagesIndex PRIMA dell'aggiornamento scorte,
+  // così withRememberedImage le aggancia alle nuove righe
+  if (imap && Object.keys(imap).length) {
+    setImagesIndex(prev => ({ ...prev, ...imap }));
+  }
+  // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
+if (purchases.length) {
+  const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
+  purchases = enriched;
+
+  // salva le immagini in imagesIndex PRIMA dell'aggiornamento scorte,
+  // così withRememberedImage le aggancia alle nuove righe
+  if (imap && Object.keys(imap).length) {
+    setImagesIndex(prev => ({ ...prev, ...imap }));
+  }
+}
+
+}
+
 
     // ——— 10) Memorizzazione termini (no-op se non usi) ———
     if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
@@ -2022,7 +2107,16 @@ async function handleOCR(files) {
             };
           } else {
             arr[idx] = { ...old, needsUpdate:true };
-          }
+
+          }// se non c'è immagine sulla riga esistente, prova a impostarla dal nuovo imagesIndex
+try {
+  const kImg = productKey(p.name, p.brand || '');
+  const remembered = imagesIndex && imagesIndex[kImg];
+  if (remembered && !arr[idx].image) {
+    arr[idx] = { ...arr[idx], image: remembered };
+  }
+} catch {}
+
         } else {
           if (hasCounts) {
             const u = Math.max(1, upp || 1);
