@@ -1,19 +1,11 @@
 // pages/liste-prodotti.js
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
 import Image from 'next/image';
-import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
-import {
-  visionFirstParseFromFiles,
-  enrichPurchasesViaWeb
-} from '@/lib/receipt-pipeline';
+import { Pencil, Trash2, Camera, Calendar } from 'lucide-react';
+import { visionFirstParseFromFiles, enrichPurchasesViaWeb } from '@/lib/receipt-pipeline';
 
-/* ===========================================================
-   SHIMS REVIEW (safe, no-redeclare)
-   - Non dichiara variabili locali con gli stessi nomi.
-   - Espone solo proprietà su globalThis se mancano.
-=========================================================== */
+/* ===== Review shims (safe, no-redeclare) ===== */
 if (typeof globalThis !== 'undefined') {
   if (typeof globalThis.registerReviewSetters !== 'function') {
     globalThis.registerReviewSetters = function noop() {};
@@ -1223,7 +1215,7 @@ function estimateCandidateLines(ocrText=''){
 
 /* ====================== Vision-first → Liste, Scorte, Finanze (ChatGPT-like) ====================== */
 
-/** Calcola totali scontrino da righe + meta */
+/** Calcola totali scontrino da righe + meta (per finanze) */
 function computeReceiptTotals(rows = [], meta = {}) {
   const currency = 'EUR';
   const subtotal = rows.reduce((s, r) => {
@@ -1232,23 +1224,20 @@ function computeReceiptTotals(rows = [], meta = {}) {
     const pk = Math.max(1, Number(r.packs || 1));
     return s + (pt || (pe * pk));
   }, 0);
-
-  // prova a leggere eventuali campi meta (se la tua /vision li passa)
   const paid   = Number(meta.paid || meta.paid_cash || meta.total_paid || subtotal) || subtotal;
   const change = Number(meta.change || 0);
   return { subtotal: Math.round(subtotal * 100) / 100, paid: Math.round(paid * 100) / 100, change: Math.round(change * 100) / 100, currency };
 }
 
-/** Normalizza righe receipt “alla ChatGPT” anche se manca il core (fallback gentile) */
+/** Normalizza righe receipt “alla ChatGPT” anche se non hai il core già incollato */
 function normalizeReceiptPurchasesSafe(raw = [], { learned } = {}) {
-  // se hai già la versione “core” incollata prima, usiamo quella
   if (typeof normalizeReceiptPurchases === 'function') {
     return normalizeReceiptPurchases(raw, { learned });
   }
-  // Fallback leggero: tipi, quantità minime, merge sobrio
   const MEASURE = /\b\d+(?:[.,]\d+)?\s*(kg|g|gr|ml|cl|l|lt)\b/i;
   const LAVAGGI = /\blavaggi?\b/i;
   const UNIT_RE = /\b(pz|pezzi|capsule|bottiglie|uova|rotoli|lattine|vasetti)\b/i;
+
   const out = (Array.isArray(raw) ? raw : []).map(p => {
     let name = String(p?.name || '').trim();
     let brand= String(p?.brand||'').trim();
@@ -1266,7 +1255,6 @@ function normalizeReceiptPurchasesSafe(raw = [], { learned } = {}) {
     return { name, brand, packs, unitsPerPack: upp, unitLabel, priceEach, priceTotal, currency:'EUR', expiresAt: String(p?.expiresAt||'') };
   });
 
-  // merge semplice (stesso nome+marca+UPP)
   const map = new Map();
   for (const r of out) {
     const key = `${productKey(r.name, r.brand)}|${r.unitsPerPack}`;
@@ -1279,7 +1267,7 @@ function normalizeReceiptPurchasesSafe(raw = [], { learned } = {}) {
   return [...map.values()];
 }
 
-/** Inserisce in SCORTE una riga acquisto (merge se esiste) */
+/** Inserisce/merge in SCORTE una riga acquisto */
 function upsertStockWithPurchase(arr, p, todayISO, imagesIndex) {
   const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
   const packs = Math.max(0, Number(p.packs || 0));
@@ -1355,23 +1343,21 @@ async function handleOCR(files) {
       ? await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 })
       : first;
 
-    // 1) Vision-first (usa già il tuo endpoint lib/receipt-pipeline)
+    // 1) Vision-first
     const { meta: visionMeta = {}, purchases: rawVisionRows = [] } = await visionFirstParseFromFiles([slim]);
 
-    // 2) Normalizza come ChatGPT + (opzionale) arricchisci UPP/label via web
+    // 2) Normalizza come ChatGPT (+ opzionale enrichment web UPP/label)
     let purchases = normalizeReceiptPurchasesSafe(rawVisionRows, { learned });
     if (purchases.length === 0) {
       showToast('Nessuna riga riconosciuta', 'err');
       return;
     }
-
     try {
       const enriched = await enrichPurchasesViaWeb(purchases);
-      // re-normalizza dopo enrichment (se hai il core userà quello, altrimenti fallback)
       purchases = normalizeReceiptPurchasesSafe(enriched, { learned });
-    } catch (_) { /* ok, non bloccare */ }
+    } catch (_) {}
 
-    // 3) Decrementa entrambe le liste con le righe riconosciute
+    // 3) Decrementa liste (supermercato + online)
     setLists(prev => decrementAcrossBothLists(prev, purchases));
 
     // 4) Aggiorna SCORTE
@@ -1382,7 +1368,7 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // 5) Calcola totali e invia a FINANZE
+    // 5) FINANZE: items + totali scontrino
     const meta = {
       store: String(visionMeta?.store || '').trim(),
       purchaseDate: toISODate(visionMeta?.purchaseDate || '')
@@ -1408,8 +1394,7 @@ async function handleOCR(files) {
       paid_total: paid,
       change_total: change,
       payment_method: 'cash',
-      // facoltativo: bucket/etichette lato server (“spese_casa”, “entrate_soldi_in_tasca” se gestisci i resti o cashback)
-      buckets: ['spese_casa'],
+      buckets: ['spese_casa'], // opzionale: etichette lato server
       items: itemsSafe
     };
 
@@ -1432,7 +1417,7 @@ async function handleOCR(files) {
     if (ocrInputRef?.current) ocrInputRef.current.value = '';
   }
 }
-e
+
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
