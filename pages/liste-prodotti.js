@@ -1077,35 +1077,16 @@ function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
 }
 
 // Apri la modale con i candidati (usa i setter registrati)
-function openValidation(discardedList, meta) {
-  if (typeof __reviewSetters === 'undefined' || !__reviewSetters) return; // sicuro
-  const { setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen } = __reviewSetters;
-
-  const uniq = new Map(), items = [];
-  for (const p of discardedList || []) {
-    const nm = nonEmpty(p?.name); if (!nm) continue;
-    const br = nonEmpty(p?.brand);
-    const key = productKey(nm, br);
-    if (uniq.has(key)) continue;
-    uniq.set(key, true);
-    items.push({
-      ...p,
-      id: 'rev-' + key,
-      name: nm,
-      brand: br,
-      packs: posIntOr(p?.packs, 1),
-      unitsPerPack: posIntOr(p?.unitsPerPack, 1),
-      unitLabel: nonEmpty(p?.unitLabel) || 'unità',
-      expiresAt: toISODate(p?.expiresAt || '')
-    });
-  }
+function openValidation(/*discardedList, meta*/) {
+  if (!ENABLE_REVIEW) return; // <- modale disabilitata
+}
   if (items.length) {
     setReviewItems(items);
     setReviewPick(items.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}));
     setPendingOcrMeta(meta || null);
     setReviewOpen(true);
   }
-}
+
 
 /* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
 async function applyAdditionalPurchases(addItems, meta = {}) {
@@ -1198,9 +1179,11 @@ async function applyReviewSelection() {
 
 /* ==== Toggle riconoscimento/agent (arricchimento attivo) ==== */
 const ENRICH_MODE = 'on';         // 'off' | 'auto' | 'on'
+// Disattiva modale di review/normalizzazione
 const ASSIST_TIMEOUT_MS = 15000;  // timeout breve per l'agente
 const OCR_IMAGE_MAXSIDE = 1200;
 const OCR_IMAGE_QUALITY = 0.66;
+const ENABLE_REVIEW = false;
 
 /* ==== DIRECT RECOGNITION (stile ChatGPT Web) ==== */
 const DIRECT_RECOGNITION = true;
@@ -3318,26 +3301,8 @@ return (
       >
         {toast.msg}
       </div>
-    )}
-    {reviewOpen && (
-  <div style={{ position:'fixed', inset:0, zIndex:99999, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center' }}>
-    <div style={{
-      width:'min(920px, 94vw)', maxHeight:'82vh', overflow:'hidden',
-      background:'rgba(17,24,39,.97)', border:'1px solid rgba(255,255,255,.12)',
-      borderRadius:14, boxShadow:'0 20px 50px rgba(0,0,0,.6)', color:'#e5e7eb'
-    }}>
-      {/* Header */}
-      <div style={{ padding:'12px 14px', borderBottom:'1px solid rgba(255,255,255,.08)'}}>
-        <h3 style={{ margin:0, fontSize:'1.08rem', fontWeight:800 }}>Convalida & Modifica articoli</h3>
-        <p style={{ margin:'4px 0 0', opacity:.85, fontSize:'.9rem' }}>
-          Spunta gli articoli da aggiungere. Puoi modificare nome, marca e quantità prima di confermare.
-        </p>
-        <div style={{ marginTop:8, display:'flex', gap:8 }}>
-          <button onClick={autoNormalizeReview} style={styles.smallGhostBtn} title="Applica normalizzazioni note">
-            Auto-normalizza
-          </button>
-        </div>
-      </div>
+     )}
+    {/* Modale disattivata */}
 
       {/* Body */}
       <div style={{ padding:'10px 14px', overflowY:'auto', maxHeight:'58vh', display:'flex', flexDirection:'column', gap:10 }}>
@@ -3434,9 +3399,7 @@ return (
         <button onClick={() => { setReviewOpen(false); setReviewItems([]); setReviewPick({}); setPendingOcrMeta(null); }} style={styles.smallGhostBtn}>Annulla</button>
         <button onClick={applyReviewSelection} style={styles.smallOkBtn}>Aggiungi selezionati</button>
       </div>
-    </div>
-  </div>
-)}
+
     {/* INPUT NASCOSTI */}
     <input
       ref={ocrInputRef}
