@@ -58,7 +58,7 @@ for (const it of items) {
   const brand = String(it?.brand || '').trim();
   if (!name) continue;
 
-  let norm = name;
+  let normalizedName = name;
   let category = '';
   let desc = '';
   let imageUrl = '';
@@ -85,12 +85,12 @@ for (const it of items) {
   // Nome "umano": regola spugne Vileda / altrimenti usa categoria+brand
   const all = `${brand} ${name} ${desc}`.toLowerCase();
   if (/(\bondattiva\b|\bspugna\b|\bspugne\b|\bsponge\b)/.test(all) && /\bvileda\b/.test(all)) {
-    norm = 'Spugne Vileda Ondattiva Colors';
+    normalizedName = 'Spugne Vileda Ondattiva Colors';
     if (!category) category = 'Pulizia casa · Spugne';
     if (!desc) desc = 'spugne multiuso antigraffio adatte anche a superfici delicate';
   } else if (category && brand) {
     const tail = category.split('·')[1]?.trim() || category;
-    norm = `${tail} ${brand}`.trim(); // es. "Spugne Vileda"
+    normalizedName = `${tail} ${brand}`.trim(); // es. "Spugne Vileda"
   }
 
   // Immagine: preferisci immagini col brand nel titolo
@@ -123,7 +123,7 @@ for (const it of items) {
   out.push({
     sourceName: name,
     brand,
-    normalizedName: norm,
+    normalizedName,
     category,
     desc,
     imageUrl,
@@ -135,3 +135,4 @@ return res.status(200).json({ ok: true, items: out });
   return res.status(200).json({ ok:false, error: e?.message || String(e) });
 }
 }
+
