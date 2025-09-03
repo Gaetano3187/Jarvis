@@ -693,61 +693,58 @@ useEffect(() => {
 
   const curItems = lists[currentList] || [];
 
-  /* =================== Cloud Sync (Supabase) — opzionale =================== */
-  const userIdRef = useRef(null);
+/* =================== Cloud Sync (Supabase) — opzionale =================== */
+const userIdRef = useRef(null);
 useEffect(() => {
   if (!CLOUD_SYNC) return;
-  // non rompere se (per ordine o bundling) non è ancora visibile
- if (typeof CLOUD_SYNC === 'undefined' || !CLOUD_SYNC) return;
- if (typeof window === 'undefined') return; // evita run in SSR/prerender
   let mounted = true;
 
-    (async () => {
-      try {
-        const mod = await import('@/lib/supabaseClient').catch(() => null);
-        if (!mod?.supabase) return;
-        __supabase = mod.supabase;
+  (async () => {
+    try {
+      const mod = await import('@/lib/supabaseClient').catch(() => null);
+      if (!mod?.supabase) return;
+      __supabase = mod.supabase;
 
-        const { data: userData, error: authErr } = await __supabase.auth.getUser();
-        if (authErr) return;
-        const uid = userData?.user?.id || null;
-        if (mounted) userIdRef.current = uid;
-        if (!uid) return;
+      const { data: userData, error: authErr } = await __supabase.auth.getUser();
+      if (authErr) return;
+      const uid = userData?.user?.id || null;
+      if (mounted) userIdRef.current = uid;
+      if (!uid) return;
 
-        const { data: row, error } = await __supabase
-          .from(CLOUD_TABLE)
-          .select('state')
-          .eq('user_id', uid)
-          .maybeSingle();
+      const { data: row, error } = await __supabase
+        .from(CLOUD_TABLE)
+        .select('state')
+        .eq('user_id', uid)
+        .maybeSingle();
 
-        if (error) {
-          const msg = (error.message || '').toLowerCase();
-          if (!(error.code === '42703' || (msg.includes('column') && msg.includes('does not exist')))) {
-            if (DEBUG) console.warn('[cloud] load error', error);
-          }
-          return;
+      if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (!(error.code === '42703' || (msg.includes('column') && msg.includes('does not exist')))) {
+          if (DEBUG) console.warn('[cloud] load error', error);
         }
-
-        const st = row?.state;
-        if (!st) return;
-
-        setLists({
-          [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-          [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-        });
-        if (Array.isArray(st.stock)) setStock(st.stock);
-        if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
-          setCurrentList(st.currentList);
-        }
-        if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
-        // imagesIndex volutamente non da cloud
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud init] skipped', e);
+        return;
       }
-    })();
 
-    return () => { mounted = false; };
-  }, []);
+      const st = row?.state;
+      if (!st) return;
+
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
+      });
+      if (Array.isArray(st.stock)) setStock(st.stock);
+      if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
+        setCurrentList(st.currentList);
+      }
+      if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
+      // imagesIndex volutamente non da cloud
+    } catch (e) {
+      if (DEBUG) console.warn('[cloud init] skipped', e);
+    }
+  })();
+
+  return () => { mounted = false; };
+}, []);
 
   // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
   function stripForCloud({ lists, stock, currentList, learned }) {
