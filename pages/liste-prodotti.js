@@ -1848,87 +1848,60 @@ async function handleOCR(files) {
       ? await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 })
       : first;
 
-    // ===== 1) VISION FIRST =====
-    const buildVisionPrompt = () => [
-      'Sei Jarvis. Ti do 1 immagine (scontrino). Estrai SOLO JSON:',
-      '{ "store":"", "purchaseDate":"YYYY-MM-DD",',
-      '  "purchases":[{"name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"",',
-      '               "priceEach":0,"priceTotal":0,"currency":"EUR","expiresAt":""}] }',
-      'Regole:',
-      '- Se la stessa riga appare più volte → packs = numero di occorrenze.',
-      '- NON usare pesi/volumi (500g, 1L, 38 lavaggi) come quantità.',
-      '- Quantità SOLO se pattern espliciti: (x2), 2x6, "2 conf da 6", "6 bottiglie"/"6 uova".',
-      '- priceEach/priceTotal in EUR; purchaseDate dalla testata o da Data/Ora.'
-    ].join('\n');
+    // 1) Vision-only prima
+const fdV = new FormData();
+fdV.append('image', slim, slim.name || 'receipt.jpg');
 
-    const inferQuantitiesFromName = (name='') => {
-      let packs = 0, upp = 0, unitLabel = '';
+let purchases = [];
+let store = '', purchaseDate = '', totals = null;
+
+try {
+  const rV = await timeoutFetch('/api/assistant/vision', { method:'POST', body: fdV }, 60000);
+  const safeV = await readJsonSafe(rV);
+  const ansV = safeV?.answer || safeV?.data || safeV;
+  const vision = typeof ansV === 'string' ? (()=>{ try { return JSON.parse(ansV); } catch { return null; } })() : ansV;
+
+  if (vision && Array.isArray(vision.purchases)) {
+    store        = String(vision.store || '').trim();
+    purchaseDate = toISODate(vision.purchaseDate || '');
+    totals       = vision.totals || null;
+
+    // massaggia + unisci (riuso dei tuoi helper)
+    const impliedFromName = (name='') => {
+      let packs=0, upp=0, unitLabel='';
       const x = name.match(/\(x(\d+)\)/i); if (x) packs = Math.max(packs, parseInt(x[1],10));
-      const mCombo = name.match(/(\d+)\s*[x×]\s*(\d+)/i);
-      if (mCombo){ packs = Math.max(packs, parseInt(mCombo[1],10)); upp = Math.max(upp, parseInt(mCombo[2],10)); }
-      const mUnits = name.match(/\b(\d+)\s*(pz|pezzi|capsule|bottiglie|uova|rotoli|lattine|vasetti)\b/i);
-      if (mUnits){ upp = Math.max(upp, parseInt(mUnits[1],10)); unitLabel = normalizeUnitLabel(mUnits[2]); }
+      const mC = name.match(/(\d+)\s*[x×]\s*(\d+)/i); if (mC){ packs=Math.max(packs, +mC[1]); upp=Math.max(upp, +mC[2]); }
+      const mU = name.match(/\b(\d+)\s*(pz|pezzi|capsule|bottiglie|uova|rotoli|lattine|vasetti)\b/i);
+      if (mU){ upp = Math.max(upp, +mU[1]); unitLabel = normalizeUnitLabel(mU[2]); }
       return { packs, upp, unitLabel };
     };
 
-    const localMerge = (arr=[]) => {
-      // usa merge globale se esiste; altrimenti fallback
-      if (typeof mergeAndCanonizePurchases === 'function') return mergeAndCanonizePurchases(arr);
-      const map = new Map();
-      for (const p of arr) {
-        const name = String(p.name||'').trim();
-        const brand= String(p.brand||'').trim();
-        const upp  = Math.max(1, Number(p.unitsPerPack||1));
-        const key = `${productKey(name, brand)}|${upp}`;
-        const prev = map.get(key) || { ...p, packs:0, priceTotal:0, unitsPerPack: upp, unitLabel: p.unitLabel || (upp>1?'pezzi':'unità') };
-        prev.packs += Math.max(1, Number(p.packs||1));
-        prev.priceTotal += Number(p.priceTotal||0);
-        prev.unitLabel = normalizeUnitLabel(prev.unitLabel);
-        map.set(key, prev);
-      }
-      return [...map.values()];
-    };
+    const tmp = [];
+    for (const p of vision.purchases) {
+      let name = String(p?.name||'').trim();
+      let brand= String(p?.brand||'').trim();
 
-    let purchases = [];
-    let store = '', purchaseDate = '';
+      const impl = impliedFromName(name);
+      if (impl.packs) name = name.replace(/\(x\d+\)/i,'').trim();
 
-    // prova endpoint vision (se presente)
-    try {
-      const fdV = new FormData();
-      fdV.append('image', slim, slim.name || 'receipt.jpg');
-      fdV.append('prompt', buildVisionPrompt());
-      const rV = await timeoutFetch('/api/assistant/vision', { method:'POST', body: fdV }, 60000);
-      const safeV = await readJsonSafe(rV);
-      const ansV = safeV?.answer || safeV?.data || safeV;
-      const vision = typeof ansV === 'string' ? (()=>{ try { return JSON.parse(ansV); } catch { return null; } })() : ansV;
+      let packs = Math.max(1, Number(p?.packs || impl.packs || 1));
+      let upp   = Math.max(1, Number(p?.unitsPerPack || impl.upp || 1));
+      let label = normalizeUnitLabel(p?.unitLabel || impl.unitLabel || (upp>1?'pezzi':'unità'));
 
-      if (vision && Array.isArray(vision.purchases) && vision.purchases.length) {
-        store = String(vision.store || '').trim();
-        purchaseDate = toISODate(vision.purchaseDate || '');
+      if (/uova/i.test(name) && upp === 1 && /\b6\b/.test(name)) { upp = 6; label = 'uova'; }
 
-        const out = [];
-        for (const p of vision.purchases) {
-          let name = String(p?.name||'').trim();
-          let brand= String(p?.brand||'').trim();
+      const priceEach  = Number(String(p?.priceEach ?? 0).replace(',','.')) || 0;
+      const priceTotal = Number(String(p?.priceTotal ?? 0).replace(',','.')) || (priceEach * packs);
 
-          const implied = inferQuantitiesFromName(name);
-          if (implied.packs) name = name.replace(/\(x\d+\)/i,'').trim();
+      tmp.push({ name, brand, packs, unitsPerPack:upp, unitLabel:label, priceEach, priceTotal, currency:'EUR', expiresAt: toISODate(p?.expiresAt || '') });
+    }
+    purchases = (typeof mergeAndCanonizePurchases === 'function') ? mergeAndCanonizePurchases(tmp) : tmp;
+  }
+} catch (e) {
+  if (DEBUG) console.warn('[VISION] errore, userò fallback OCR', e);
+}
 
-          let packs = Math.max(1, Number(p?.packs || implied.packs || 1));
-          let upp   = Math.max(1, Number(p?.unitsPerPack || implied.upp || 1));
-          let label = normalizeUnitLabel(p?.unitLabel || implied.unitLabel || (upp>1?'pezzi':'unità'));
-
-          // uova frequente → 6
-          if (/uova/i.test(name) && upp === 1 && /\b6\b/.test(name)) { upp = 6; label = 'uova'; }
-
-          const priceEach  = Number(String(p?.priceEach ?? 0).replace(',','.')) || 0;
-          const priceTotal = Number(String(p?.priceTotal ?? 0).replace(',','.')) || (priceEach * packs);
-
-          out.push({ name, brand, packs, unitsPerPack: upp, unitLabel: label, priceEach, priceTotal, currency:'EUR', expiresAt: toISODate(p?.expiresAt || '') });
-        }
-        purchases = localMerge(out);
-      }
-    } catch (e) { if (DEBUG) console.warn('[VISION] fallback a OCR', e); }
+// se vision ha fallito ⇒ (facoltativo) fai OCR classico qui...
 
     // ===== 2) FALLBACK OCR + parser attuali =====
     if (!purchases.length) {
