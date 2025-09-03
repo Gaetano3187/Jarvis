@@ -1208,330 +1208,209 @@ function estimateCandidateLines(ocrText=''){
   return count;
 }
 
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
-/* ====================== OCR/Vision → Aggiornamento scorte (vision-first + web enrich) ====================== */
+/* ====================== Vision-first → Liste, Scorte, Finanze (ChatGPT-like) ====================== */
+
+/** Calcola totali scontrino da righe + meta */
+function computeReceiptTotals(rows = [], meta = {}) {
+  const currency = 'EUR';
+  const subtotal = rows.reduce((s, r) => {
+    const pe = Number(r.priceEach || 0);
+    const pt = Number(r.priceTotal || 0);
+    const pk = Math.max(1, Number(r.packs || 1));
+    return s + (pt || (pe * pk));
+  }, 0);
+
+  // prova a leggere eventuali campi meta (se la tua /vision li passa)
+  const paid   = Number(meta.paid || meta.paid_cash || meta.total_paid || subtotal) || subtotal;
+  const change = Number(meta.change || 0);
+  return { subtotal: Math.round(subtotal * 100) / 100, paid: Math.round(paid * 100) / 100, change: Math.round(change * 100) / 100, currency };
+}
+
+/** Normalizza righe receipt “alla ChatGPT” anche se manca il core (fallback gentile) */
+function normalizeReceiptPurchasesSafe(raw = [], { learned } = {}) {
+  // se hai già la versione “core” incollata prima, usiamo quella
+  if (typeof normalizeReceiptPurchases === 'function') {
+    return normalizeReceiptPurchases(raw, { learned });
+  }
+  // Fallback leggero: tipi, quantità minime, merge sobrio
+  const MEASURE = /\b\d+(?:[.,]\d+)?\s*(kg|g|gr|ml|cl|l|lt)\b/i;
+  const LAVAGGI = /\blavaggi?\b/i;
+  const UNIT_RE = /\b(pz|pezzi|capsule|bottiglie|uova|rotoli|lattine|vasetti)\b/i;
+  const out = (Array.isArray(raw) ? raw : []).map(p => {
+    let name = String(p?.name || '').trim();
+    let brand= String(p?.brand||'').trim();
+    let packs = Math.max(1, Number(p?.packs || 1));
+    let upp   = Math.max(1, Number(p?.unitsPerPack || 1));
+    let unitLabel = normalizeUnitLabel(p?.unitLabel || (upp>1?'pezzi':'unità'));
+
+    if (LAVAGGI.test(name)) { upp = 1; unitLabel = 'unità'; }
+    if (MEASURE.test(name) && !UNIT_RE.test(name)) { upp = 1; unitLabel = 'unità'; }
+    if (/uova/i.test(name) && /\b6\b/.test(name)) { upp = 6; unitLabel = 'uova'; }
+
+    const priceEach  = Number(p?.priceEach || 0);
+    const priceTotal = Number(p?.priceTotal || 0) || (priceEach * packs);
+
+    return { name, brand, packs, unitsPerPack: upp, unitLabel, priceEach, priceTotal, currency:'EUR', expiresAt: String(p?.expiresAt||'') };
+  });
+
+  // merge semplice (stesso nome+marca+UPP)
+  const map = new Map();
+  for (const r of out) {
+    const key = `${productKey(r.name, r.brand)}|${r.unitsPerPack}`;
+    const prev = map.get(key) || { ...r, packs:0, priceTotal:0 };
+    prev.packs += Math.max(1, Number(r.packs || 1));
+    prev.priceTotal += Number(r.priceTotal || 0);
+    prev.unitLabel = normalizeUnitLabel(prev.unitLabel || (prev.unitsPerPack>1?'pezzi':'unità'));
+    map.set(key, prev);
+  }
+  return [...map.values()];
+}
+
+/** Inserisce in SCORTE una riga acquisto (merge se esiste) */
+function upsertStockWithPurchase(arr, p, todayISO, imagesIndex) {
+  const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+  const packs = Math.max(0, Number(p.packs || 0));
+  const upp   = Math.max(1, Number(p.unitsPerPack || 1));
+  const lbl   = p.unitLabel || (upp>1 ? 'pezzi' : 'unità');
+  const hasCounts = packs > 0 || upp > 0;
+
+  if (idx >= 0) {
+    const old = arr[idx];
+    if (hasCounts) {
+      const newP = Math.max(0, Number(old.packs || 0) + packs);
+      const newU = Math.max(1, Number(old.unitsPerPack || upp));
+      arr[idx] = {
+        ...old,
+        packs:newP, unitsPerPack:newU,
+        unitLabel: old.unitLabel || lbl,
+        expiresAt: p.expiresAt || old.expiresAt || '',
+        packsOnly:false, needsUpdate:false,
+        ...restockTouch(newP, todayISO, newU)
+      };
+    } else if (DEFAULT_PACKS_IF_MISSING) {
+      const uo = Math.max(1, Number(old.unitsPerPack || 1));
+      const np = Math.max(0, Number(old.packs || 0) + 1);
+      arr[idx] = {
+        ...old,
+        packs:np, unitsPerPack:uo,
+        unitLabel: old.unitLabel || 'unità',
+        packsOnly:false, needsUpdate:false,
+        ...restockTouch(np, todayISO, uo)
+      };
+    } else {
+      arr[idx] = { ...old, needsUpdate:true };
+    }
+  } else {
+    if (hasCounts) {
+      arr.unshift(withRememberedImage({
+        name:p.name, brand:p.brand || '', packs, unitsPerPack:upp, unitLabel:lbl,
+        expiresAt:p.expiresAt || '',
+        baselinePacks:packs, lastRestockAt:todayISO, avgDailyUnits:0,
+        residueUnits:packs*upp, packsOnly:false, needsUpdate:false
+      }, imagesIndex));
+    } else if (DEFAULT_PACKS_IF_MISSING) {
+      arr.unshift(withRememberedImage({
+        name:p.name, brand:p.brand || '',
+        packs:1, unitsPerPack:1, unitLabel:'unità',
+        expiresAt:p.expiresAt || '',
+        baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
+        residueUnits:1, packsOnly:false, needsUpdate:false
+      }, imagesIndex));
+    } else {
+      arr.unshift(withRememberedImage({
+        name:p.name, brand:p.brand || '',
+        packs:0, unitsPerPack:1, unitLabel:'-',
+        expiresAt:p.expiresAt || '',
+        baselinePacks:0, lastRestockAt:'', avgDailyUnits:0,
+        residueUnits:0, packsOnly:true, needsUpdate:true
+      }, imagesIndex));
+    }
+  }
+}
+
+/** === FUNZIONE PRINCIPALE: Vision-first → Liste, Scorte, Finanze === */
 async function handleOCR(files) {
   if (!files) return;
   try {
     setBusy(true);
 
-    // --- pick solo File reali ---
-    const toArray = (x) => Array.from(x || []);
-    const isFileLike = (v) => {
-      try {
-        return !!(v && typeof v === 'object' && typeof v.type === 'string' && typeof v.size === 'number' && typeof v.arrayBuffer === 'function' && typeof v.slice === 'function');
-      } catch { return false; }
-    };
-    const picked = []; for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
-    if (!picked.length) { showToast('Nessuna immagine valida selezionata', 'err'); return; }
-
-    // --- downscale (se disponibile) ---
-    const first = picked[0];
+    // 0) pick file reale e downscale
+    const arrFiles = Array.from(files || []).filter(f => f && typeof f === 'object' && typeof f.size === 'number');
+    if (!arrFiles.length) { showToast('Nessuna immagine valida selezionata', 'err'); return; }
+    const first = arrFiles[0];
     const slim  = (typeof downscaleImageFile === 'function')
       ? await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 })
       : first;
 
-    // 1) Vision-only prima
-const fdV = new FormData();
-fdV.append('image', slim, slim.name || 'receipt.jpg');
+    // 1) Vision-first (usa già il tuo endpoint lib/receipt-pipeline)
+    const { meta: visionMeta = {}, purchases: rawVisionRows = [] } = await visionFirstParseFromFiles([slim]);
 
-let purchases = [];
-let store = '', purchaseDate = '', totals = null;
-
-try {
-  const rV = await timeoutFetch('/api/assistant/vision', { method:'POST', body: fdV }, 60000);
-  const safeV = await readJsonSafe(rV);
-  const ansV = safeV?.answer || safeV?.data || safeV;
-  const vision = typeof ansV === 'string' ? (()=>{ try { return JSON.parse(ansV); } catch { return null; } })() : ansV;
-
-  if (vision && Array.isArray(vision.purchases)) {
-    store        = String(vision.store || '').trim();
-    purchaseDate = toISODate(vision.purchaseDate || '');
-    totals       = vision.totals || null;
-
-    // massaggia + unisci (riuso dei tuoi helper)
-    const impliedFromName = (name='') => {
-      let packs=0, upp=0, unitLabel='';
-      const x = name.match(/\(x(\d+)\)/i); if (x) packs = Math.max(packs, parseInt(x[1],10));
-      const mC = name.match(/(\d+)\s*[x×]\s*(\d+)/i); if (mC){ packs=Math.max(packs, +mC[1]); upp=Math.max(upp, +mC[2]); }
-      const mU = name.match(/\b(\d+)\s*(pz|pezzi|capsule|bottiglie|uova|rotoli|lattine|vasetti)\b/i);
-      if (mU){ upp = Math.max(upp, +mU[1]); unitLabel = normalizeUnitLabel(mU[2]); }
-      return { packs, upp, unitLabel };
-    };
-
-    const tmp = [];
-    for (const p of vision.purchases) {
-      let name = String(p?.name||'').trim();
-      let brand= String(p?.brand||'').trim();
-
-      const impl = impliedFromName(name);
-      if (impl.packs) name = name.replace(/\(x\d+\)/i,'').trim();
-
-      let packs = Math.max(1, Number(p?.packs || impl.packs || 1));
-      let upp   = Math.max(1, Number(p?.unitsPerPack || impl.upp || 1));
-      let label = normalizeUnitLabel(p?.unitLabel || impl.unitLabel || (upp>1?'pezzi':'unità'));
-
-      if (/uova/i.test(name) && upp === 1 && /\b6\b/.test(name)) { upp = 6; label = 'uova'; }
-
-      const priceEach  = Number(String(p?.priceEach ?? 0).replace(',','.')) || 0;
-      const priceTotal = Number(String(p?.priceTotal ?? 0).replace(',','.')) || (priceEach * packs);
-
-      tmp.push({ name, brand, packs, unitsPerPack:upp, unitLabel:label, priceEach, priceTotal, currency:'EUR', expiresAt: toISODate(p?.expiresAt || '') });
-    }
-    purchases = (typeof mergeAndCanonizePurchases === 'function') ? mergeAndCanonizePurchases(tmp) : tmp;
-  }
-} catch (e) {
-  if (DEBUG) console.warn('[VISION] errore, userò fallback OCR', e);
-}
-
-// se vision ha fallito ⇒ (facoltativo) fai OCR classico qui...
-
-    // ===== 2) FALLBACK OCR + parser attuali =====
-    if (!purchases.length) {
-      const aliases = ['images','files','file','image'];
-      let fdOcr = new FormData();
-      for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
-
-      let ocrAns = null, ocrText = '';
-      try {
-        ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
-        ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
-      } catch (err) { showToast(`OCR errore: ${err.message}`, 'err'); throw err; }
-
-      if (!ocrText && /heic|heif/i.test(first?.type || '')) {
-        fdOcr = new FormData(); for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
-        try {
-          const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
-          if (o2 && (o2.text || (o2.items && o2.items.length))) { ocrAns = o2; ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim(); }
-        } catch {}
-      }
-      if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
-
-      // meta base
-      const meta = parseReceiptMeta(ocrText || '');
-      store        = (store || meta.store || '').trim();
-      purchaseDate = toISODate(purchaseDate || meta.purchaseDate || '');
-
-      // 2.a items strutturati (se l’OCR te li dà)
-      const itemsFromVision = Array.isArray(ocrAns?.items) ? ocrAns.items : [];
-      if (itemsFromVision.length) {
-        purchases = itemsFromVision.map(p => ({
-          name: String(p?.name || '').trim(),
-          brand: String(p?.brand || '').trim(),
-          packs: Number(p?.packs || 0),
-          unitsPerPack: Number(p?.unitsPerPack || 0),
-          unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
-          priceEach: 0, priceTotal: 0, currency: 'EUR',
-          expiresAt: toISODate(p?.expiresAt || '')
-        })).filter(p => p.name);
-      }
-
-      // 2.b parser AI su testo
-      if (!purchases.length && ocrText) {
-        const promptTicket = (typeof buildOcrAssistantPrompt === 'function') ? buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON) : ocrText;
-        try {
-          const r = await timeoutFetch(API_ASSISTANT_TEXT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: promptTicket }) }, 35000);
-          const safe = await readJsonSafe(r);
-          const answer = safe?.answer || safe?.data || safe;
-          const parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
-
-          if (parsed) {
-            const arr = ensureArray(parsed?.purchases).map(p => ({
-              name: String(p?.name||'').trim(),
-              brand: String(p?.brand||'').trim(),
-              packs: Number(p?.packs || 0),
-              unitsPerPack: Number(p?.unitsPerPack || 0),
-              unitLabel: normalizeUnitLabel(p?.unitLabel||''),
-              priceEach: Number(p?.priceEach || 0),
-              priceTotal: Number(p?.priceTotal || 0),
-              currency: String(p?.currency||'').trim() || 'EUR',
-              expiresAt: toISODate(p?.expiresAt || '')
-            })).filter(p => p.name);
-            purchases = arr;
-          }
-        } catch (e) { if (DEBUG) console.warn('[ASSISTANT ticket parse] fallito', e); }
-      }
-
-      // 2.c fallback “busta/etichetta”
-      if (!purchases.length && ocrText) {
-        const promptBag = (typeof buildOcrStockBagPrompt === 'function') ? buildOcrStockBagPrompt(ocrText, GROCERY_LEXICON) : ocrText;
-        try {
-          const r2 = await timeoutFetch(API_ASSISTANT_TEXT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: promptBag }) }, 35000);
-          const safe2 = await readJsonSafe(r2);
-          const answer2 = safe2?.answer || safe2?.data || safe2;
-          const parsed2 = typeof answer2 === 'string' ? (() => { try { return JSON.parse(answer2); } catch { return null; } })() : answer2;
-
-          purchases = ensureArray(parsed2?.items).map(p => ({
-            name: String(p?.name||'').trim(),
-            brand: String(p?.brand||'').trim(),
-            packs: Number(p?.packs || 0),
-            unitsPerPack: Number(p?.unitsPerPack || 0),
-            unitLabel: normalizeUnitLabel(p?.unitLabel||''),
-            priceEach: 0, priceTotal: 0, currency: 'EUR',
-            expiresAt: toISODate(p?.expiresAt || '')
-          })).filter(p => p.name);
-        } catch (e) { if (DEBUG) console.warn('[ASSISTANT bag parse] fallito', e); }
-      }
-
-      // 2.d parser locali
-      if (!purchases.length && ocrText) {
-        purchases = parseReceiptPurchases(ocrText).map(p => ({
-          name: p.name, brand: p.brand || '',
-          packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
-          unitLabel: normalizeUnitLabel(p.unitLabel || ''),
-          priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
-        }));
-      }
-      if (!purchases.length && ocrText) {
-        purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
-      }
+    // 2) Normalizza come ChatGPT + (opzionale) arricchisci UPP/label via web
+    let purchases = normalizeReceiptPurchasesSafe(rawVisionRows, { learned });
+    if (purchases.length === 0) {
+      showToast('Nessuna riga riconosciuta', 'err');
+      return;
     }
 
-    // ===== 3) normalizzazioni (alias/quantità) =====
-    if (Array.isArray(purchases)) {
-      purchases = purchases.map(p => {
-        if (typeof applyLearnedAliases === 'function') {
-          const a = applyLearnedAliases({ name:p.name, brand:p.brand }, (typeof learned !== 'undefined' ? learned : {}));
-          return { ...p, name: a.name, brand: a.brand };
-        }
-        return p;
-      });
-      if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
-      if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
-    }
-    purchases = localMerge(purchases);
+    try {
+      const enriched = await enrichPurchasesViaWeb(purchases);
+      // re-normalizza dopo enrichment (se hai il core userà quello, altrimenti fallback)
+      purchases = normalizeReceiptPurchasesSafe(enriched, { learned });
+    } catch (_) { /* ok, non bloccare */ }
 
-    // ===== 4) Enrichment web (UPP/label quando mancano) =====
-    const enriched = [];
-    for (const p of purchases) {
-      if (Number(p.unitsPerPack || 0) > 1) { enriched.push(p); continue; }
-      try {
-        const resp = await timeoutFetch('/api/products/enrich', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ name: p.name, brand: p.brand, needsUPP: true })
-        }, 35000);
-        const ans = await readJsonSafe(resp);
-        const best = ans?.best;
-        if (best && Number(best.confidence) >= 0.65) {
-          const upp = Math.max(1, Number(best.unitsPerPack || 1));
-          const lbl = normalizeUnitLabel(best.unitLabel || (upp>1?'pezzi':'unità'));
-          enriched.push({ ...p, unitsPerPack: upp, unitLabel: lbl });
-        } else {
-          enriched.push(p);
-        }
-      } catch { enriched.push(p); }
-    }
-    purchases = localMerge(enriched);
-
-    // ===== 5) Filtra non-merce ovvia =====
-    const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
-    purchases = purchases.filter(p => !NOT_PRODUCT_RE.test(`${p.name} ${p.brand}`.toLowerCase()));
-
-    if (!purchases.length) { showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err'); return; }
-
-    // ===== 6) Applica (liste → scorte) =====
-    if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: true });
-
+    // 3) Decrementa entrambe le liste con le righe riconosciute
     setLists(prev => decrementAcrossBothLists(prev, purchases));
 
+    // 4) Aggiorna SCORTE
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0, 10);
-      for (const p of purchases) {
-        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
-        const packs = Math.max(0, Number(p.packs || 0));
-        const upp   = Math.max(1, Number(p.unitsPerPack || 1));
-        const hasCounts = packs > 0 || upp > 0;
-        const lbl   = p.unitLabel || (upp>1 ? 'pezzi' : 'unità');
-
-        if (idx >= 0) {
-          const old = arr[idx];
-          if (hasCounts) {
-            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
-            const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
-              ...old,
-              packs:newP, unitsPerPack:newU,
-              unitLabel: old.unitLabel || lbl,
-              expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly:false, needsUpdate:false,
-              ...restockTouch(newP, todayISO, newU)
-            };
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            const uo = Math.max(1, Number(old.unitsPerPack || 1));
-            const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = {
-              ...old,
-              packs:np, unitsPerPack:uo,
-              unitLabel: old.unitLabel || 'unità',
-              packsOnly:false, needsUpdate:false,
-              ...restockTouch(np, todayISO, uo)
-            };
-          } else {
-            arr[idx] = { ...old, needsUpdate:true };
-          }
-        } else {
-          if (hasCounts) {
-            const u = Math.max(1, upp || 1);
-            arr.unshift(withRememberedImage({
-              name:p.name, brand:p.brand || '',
-              packs:Math.max(0, packs || 1), unitsPerPack:u, unitLabel:lbl,
-              expiresAt:p.expiresAt || '',
-              baselinePacks:Math.max(0, packs || 1), lastRestockAt:todayISO, avgDailyUnits:0,
-              residueUnits:Math.max(0,(packs||1)*u),
-              packsOnly:false, needsUpdate:false
-            }, imagesIndex));
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            arr.unshift(withRememberedImage({
-              name:p.name, brand:p.brand || '',
-              packs:1, unitsPerPack:1, unitLabel:'unità',
-              expiresAt:p.expiresAt || '',
-              baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
-              residueUnits:1, packsOnly:false, needsUpdate:false
-            }, imagesIndex));
-          } else {
-            arr.unshift(withRememberedImage({
-              name:p.name, brand:p.brand || '',
-              packs:0, unitsPerPack:1, unitLabel:'-',
-              expiresAt:p.expiresAt || '',
-              baselinePacks:0, lastRestockAt:'', avgDailyUnits:0,
-              residueUnits:0, packsOnly:true, needsUpdate:true
-            }, imagesIndex));
-          }
-        }
-      }
+      for (const p of purchases) upsertStockWithPurchase(arr, p, todayISO, imagesIndex);
       return arr;
     });
 
-    // ===== 7) Finanze =====
+    // 5) Calcola totali e invia a FINANZE
+    const meta = {
+      store: String(visionMeta?.store || '').trim(),
+      purchaseDate: toISODate(visionMeta?.purchaseDate || '')
+    };
+    const { subtotal, paid, change, currency } = computeReceiptTotals(purchases, visionMeta);
+
+    const itemsSafe = purchases.map(p => ({
+      name: p.name, brand: p.brand || '',
+      packs: Number(p.packs || 0),
+      unitsPerPack: Number(p.unitsPerPack || 0),
+      unitLabel: p.unitLabel || '',
+      priceEach: Number(p.priceEach || 0),
+      priceTotal: Number(p.priceTotal || 0),
+      currency: p.currency || currency,
+      expiresAt: p.expiresAt || ''
+    }));
+
+    const payloadFin = {
+      ...(userIdRef?.current ? { user_id: userIdRef.current } : {}),
+      ...(meta.store ? { store: meta.store } : {}),
+      ...(meta.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
+      receipt_subtotal: subtotal,
+      paid_total: paid,
+      change_total: change,
+      payment_method: 'cash',
+      // facoltativo: bucket/etichette lato server (“spese_casa”, “entrate_soldi_in_tasca” se gestisci i resti o cashback)
+      buckets: ['spese_casa'],
+      items: itemsSafe
+    };
+
     try {
-      const itemsSafe = purchases.map(p => ({
-        name:p.name, brand:p.brand||'',
-        packs:Number.isFinite(p.packs)?p.packs:0,
-        unitsPerPack:Number.isFinite(p.unitsPerPack)?p.unitsPerPack:0,
-        unitLabel:p.unitLabel||'',
-        priceEach:Number.isFinite(p.priceEach)?p.priceEach:0,
-        priceTotal:Number.isFinite(p.priceTotal)?p.priceTotal:0,
-        currency:p.currency||'EUR',
-        expiresAt:p.expiresAt||''
-      }));
-      const payload = {
-        ...(userIdRef?.current ? { user_id:userIdRef.current } : {}),
-        ...(store ? { store } : {}),
-        ...(purchaseDate ? { purchaseDate } : {}),
-        payment_method:'cash', card_label:null,
-        items: itemsSafe
-      };
       await fetchJSONStrict(API_FINANCES_INGEST, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payloadFin)
       }, 30000);
-      showToast('Scontrino importato (Vision + Web) ✓', 'ok');
     } catch (e) {
       if (DEBUG) console.warn('[FINANCES_INGEST] fail', e);
-      showToast(`Finanze: ${e.message}`, 'err');
+      showToast(`Finanze: ${e?.message || e}`, 'err');
     }
 
+    showToast('Scontrino importato: liste, scorte e finanze aggiornate ✓', 'ok');
   } catch (e) {
     console.error('[handleOCR] error', e);
     showToast(`Errore OCR/Vision: ${e?.message || e}`, 'err');
@@ -1540,6 +1419,7 @@ try {
     if (ocrInputRef?.current) ocrInputRef.current.value = '';
   }
 }
+
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
