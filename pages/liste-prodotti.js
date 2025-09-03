@@ -1419,7 +1419,7 @@ async function handleOCR(files) {
     if (ocrInputRef?.current) ocrInputRef.current.value = '';
   }
 }
-
+e
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
