@@ -9,9 +9,19 @@ import {
   enrichPurchasesViaWeb
 } from '@/lib/receipt-pipeline';
 
-/* ================================================
+/* ===========================================================
+   SHIMS REVIEW (se la modale non è più usata, evita errori)
+=========================================================== */
+// eslint-disable-next-line no-var
+var registerReviewSetters = (typeof registerReviewSetters === 'function') ? registerReviewSetters : function noop(){};
+// eslint-disable-next-line no-var
+var openValidation       = (typeof openValidation       === 'function') ? openValidation       : function noop(){};
+// eslint-disable-next-line no-var
+var handleReviewChange   = (typeof handleReviewChange   === 'function') ? handleReviewChange   : function noop(){};
+
+/* ===========================================================
    BASE LEXICON (minimo, espandibile)
-================================================ */
+=========================================================== */
 const GROCERY_LEXICON = [
   'latte','latte zymil','yogurt','burro','uova','mozzarella','parmigiano',
   'pane','pasta','riso','farina','zucchero','olio evo','olio di semi','aceto',
@@ -28,9 +38,9 @@ const GROCERY_LEXICON = [
 const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
 const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
 
-/* ================================================
+/* ===========================================================
    COSTANTI / CONFIG
-================================================ */
+=========================================================== */
 const LIST_TYPES = { SUPERMARKET: 'supermercato', ONLINE: 'online' };
 const DEBUG = false;
 const DEFAULT_PACKS_IF_MISSING = true;
@@ -42,9 +52,9 @@ const API_FINANCES_INGEST = '/api/finances/ingest';
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
 
-/* ================================================
+/* ===========================================================
    UTILS DI BASE
-================================================ */
+=========================================================== */
 function normKey(str=''){
   return String(str).toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
@@ -76,6 +86,7 @@ function normalizeBrandName(s){
 function normalizeProductName(n){ return String(n||'').trim(); }
 
 /* isSimilar SHIM (una sola volta) */
+// eslint-disable-next-line no-var
 var isSimilar = (typeof isSimilar === 'function') ? isSimilar : function isSimilar(a, b) {
   const na = normKey(a), nb = normKey(b);
   if (!na || !nb) return false;
@@ -89,9 +100,9 @@ var isSimilar = (typeof isSimilar === 'function') ? isSimilar : function isSimil
   return j >= 0.5 || (inter >= 1 && (A.size === 1 || B.size === 1));
 };
 
-/* ================================================
+/* ===========================================================
    ALIASES con contesto (NO categorie sui receipt)
-================================================ */
+=========================================================== */
 function applyLearnedAliases({ name, brand }, learned, ctx = {}) {
   let n = name || '', b = brand || '';
   const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -113,9 +124,9 @@ function applyLearnedAliases({ name, brand }, learned, ctx = {}) {
   return { name:n, brand:b };
 }
 
-/* ================================================
+/* ===========================================================
    Quantità implicite dal nome (x2, 2×6, 6 pezzi/uova…)
-================================================ */
+=========================================================== */
 function impliedQuantitiesFromName(name=''){
   let packs = 0, upp = 0, unitLabel = '';
 
@@ -131,9 +142,9 @@ function impliedQuantitiesFromName(name=''){
   return { packs, upp, unitLabel };
 }
 
-/* ================================================
-   Sanitizzazione quantità receipt (NO pesi/lavaggi come UPP)
-================================================ */
+/* ===========================================================
+   Sanitizzazione quantità (NO pesi/lavaggi come UPP)
+=========================================================== */
 const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(kg|g|gr|ml|cl|l|lt)\b/i;
 const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(cm|mm|m)\b/i;
 const UNIT_WORD_RE     = /\b(pz|pezzi|capsule|bottiglie|uova|rotoli|lattine|vasetti)\b/i;
@@ -167,9 +178,9 @@ function sanitizeReceiptQuantities(list = []) {
   });
 }
 
-/* ================================================
-   Merge intelligente (non unire formati di pasta)
-================================================ */
+/* ===========================================================
+   Merge intelligente (non sommare formati di pasta diversi)
+=========================================================== */
 function canonicalName(raw='') {
   const s = normKey(raw);
   let t = s
@@ -184,7 +195,6 @@ function canonicalName(raw='') {
 }
 
 function localMerge(items = []) {
-  if (typeof mergeAndCanonizePurchases === 'function') return mergeAndCanonizePurchases(items);
   const map = new Map();
   for (const p of (Array.isArray(items) ? items : [])) {
     const displayName = normalizeProductName(p.name || '');
@@ -213,18 +223,23 @@ function localMerge(items = []) {
   return [...map.values()];
 }
 
-/* ================================================
+/* Back-compat: se da qualche parte si richiama ancora cleanupPurchasesQuantities,
+   facciamola puntare alla nuova sanitizzazione. */
+function cleanupPurchasesQuantities(list){ return sanitizeReceiptQuantities(list); }
+
+/* ===========================================================
    Filtro non-merce (shopper/cauzioni…)
-================================================ */
+=========================================================== */
 function isNonMerch(name='', brand=''){
   const s = `${name} ${brand}`.toLowerCase();
   return /\b(shopper|sacchetto|busta|eco[- ]?contributo|ecocontributo|cauzione|vuoto(?:\s*a\s*rendere)?)\b/i.test(s);
 }
 
-/* ================================================
-   Pipeline unica: vision → clean → merge
-   USO: const purchases = normalizeReceiptPurchases(vision.purchases, { learned });
-================================================ */
+/* ===========================================================
+   Pipeline pubblica: vision → clean → merge
+   USO in handleOCR:
+   const purchases = normalizeReceiptPurchases(vision.purchases, { learned });
+=========================================================== */
 function normalizeReceiptPurchases(raw = [], { learned } = {}) {
   if (!Array.isArray(raw)) return [];
 
@@ -258,21 +273,15 @@ function normalizeReceiptPurchases(raw = [], { learned } = {}) {
   return localMerge(arr);
 }
 
-/* ================================================
-   Altri helper già presenti e utili (date/meta/parse fallback)
-================================================ */
+/* ===========================================================
+   (Opzionale) parse meta e fallback testi OCR: lasciati invariati se già presenti
+=========================================================== */
 function toISODate(any) {
   const s = String(any || '').trim();
   if (!s) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const num = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
-  if (num) {
-    const d = String(num[1]).padStart(2, '0');
-    const M = String(num[2]).padStart(2, '0');
-    let y = String(num[3]);
-    if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
-    return `${y}-${M}-${d}`;
-  }
+  const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (m){ const d=m[1].padStart(2,'0'); const M=m[2].padStart(2,'0'); let y=m[3]; if (y.length===2) y=(Number(y)>=70?'19':'20')+y; return `${y}-${M}-${d}`; }
   return '';
 }
 function parseReceiptMeta(ocrText) {
@@ -287,12 +296,32 @@ function parseReceiptMeta(ocrText) {
   }
   return { store, purchaseDate };
 }
-function parseReceiptPurchases(ocrText) {
-  // fallback minimal, già presente nel tuo file (lasciato invariato)
-  // ...
-  return [];
-}
 
+/* ====================== Consumi / restock helpers ====================== */
+function computeNewAvgDailyUnits(old, newPacks) {
+  const upp = Math.max(1, Number(old.unitsPerPack || 1));
+  const oldUnits = Number(old.packs || 0) * upp;
+  const newUnits = Number(newPacks || 0) * upp;
+  let avg = old?.avgDailyUnits || 0;
+
+  if (old?.lastRestockAt && newUnits < oldUnits) {
+    const days = Math.max(1, (Date.now() - new Date(old.lastRestockAt).getTime())/86400000);
+    const usedUnits = oldUnits - newUnits;
+    const day = usedUnits / days;
+    avg = avg ? (0.6*avg + 0.4*day) : day;
+  }
+  return avg;
+}
+function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
+  const upp = Math.max(1, Number(unitsPerPack || 1));
+  const bp  = Math.max(0, Number(baselineFromPacks || 0));
+  const fullUnits = bp * upp;
+  return {
+    baselinePacks: bp,
+    lastRestockAt: lastDateISO,
+    residueUnits: fullUnits,
+  };
+}
 
 /* ====================== Piccola utility media (no-op sicura) ====================== */
 function theMediaWorkaround(){ return; }
