@@ -17,8 +17,8 @@ if (typeof globalThis !== 'undefined') {
     globalThis.handleReviewChange = function noop() {};
   }
 }
-
-
+// usa NEXT_PUBLIC_USE_AGENT_POST=1 per abilitarlo in prod
+const USE_AGENT_POST = process.env.NEXT_PUBLIC_USE_AGENT_POST === '1';
 /* ===========================================================
    BASE LEXICON (minimo, espandibile)
 =========================================================== */
