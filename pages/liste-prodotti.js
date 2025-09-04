@@ -1019,8 +1019,7 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   }
 }
 
-// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web =====
-// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (con meta di debug) =====
+// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (proxy-safe) =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
@@ -1037,30 +1036,17 @@ async function enrichPurchasesViaWeb(purchases = []) {
       body: JSON.stringify(payload),
     }, 25000);
 
-    // Se l'API risponde con non-JSON, forziamo errore esplicito
     const json = await resp.json().catch(() => null);
-    if (!resp.ok || !json) {
-      throw new Error(`enrich HTTP ${resp.status}`);
-    }
-    if (!json.ok) {
-      throw new Error(json.error || 'enrich failed');
+    if (!resp.ok || !json || !json.ok || !Array.isArray(json.items)) {
+      throw new Error(json?.error || `enrich HTTP ${resp.status}`);
     }
 
-    // 👀 META DI DEBUG: guardala in Network/Console
-    const meta = json.meta || {};
-    if (!meta.hasKey || !meta.hasCxWeb) {
-      console.warn('[enrich/meta] checkout ENV su Vercel:', meta);
-    } else {
-      console.log('[enrich/meta] ok:', meta);
-    }
-
-    const itemsOut = Array.isArray(json.items) ? json.items : [];
-    const map = new Map(itemsOut.map(x => [
+    const map = new Map(json.items.map(x => [
       `${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x
     ]));
 
     const imagesMap = {};
-    const enriched = purchases.map(p => {
+    const out = purchases.map(p => {
       const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
       const e = map.get(k);
       if (!e) return p;
@@ -1068,20 +1054,22 @@ async function enrichPurchasesViaWeb(purchases = []) {
       const prettyName  = String(e.normalizedName || p.name).trim();
       const prettyBrand = String(e.brand || p.brand || '').trim();
 
-      // chiave immagini basata sui valori FINALi
-      const imgKey = productKey(prettyName, prettyBrand);
+      // proxy per evitare hotlink/CORS
       if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
-        imagesMap[imgKey] = e.imageUrl;
+        const proxied = `/api/img-proxy?url=${encodeURIComponent(e.imageUrl)}`;
+        imagesMap[productKey(prettyName, prettyBrand)] = proxied;
       }
+
       return { ...p, name: prettyName, brand: prettyBrand };
     });
 
-    return { items: enriched, images: imagesMap };
+    return { items: out, images: imagesMap };
   } catch (err) {
     console.warn('[enrich] fail:', err);
     return { items: purchases, images: {} };
   }
 }
+
 
 
 /* ====================== Calcoli scorte ====================== */
@@ -2509,22 +2497,24 @@ async function handleOCR(files) {
       return;
     }
  // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
-let mergedImagesIndex = imagesIndex; // mappa "pronta" da usare anche dentro setStock
+// ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
+let mergedImagesIndex = imagesIndex; // mappa "pronta" per setStock
 if (purchases.length) {
   const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
   purchases = Array.isArray(enriched) ? enriched : purchases;
 
-  // merge sincrono per evitare race con setState
+  // merge sincrono (evita race con setState)
   mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
   setImagesIndex(mergedImagesIndex);
 
-  // debug visivo
+  // (opz.) debug visivo
   try {
     const n = purchases.length;
     const m = Object.keys(imap || {}).length;
     showToast(`Enrich web: ${n} righe, immagini: ${m}`, 'ok');
   } catch {}
 }
+
 
 
     // ——— 10) Memorizzazione termini (no-op se non usi) ———
@@ -2654,6 +2644,7 @@ setStock(prev => {
 
   return arr;
 });
+
 
 
     // ——— 13) Finanze ———
