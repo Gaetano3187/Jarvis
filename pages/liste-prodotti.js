@@ -2195,6 +2195,170 @@ function incQty(id, delta) {
     next[currentList] = (prev[currentList] || [])
       .map(i => (i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i))
       .filter(i => i.qty > 0);
+      // === OCR/SCONTRINO (VISION) — dentro il componente, prima del return ===
+const handleOCR = useCallback(async (files) => {
+  try {
+    setBusy(true);
+
+    // 0) file validi
+    const isFileLike = (v) => {
+      try {
+        return !!(v && typeof v === 'object' && typeof v.type === 'string' && typeof v.size === 'number' && typeof v.arrayBuffer === 'function' && typeof v.slice === 'function');
+      } catch { return false; }
+    };
+    const list = Array.from(files || []).filter(isFileLike);
+    if (!list.length) { showToast('Nessuna immagine valida', 'err'); return; }
+
+    // 1) Vision API
+    const fdVis = new FormData();
+    list.slice(0, 6).forEach((f) => fdVis.append('image', f, f.name || 'receipt.jpg'));
+
+    const vis = await fetchJSONStrict(API_ASSISTANT_VISION || '/api/assistant/vision', { method:'POST', body: fdVis }, 60000);
+
+    let data = vis?.data;
+    if (!data && vis?.answer) { try { data = JSON.parse(vis.answer); } catch {} }
+    if (!data) throw new Error(vis?.error || 'Vision: risposta vuota');
+
+    let store        = String(data.store || '').trim();
+    let purchaseDate = toISODate(data.purchaseDate || '');
+    let purchases    = Array.isArray(data.purchases) ? data.purchases.map(p => ({
+      name: String(p?.name || '').trim(),
+      brand: String(p?.brand || '').trim(),
+      packs: coerceNum(p?.packs),
+      unitsPerPack: coerceNum(p?.unitsPerPack),
+      unitLabel: String(p?.unitLabel || '').trim(),
+      priceEach: coerceNum(p?.priceEach),
+      priceTotal: coerceNum(p?.priceTotal),
+      currency: String(p?.currency || 'EUR').trim() || 'EUR',
+      expiresAt: toISODate(p?.expiresAt || '')
+    })).filter(p => p.name) : [];
+
+    // 2) filtra non-merce
+    const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
+    purchases = purchases.filter(p => !NOT_PRODUCT_RE.test(normKey(`${p.name} ${p.brand || ''}`)));
+    if (!purchases.length) { showToast('Nessuna riga acquisto riconosciuta', 'err'); return; }
+
+    // 3) enrich nome+immagini (usa subito mergedImagesIndex)
+    let mergedImagesIndex = imagesIndex;
+    try {
+      const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
+      purchases = Array.isArray(enriched) ? enriched : purchases;
+      mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
+      setImagesIndex(mergedImagesIndex);
+    } catch {}
+
+    // 4) memoria
+    if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
+
+    // 5) decrementa liste
+    setLists(prev => decrementAcrossBothLists(prev, purchases));
+
+    // 6) aggiorna scorte (usa mergedImagesIndex e aggiorna anche name/brand)
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0, 10);
+
+      for (const p of purchases) {
+        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand)));
+        const packs = coerceNum(p.packs);
+        const upp   = coerceNum(p.unitsPerPack);
+        const hasCounts = packs > 0 || upp > 0;
+
+        if (idx >= 0) {
+          const old = arr[idx];
+          if (hasCounts) {
+            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
+            arr[idx] = {
+              ...old,
+              name: (p.name && String(p.name).trim()) || old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              packs: newP,
+              unitsPerPack: newU,
+              unitLabel: old.unitLabel || p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || old.expiresAt || '',
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(newP, todayISO, newU),
+            };
+          } else {
+            const uo = Math.max(1, Number(old.unitsPerPack || 1));
+            const np = DEFAULT_PACKS_IF_MISSING ? Math.max(0, Number(old.packs || 0) + 1) : Number(old.packs || 0);
+            arr[idx] = {
+              ...old,
+              name: (p.name && String(p.name).trim()) || old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              packs: DEFAULT_PACKS_IF_MISSING ? np : old.packs,
+              unitsPerPack: uo,
+              unitLabel: old.unitLabel || 'unità',
+              packsOnly: !DEFAULT_PACKS_IF_MISSING,
+              needsUpdate: !DEFAULT_PACKS_IF_MISSING,
+              ...(DEFAULT_PACKS_IF_MISSING ? restockTouch(np, todayISO, uo) : {}),
+            };
+          }
+          // immagine se assente
+          const kImg = productKey(p.name, p.brand || '');
+          const remembered = mergedImagesIndex && mergedImagesIndex[kImg];
+          if (remembered && !arr[idx].image) arr[idx] = { ...arr[idx], image: remembered };
+        } else {
+          if (hasCounts) {
+            const u = Math.max(1, upp || 1);
+            arr.unshift(withRememberedImage({
+              name: p.name, brand: p.brand || '',
+              packs: Math.max(0, packs || 1), unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || '', baselinePacks: Math.max(0, packs || 1),
+              lastRestockAt: todayISO, avgDailyUnits: 0, residueUnits: Math.max(0, (packs || 1) * u),
+              packsOnly: false, needsUpdate: false
+            }, mergedImagesIndex));
+          } else if (DEFAULT_PACKS_IF_MISSING) {
+            arr.unshift(withRememberedImage({
+              name: p.name, brand: p.brand || '', packs: 1, unitsPerPack: 1, unitLabel: 'unità',
+              expiresAt: p.expiresAt || '', baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
+              residueUnits: 1, packsOnly: false, needsUpdate: false
+            }, mergedImagesIndex));
+          } else {
+            arr.unshift(withRememberedImage({
+              name: p.name, brand: p.brand || '', packs: 0, unitsPerPack: 1, unitLabel: '-',
+              expiresAt: p.expiresAt || '', baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0,
+              residueUnits: 0, packsOnly: true, needsUpdate: true
+            }, mergedImagesIndex));
+          }
+        }
+      }
+      return arr;
+    });
+
+    // 7) Finanze
+    try {
+      const itemsSafe = purchases.map(p => ({
+        name:p.name, brand:p.brand||'',
+        packs:Number.isFinite(p.packs)?p.packs:0, unitsPerPack:Number.isFinite(p.unitsPerPack)?p.unitsPerPack:0,
+        unitLabel:p.unitLabel||'', priceEach:Number.isFinite(p.priceEach)?p.priceEach:0, priceTotal:Number.isFinite(p.priceTotal)?p.priceTotal:0,
+        currency:p.currency||'EUR', expiresAt:p.expiresAt||''
+      }));
+      await fetchJSONStrict(API_FINANCES_INGEST, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          ...(userIdRef.current ? { user_id:userIdRef.current } : {}),
+          ...(store ? { store } : {}),
+          ...(purchaseDate ? { purchaseDate } : {}),
+          payment_method:'cash', card_label:null,
+          items: itemsSafe
+        })
+      }, 30000);
+      showToast('OCR scorte (Vision) completato ✓', 'ok');
+    } catch (e) {
+      showToast(`Finanze: ${e.message}`, 'err');
+    }
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+}, [imagesIndex, setImagesIndex, setLists, setStock]);
+
     return next;
   });
 }
