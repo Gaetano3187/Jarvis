@@ -2496,18 +2496,17 @@ async function handleOCR(files) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
     }
- // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
 // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
-let mergedImagesIndex = imagesIndex; // mappa "pronta" per setStock
+let mergedImagesIndex = imagesIndex; // mappa "pronta" anche per setStock
 if (purchases.length) {
   const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
   purchases = Array.isArray(enriched) ? enriched : purchases;
 
-  // merge sincrono (evita race con setState)
+  // merge sincrono per evitare race con setState
   mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
   setImagesIndex(mergedImagesIndex);
 
-  // (opz.) debug visivo
+  // debug visivo (facoltativo)
   try {
     const n = purchases.length;
     const m = Object.keys(imap || {}).length;
@@ -2516,14 +2515,12 @@ if (purchases.length) {
 }
 
 
-
     // ——— 10) Memorizzazione termini (no-op se non usi) ———
     if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
 
     // ——— 11) Decrementa liste ———
     setLists(prev => decrementAcrossBothLists(prev, purchases));
-
-    // ——— 12) Aggiorna scorte ———
+// ——— 12) Aggiorna scorte ———
 setStock(prev => {
   const arr = [...prev];
   const todayISO = new Date().toISOString().slice(0, 10);
