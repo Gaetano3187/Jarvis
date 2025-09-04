@@ -1,18 +1,75 @@
 // pages/api/products/enrich.js
-// Google CSE (web + image), fallback og:image/cse_image, meta di debug
+// Google CSE (web + image), fallback og:image/cse_image, meta di debug + risoluzione ENV robusta
 
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') {
-      return res.status(200).json({ ok: false, error: 'Method not allowed' });
+      // 405 più corretto per metodo non consentito
+      return res.status(405).json({ ok: false, error: 'Method not allowed' });
     }
 
-    const GOOGLE_KEY    = process.env.GOOGLE_API_KEY?.trim();
-    const GOOGLE_CX     = process.env.GOOGLE_CSE_ID?.trim();           // web
-    const GOOGLE_CX_IMG = (process.env.GOOGLE_CSE_ID_IMG || GOOGLE_CX)?.trim(); // image
+    // ====== ENV RESOLUTION (robusta: accetta più nomi/alias) ======
+    const KEY_CANDIDATES = [
+      'GOOGLE_API_KEY',                 // consigliato
+      'GOOGLE_SEARCH_API_KEY',          // alias comune
+      'GOOGLE_CUSTOM_SEARCH_KEY',       // alias
+      'NEXT_PUBLIC_GOOGLE_API_KEY',     // (sconsigliato) public
+    ];
+    const CX_WEB_CANDIDATES = [
+      'GOOGLE_CSE_ID',                  // consigliato
+      'GOOGLE_SEARCH_ENGINE_ID',        // alias
+      'GOOGLE_CX',                      // alias
+      'NEXT_PUBLIC_GOOGLE_CSE_ID',      // (sconsigliato) public
+    ];
+    const CX_IMG_CANDIDATES = [
+      'GOOGLE_CSE_ID_IMG',              // consigliato (separato immagini)
+      'GOOGLE_SEARCH_ENGINE_ID_IMG',    // alias
+      'GOOGLE_CX_IMG',                  // alias
+      'NEXT_PUBLIC_GOOGLE_CSE_ID_IMG',  // (sconsigliato) public
+    ];
+
+    const pickEnv = (cands) => {
+      for (const n of cands) {
+        const v = process.env[n];
+        if (typeof v === 'string' && v.trim()) return { name: n, value: v.trim() };
+      }
+      return { name: 'none', value: '' };
+    };
+
+    const keyPick   = pickEnv(KEY_CANDIDATES);
+    const cxWebPick = pickEnv(CX_WEB_CANDIDATES);
+    // se non c'è un CX immagini dedicato, fallback al CX web
+    const cxImgPick = (() => {
+      const p = pickEnv(CX_IMG_CANDIDATES);
+      return p.value ? p : cxWebPick;
+    })();
+
+    const GOOGLE_KEY    = keyPick.value;
+    const GOOGLE_CX     = cxWebPick.value;          // web
+    const GOOGLE_CX_IMG = cxImgPick.value;          // image (o fallback web)
+
+    // ====== GUARD esplicito se mancano KEY o CX ======
+    if (!GOOGLE_KEY || !GOOGLE_CX) {
+      return res.status(200).json({
+        ok: false,
+        error: !GOOGLE_KEY
+          ? 'GOOGLE_API_KEY (o alias) non trovata a runtime. Imposta la variabile su Vercel e redeploy.'
+          : 'GOOGLE_CSE_ID (o alias) non trovata.',
+        meta: {
+          hasKey: !!GOOGLE_KEY,
+          hasCxWeb: !!GOOGLE_CX,
+          hasCxImg: !!GOOGLE_CX_IMG,
+          keyVarUsed: keyPick.name,
+          cxVarUsed: cxWebPick.name,
+          cxImgVarUsed: cxImgPick.name,
+          count: 0,
+        },
+      });
+    }
 
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
 
+    // Categorie euristiche minime
     const CATS = [
       { re: /\b(spugna|spugne|sponge|ondattiva)\b/i,                cat: 'Pulizia casa · Spugne' },
       { re: /\b(paglietta|scouring|steel wool)\b/i,                 cat: 'Pulizia casa · Pagliette' },
@@ -23,23 +80,23 @@ export default async function handler(req, res) {
       { re: /\b(pasta|spaghetti|penne|riso|biscotti|merendine|tonno|passata)\b/i, cat: 'Alimentari' },
     ];
 
+    // Web Search
     const googleWeb = async (q) => {
-      if (!GOOGLE_KEY || !GOOGLE_CX) return null;
       const p = new URLSearchParams({
         key: GOOGLE_KEY, cx: GOOGLE_CX, q,
-        lr: 'lang_it', gl: 'it', cr: 'countryIT', num: '5', safe: 'active'
+        lr: 'lang_it', gl: 'it', cr: 'countryIT', num: '5', safe: 'active',
       });
       const r = await fetch(`https://www.googleapis.com/customsearch/v1?${p}`);
       if (!r.ok) throw new Error('google web ' + r.status);
       return r.json();
     };
 
+    // Image Search
     const googleImages = async (q) => {
-      if (!GOOGLE_KEY || !GOOGLE_CX_IMG) return null;
       const p = new URLSearchParams({
         key: GOOGLE_KEY, cx: GOOGLE_CX_IMG, q,
         searchType: 'image', imgType: 'photo', safe: 'active',
-        lr: 'lang_it', gl: 'it', num: '10'
+        lr: 'lang_it', gl: 'it', num: '10',
       });
       const r = await fetch(`https://www.googleapis.com/customsearch/v1?${p}`);
       if (!r.ok) throw new Error('google img ' + r.status);
@@ -99,7 +156,7 @@ export default async function handler(req, res) {
       }
 
       // Secondo tentativo con query arricchita
-      if (!imageUrl && GOOGLE_CX_IMG) {
+      if (!imageUrl) {
         try {
           const imgs2 = await googleImages(`${q} foto`);
           const cand2 = imgs2?.items?.slice(0, 10) || [];
@@ -111,7 +168,7 @@ export default async function handler(req, res) {
       out.push({ sourceName: name, brand, normalizedName, category, desc, imageUrl });
     }
 
-    // meta di debug: verifica subito su Network la presenza delle chiavi
+    // meta di debug: verifica variabili realmente lette
     return res.status(200).json({
       ok: true,
       items: out,
@@ -119,8 +176,11 @@ export default async function handler(req, res) {
         hasKey: !!GOOGLE_KEY,
         hasCxWeb: !!GOOGLE_CX,
         hasCxImg: !!GOOGLE_CX_IMG,
-        count: out.length
-      }
+        keyVarUsed: keyPick.name,
+        cxVarUsed: cxWebPick.name,
+        cxImgVarUsed: cxImgPick.name,
+        count: out.length,
+      },
     });
   } catch (e) {
     return res.status(200).json({ ok: false, error: e?.message || String(e) });
