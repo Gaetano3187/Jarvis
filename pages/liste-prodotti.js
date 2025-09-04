@@ -1,5 +1,5 @@
 // pages/liste-prodotti.js
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -2079,125 +2079,154 @@ function ListeProdotti() {
   }, []);
 
   /* =================== Autosave debounce (locale) =================== */
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+
+  const snapshot = { lists, stock, currentList, imagesIndex, learned };
+
+  persistTimerRef.current = setTimeout(() => {
+    try {
+      persistNow(snapshot);
+    } catch (e) {
+      if (DEBUG) console.warn('[persistNow] failed', e);
+    }
+  }, 300);
+
+  return () => {
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-   const snapshot = { lists, stock, currentList, imagesIndex, learned };
-    persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
-    return () => clearTimeout(persistTimerRef.current);
-  }, [lists, stock, currentList, imagesIndex, learned]);
+  };
+}, [lists, stock, currentList, imagesIndex, learned]);
 
-  /* =================== Sync tra tab =================== */
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onStorage = (e) => {
-      if (e.key !== LS_KEY) return;
-      const saved = loadPersisted();
-      if (!saved) return;
+/* =================== Sync tra tab =================== */
+useEffect(() => {
+  if (typeof window === 'undefined') return;
 
-      setLists({
-        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+  const onStorage = (e) => {
+    if (e.key !== LS_KEY) return;
+    const saved = loadPersisted();
+    if (!saved) return;
+
+    setLists({
+      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+      [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+    });
+    setStock(Array.isArray(saved.stock) ? saved.stock : []);
+    setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+    setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
+  };
+
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}, []);
+
+/* =================== Derivati: critici =================== */
+useEffect(() => {
+  const crit = (stock || []).filter((p) => {
+    const current  = residueUnitsOf(p);
+    const baseline = baselineUnitsOf(p);
+    const pct = baseline ? (current / baseline) : 1;
+    const lowResidue = pct < 0.20;
+    const expSoon    = isExpiringSoon(p, 10);
+    return lowResidue || expSoon;
+  });
+  setCritical(crit);
+}, [stock]);
+
+// elimina una riga di scorte per indice (serve negli onClick)
+const deleteStockRow = useCallback((index) => {
+  setStock(prev => prev.filter((_, i) => i !== index));
+}, []);
+
+/* =================== LISTE: azioni =================== */
+function addManualItem(e) {
+  e.preventDefault();
+  const name = form.name.trim();
+  if (!name) return;
+
+  const brand = form.brand.trim();
+  const packs = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
+  const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
+  const unitLabel = (form.unitLabel || 'unità').trim() || 'unità';
+
+  setLists(prev => {
+    const next = { ...prev };
+    const items = [...(prev[currentList] || [])];
+
+    const idx = items.findIndex(i =>
+      i.name.toLowerCase() === name.toLowerCase() &&
+      (i.brand || '').toLowerCase() === brand.toLowerCase() &&
+      Number(i.unitsPerPack || 1) === unitsPerPack
+    );
+
+    if (idx >= 0) {
+      items[idx] = { ...items[idx], qty: Math.max(0, Number(items[idx].qty || 0) + packs) };
+    } else {
+      items.push({
+        id: 'tmp-' + Math.random().toString(36).slice(2),
+        name,
+        brand,
+        qty: packs,
+        unitsPerPack,
+        unitLabel,
+        purchased: false
       });
-      setStock(Array.isArray(saved.stock) ? saved.stock : []);
-      setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
-      setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    }
 
-  /* =================== Derivati: critici =================== */
-  useEffect(() => {
-    const crit = stock.filter(p => {
-      const current = residueUnitsOf(p);
-      const baseline = baselineUnitsOf(p);
-      const pct = baseline ? (current / baseline) : 1;
-      const lowResidue = pct < 0.20;
-      const expSoon   = isExpiringSoon(p, 10);
-      return lowResidue || expSoon;
-    });
-    setCritical(crit);
-  }, [stock]);
+    next[currentList] = items;
+    return next;
+  });
 
-  /* =================== LISTE: azioni =================== */
-  function addManualItem(e) {
-    e.preventDefault();
-    const name = form.name.trim();
-    if (!name) return;
-    const brand = form.brand.trim();
-    const packs = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
-    const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
-    const unitLabel = (form.unitLabel || 'unità').trim() || 'unità';
-
-    setLists(prev => {
-      const next = { ...prev };
-      const items = [...(prev[currentList] || [])];
-      const idx = items.findIndex(i =>
-        i.name.toLowerCase() === name.toLowerCase() &&
-        (i.brand||'').toLowerCase() === brand.toLowerCase() &&
-        Number(i.unitsPerPack||1) === unitsPerPack
-      );
-      if (idx >= 0) {
-        items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + packs };
-      } else {
-        items.push({
-          id: 'tmp-' + Math.random().toString(36).slice(2),
-          name, brand, qty: packs, unitsPerPack, unitLabel, purchased: false
-        });
-      }
-      next[currentList] = items;
-      return next;
-    });
-
-    setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
-    setShowListForm(false);
-  }
-  function removeItem(id) {
-    setLists(prev => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).filter(i => i.id !== id);
-      return next;
-    });
-  }
-  function incQty(id, delta) {
-    setLists(prev => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).map(i => (
-        i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i
-      )).filter(i => i.qty > 0);
-      return next;
-    });
-  }
-
- /* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
-function isBlobish(v){ 
-  try { 
-    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function'); 
-  } catch { return false; } 
+  setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+  setShowListForm(false);
 }
-function dataUrlToBlob(dataUrl){ 
-  try { 
-    const [head, base64]=String(dataUrl||'').split(','); 
-    const m=head.match(/data:(.*?);base64/i); 
-    const mime=m?m[1]:'application/octet-stream'; 
-    const bin=atob(base64||''); 
-    const u8=new Uint8Array(bin.length); 
-    for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); 
-    return new Blob([u8],{type:mime}); 
-  } catch { return null; } 
+
+function removeItem(id) {
+  setLists(prev => {
+    const next = { ...prev };
+    next[currentList] = (prev[currentList] || []).filter(i => i.id !== id);
+    return next;
+  });
 }
-function guessExt(mime=''){ 
-  const m=(mime||'').toLowerCase(); 
-  if(m.includes('pdf'))return'pdf'; 
-  if(m.includes('png'))return'png'; 
-  if(m.includes('jpeg')||m.includes('jpg'))return'jpg'; 
-  if(m.includes('webp'))return'webp'; 
-  if(m.includes('heic'))return'heic'; 
-  return'bin'; 
+
+function incQty(id, delta) {
+  setLists(prev => {
+    const next = { ...prev };
+    next[currentList] = (prev[currentList] || [])
+      .map(i => (i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i))
+      .filter(i => i.qty > 0);
+    return next;
+  });
+}
+
+/* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
+function isBlobish(v){
+  try {
+    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function');
+  } catch { return false; }
+}
+function dataUrlToBlob(dataUrl){
+  try {
+    const [head, base64]=String(dataUrl||'').split(',');
+    const m=head.match(/data:(.*?);base64/i);
+    const mime=m?m[1]:'application/octet-stream';
+    const bin=atob(base64||'');
+    const u8=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    return new Blob([u8],{type:mime});
+  } catch { return null; }
+}
+function guessExt(mime=''){
+  const m=(mime||'').toLowerCase();
+  if(m.includes('pdf'))return'pdf';
+  if(m.includes('png'))return'png';
+  if(m.includes('jpeg')||m.includes('jpg'))return'jpg';
+  if(m.includes('webp'))return'webp';
+  if(m.includes('heic'))return'heic';
+  return'bin';
 }
 async function collectImageBlobs(input){
-  const list = Array.from(input || []); 
+  const list = Array.from(input || []);
   const out=[];
   for (const f of list){
     if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
@@ -2218,7 +2247,6 @@ async function collectImageBlobs(input){
     }
   }
   return out;
-  
 }
 // === Ripulisce l'OCR da messaggi di rifiuto / policy ===
 function sanitizeOcrText(t) {
@@ -2227,17 +2255,14 @@ function sanitizeOcrText(t) {
     .split(/\r?\n/)
     .map(s => s.trim())
     .filter(Boolean)
-    .filter(s => !BAD.test(s))   // elimina righe tipo “Mi dispiace…”
+    .filter(s => !BAD.test(s))
     .join('\n');
 }
-
 // === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
 async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
   try {
-    // Non toccare PDF o file non immagine
     if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
 
-    // Crea un bitmap (o <img> come fallback) per disegnare su canvas
     const getBitmap = async (blob) => {
       if (typeof window !== 'undefined' && window.createImageBitmap) {
         return await createImageBitmap(blob);
@@ -2257,8 +2282,6 @@ async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {})
     const w0 = bmp.width || bmp.naturalWidth;
     const h0 = bmp.height || bmp.naturalHeight;
     const scale = Math.min(1, maxSide / Math.max(w0, h0));
-
-    // Se già piccolo (<~1.2MB) o lato max <= maxSide, lascia stare
     if (scale === 1 && file.size <= 1_200_000) return file;
 
     const w = Math.max(1, Math.round(w0 * scale));
@@ -2271,14 +2294,11 @@ async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {})
 
     const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
     if (!blob) return file;
-
-    // Se per qualche motivo non comprimiamo davvero, tieni l'originale
     if (blob.size >= file.size) return file;
 
     const base = (file.name || 'upload').replace(/\.\w+$/, '');
     return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
   } catch {
-    // In caso di errore, non bloccare il flusso: torna l’originale
     return file;
   }
 }
@@ -2312,7 +2332,6 @@ function decrementAcrossBothLists(prevLists, purchases) {
       const brand = (p.brand || '').trim();
       const upp = Number(p.unitsPerPack ?? 1);
 
-      // match progressivo
       let idx = arr.findIndex(i =>
         isSimilar(i.name, p.name) &&
         (!brand || isSimilar(i.brand || '', brand)) &&
@@ -2341,260 +2360,11 @@ function estimateCandidateLines(ocrText=''){
   for (const ln of lines){
     if (HEADER.test(ln)) continue;
     if (ln.length < 4) continue;
-    // euristica: riga con parole e senza sembrare solo prezzo
     if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
   }
   return count;
 }
 
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (VISION) ====================== */
-async function handleOCR(files) {
-  if (!files) return;
-  try {
-    setBusy(true);
-
-    // ——— 0) File validi ———
-    const toArray = (x) => Array.from(x || []);
-    const isFileLike = (v) => {
-      try {
-        return !!(
-          v && typeof v === 'object' &&
-          typeof v.type === 'string' &&
-          typeof v.size === 'number' &&
-          typeof v.arrayBuffer === 'function' &&
-          typeof v.slice === 'function'
-        );
-      } catch { return false; }
-    };
-    const list = toArray(files).filter(isFileLike);
-    if (!list.length) throw new Error('Nessuna immagine valida selezionata');
-
-    // ——— 1) Chiama Vision (1..6 immagini) ———
-    const VISION_URL = (typeof API_ASSISTANT_VISION === 'string' && API_ASSISTANT_VISION) || '/api/assistant/vision';
-    const fdVis = new FormData();
-    list.slice(0, 6).forEach((f) => fdVis.append('image', f, f.name || 'receipt.jpg'));
-
-    let store = '', purchaseDate = '', purchases = [];
-    try {
-      const vis = await fetchJSONStrict(VISION_URL, { method: 'POST', body: fdVis }, 60000);
-
-      // compat con tua route “vecchia” (answer string) e nuova (data oggetto)
-      let data = vis?.data;
-      if (!data && vis?.answer) { try { data = JSON.parse(vis.answer); } catch {} }
-      if (!data) throw new Error(vis?.error || 'Vision: risposta vuota');
-
-      store        = String(data.store || '').trim();
-      purchaseDate = toISODate(data.purchaseDate || '');
-      purchases    = Array.isArray(data.purchases) ? data.purchases.map(p => ({
-        name: String(p?.name || '').trim(),
-        brand: String(p?.brand || '').trim(),
-        packs: coerceNum(p?.packs),
-        unitsPerPack: coerceNum(p?.unitsPerPack),
-        unitLabel: String(p?.unitLabel || '').trim(),
-        priceEach: coerceNum(p?.priceEach),
-        priceTotal: coerceNum(p?.priceTotal),
-        currency: String(p?.currency || 'EUR').trim() || 'EUR',
-        expiresAt: toISODate(p?.expiresAt || '')
-      })).filter(p => p.name) : [];
-    } catch (e) {
-      showToast(`Vision fallita: ${e?.message || e}`, 'err');
-      return;
-    }
-
-    // ——— 2) Filtro non-merce (no normalizzazione) ———
-    const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
-    purchases = (purchases || []).filter(p => !NOT_PRODUCT_RE.test(normKey(`${p.name} ${p.brand || ''}`)));
-
-    if (!Array.isArray(purchases) || purchases.length === 0) {
-      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-      return;
-    }
-
-    // ——— 3) ENRICH VIA WEB: normalizza nomi + immagini ———
-    let mergedImagesIndex = imagesIndex;
-    try {
-      const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
-      purchases = Array.isArray(enriched) ? enriched : purchases;
-      mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
-      setImagesIndex(mergedImagesIndex);
-    } catch (e) {
-      if (DEBUG) console.warn('[enrich] fail', e);
-    }
-
-    // ——— 4) Memoria termini ———
-    if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
-
-    // ——— 5) Decrementa liste ———
-    setLists(prev => decrementAcrossBothLists(prev, purchases));
-
-    // ——— 6) Aggiorna scorte (aggiorna anche name/brand + immagine) ———
-    setStock(prev => {
-      const arr = [...prev];
-      const todayISO = new Date().toISOString().slice(0, 10);
-
-      for (const p of purchases) {
-        const idx = arr.findIndex(
-          s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand))
-        );
-        const packs = coerceNum(p.packs);
-        const upp   = coerceNum(p.unitsPerPack);
-        const hasCounts = packs > 0 || upp > 0;
-
-        if (idx >= 0) {
-          const old = arr[idx];
-
-          if (hasCounts) {
-            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
-            const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
-              ...old,
-              name: (p.name && String(p.name).trim()) || old.name,
-              brand: (p.brand && String(p.brand).trim()) || old.brand,
-              packs: newP,
-              unitsPerPack: newU,
-              unitLabel: old.unitLabel || p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(newP, todayISO, newU),
-            };
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            const uo = Math.max(1, Number(old.unitsPerPack || 1));
-            const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = {
-              ...old,
-              name: (p.name && String(p.name).trim()) || old.name,
-              brand: (p.brand && String(p.brand).trim()) || old.brand,
-              packs: np,
-              unitsPerPack: uo,
-              unitLabel: old.unitLabel || 'unità',
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(np, todayISO, uo),
-            };
-          } else {
-            arr[idx] = {
-              ...old,
-              name: (p.name && String(p.name).trim()) || old.name,
-              brand: (p.brand && String(p.brand).trim()) || old.brand,
-              needsUpdate: true,
-            };
-          }
-
-          // immagine se assente
-          try {
-            const kImg = productKey(p.name, p.brand || '');
-            const remembered = mergedImagesIndex && mergedImagesIndex[kImg];
-            if (remembered && !arr[idx].image) {
-              arr[idx] = { ...arr[idx], image: remembered };
-            }
-          } catch {}
-        } else {
-          if (hasCounts) {
-            const u = Math.max(1, upp || 1);
-            arr.unshift(
-              withRememberedImage(
-                {
-                  name: p.name,
-                  brand: p.brand || '',
-                  packs: Math.max(0, packs || 1),
-                  unitsPerPack: u,
-                  unitLabel: p.unitLabel || 'unità',
-                  expiresAt: p.expiresAt || '',
-                  baselinePacks: Math.max(0, packs || 1),
-                  lastRestockAt: todayISO,
-                  avgDailyUnits: 0,
-                  residueUnits: Math.max(0, (packs || 1) * u),
-                  packsOnly: false,
-                  needsUpdate: false,
-                },
-                mergedImagesIndex
-              )
-            );
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            arr.unshift(
-              withRememberedImage(
-                {
-                  name: p.name,
-                  brand: p.brand || '',
-                  packs: 1,
-                  unitsPerPack: 1,
-                  unitLabel: 'unità',
-                  expiresAt: p.expiresAt || '',
-                  baselinePacks: 1,
-                  lastRestockAt: todayISO,
-                  avgDailyUnits: 0,
-                  residueUnits: 1,
-                  packsOnly: false,
-                  needsUpdate: false,
-                },
-                mergedImagesIndex
-              )
-            );
-          } else {
-            arr.unshift(
-              withRememberedImage(
-                {
-                  name: p.name,
-                  brand: p.brand || '',
-                  packs: 0,
-                  unitsPerPack: 1,
-                  unitLabel: '-',
-                  expiresAt: p.expiresAt || '',
-                  baselinePacks: 0,
-                  lastRestockAt: '',
-                  avgDailyUnits: 0,
-                  residueUnits: 0,
-                  packsOnly: true,
-                  needsUpdate: true,
-                },
-                mergedImagesIndex
-              )
-            );
-          }
-        }
-      }
-
-      return arr;
-    });
-
-    // ——— 7) Finanze ———
-    let financesOk = true;
-    try {
-      const itemsSafe = purchases.map(p => ({
-        name:p.name, brand:p.brand||'',
-        packs:Number.isFinite(p.packs)?p.packs:0,
-        unitsPerPack:Number.isFinite(p.unitsPerPack)?p.unitsPerPack:0,
-        unitLabel:p.unitLabel||'',
-        priceEach:Number.isFinite(p.priceEach)?p.priceEach:0,
-        priceTotal:Number.isFinite(p.priceTotal)?p.priceTotal:0,
-        currency:p.currency||'EUR',
-        expiresAt:p.expiresAt||'',
-      }));
-      const payload = {
-        ...(userIdRef.current ? { user_id:userIdRef.current } : {}),
-        ...(store ? { store } : {}),
-        ...(purchaseDate ? { purchaseDate } : {}),
-        payment_method:'cash', card_label:null,
-        items: itemsSafe,
-      };
-      await fetchJSONStrict(API_FINANCES_INGEST, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }, 30000);
-    } catch (e) {
-      financesOk = false;
-      console.warn('[FINANCES_INGEST] fail', e);
-      showToast(`Finanze: ${e.message}`, 'err');
-    }
-
-    if (financesOk) showToast('OCR scorte (Vision) completato ✓', 'ok');
-
-  } catch (e) {
-    console.error('[OCR scorte] error', e);
-    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
-  }
-}
 
 
   /* =================== Vocale LISTA =================== */
