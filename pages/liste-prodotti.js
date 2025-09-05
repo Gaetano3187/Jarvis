@@ -1871,7 +1871,7 @@ function ListeProdotti() {
           setCurrentList(st.currentList);
         }
         if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
-        // imagesIndex volutamente non da cloud
+        //if (st.imagesIndex && typeof st.imagesIndex === 'object') setImagesIndex(st.imagesIndex);
       } catch (e) {
         if (DEBUG) console.warn('[cloud init] skipped', e);
       }
@@ -1880,19 +1880,42 @@ function ListeProdotti() {
     return () => { mounted = false; };
   }, []);
 
-  // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
-  function stripForCloud({ lists, stock, currentList, learned }) {
-    const safeLists = {
-      [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
-      [LIST_TYPES.ONLINE]: (lists?.[LIST_TYPES.ONLINE] || []).map(({ image, ...r }) => r),
-    };
-    const safeStock = (stock || []).map(({ image, ...r }) => r);
-    const safeLearned =
-      learned && typeof learned === 'object'
-        ? learned
-        : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
-    return { lists: safeLists, stock: safeStock, currentList, learned: safeLearned };
+  // 👉 Salva anche imagesIndex (solo URL http/https brevi) e timestamp _ts
+function stripForCloud({ lists, stock, currentList, learned, imagesIndex }) {
+  const safeLists = {
+    [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
+    [LIST_TYPES.ONLINE]:      (lists?.[LIST_TYPES.ONLINE] || []).map(({ image, ...r }) => r),
+  };
+
+  const safeStock = (stock || []).map((s) => {
+    const base = { ...s };
+    const img = base.image;
+    if (!(typeof img === 'string' && /^https?:\/\//i.test(img) && img.length <= 500)) {
+      delete base.image; // no base64 pesanti nel cloud
+    }
+    return base;
+  });
+
+  const safeImagesIndex = {};
+  if (imagesIndex && typeof imagesIndex === 'object') {
+    for (const [k, v] of Object.entries(imagesIndex)) {
+      if (typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500) {
+        safeImagesIndex[k] = v;
+      }
+    }
   }
+
+  const safeLearned =
+    learned && typeof learned === 'object'
+      ? learned
+      : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
+
+  const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
+    ? currentList
+    : LIST_TYPES.SUPERMARKET;
+
+  return { _ts: Date.now(), lists: safeLists, stock: safeStock, currentList: cur, imagesIndex: safeImagesIndex, learned: safeLearned };
+}
 
   const cloudTimerRef = useRef(null);
   useEffect(() => {
@@ -1902,7 +1925,8 @@ function ListeProdotti() {
     if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
 
     // NON mandiamo imagesIndex in cloud, e togliamo field .image
-    const cloudState = stripForCloud({ lists, stock, currentList, learned });
+   const cloudState = stripForCloud({ lists, stock, currentList, learned, imagesIndex });
+
     const payload = { user_id: userIdRef.current, state: cloudState };
 
     cloudTimerRef.current = setTimeout(async () => {
@@ -1913,7 +1937,7 @@ function ListeProdotti() {
       } catch (e) {
         if (DEBUG) console.warn('[cloud upsert] fail', e);
       }
-    }, 5000);
+    }, 1200);
 
     return () => clearTimeout(cloudTimerRef.current);
   }, [lists, stock, currentList, learned]);
@@ -2078,97 +2102,317 @@ function ListeProdotti() {
     
   }, []);
 
-  /* =================== Autosave debounce (locale) =================== */
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+/* =================== Autosave debounce (locale) =================== */
+// tiene traccia dell’ultimo salvataggio locale applicato (per confronto negli eventi storage)
+const lastLocalAtRef = useRef(0);
+
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+
+  const snapshot = { lists, stock, currentList, imagesIndex, learned };
+
+  persistTimerRef.current = setTimeout(() => {
+    try {
+      // salva su localStorage (persistNow imposta anche "at")
+      persistNow(snapshot);
+      // aggiorna il timestamp locale per i confronti cross-tab
+      lastLocalAtRef.current = Date.now();
+    } catch (e) {
+      if (DEBUG) console.warn('[persistNow] failed', e);
+    }
+  }, 300);
+
+  return () => {
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-   const snapshot = { lists, stock, currentList, imagesIndex, learned };
-    persistTimerRef.current = setTimeout(() => { persistNow(snapshot); }, 300);
-    return () => clearTimeout(persistTimerRef.current);
-  }, [lists, stock, currentList, imagesIndex, learned]);
+  };
+}, [lists, stock, currentList, imagesIndex, learned]);
 
-  /* =================== Sync tra tab =================== */
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onStorage = (e) => {
-      if (e.key !== LS_KEY) return;
-      const saved = loadPersisted();
-      if (!saved) return;
+/* =================== Sync tra tab =================== */
+useEffect(() => {
+  if (typeof window === 'undefined') return;
 
-      setLists({
-        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+  const onStorage = (e) => {
+    if (e.key !== LS_KEY) return;
+
+    const saved = loadPersisted();
+    if (!saved || saved.v !== LS_VER) return;
+
+    // evita che uno stato PIÙ VECCHIO proveniente da un’altra tab sovrascriva il nostro
+    const savedAt = Number(saved.at || 0);
+    if (savedAt && savedAt < Number(lastLocalAtRef.current || 0)) {
+      if (DEBUG) console.log('[storage] ignorato stato più vecchio', { savedAt, localAt: lastLocalAtRef.current });
+      return;
+    }
+
+    // applica lo stato ricevuto e aggiorna il riferimento di ultimo "apply"
+    setLists({
+      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+      [LIST_TYPES.ONLINE]:      Array.isArray(saved.lists?.[LIST_TYPES.ONLINE])      ? saved.lists[LIST_TYPES.ONLINE]      : [],
+    });
+    setStock(Array.isArray(saved.stock) ? saved.stock : []);
+    setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+    setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
+
+    lastLocalAtRef.current = savedAt || Date.now();
+  };
+
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}, []);
+
+/* =================== Derivati: critici =================== */
+useEffect(() => {
+  const crit = (stock || []).filter((p) => {
+    const current  = residueUnitsOf(p);
+    const baseline = baselineUnitsOf(p);
+    const pct = baseline ? (current / baseline) : 1;
+    const lowResidue = pct < 0.20;
+    const expSoon    = isExpiringSoon(p, 10);
+    return lowResidue || expSoon;
+  });
+  setCritical(crit);
+}, [stock]);
+
+// elimina una riga di scorte per indice (serve negli onClick)
+const deleteStockRow = useCallback((index) => {
+  setStock(prev => prev.filter((_, i) => i !== index));
+  // aggiorna subito il "lastAt" così eventuali storage più vecchi vengono ignorati
+  lastLocalAtRef.current = Date.now();
+}, []);
+
+/* =================== LISTE: azioni =================== */
+function addManualItem(e) {
+  e.preventDefault();
+  const name = form.name.trim();
+  if (!name) return;
+
+  const brand = form.brand.trim();
+  const packs = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
+  const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
+  const unitLabel = (form.unitLabel || 'unità').trim() || 'unità';
+
+  setLists(prev => {
+    const next = { ...prev };
+    const items = [...(prev[currentList] || [])];
+
+    const idx = items.findIndex(i =>
+      i.name.toLowerCase() === name.toLowerCase() &&
+      (i.brand || '').toLowerCase() === brand.toLowerCase() &&
+      Number(i.unitsPerPack || 1) === unitsPerPack
+    );
+
+    if (idx >= 0) {
+      items[idx] = { ...items[idx], qty: Math.max(0, Number(items[idx].qty || 0) + packs) };
+    } else {
+      items.push({
+        id: 'tmp-' + Math.random().toString(36).slice(2),
+        name,
+        brand,
+        qty: packs,
+        unitsPerPack,
+        unitLabel,
+        purchased: false
       });
-      setStock(Array.isArray(saved.stock) ? saved.stock : []);
-      setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
-      setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    }
 
-  /* =================== Derivati: critici =================== */
-  useEffect(() => {
-    const crit = stock.filter(p => {
-      const current = residueUnitsOf(p);
-      const baseline = baselineUnitsOf(p);
-      const pct = baseline ? (current / baseline) : 1;
-      const lowResidue = pct < 0.20;
-      const expSoon   = isExpiringSoon(p, 10);
-      return lowResidue || expSoon;
-    });
-    setCritical(crit);
-  }, [stock]);
+    next[currentList] = items;
+    return next;
+  });
 
-  /* =================== LISTE: azioni =================== */
-  function addManualItem(e) {
-    e.preventDefault();
-    const name = form.name.trim();
-    if (!name) return;
-    const brand = form.brand.trim();
-    const packs = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
-    const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
-    const unitLabel = (form.unitLabel || 'unità').trim() || 'unità';
+  // aggiorna subito "lastAt" per proteggere da eventuali sync vecchi
+  lastLocalAtRef.current = Date.now();
 
-    setLists(prev => {
-      const next = { ...prev };
-      const items = [...(prev[currentList] || [])];
-      const idx = items.findIndex(i =>
-        i.name.toLowerCase() === name.toLowerCase() &&
-        (i.brand||'').toLowerCase() === brand.toLowerCase() &&
-        Number(i.unitsPerPack||1) === unitsPerPack
-      );
-      if (idx >= 0) {
-        items[idx] = { ...items[idx], qty: Number(items[idx].qty || 0) + packs };
-      } else {
-        items.push({
-          id: 'tmp-' + Math.random().toString(36).slice(2),
-          name, brand, qty: packs, unitsPerPack, unitLabel, purchased: false
-        });
+  setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+  setShowListForm(false);
+}
+
+function removeItem(id) {
+  setLists(prev => {
+    const next = { ...prev };
+    next[currentList] = (prev[currentList] || []).filter(i => i.id !== id);
+    return next;
+  });
+  lastLocalAtRef.current = Date.now();
+}
+
+function incQty(id, delta) {
+  setLists(prev => {
+    const next = { ...prev };
+    next[currentList] = (prev[currentList] || [])
+      .map(i => (i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i))
+      .filter(i => i.qty > 0);
+    return next;
+  });
+  lastLocalAtRef.current = Date.now();
+}
+
+/* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
+function isBlobish(v){
+  try {
+    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function');
+  } catch { return false; }
+}
+function dataUrlToBlob(dataUrl){
+  try {
+    const [head, base64]=String(dataUrl||'').split(',');
+    const m=head.match(/data:(.*?);base64/i);
+    const mime=m?m[1]:'application/octet-stream';
+    const bin=atob(base64||'');
+    const u8=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    return new Blob([u8],{type:mime});
+  } catch { return null; }
+}
+function guessExt(mime=''){
+  const m=(mime||'').toLowerCase();
+  if(m.includes('pdf'))return'pdf';
+  if(m.includes('png'))return'png';
+  if(m.includes('jpeg')||m.includes('jpg'))return'jpg';
+  if(m.includes('webp'))return'webp';
+  if(m.includes('heic'))return'heic';
+  return'bin';
+}
+async function collectImageBlobs(input){
+  const list = Array.from(input || []);
+  const out=[];
+  for (const f of list){
+    if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
+    if (typeof f === 'string'){
+      if (f.startsWith('data:')){ const b=dataUrlToBlob(f); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); continue; }
+      if (/^(blob:|https?:)/i.test(f)){ try { const resp=await fetch(f); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); } catch {} continue; }
+    }
+    if (f && typeof f === 'object'){
+      const maybe=f.file || f.blob;
+      if (isBlobish(maybe)){ out.push({ blob:maybe, name:f.name || `upload.${guessExt(maybe.type)}` }); continue; }
+      const url=f.preview || f.uri || f.url;
+      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)){
+        try {
+          if (url.startsWith('data:')){ const b=dataUrlToBlob(url); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
+          else { const resp=await fetch(url); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
+        } catch {}
       }
-      next[currentList] = items;
-      return next;
-    });
+    }
+  }
+  return out;
+}
+// === Ripulisce l'OCR da messaggi di rifiuto / policy ===
+function sanitizeOcrText(t) {
+  const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+  return String(t || '')
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter(s => !BAD.test(s))
+    .join('\n');
+}
+// === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
+async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
+  try {
+    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
 
-    setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
-    setShowListForm(false);
+    const getBitmap = async (blob) => {
+      if (typeof window !== 'undefined' && window.createImageBitmap) {
+        return await createImageBitmap(blob);
+      }
+      const dataUrl = await new Promise((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result);
+        r.onerror = ko;
+        r.readAsDataURL(blob);
+      });
+      const img = new Image();
+      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
+      return img;
+    };
+
+    const bmp = await getBitmap(file);
+    const w0 = bmp.width || bmp.naturalWidth;
+    const h0 = bmp.height || bmp.naturalHeight;
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+    if (scale === 1 && file.size <= 1_200_000) return file;
+
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, w, h);
+
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
+    if (!blob) return file;
+    if (blob.size >= file.size) return file;
+
+    const base = (file.name || 'upload').replace(/\.\w+$/, '');
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
+  } catch {
+    return file;
   }
-  function removeItem(id) {
-    setLists(prev => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).filter(i => i.id !== id);
-      return next;
-    });
+}
+
+/* ====================== Prompt builder OCR Riga ====================== */
+function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
+  return [
+    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
+    'RISPONDI SOLO JSON con schema esatto:',
+    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
+    '',
+    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
+    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
+    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
+    '- Scadenza in formato YYYY-MM-DD se presente',
+    '',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
+/* ====================== Decrementa liste da scontrino ====================== */
+function decrementAcrossBothLists(prevLists, purchases) {
+  const next = { ...prevLists };
+
+  const decList = (listKey) => {
+    const arr = [...(next[listKey] || [])];
+    for (const p of purchases) {
+      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+      const brand = (p.brand || '').trim();
+      const upp = Number(p.unitsPerPack ?? 1);
+
+      let idx = arr.findIndex(i =>
+        isSimilar(i.name, p.name) &&
+        (!brand || isSimilar(i.brand || '', brand)) &&
+        Number(i.unitsPerPack || 1) === upp
+      );
+      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
+      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
+
+      if (idx >= 0) {
+        const cur = arr[idx];
+        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+        arr[idx] = { ...cur, qty: newQty, purchased: true };
+      }
+    }
+    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+  };
+
+  decList(LIST_TYPES.SUPERMARKET);
+  decList(LIST_TYPES.ONLINE);
+  return next;
+}
+function estimateCandidateLines(ocrText=''){
+  const lines = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
+  let count = 0;
+  for (const ln of lines){
+    if (HEADER.test(ln)) continue;
+    if (ln.length < 4) continue;
+    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
   }
-  function incQty(id, delta) {
-    setLists(prev => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).map(i => (
-        i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i
-      )).filter(i => i.qty > 0);
-      return next;
-    });
-  }
+  return count;
+}
+
 
  /* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
 function isBlobish(v){ 
@@ -2541,6 +2785,9 @@ setStock(prev => {
         const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
         arr[idx] = {
           ...old,
+          // ✅ aggiorna anche nome/brand con quelli normalizzati
+          name: (p.name && String(p.name).trim()) || old.name,
+          brand: (p.brand && String(p.brand).trim()) || old.brand,
           packs: newP,
           unitsPerPack: newU,
           unitLabel: old.unitLabel || p.unitLabel || 'unità',
@@ -2554,6 +2801,9 @@ setStock(prev => {
         const np = Math.max(0, Number(old.packs || 0) + 1);
         arr[idx] = {
           ...old,
+          // ✅ aggiorna anche nome/brand
+          name: (p.name && String(p.name).trim()) || old.name,
+          brand: (p.brand && String(p.brand).trim()) || old.brand,
           packs: np,
           unitsPerPack: uo,
           unitLabel: old.unitLabel || 'unità',
@@ -2562,7 +2812,13 @@ setStock(prev => {
           ...restockTouch(np, todayISO, uo),
         };
       } else {
-        arr[idx] = { ...old, needsUpdate: true };
+        arr[idx] = {
+          ...old,
+          // ✅ mantieni l’aggiornamento name/brand anche qui
+          name: (p.name && String(p.name).trim()) || old.name,
+          brand: (p.brand && String(p.brand).trim()) || old.brand,
+          needsUpdate: true,
+        };
       }
 
       // ✅ se non c'è immagine, prova a impostarla subito dall'index MERGED
@@ -2641,7 +2897,6 @@ setStock(prev => {
 
   return arr;
 });
-
 
 
     // ——— 13) Finanze ———
