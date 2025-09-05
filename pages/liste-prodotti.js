@@ -2413,57 +2413,6 @@ function estimateCandidateLines(ocrText=''){
   return count;
 }
 
-
- /* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
-function isBlobish(v){ 
-  try { 
-    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function'); 
-  } catch { return false; } 
-}
-function dataUrlToBlob(dataUrl){ 
-  try { 
-    const [head, base64]=String(dataUrl||'').split(','); 
-    const m=head.match(/data:(.*?);base64/i); 
-    const mime=m?m[1]:'application/octet-stream'; 
-    const bin=atob(base64||''); 
-    const u8=new Uint8Array(bin.length); 
-    for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); 
-    return new Blob([u8],{type:mime}); 
-  } catch { return null; } 
-}
-function guessExt(mime=''){ 
-  const m=(mime||'').toLowerCase(); 
-  if(m.includes('pdf'))return'pdf'; 
-  if(m.includes('png'))return'png'; 
-  if(m.includes('jpeg')||m.includes('jpg'))return'jpg'; 
-  if(m.includes('webp'))return'webp'; 
-  if(m.includes('heic'))return'heic'; 
-  return'bin'; 
-}
-async function collectImageBlobs(input){
-  const list = Array.from(input || []); 
-  const out=[];
-  for (const f of list){
-    if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
-    if (typeof f === 'string'){
-      if (f.startsWith('data:')){ const b=dataUrlToBlob(f); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); continue; }
-      if (/^(blob:|https?:)/i.test(f)){ try { const resp=await fetch(f); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); } catch {} continue; }
-    }
-    if (f && typeof f === 'object'){
-      const maybe=f.file || f.blob;
-      if (isBlobish(maybe)){ out.push({ blob:maybe, name:f.name || `upload.${guessExt(maybe.type)}` }); continue; }
-      const url=f.preview || f.uri || f.url;
-      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)){
-        try {
-          if (url.startsWith('data:')){ const b=dataUrlToBlob(url); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
-          else { const resp=await fetch(url); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
-        } catch {}
-      }
-    }
-  }
-  return out;
-  
-}
 // === Ripulisce l'OCR da messaggi di rifiuto / policy ===
 function sanitizeOcrText(t) {
   const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
@@ -3032,9 +2981,7 @@ setStock(prev => {
       return arr;
     });
   }
-  function deleteStockRow(index){
-  setStock(prev => prev.filter((_, i) => i !== index));
-}
+
 
 
   /* =================== Gestione immagine riga scorte =================== */
