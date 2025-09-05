@@ -1025,9 +1025,15 @@ async function enrichPurchasesViaWeb(purchases = []) {
     return { items: purchases, images: {} };
   }
 
+  // ripulisce codici/suffissi da scontrino (es. "VI*", "B VI*")
+  const stripReceiptSuffixes = (s='') =>
+    String(s).replace(/\b(?:[A-Z]?\s*VI\*|V\*)\b/ig, ' ')
+             .replace(/\s{2,}/g,' ')
+             .trim();
+
   const payload = {
     items: purchases.map(p => ({
-      name: String(p.name || ''),
+      name: stripReceiptSuffixes(String(p.name || '')),
       brand: String(p.brand || '')
     })),
   };
@@ -1042,39 +1048,36 @@ async function enrichPurchasesViaWeb(purchases = []) {
     const json = await resp.json().catch(() => null);
 
     if (!resp.ok || !json || json.ok === false || !Array.isArray(json.items)) {
-      // piccolo log/avviso se l’arricchimento non parte (env mancanti ecc.)
-      if (json && json.error) showToast(`Enrich off: ${json.error}`, 'err');
+      if (json?.error) showToast(`Enrich off: ${json.error}`, 'err');
       return { items: purchases, images: {} };
     }
 
-    // mappa per match diretto via matchKey
+    // mappa per match diretto via matchKey (server)
     const mapByMatchKey = new Map(
-      json.items
-        .filter(x => x && typeof x.matchKey === 'string')
-        .map(x => [x.matchKey, x])
+      json.items.filter(x => x && typeof x.matchKey === 'string')
+                .map(x => [x.matchKey, x])
     );
 
     const imagesMap = {};
     const out = purchases.map(p => {
-      // chiave con la stessa logica del server
+      // stessa logica server per la chiave
       const mk = `${normKey(p.name)}|${normKey(p.brand || '')}`;
 
       // 1) match diretto
       let e = mapByMatchKey.get(mk);
 
-      // 2) fallback fuzzy (isSimilar su nome sorgente / nome normalizzato)
+      // 2) fallback fuzzy (nome OCR vs nome normalizzato/sorgente)
       if (!e) {
         e = (json.items || []).find(x =>
           isSimilar(p.name, x.sourceName) || isSimilar(p.name, x.normalizedName)
         ) || null;
       }
-
-      if (!e) return p; // nessun enrichment trovato: lascio l’item così com’è
+      if (!e) return p;
 
       const prettyName  = String(e.normalizedName || p.name).trim();
       const prettyBrand = String(e.brand || p.brand || '').trim();
 
-      // IMMAGINE: mettiamo l’URL diretto (niente proxy → <img> non soffre CORS)
+      // IMMAGINE: URL diretto (meglio di passare dal proxy)
       if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
         imagesMap[productKey(prettyName, prettyBrand)] = e.imageUrl;
       }
@@ -1082,9 +1085,17 @@ async function enrichPurchasesViaWeb(purchases = []) {
       return { ...p, name: prettyName, brand: prettyBrand };
     });
 
+    // debug gentile per capire se sta lavorando
+    try {
+      const n = out.length;
+      const m = Object.keys(imagesMap).length;
+      showToast(`Enrich web: ${n} righe, immagini ${m}`, 'ok');
+    } catch {}
+
     return { items: out, images: imagesMap };
   } catch (err) {
     console.warn('[enrich] fail:', err);
+    showToast('Enrich fallito (rete/API)', 'err');
     return { items: purchases, images: {} };
   }
 }
@@ -1493,11 +1504,37 @@ function pickAudioMime(){
 /* ====================== Utility immagini ====================== */
 function withRememberedImage(row, imagesIdx) {
   if (row?.image) return row;
-  const key = productKey(row?.name, row?.brand || '');
-  const img = imagesIdx?.[key];
-  if (img) return { ...row, image: img };
-  return row;
+  const k1 = productKey(row?.name, row?.brand || '');
+  const k2 = productKey(row?.name, '');
+  let img = imagesIdx?.[k1] || imagesIdx?.[k2];
+
+  // fallback fuzzy: trova una chiave il cui "name" è simile
+  if (!img && imagesIdx && typeof imagesIdx === 'object') {
+    const want = normKey(row?.name || '');
+    for (const [key, url] of Object.entries(imagesIdx)) {
+      const keyName = key.split('|')[0]; // parte nome
+      if (isSimilar(keyName, want)) { img = url; break; }
+    }
+  }
+  return img ? { ...row, image: img } : row;
 }
+function withRememberedImage(row, imagesIdx) {
+  if (row?.image) return row;
+  const k1 = productKey(row?.name, row?.brand || '');
+  const k2 = productKey(row?.name, '');
+  let img = imagesIdx?.[k1] || imagesIdx?.[k2];
+
+  // fallback fuzzy: trova una chiave il cui "name" è simile
+  if (!img && imagesIdx && typeof imagesIdx === 'object') {
+    const want = normKey(row?.name || '');
+    for (const [key, url] of Object.entries(imagesIdx)) {
+      const keyName = key.split('|')[0]; // parte nome
+      if (isSimilar(keyName, want)) { img = url; break; }
+    }
+  }
+  return img ? { ...row, image: img } : row;
+}
+
 // Coercizioni/utility
 function intOr(x, d=0){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? Math.trunc(n) : d; }
 function posIntOr(x, d=0){ return Math.max(0, intOr(x, d)); }
