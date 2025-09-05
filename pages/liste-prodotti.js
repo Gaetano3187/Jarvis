@@ -1025,14 +1025,21 @@ async function enrichPurchasesViaWeb(purchases = []) {
     return { items: purchases, images: {} };
   }
 
+  // Includo packs/units per “pack 3 pezzi”, “6 bottiglie” ecc.
   const payload = {
-    items: purchases.map(p => ({ name: String(p.name||''), brand: String(p.brand||'') })),
+    items: purchases.map(p => ({
+      name: String(p.name || ''),
+      brand: String(p.brand || ''),
+      packs: Number(p.packs || 0),
+      unitsPerPack: Number(p.unitsPerPack || 0),
+      unitLabel: String(p.unitLabel || '')
+    })),
   };
 
   try {
     const resp = await timeoutFetch(API_PRODUCTS_ENRICH, {
       method: 'POST',
-      headers: { 'Content-Type':'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }, 25000);
 
@@ -1041,22 +1048,20 @@ async function enrichPurchasesViaWeb(purchases = []) {
       throw new Error(json?.error || `enrich HTTP ${resp.status}`);
     }
 
-    const map = new Map(json.items.map(x => [
-      `${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x
-    ]));
-
+    // mappa → normalizzazione
     const imagesMap = {};
-    const out = purchases.map(p => {
-      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
-      const e = map.get(k);
-      if (!e) return p;
+    const out = purchases.map((p) => {
+      const hit = json.items.find(x =>
+        normKey(x.sourceName) === normKey(p.name) && normKey(x.brand || '') === normKey(p.brand || '')
+      );
+      if (!hit) return p;
 
-      const prettyName  = String(e.normalizedName || p.name).trim();
-      const prettyBrand = String(e.brand || p.brand || '').trim();
+      const prettyName  = String(hit.normalizedName || p.name).trim();
+      const prettyBrand = String(hit.brand || p.brand || '').trim();
 
       // proxy per evitare hotlink/CORS
-      if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
-        const proxied = `/api/img-proxy?url=${encodeURIComponent(e.imageUrl)}`;
+      if (hit.imageUrl && /^https?:\/\//i.test(hit.imageUrl)) {
+        const proxied = `/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}`;
         imagesMap[productKey(prettyName, prettyBrand)] = proxied;
       }
 
@@ -1069,8 +1074,6 @@ async function enrichPurchasesViaWeb(purchases = []) {
     return { items: purchases, images: {} };
   }
 }
-
-
 
 /* ====================== Calcoli scorte ====================== */
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
