@@ -1019,13 +1019,12 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   }
 }
 
-// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (proxy-safe) =====
+// ===== ENRICH: normalizza dal web + immagine (mapping robusto) =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
   }
 
-  // Includo packs/units per “pack 3 pezzi”, “6 bottiglie” ecc.
   const payload = {
     items: purchases.map(p => ({
       name: String(p.name || ''),
@@ -1039,7 +1038,7 @@ async function enrichPurchasesViaWeb(purchases = []) {
   try {
     const resp = await timeoutFetch(API_PRODUCTS_ENRICH, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type':'application/json' },
       body: JSON.stringify(payload),
     }, 25000);
 
@@ -1048,18 +1047,26 @@ async function enrichPurchasesViaWeb(purchases = []) {
       throw new Error(json?.error || `enrich HTTP ${resp.status}`);
     }
 
-    // mappa → normalizzazione
+    // 1) Prova match by sourceName/brand
+    const byKey = new Map();
+    for (const x of json.items) {
+      const k = `${normKey(x.sourceName)}|${normKey(x.brand||'')}`;
+      byKey.set(k, x);
+    }
+
     const imagesMap = {};
-    const out = purchases.map((p) => {
-      const hit = json.items.find(x =>
-        normKey(x.sourceName) === normKey(p.name) && normKey(x.brand || '') === normKey(p.brand || '')
-      );
+    const out = purchases.map((p, idx) => {
+      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
+      let hit = byKey.get(k);
+
+      // 2) Fallback hard: usa la stessa posizione dell’array di input
+      if (!hit) hit = json.items[idx];
+
       if (!hit) return p;
 
       const prettyName  = String(hit.normalizedName || p.name).trim();
       const prettyBrand = String(hit.brand || p.brand || '').trim();
 
-      // proxy per evitare hotlink/CORS
       if (hit.imageUrl && /^https?:\/\//i.test(hit.imageUrl)) {
         const proxied = `/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}`;
         imagesMap[productKey(prettyName, prettyBrand)] = proxied;
@@ -1783,11 +1790,7 @@ function ListeProdotti() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // Review (modale di convalida)
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewItems, setReviewItems] = useState([]);
-  const [reviewPick, setReviewPick] = useState({});
-  const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
+
 
   // registra i setter per gli helper globali
   useEffect(() => {
@@ -2759,6 +2762,7 @@ setStock(prev => {
     const idx = arr.findIndex(
       s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand))
     );
+
     const packs = coerceNum(p.packs);
     const upp   = coerceNum(p.unitsPerPack);
     const hasCounts = packs > 0 || upp > 0;
@@ -2807,13 +2811,19 @@ setStock(prev => {
         };
       }
 
-      // ✅ se non c'è immagine, prova a impostarla subito dall'index MERGED
+      // ✅ aggancia subito l'immagine dall’enrichment (chiavi normalizzate + fallback)
       try {
-        const kImg = productKey(p.name, p.brand || '');
-        const remembered = mergedImagesIndex && mergedImagesIndex[kImg];
-        if (remembered && !arr[idx].image) {
-          arr[idx] = { ...arr[idx], image: remembered };
+        const keys = [
+          productKey(arr[idx].name, arr[idx].brand || ''),
+          productKey(p.name,        p.brand        || ''),
+          productKey(arr[idx].name, ''), // fallback senza brand
+          productKey(p.name,        '')
+        ];
+        let pic = '';
+        if (mergedImagesIndex) {
+          for (const k of keys) { if (mergedImagesIndex[k]) { pic = mergedImagesIndex[k]; break; } }
         }
+        if (pic && !arr[idx].image) arr[idx] = { ...arr[idx], image: pic };
       } catch {}
     } else {
       if (hasCounts) {
@@ -2883,7 +2893,6 @@ setStock(prev => {
 
   return arr;
 });
-
 
     // ——— 13) Finanze ———
     let financesOk = true;
