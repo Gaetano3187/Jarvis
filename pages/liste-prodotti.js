@@ -1019,7 +1019,7 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   }
 }
 
-// ===== ENRICH: normalizza dal web + immagine (mapping robusto) =====
+// ===== ENRICH lato client: normalizza nome/brand e popola immagini =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
@@ -1028,10 +1028,7 @@ async function enrichPurchasesViaWeb(purchases = []) {
   const payload = {
     items: purchases.map(p => ({
       name: String(p.name || ''),
-      brand: String(p.brand || ''),
-      packs: Number(p.packs || 0),
-      unitsPerPack: Number(p.unitsPerPack || 0),
-      unitLabel: String(p.unitLabel || '')
+      brand: String(p.brand || '')
     })),
   };
 
@@ -1040,36 +1037,46 @@ async function enrichPurchasesViaWeb(purchases = []) {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
       body: JSON.stringify(payload),
-    }, 25000);
+    }, 30000);
 
     const json = await resp.json().catch(() => null);
-    if (!resp.ok || !json || !json.ok || !Array.isArray(json.items)) {
-      throw new Error(json?.error || `enrich HTTP ${resp.status}`);
+
+    if (!resp.ok || !json || json.ok === false || !Array.isArray(json.items)) {
+      // piccolo log/avviso se l’arricchimento non parte (env mancanti ecc.)
+      if (json && json.error) showToast(`Enrich off: ${json.error}`, 'err');
+      return { items: purchases, images: {} };
     }
 
-    // 1) Prova match by sourceName/brand
-    const byKey = new Map();
-    for (const x of json.items) {
-      const k = `${normKey(x.sourceName)}|${normKey(x.brand||'')}`;
-      byKey.set(k, x);
-    }
+    // mappa per match diretto via matchKey
+    const mapByMatchKey = new Map(
+      json.items
+        .filter(x => x && typeof x.matchKey === 'string')
+        .map(x => [x.matchKey, x])
+    );
 
     const imagesMap = {};
-    const out = purchases.map((p, idx) => {
-      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
-      let hit = byKey.get(k);
+    const out = purchases.map(p => {
+      // chiave con la stessa logica del server
+      const mk = `${normKey(p.name)}|${normKey(p.brand || '')}`;
 
-      // 2) Fallback hard: usa la stessa posizione dell’array di input
-      if (!hit) hit = json.items[idx];
+      // 1) match diretto
+      let e = mapByMatchKey.get(mk);
 
-      if (!hit) return p;
+      // 2) fallback fuzzy (isSimilar su nome sorgente / nome normalizzato)
+      if (!e) {
+        e = (json.items || []).find(x =>
+          isSimilar(p.name, x.sourceName) || isSimilar(p.name, x.normalizedName)
+        ) || null;
+      }
 
-      const prettyName  = String(hit.normalizedName || p.name).trim();
-      const prettyBrand = String(hit.brand || p.brand || '').trim();
+      if (!e) return p; // nessun enrichment trovato: lascio l’item così com’è
 
-      if (hit.imageUrl && /^https?:\/\//i.test(hit.imageUrl)) {
-        const proxied = `/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}`;
-        imagesMap[productKey(prettyName, prettyBrand)] = proxied;
+      const prettyName  = String(e.normalizedName || p.name).trim();
+      const prettyBrand = String(e.brand || p.brand || '').trim();
+
+      // IMMAGINE: mettiamo l’URL diretto (niente proxy → <img> non soffre CORS)
+      if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
+        imagesMap[productKey(prettyName, prettyBrand)] = e.imageUrl;
       }
 
       return { ...p, name: prettyName, brand: prettyBrand };
@@ -1081,6 +1088,7 @@ async function enrichPurchasesViaWeb(purchases = []) {
     return { items: purchases, images: {} };
   }
 }
+
 
 /* ====================== Calcoli scorte ====================== */
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
