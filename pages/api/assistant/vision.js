@@ -1,145 +1,183 @@
-// pages/api/assistant/vision.js
-export const config = { api: { bodyParser: false, sizeLimit: '16mb' } };
+// pages/api/vision.js
+import OpenAI from "openai";
+import formidable from "formidable";
+import fs from "fs/promises";
 
-import formidable from 'formidable';
-import fs from 'fs/promises';
+export const config = { api: { bodyParser: false } };
 
-/* ---------- CORS ---------- */
-function setCORS(req, res) {
-  const origin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const MODEL = process.env.OPENAI_VISION_MODEL || "gpt-4o-mini";
+
+// ---- JSON Schemas (Structured Outputs) ----
+const schemaReceipt = {
+  name: "ReceiptExtraction",
+  schema: {
+    type: "object",
+    properties: {
+      store: { type: "string" },
+      purchaseDate: { type: "string", description: "YYYY-MM-DD se presente, altrimenti stringa vuota" },
+      purchases: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            brand: { type: "string" },
+            packs: { type: "number" },
+            unitsPerPack: { type: "number" },
+            unitLabel: { type: "string" },
+            priceEach: { type: "number" },
+            priceTotal: { type: "number" },
+            currency: { type: "string", default: "EUR" },
+            expiresAt: { type: "string" }
+          },
+          required: ["name","brand","packs","unitsPerPack","unitLabel","priceEach","priceTotal","currency","expiresAt"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["purchases"],
+    additionalProperties: false
+  },
+  strict: true
+};
+
+const schemaRow = {
+  name: "RowExtraction",
+  schema: {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      brand: { type: "string" },
+      packs: { type: "number" },
+      unitsPerPack: { type: "number" },
+      unitLabel: { type: "string" },
+      expiresAt: { type: "string" }
+    },
+    required: ["name","brand","packs","unitsPerPack","unitLabel","expiresAt"],
+    additionalProperties: false
+  },
+  strict: true
+};
+
+const schemaBag = {
+  name: "BagExtraction",
+  schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            brand: { type: "string" },
+            packs: { type: "number" },
+            unitsPerPack: { type: "number" },
+            unitLabel: { type: "string" },
+            expiresAt: { type: "string" }
+          },
+          required: ["name","brand","packs","unitsPerPack","unitLabel","expiresAt"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["items"],
+    additionalProperties: false
+  },
+  strict: true
+};
+
+function promptFor(mode, hints = {}) {
+  if (mode === "receipt") {
+    return [
+      "Sei Jarvis. Estrai righe da uno SCONTRINO.",
+      "NON usare pesi/volumi come quantità; packs/unitsPerPack solo se espliciti (2x6, 6 bottiglie, 2 conf da 6).",
+      "Mantieni i nomi leggibili (no sinonimi creativi).",
+      "Compila currency 'EUR' se mancante."
+    ].join("\n");
+  }
+  if (mode === "row") {
+    return [
+      "Sei Jarvis. Hai una foto di ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.",
+      `Se possibile mantieni name≈"${hints.name || ""}" e brand≈"${hints.brand || ""}".`,
+      "Estrarre: name, brand, packs, unitsPerPack, unitLabel, expiresAt (YYYY-MM-DD se presente).",
+      "Se quantità non esplicite, lascia packs=0, unitsPerPack=0, unitLabel=''."
+    ].join("\n");
+  }
+  // bag
+  return [
+    "Sei Jarvis. Da foto di più prodotti (una busta/cesto) estrai una lista items.",
+    "Ogni item: name, brand, packs/unitsPerPack solo se espliciti; expiresAt se visibile."
+  ].join("\n");
 }
 
-/* ---------- Form/multipart: accetta 1..N immagini ---------- */
-async function readMultipart(req) {
-  const form = formidable({
-    multiples: true,
-    maxFiles: 6,
-    allowEmptyFiles: false,
-  });
+function chooseSchema(mode) {
+  if (mode === "receipt") return schemaReceipt;
+  if (mode === "row") return schemaRow;
+  return schemaBag;
+}
 
-  const { fields, files } = await new Promise((ok, ko) => {
+async function parseForm(req) {
+  const form = formidable({ multiples: true, maxFileSize: 20 * 1024 * 1024 });
+  return await new Promise((ok, ko) => {
     form.parse(req, (err, fields, files) => (err ? ko(err) : ok({ fields, files })));
   });
-
-  const pick = (x) => (Array.isArray(x) ? x : x ? [x] : []);
-  const all = [
-    ...pick(files.images),
-    ...pick(files.image),
-    ...pick(files.file),
-  ].filter(Boolean);
-
-  if (!all.length) throw new Error('Nessuna immagine ricevuta');
-
-  const prompt =
-    (fields?.prompt && (Array.isArray(fields.prompt) ? fields.prompt[0] : fields.prompt)) || '';
-
-  return { files: all.slice(0, 6), prompt };
 }
 
-/* ---------- File → dataURL ---------- */
-async function filesToDataUrls(fileList) {
-  const toDataUrl = async (f) => {
-    const p = f.filepath || f._writeStream?.path || f.path;
-    const buf = await fs.readFile(p);
-    const mime = f.mimetype || 'image/jpeg';
-    return `data:${mime};base64,${buf.toString('base64')}`;
-  };
-  return Promise.all(fileList.map(toDataUrl));
+async function fileToDataUrl(file) {
+  const buf = await fs.readFile(file.filepath || file.file || file.path);
+  const b64 = buf.toString("base64");
+  const mime = file.mimetype || "image/jpeg";
+  return `data:${mime};base64,${b64}`;
 }
 
-/* ---------- Prompt scontrino (schema rigido) ---------- */
-function buildReceiptPrompt(userPrompt = '') {
-  const extra = userPrompt ? `\nNota utente: ${userPrompt}\n` : '';
-  return [
-    'Sei Jarvis. Hai 1..N foto di UNO SCONTRINO.',
-    'RISPONDI SOLO JSON valido con schema ESATTO:',
-    '{',
-    '  "store":"",',
-    '  "purchaseDate":"",',
-    '  "purchases":[ {',
-    '    "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"",',
-    '    "priceEach":0, "priceTotal":0, "currency":"EUR", "expiresAt":""',
-    '  } ]',
-    '}',
-    '',
-    'Regole:',
-    '- NON normalizzare/riscrivere i nomi: mantieni esattamente quelli sullo scontrino.',
-    '- Quantità SOLO se esplicite (es.: "2x6", "2 confezioni da 6", "6 bottiglie").',
-    '- Pesi/volumi/dimensioni (g, kg, ml, L, cm, …) NON sono quantità: non usarli per packs/unitsPerPack.',
-    '- Se non appare il prezzo unitario, priceEach=0; se non appare il totale riga, priceTotal=0.',
-    '- purchaseDate in formato YYYY-MM-DD se presente.',
-    '- currency "EUR" se non specificato.',
-    extra
-  ].join('\n');
-}
-
-/* ---------- Call OpenAI Vision (chat.completions) ---------- */
-async function callOpenAIVision({ dataUrls, prompt }) {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY mancante');
-
-  const content = [
-    { type: 'text', text: buildReceiptPrompt(prompt) },
-    ...dataUrls.map((u) => ({ type: 'image_url', image_url: { url: u } })),
-  ];
-
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: 'Rispondi solo con JSON valido.' },
-        { role: 'user', content },
-      ],
-    }),
-  });
-
-  const data = await r.json();
-  if (!r.ok) throw new Error(data?.error?.message || `Vision HTTP ${r.status}`);
-
-  // Il modello dovrebbe già restituire JSON puro; in caso contrario, prova a "ripulire".
-  const text = data?.choices?.[0]?.message?.content || '{}';
-  try {
-    return JSON.parse(text);
-  } catch {
-    const m = text.match(/\{[\s\S]*\}$/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error('Risposta Vision non in JSON.');
-  }
-}
-
-/* ---------- Handler ---------- */
 export default async function handler(req, res) {
-  setCORS(req, res);
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method === 'GET') return res.status(200).json({ ok: true, info: 'vision alive' });
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
-
   try {
-    const { files, prompt } = await readMultipart(req);
-    const dataUrls = await filesToDataUrls(files);
-    const json = await callOpenAIVision({ dataUrls, prompt });
+    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
-    // Normalizza chiavi minime se mancanti
-    const out = {
-      store: String(json?.store || '').trim(),
-      purchaseDate: String(json?.purchaseDate || '').trim(),
-      purchases: Array.isArray(json?.purchases) ? json.purchases : [],
-    };
+    const { fields, files } = await parseForm(req);
+    const mode = String(fields.mode || "receipt").toLowerCase(); // 'receipt' | 'row' | 'bag'
+    const hintName = String(fields.hintName || "");
+    const hintBrand = String(fields.hintBrand || "");
 
-    return res.status(200).json({ ok: true, data: out });
+    const picked =
+      [].concat(files.images || files.image || files.file || files.files || [])
+        .filter(Boolean);
+
+    if (picked.length === 0) return res.status(400).json({ ok: false, error: "Nessuna immagine" });
+
+    // Concatena le immagini come contenuti Vision
+    const visionContent = [
+      { type: "input_text", text: promptFor(mode, { name: hintName, brand: hintBrand }) },
+      ...(await Promise.all(
+        picked.map(async (f) => ({ type: "input_image", image_url: await fileToDataUrl(f) }))
+      ))
+    ];
+
+    // Structured Outputs + Vision (Responses API)
+    const schema = chooseSchema(mode);
+
+    const ai = await client.responses.create({
+      model: MODEL, // gpt-4o / gpt-4o-mini
+      input: [{ role: "user", content: visionContent }],
+      response_format: { type: "json_schema", json_schema: schema }
+    });
+
+    // Estrarre il testo (il Node SDK espone output_text); fallback robusto
+    const text =
+      ai.output_text ??
+      (ai.output?.[0]?.content?.[0]?.text || ai.output?.[0]?.content?.[0]?.string_value) ??
+      JSON.stringify(ai, null, 2);
+
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { parsed = null; }
+
+    if (!parsed) return res.status(502).json({ ok: false, error: "Formato risposta non valido", raw: text });
+
+    return res.status(200).json({ ok: true, mode, data: parsed });
   } catch (e) {
-    return res.status(200).json({ ok: false, error: String(e?.message || e) });
+    console.error("[/api/vision] error:", e);
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 }
