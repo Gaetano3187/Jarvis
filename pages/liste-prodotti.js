@@ -1,5 +1,5 @@
 // pages/liste-prodotti.js
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Image from 'next/image';
