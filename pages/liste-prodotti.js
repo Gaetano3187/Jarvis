@@ -1019,23 +1019,14 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   }
 }
 
-// ===== ENRICH lato client: normalizza nome/brand e popola immagini =====
+// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (proxy-safe) =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
   }
 
-  // ripulisce codici/suffissi da scontrino (es. "VI*", "B VI*")
-  const stripReceiptSuffixes = (s='') =>
-    String(s).replace(/\b(?:[A-Z]?\s*VI\*|V\*)\b/ig, ' ')
-             .replace(/\s{2,}/g,' ')
-             .trim();
-
   const payload = {
-    items: purchases.map(p => ({
-      name: stripReceiptSuffixes(String(p.name || '')),
-      brand: String(p.brand || '')
-    })),
+    items: purchases.map(p => ({ name: String(p.name||''), brand: String(p.brand||'') })),
   };
 
   try {
@@ -1043,62 +1034,53 @@ async function enrichPurchasesViaWeb(purchases = []) {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
       body: JSON.stringify(payload),
-    }, 30000);
+    }, 25000);
 
     const json = await resp.json().catch(() => null);
 
-    if (!resp.ok || !json || json.ok === false || !Array.isArray(json.items)) {
-      if (json?.error) showToast(`Enrich off: ${json.error}`, 'err');
+    if (!resp.ok) {
+      console.error('[enrich] HTTP', resp.status, json);
+      showToast('Enrich HTTP ' + resp.status, 'err');
       return { items: purchases, images: {} };
     }
 
-    // mappa per match diretto via matchKey (server)
-    const mapByMatchKey = new Map(
-      json.items.filter(x => x && typeof x.matchKey === 'string')
-                .map(x => [x.matchKey, x])
-    );
+    if (!json || !json.ok || !Array.isArray(json.items)) {
+      console.warn('[enrich] KO:', json);
+      if (json?.error) showToast('Enrich: ' + json.error, 'err'); // <- vedi subito se mancano GOOGLE_API_KEY / CSE_ID
+      return { items: purchases, images: {} };
+    }
+
+    if (json?.meta) console.info('[enrich meta]', json.meta);
+
+    const map = new Map(json.items.map(x => [
+      `${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x
+    ]));
 
     const imagesMap = {};
     const out = purchases.map(p => {
-      // stessa logica server per la chiave
-      const mk = `${normKey(p.name)}|${normKey(p.brand || '')}`;
-
-      // 1) match diretto
-      let e = mapByMatchKey.get(mk);
-
-      // 2) fallback fuzzy (nome OCR vs nome normalizzato/sorgente)
-      if (!e) {
-        e = (json.items || []).find(x =>
-          isSimilar(p.name, x.sourceName) || isSimilar(p.name, x.normalizedName)
-        ) || null;
-      }
+      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
+      const e = map.get(k);
       if (!e) return p;
 
       const prettyName  = String(e.normalizedName || p.name).trim();
       const prettyBrand = String(e.brand || p.brand || '').trim();
 
-      // IMMAGINE: URL diretto (meglio di passare dal proxy)
       if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
-        imagesMap[productKey(prettyName, prettyBrand)] = e.imageUrl;
+        imagesMap[productKey(prettyName, prettyBrand)] =
+          `/api/img-proxy?url=${encodeURIComponent(e.imageUrl)}`;
       }
 
       return { ...p, name: prettyName, brand: prettyBrand };
     });
 
-    // debug gentile per capire se sta lavorando
-    try {
-      const n = out.length;
-      const m = Object.keys(imagesMap).length;
-      showToast(`Enrich web: ${n} righe, immagini ${m}`, 'ok');
-    } catch {}
-
     return { items: out, images: imagesMap };
   } catch (err) {
     console.warn('[enrich] fail:', err);
-    showToast('Enrich fallito (rete/API)', 'err');
+    showToast('Enrich errore di rete', 'err');
     return { items: purchases, images: {} };
   }
 }
+
 
 
 /* ====================== Calcoli scorte ====================== */
