@@ -1518,23 +1518,6 @@ function withRememberedImage(row, imagesIdx) {
   }
   return img ? { ...row, image: img } : row;
 }
-function withRememberedImage(row, imagesIdx) {
-  if (row?.image) return row;
-  const k1 = productKey(row?.name, row?.brand || '');
-  const k2 = productKey(row?.name, '');
-  let img = imagesIdx?.[k1] || imagesIdx?.[k2];
-
-  // fallback fuzzy: trova una chiave il cui "name" è simile
-  if (!img && imagesIdx && typeof imagesIdx === 'object') {
-    const want = normKey(row?.name || '');
-    for (const [key, url] of Object.entries(imagesIdx)) {
-      const keyName = key.split('|')[0]; // parte nome
-      if (isSimilar(keyName, want)) { img = url; break; }
-    }
-  }
-  return img ? { ...row, image: img } : row;
-}
-
 // Coercizioni/utility
 function intOr(x, d=0){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? Math.trunc(n) : d; }
 function posIntOr(x, d=0){ return Math.max(0, intOr(x, d)); }
