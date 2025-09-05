@@ -1880,13 +1880,7 @@ function ListeProdotti() {
     return () => { mounted = false; };
   }, []);
 
-  // 👉 Salva anche imagesIndex (solo URL http/https brevi) e timestamp _ts
-function stripForCloud({ lists, stock, currentList, learned, imagesIndex }) {
-  const safeLists = {
-    [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
-    [LIST_TYPES.ONLINE]:      (lists?.[LIST_TYPES.ONLINE] || []).map(({ image, ...r }) => r),
-  };
-
+  
   const safeStock = (stock || []).map((s) => {
     const base = { ...s };
     const img = base.image;
@@ -2734,7 +2728,7 @@ setStock(prev => {
         const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
         arr[idx] = {
           ...old,
-          // ✅ aggiorna anche nome/brand con quelli normalizzati
+          // ✅ aggiorna nome/brand con quelli normalizzati
           name: (p.name && String(p.name).trim()) || old.name,
           brand: (p.brand && String(p.brand).trim()) || old.brand,
           packs: newP,
@@ -2750,7 +2744,6 @@ setStock(prev => {
         const np = Math.max(0, Number(old.packs || 0) + 1);
         arr[idx] = {
           ...old,
-          // ✅ aggiorna anche nome/brand
           name: (p.name && String(p.name).trim()) || old.name,
           brand: (p.brand && String(p.brand).trim()) || old.brand,
           packs: np,
@@ -2763,14 +2756,13 @@ setStock(prev => {
       } else {
         arr[idx] = {
           ...old,
-          // ✅ mantieni l’aggiornamento name/brand anche qui
           name: (p.name && String(p.name).trim()) || old.name,
           brand: (p.brand && String(p.brand).trim()) || old.brand,
           needsUpdate: true,
         };
       }
 
-      // ✅ se non c'è immagine, prova a impostarla subito dall'index MERGED
+      // ✅ immagine: usa subito l’index MERGED
       try {
         const kImg = productKey(p.name, p.brand || '');
         const remembered = mergedImagesIndex && mergedImagesIndex[kImg];
@@ -2846,7 +2838,6 @@ setStock(prev => {
 
   return arr;
 });
-
 
     // ——— 13) Finanze ———
     let financesOk = true;
