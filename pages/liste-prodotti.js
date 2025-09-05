@@ -136,77 +136,73 @@ function isCloudSafeUrl(v) {
   );
 }
 
-// 👉 Include _ts (timestamp), sincronizza imagesIndex (consentiti http/https e /api/img-proxy),
-//    e mantiene l’immagine in stock SOLO se cloud-safe (niente base64 pesanti).
-function stripForCloud(state = {}) {
-  // 1) Liste (solo campi essenziali; niente image nelle liste)
-  const safeList = (arr) =>
-    (Array.isArray(arr) ? arr : []).map((it) => ({
-      id: String(it?.id ?? ''),
-      name: String(it?.name ?? ''),
-      brand: String(it?.brand ?? ''),
-      qty: Number(it?.qty ?? 0),
-      unitsPerPack: Number(it?.unitsPerPack ?? 1),
-      unitLabel: String(it?.unitLabel ?? 'unità'),
-      purchased: !!it?.purchased,
-    }));
+// ——— Cloud-safe: copia stock senza base64 pesanti, solo URL o /api/img-proxy ———
+const safeStock = (stock || []).map((s) => {
+  const base = { ...s };
+  const img = base.image;
+  const isUrl =
+    typeof img === 'string' &&
+    ( /^https?:\/\//i.test(img) || img?.startsWith('/api/img-proxy') ) &&
+    img.length <= 500;
+  if (!isUrl) delete base.image; // niente base64 nel cloud
+  return base;
+});
 
-  const lists = state.lists || {};
-  const safeLists = {
-    [LIST_TYPES.SUPERMARKET]: safeList(lists[LIST_TYPES.SUPERMARKET]),
-    [LIST_TYPES.ONLINE]:      safeList(lists[LIST_TYPES.ONLINE]),
+// ——— Index immagini “cloud safe”: solo http/https o /api/img-proxy ———
+const safeImagesIndex = {};
+if (imagesIndex && typeof imagesIndex === 'object') {
+  for (const [k, v] of Object.entries(imagesIndex)) {
+    if (
+      typeof v === 'string' &&
+      ( /^https?:\/\//i.test(v) || v.startsWith('/api/img-proxy') ) &&
+      v.length <= 500
+    ) {
+      safeImagesIndex[k] = v;
+    }
+  }
+} // 👈 CHIUSURA DELL'IF (prima di qualunque Hook)
+
+// ——— Upsert su Supabase (mai dentro condizioni) ———
+const cloudTimerRef = useRef(null);
+useEffect(() => {
+  if (!CLOUD_SYNC || !__supabase) return;
+  if (!userIdRef.current) return;
+
+  if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+
+  // Prepara lo stato da inviare al cloud
+  const cloudState = {
+    _ts: Date.now(),
+    lists: {
+      [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
+      [LIST_TYPES.ONLINE]:      (lists?.[LIST_TYPES.ONLINE]      || []).map(({ image, ...r }) => r),
+    },
+    stock: safeStock,
+    currentList: [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
+      ? currentList
+      : LIST_TYPES.SUPERMARKET,
+    imagesIndex: safeImagesIndex,
+    learned: (learned && typeof learned === 'object')
+      ? learned
+      : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} },
   };
 
-  // 2) Scorte: mantieni image solo se cloud-safe
-  const safeStock = (Array.isArray(state.stock) ? state.stock : []).map((s) => {
-    const base = {
-      name: String(s?.name ?? ''),
-      brand: String(s?.brand ?? ''),
-      packs: Number(s?.packs ?? 0),
-      unitsPerPack: Number(s?.unitsPerPack ?? 1),
-      unitLabel: String(s?.unitLabel ?? 'unità'),
-      expiresAt: String(s?.expiresAt ?? ''),
-      baselinePacks: Number(s?.baselinePacks ?? 0),
-      lastRestockAt: String(s?.lastRestockAt ?? ''),
-      avgDailyUnits: Number(s?.avgDailyUnits ?? 0),
-      residueUnits: Number(
-        s?.residueUnits ??
-        (Number(s?.packs ?? 0) * Number(s?.unitsPerPack ?? 1))
-      ),
-      packsOnly: !!s?.packsOnly,
-    };
-    if (isCloudSafeUrl(s?.image)) base.image = s.image;
-    return base;
-  });
+  const payload = { user_id: userIdRef.current, state: cloudState };
 
-  // 3) imagesIndex: includi solo URL cloud-safe (http/https o /api/img-proxy)
-  const srcIdx = (state.imagesIndex && typeof state.imagesIndex === 'object')
-    ? state.imagesIndex
-    : {};
-  const imagesIndex = {};
-  for (const [k, v] of Object.entries(srcIdx)) {
-    if (isCloudSafeUrl(v)) imagesIndex[k] = v;
-  }
+  cloudTimerRef.current = setTimeout(async () => {
+    try {
+      await __supabase
+        .from(CLOUD_TABLE)
+        .upsert(payload, { onConflict: 'user_id' });
+    } catch (e) {
+      if (DEBUG) console.warn('[cloud upsert] fail', e);
+    }
+  }, 1200);
 
-  // 4) learned (solo quello utile)
-  const learned = (state.learned && typeof state.learned === 'object')
-    ? {
-        products: state.learned.products || {},
-        aliases:  state.learned.aliases  || { product: {}, brand: {} },
-        keepTerms: state.learned.keepTerms || {},
-      }
-    : undefined;
+  return () => clearTimeout(cloudTimerRef.current);
+  // ⚠️ includi imagesIndex per togliere il warning sugli hook
+}, [lists, stock, currentList, learned, imagesIndex]);
 
-  // 5) currentList sicuro
-  const currentList = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(state.currentList)
-    ? state.currentList
-    : LIST_TYPES.SUPERMARKET;
-
-  // 6) timestamp per last-write-wins
-  const _ts = Date.now();
-
-  return { _ts, lists: safeLists, stock: safeStock, currentList, imagesIndex, learned };
-}
 
 function loadPersisted() {
   try {
@@ -2058,68 +2054,9 @@ function estimateCandidateLines(ocrText=''){
   return count;
 }
 
-// === Ripulisce l'OCR da messaggi di rifiuto / policy ===
-function sanitizeOcrText(t) {
-  const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-  return String(t || '')
-    .split(/\r?\n/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .filter(s => !BAD.test(s))   // elimina righe tipo “Mi dispiace…”
-    .join('\n');
-}
 
-// === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
-async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
-  try {
-    // Non toccare PDF o file non immagine
-    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
 
-    // Crea un bitmap (o <img> come fallback) per disegnare su canvas
-    const getBitmap = async (blob) => {
-      if (typeof window !== 'undefined' && window.createImageBitmap) {
-        return await createImageBitmap(blob);
-      }
-      const dataUrl = await new Promise((ok, ko) => {
-        const r = new FileReader();
-        r.onload = () => ok(r.result);
-        r.onerror = ko;
-        r.readAsDataURL(blob);
-      });
-      const img = new Image();
-      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-      return img;
-    };
 
-    const bmp = await getBitmap(file);
-    const w0 = bmp.width || bmp.naturalWidth;
-    const h0 = bmp.height || bmp.naturalHeight;
-    const scale = Math.min(1, maxSide / Math.max(w0, h0));
-
-    // Se già piccolo (<~1.2MB) o lato max <= maxSide, lascia stare
-    if (scale === 1 && file.size <= 1_200_000) return file;
-
-    const w = Math.max(1, Math.round(w0 * scale));
-    const h = Math.max(1, Math.round(h0 * scale));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bmp, 0, 0, w, h);
-
-    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
-    if (!blob) return file;
-
-    // Se per qualche motivo non comprimiamo davvero, tieni l'originale
-    if (blob.size >= file.size) return file;
-
-    const base = (file.name || 'upload').replace(/\.\w+$/, '');
-    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
-  } catch {
-    // In caso di errore, non bloccare il flusso: torna l’originale
-    return file;
-  }
-}
 
 /* ====================== Prompt builder OCR Riga ====================== */
 function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
