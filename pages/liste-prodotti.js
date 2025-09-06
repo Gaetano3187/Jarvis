@@ -227,6 +227,32 @@ var isSimilar = isSimilar || function isSimilar(a, b) {
 function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
+// Ricorda l'immagine se presente nell'indice (senza fare fetch o accedere al window)
+// Dipendenze: productKey, isSimilar, normKey (già nel file)
+function withRememberedImage(row, imagesIdx = {}) {
+  try {
+    if (!row || typeof row !== 'object') return row;
+    if (row.image && typeof row.image === 'string') return row; // già impostata
+
+    const k1 = productKey(row?.name || '', row?.brand || '');
+    const k2 = productKey(row?.name || '', '');
+    let img = imagesIdx[k1] || imagesIdx[k2];
+
+    // fallback fuzzy: cerca nel map per chiave con name simile
+    if (!img && imagesIdx && typeof imagesIdx === 'object') {
+      const want = normKey(row?.name || '');
+      for (const [key, url] of Object.entries(imagesIdx)) {
+        // key form: "<name>|<brand>"
+        const keyName = String(key).split('|')[0] || '';
+        if (isSimilar(keyName, want)) { img = url; break; }
+      }
+    }
+    return img ? { ...row, image: img } : row;
+  } catch {
+    return row;
+  }
+}
+
 
 /* ====================== Cloud: sanitizer stato per upsert ====================== */
 function stripForCloud(state = {}) {
