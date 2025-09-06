@@ -100,7 +100,7 @@ function buildReceiptPrompt() {
     '}',
     '',
     'REGOLE:',
-    '- Se la stessa voce appare ripetuta su più righe, **consolidala** sommando in "packs".',
+    '- -NON consolidare righe uguali: se lo scontrino ripete la stessa voce su più righe, restituisci una entry PER OGNI RIGA.',
     '- "unitsPerPack" è >1 SOLO se dal testo emerge un pattern esplicito (2x6, 6 bottiglie, 3 conf. da 6).',
     '- NON usare pesi/volumi (500g, 1L) come unitsPerPack.',
     '- "unitLabel" tra: "unità","pezzi","bottiglie","buste","lattine","vasetti","rotoli","capsule","brick","uova".',
@@ -232,7 +232,9 @@ export default async function handler(req, res) {
       expiresAt: toISO(p.expiresAt),
     })).filter(p => p.name);
 
-    purchases = mergePurchases(purchases);
+     purchases = mergePurchases(purchases);
+// non unire: processiamo ogni riga separatamente
+
 
     const text = sanitize(parsed?.text || '');
 

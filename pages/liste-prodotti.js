@@ -1843,7 +1843,7 @@ async function handleOCR(files) {
       if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
       if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
     }
-    if (typeof mergeAndCanonizePurchases === 'function') purchases = mergeAndCanonizePurchases(purchases);
+   // Non unire: vogliamo processare ogni riga così com'è
 
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
     const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
