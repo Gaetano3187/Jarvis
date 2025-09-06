@@ -1134,199 +1134,244 @@ function ListeProdotti() {
     });
   }
 
+/* =================== Vocale LISTA =================== */
+// Refs & stato recorder per LISTA
+const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
+const mediaRecRef = useRef(null);
+const recordedChunks = useRef([]);
+const streamRef = useRef(null);
+const [recBusy, setRecBusy] = useState(false);
 
-  /* =================== Vocale LISTA =================== */
-  async function toggleRecList() {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch (e) {} return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      mediaRecRef.current = new MediaRecorder(stream);
-      recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
-      mediaRecRef.current.onstop = processVoiceList;
-      mediaRecRef.current.start();
-      setRecBusy(true);
-    } catch (e) {
-      alert('Microfono non disponibile');
-    }
+// Avvio/stop registrazione LISTA
+async function toggleRecList() {
+  if (recBusy) {
+    try { mediaRecRef.current?.stop(); } catch {}
+    return;
   }
-  async function processVoiceList() {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
-    try {
-      setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
-      const { text } = await res.json();
-      if (!text) throw new Error('Testo non riconosciuto');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
 
-      let appended = false;
-      try {
-        const payload = {
-          prompt: [
-            'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
-            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
-            'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
-            'Voci comuni: ' + GROCERY_LEXICON.join(', '),
-            'Testo:', text
-          ].join('\n'),
-        };
-        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-        }, 25000);
-        const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
-        const arr = Array.isArray(parsed?.items) ? parsed.items : [];
-        if (arr.length) {
-          setLists(prev => {
-            const next = { ...prev };
-            const target = currentList;
-            const existing = [...(prev[target] || [])];
-            for (const raw of arr) {
-              const it = {
-                id: 'tmp-' + Math.random().toString(36).slice(2),
-                name: String(raw.name||'').trim(),
-                brand: String(raw.brand||'').trim(),
-                qty: Math.max(1, Number(raw.packs||raw.qty||1)),
-                unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
-                unitLabel: String(raw.unitLabel||'unità'),
-                purchased: false,
-              };
-              if (!it.name) continue;
-              const idx = existing.findIndex(i =>
-                i.name.toLowerCase() === it.name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-              );
-              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
-              else existing.push(it);
+    // MIME sicuro per il device
+    const cand = [
+      { mime: 'audio/webm;codecs=opus', ext: 'webm' },
+      { mime: 'audio/ogg;codecs=opus',  ext: 'ogg'  },
+      { mime: 'audio/mp4',              ext: 'm4a'  },
+      { mime: 'audio/webm',             ext: 'webm' },
+    ];
+    const pick = cand.find(c => {
+      try { return MediaRecorder.isTypeSupported?.(c.mime); } catch { return false; }
+    }) || recMimeRef.current;
+    recMimeRef.current = pick;
+
+    mediaRecRef.current = new MediaRecorder(stream, pick.mime ? { mimeType: pick.mime } : undefined);
+    recordedChunks.current = [];
+    mediaRecRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) recordedChunks.current.push(e.data); };
+    mediaRecRef.current.onstop = processVoiceList;
+    mediaRecRef.current.start();
+    setRecBusy(true);
+  } catch {
+    showToast('Microfono non disponibile', 'err');
+  }
+}
+
+// Fine registrazione LISTA → STT → parse → aggiorna liste
+async function processVoiceList() {
+  try {
+    // chiudi stream
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    setRecBusy(false);
+
+    if (!recordedChunks.current.length) {
+      showToast('Nessun audio catturato', 'err');
+      return;
+    }
+
+    const { mime, ext } = recMimeRef.current || { mime: 'audio/webm', ext: 'webm' };
+    const blob = new Blob(recordedChunks.current, { type: mime || 'audio/webm' });
+    recordedChunks.current = [];
+
+    const fd = new FormData();
+    fd.append('audio', blob, `lista.${ext}`);
+
+    setBusy(true);
+    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 30000);
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload?.error || `STT HTTP ${res.status}`);
+
+    const text = String(payload?.text || '').trim();
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    // 1) tenta AI strutturata
+    let appended = false;
+    try {
+      const body = {
+        prompt: [
+          'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
+          '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
+          'Se manca brand metti "", packs=1, unitsPerPack=1, unitLabel="unità".',
+          'Voci comuni: ' + GROCERY_LEXICON.join(', '),
+          'Testo:', text
+        ].join('\n'),
+      };
+      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }, 30000);
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      const parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
+      const items = Array.isArray(parsed?.items) ? parsed.items : [];
+
+      if (items.length) {
+        setLists(prev => {
+          const next = { ...prev };
+          const target = currentList;
+          const existing = [...(prev[target] || [])];
+
+          for (const raw of items) {
+            const it = {
+              id: 'tmp-' + Math.random().toString(36).slice(2),
+              name: String(raw.name || '').trim(),
+              brand: String(raw.brand || '').trim(),
+              qty: Math.max(1, Number(raw.packs || raw.qty || 1)),
+              unitsPerPack: Math.max(1, Number(raw.unitsPerPack || 1)),
+              unitLabel: String(raw.unitLabel || 'unità'),
+              purchased: false,
+            };
+            if (!it.name) continue;
+
+            const idx = existing.findIndex(i =>
+              i.name.toLowerCase() === it.name.toLowerCase() &&
+              (i.brand || '').toLowerCase() === it.brand.toLowerCase() &&
+              Number(i.unitsPerPack || 1) === Number(it.unitsPerPack || 1)
+            );
+            if (idx >= 0) {
+              existing[idx] = { ...existing[idx], qty: Math.max(0, Number(existing[idx].qty || 0) + it.qty) };
+            } else {
+              existing.push(it);
             }
-            next[target] = existing;
-            return next;
-          });
-          appended = true;
-        }
-      } catch (e) {}
-      if (!appended) {
-        const local = parseLinesToItems(text);
-        if (local.length) {
-          setLists(prev => {
-            const next = { ...prev };
-            const target = currentList;
-            const existing = [...(prev[target] || [])];
-            for (const it of local) {
-              const idx = existing.findIndex(i =>
-                i.name.toLowerCase() === it.name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-              );
-              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
-              else existing.push(it);
-            }
-            next[target] = existing;
-            return next;
-          });
-          appended = true;
-        }
+          }
+
+          next[target] = existing;
+          return next;
+        });
+        appended = true;
       }
-      showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
-    } catch (e) {
-      alert('Errore nel riconoscimento vocale');
-    } finally {
-      setRecBusy(false);
-      setBusy(false);
-      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
-      mediaRecRef.current = null;
-      streamRef.current = null;
-      recordedChunks.current = [];
-    }
-  }
+    } catch {}
 
-  /* =================== Vocale UNIFICATO INVENTARIO =================== */
+    // 2) fallback parser locale
+    if (!appended) {
+      const local = parseLinesToItems(text);
+      if (local.length) {
+        setLists(prev => {
+          const next = { ...prev };
+          const target = currentList;
+          const existing = [...(prev[target] || [])];
+
+          for (const it of local) {
+            const idx = existing.findIndex(i =>
+              i.name.toLowerCase() === it.name.toLowerCase() &&
+              (i.brand || '').toLowerCase() === (it.brand || '').toLowerCase() &&
+              Number(i.unitsPerPack || 1) === Number(it.unitsPerPack || 1)
+            );
+            if (idx >= 0) {
+              existing[idx] = { ...existing[idx], qty: Math.max(0, Number(existing[idx].qty || 0) + Number(it.qty || 1)) };
+            } else {
+              existing.push(it);
+            }
+          }
+
+          next[target] = existing;
+          return next;
+        });
+        appended = true;
+      }
+    }
+
+    showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
+  } catch (e) {
+    showToast(`Errore nel riconoscimento vocale: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    mediaRecRef.current = null;
+    streamRef.current = null;
+    recordedChunks.current = [];
+  }
+}
+
+/* =================== Vocale UNIFICATO INVENTARIO =================== */
+// Refs & stato recorder per INVENTARIO
+const invMediaRef = useRef(null);
+const invChunksRef = useRef([]);
+const invStreamRef = useRef(null);
+const [invRecBusy, setInvRecBusy] = useState(false);
+
 async function toggleVoiceInventory() {
-  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch(e) {} return; }
+  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     invStreamRef.current = stream;
 
-    const { mime, ext } = pickAudioMime();
-    recMimeRef.current = { mime, ext };
+    const cand = [
+      { mime: 'audio/webm;codecs=opus', ext: 'webm' },
+      { mime: 'audio/ogg;codecs=opus',  ext: 'ogg'  },
+      { mime: 'audio/mp4',              ext: 'm4a'  },
+      { mime: 'audio/webm',             ext: 'webm' },
+    ];
+    const pick = cand.find(c => {
+      try { return MediaRecorder.isTypeSupported?.(c.mime); } catch { return false; }
+    }) || { mime: 'audio/webm', ext: 'webm' };
+    recMimeRef.current = pick;
 
-    invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    invMediaRef.current = new MediaRecorder(stream, pick.mime ? { mimeType: pick.mime } : undefined);
     invChunksRef.current = [];
     invMediaRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) invChunksRef.current.push(e.data); };
     invMediaRef.current.onstop = processVoiceInventory;
     invMediaRef.current.start(500);
     setInvRecBusy(true);
-  } catch (e) {
-    alert('Microfono non disponibile');
+  } catch {
+    showToast('Microfono non disponibile', 'err');
   }
 }
 
 async function processVoiceInventory() {
   try {
-    // Stop microfono e chiudi recorder
-    try {
-      const tracks = invStreamRef.current && invStreamRef.current.getTracks ? invStreamRef.current.getTracks() : [];
-      tracks && tracks.forEach(t => t.stop());
-    } catch (e) {}
+    // Stop microfono e reset
+    try { invStreamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
     setInvRecBusy(false);
 
-    // Nessun audio?
-    if (!invChunksRef.current || invChunksRef.current.length === 0) {
-      if (DEBUG) console.warn('[STT inventory] Nessun chunk audio');
+    if (!invChunksRef.current?.length) {
       showToast('Nessun audio catturato', 'err');
       return;
     }
 
-    // Blob audio con MIME corretto per il device
     const { mime, ext } = recMimeRef.current || { mime: 'audio/webm', ext: 'webm' };
     const blob = new Blob(invChunksRef.current, { type: mime || 'audio/webm' });
     invChunksRef.current = [];
 
-    // Invio allo STT
     const fd = new FormData();
     fd.append('audio', blob, `inventory.${ext}`);
 
     setBusy(true);
-    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 30000);
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload?.error || `STT HTTP ${res.status}`);
 
-    let payload = {};
-    try { payload = await res.json(); } catch (e) {}
-    if (!res.ok) {
-      const msg = payload && payload.error ? `: ${payload.error}` : '';
-      throw new Error(`STT HTTP ${res.status}${msg}`);
-    }
-
-    const text = String(payload && payload.text ? payload.text : '').trim();
+    const text = String(payload?.text || '').trim();
     if (!text) throw new Error('Testo non riconosciuto');
-
-    if (DEBUG) console.log('[STT inventory text]', text);
 
     // 1) Scadenze dal parlato
     const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
-
-    // 2) Aggiornamenti quantità (parser vocale)
-    const updates = parseStockUpdateText(text);
-    const todayISO = new Date().toISOString().slice(0, 10);
-
-    // "SET assoluto" globale se il testo contiene parole chiave (sono / restano / ci sono ancora / ecc.)
-    const absoluteGlobal =
-      wantsAbsoluteSet(text) ||
-      (typeof hasAbsoluteKeywords === 'function'
-        ? hasAbsoluteKeywords(text)
-        : /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
-
-    // Applica scadenze
     if (expPairs.length) {
       setStock(prev => {
         const arr = [...prev];
         for (const ex of expPairs) {
           const i = arr.findIndex(s => isSimilar(s.name, ex.name));
-          if (i >= 0) {
-            arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
-          } else {
+          if (i >= 0) arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+          else {
             arr.unshift(withRememberedImage({
               name: ex.name, brand: '', packs: 0, unitsPerPack: 1, unitLabel: 'unità',
               expiresAt: ex.expiresAt, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0, packsOnly: false
@@ -1337,29 +1382,25 @@ async function processVoiceInventory() {
       });
     }
 
-    // Helper per modalità "solo confezioni"
-    const makePacksOnly = (base) => ({
-      ...base,
-      unitsPerPack: 1,
-      unitLabel: 'conf.',
-      packsOnly: true,
-      residueUnits: Math.max(0, Number(base.packs || 0)), // barra sui pacchi
-    });
+    // 2) Aggiornamenti quantità
+    const updates = parseStockUpdateText(text);
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const absoluteGlobal =
+      wantsAbsoluteSet(text) ||
+      (typeof hasAbsoluteKeywords === 'function'
+        ? hasAbsoluteKeywords(text)
+        : /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
 
-    // Applica quantità (pacchi / unità) con normalizzazione finale per gli aggiornamenti a unità
     if (updates.length) {
       setStock(prev => {
         const arr = [...prev];
-
-        // ⬅ traccia di quali prodotti sono stati aggiornati a UNITÀ (per normalizzare a fine ciclo)
         const unitsUpdated = new Set();
 
         for (const u of updates) {
           const j = arr.findIndex(s => isSimilar(s.name, u.name));
-          const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
+          const abs = u?.forceSet === true ? true : absoluteGlobal;
 
           if (j < 0) {
-            // Crea riga nuova
             if (u.mode === 'packs') {
               const packs = Math.max(0, Number(u.value || u._packs || 0));
               if (u.explicit && u._upp > 1) {
@@ -1371,14 +1412,15 @@ async function processVoiceInventory() {
                 };
                 arr.unshift(withRememberedImage(row, imagesIndex));
               } else {
-                const row = makePacksOnly({
+                const row = {
                   name: u.name, brand: '', packs,
+                  unitsPerPack: 1, unitLabel: 'conf.', packsOnly: true,
+                  residueUnits: Math.max(0, packs),
                   expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
-                });
+                };
                 arr.unshift(withRememberedImage(row, imagesIndex));
               }
             } else {
-              // mode: 'units' → imposta residuo unità
               const units = Math.max(0, Number(u.value || 1));
               const base = {
                 name: u.name, brand: '', packs: 1,
@@ -1392,18 +1434,15 @@ async function processVoiceInventory() {
             continue;
           }
 
-          // Aggiorna riga esistente
           const old = arr[j];
 
           if (u.op === 'restockExplicit' || u.mode === 'packs') {
-            // Aggiornamento a pacchi
             const uppFromVoice = Math.max(1, Number(u._upp || 1));
             const packsNew = abs
-              ? Math.max(0, Number(u.value || u._packs || 0))                          // SET
-              : Math.max(0, Number(old.packs || 0) + Number(u.value || u._packs || 0)); // SOMMA
+              ? Math.max(0, Number(u.value || u._packs || 0))
+              : Math.max(0, Number(old.packs || 0) + Number(u.value || u._packs || 0));
 
             if (u.explicit && uppFromVoice > 1) {
-              // Pacchi + UPP noti → reset pieno
               arr[j] = {
                 ...old,
                 packs: packsNew,
@@ -1413,110 +1452,92 @@ async function processVoiceInventory() {
                 ...restockTouch(packsNew, todayISO, uppFromVoice)
               };
             } else {
-              // Solo pacchi → packsOnly
-              arr[j] = makePacksOnly({
+              arr[j] = {
                 ...old,
                 packs: packsNew,
+                unitsPerPack: 1,
+                unitLabel: 'conf.',
+                packsOnly: true,
+                residueUnits: Math.max(0, packsNew),
                 ...restockTouch(packsNew, todayISO, 1)
-              });
+              };
             }
           } else {
-            // Aggiornamento a unità → residuo unità (ricalcolo confezioni dopo il loop)
             const upp = Math.max(1, Number(old.unitsPerPack || 1));
             const baseline = baselineUnitsOf(old) || upp;
             const current = residueUnitsOf(old);
             const targetUnits = abs
-              ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
-              : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
+              ? Math.max(0, Math.min(Number(u.value || 0), baseline))
+              : Math.max(0, Math.min(current + Number(u.value || 0), baseline));
 
             arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
             unitsUpdated.add(normKey(u.name));
           }
         }
 
-     // ⬅ NORMALIZZAZIONE FINALE:
-if (unitsUpdated.size > 0) {
-  for (let k = 0; k < arr.length; k++) {
-    const row = arr[k];
-    if (!row || !unitsUpdated.has(normKey(row.name))) continue;
+        // Normalizzazione finale per aggiornamenti a unità
+        if (unitsUpdated.size > 0) {
+          for (let k = 0; k < arr.length; k++) {
+            const row = arr[k];
+            if (!row || !unitsUpdated.has(normKey(row.name))) continue;
 
-    const upp = Math.max(1, Number(row.unitsPerPack || 1));
-    if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
-      const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
-      // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
-      const newPacks =
-        ruInt === 0 ? 0 :
-        (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
-
-      if (newPacks !== Number(row.packs || 0)) {
-        arr[k] = { ...row, packs: newPacks };
-      }
-    }
-  }
-}
-
+            const upp = Math.max(1, Number(row.unitsPerPack || 1));
+            if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
+              const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
+              const newPacks =
+                ruInt === 0 ? 0 :
+                (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
+              if (newPacks !== Number(row.packs || 0)) {
+                arr[k] = { ...row, packs: newPacks };
+              }
+            }
+          }
+        }
 
         return arr;
       });
     }
 
-    if (!expPairs.length && !updates.length) {
-      showToast('Nessun dato inventario riconosciuto', 'err');
-    } else {
-      showToast('Inventario aggiornato da Vocale ✓', 'ok');
-    }
+    showToast((expPairs.length || updates.length) ? 'Inventario aggiornato da Vocale ✓' : 'Nessun dato inventario riconosciuto', (expPairs.length || updates.length) ? 'ok' : 'err');
   } catch (e) {
-    console.error('[voice inventory] error', e);
-    showToast(`Errore vocale inventario: ${e && e.message ? e.message : String(e)}`, 'err');
+    showToast(`Errore vocale inventario: ${e?.message || e}`, 'err');
   } finally {
     setBusy(false);
     invMediaRef.current = null;
     invStreamRef.current = null;
   }
 }
-
-
 /* =================== Render =================== */
 return (
   <>
-  
     <Head><title>🛍 Lista Prodotti</title></Head>
-    
 
     <div style={styles.page}>
       <div style={styles.card}>
 
-        {/* ===== SEZIONE 1 — BANNER FULL WIDTH ===== */}
-     <section className="lp-sec1">
-  <div className="lp-sec1__frame">
-    <video
-      className="lp-sec1__video"
-      autoPlay
-      loop
-      muted
-      playsInline
-      preload="none"
-      poster="/video/stato-scorte.png"
-    >
-      <section className="lp-sec1 glass">
-  <div className="lp-sec1__frame">
-    <video className="lp-sec1__video" autoPlay loop muted playsInline preload="none">
-      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
-    </video>
-  </div>
-</section>
-      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
-    </video>
-  </div>
-</section>
-
-
+        {/* ===== SEZIONE 1 — BANNER FULL WIDTH (HTML valido, niente poster 404) ===== */}
+        <section className="lp-sec1" style={{ marginBottom: 12 }}>
+          <div className="lp-sec1__frame" style={{ borderRadius: 16, overflow: 'hidden' }}>
+            <video
+              className="lp-sec1__video"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+              // poster="/video/stato-scorte.png"  // ← rimuovilo se non esiste il file
+              style={{ display: 'block', width: '100%', height: 160, objectFit: 'cover' }}
+            >
+              <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
+            </video>
+          </div>
+        </section>
 
         {/* ===== SEZIONE 2 — LISTE ===== */}
         <section style={styles.sectionBox}>
           <p style={styles.kicker}>scegli la lista che vuoi</p>
 
-          {/* i due tasti (già presenti) */}
+          {/* Switch liste */}
           <div style={styles.switchImgRow}>
             {/* Supermercato */}
             <button
@@ -1527,11 +1548,9 @@ return (
               title="Lista Supermercato"
             >
               <Image
-                src={
-                  currentList === LIST_TYPES.SUPERMARKET
-                    ? '/img/Button/lista%20supermercato%20accesa.png'
-                    : '/img/Button/lista%20supermercato%20spenta.png'
-                }
+                src={currentList === LIST_TYPES.SUPERMARKET
+                  ? '/img/Button/lista%20supermercato%20accesa.png'
+                  : '/img/Button/lista%20supermercato%20spenta.png'}
                 alt="Lista Supermercato"
                 width={150}
                 height={45}
@@ -1549,11 +1568,9 @@ return (
               title="Lista Online"
             >
               <Image
-                src={
-                  currentList === LIST_TYPES.ONLINE
-                    ? '/img/Button/Lista%20on%20line%20acceso.png'
-                    : '/img/Button/lista%20on%20line%20spenta.png'
-                }
+                src={currentList === LIST_TYPES.ONLINE
+                  ? '/img/Button/Lista%20on%20line%20acceso.png'
+                  : '/img/Button/lista%20on%20line%20spenta.png'}
                 alt="Lista Online"
                 width={150}
                 height={45}
@@ -1563,74 +1580,48 @@ return (
             </button>
           </div>
 
-          {/* comandi lista (vocale + +) */}
+          {/* Comandi lista (vocale + +) */}
           <div style={styles.toolsRow}>
+            {/* Vocale liste – 42x42 */}
+            <button
+              type="button"
+              onClick={toggleRecList}
+              disabled={busy}
+              aria-label="Vocale Liste"
+              title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+              style={{
+                width: 42, height: 42, padding: 0, border: 'none', borderRadius: 12,
+                display: 'inline-grid', placeItems: 'center', cursor: 'pointer',
+                background: 'transparent', boxShadow: 'none', overflow: 'visible'
+              }}
+            >
+              <div
+                style={{
+                  width: '100%', height: '100%', borderRadius: 12, background: '#0f172a',
+                  boxShadow:
+                    'inset 0 1px 0.1px rgba(255,255,255,.28), ' +
+                    'inset 0 -3px 0.5px rgba(0,0,0,.55), ' +
+                    'inset 0 0 0 0.5px rgba(255,255,255,.08)',
+                  overflow: 'hidden'
+                }}
+              >
+                <div
+                  style={{
+                    width: 'calc(100% - 6px)', height: 'calc(100% - 6px)', margin: 3,
+                    borderRadius: 10, overflow: 'hidden'
+                  }}
+                >
+                  <video
+                    autoPlay loop muted playsInline preload="metadata"
+                    style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', filter: 'none' }}
+                  >
+                    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+                  </video>
+                </div>
+              </div>
+            </button>
 
-{/* VOCALE LISTE – 42x42, rilievo senza alone, ritaglio preciso */}
-<button
-  type="button"
-  onClick={toggleRecList}
-  disabled={busy}
-  aria-label="Vocale Liste"
-  title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
-  style={{
-    width: 42,
-    height: 42,
-    padding: 0,
-    border: 'none',
-    borderRadius: 12,
-    display: 'inline-grid',
-    placeItems: 'center',
-    cursor: 'pointer',
-    background: 'transparent',      // nessun fondale/alone
-    boxShadow: 'none',              // nessun alone esterno
-    overflow: 'visible'
-  }}
->
-  {/* “cornice” con rilievo (solo ombre INSET) */}
-  <div
-    style={{
-      width: '100%',
-      height: '100%',
-      borderRadius: 12,
-      background: '#0f172a',        // scuro, come gli altri comandi
-      // rilievo: highlight in alto + ombra in basso, solo inset
-      boxShadow:
-        'inset 0 1px 0.1px rgba(255,255,255,.28), ' +  // luce alto
-        'inset 0 -3px 0.5px rgba(0,0,0,.55), ' +          // ombra basso
-        'inset 0 0 0 0.5px rgba(255,255,255,.08)',        // filo interno
-      overflow: 'hidden'           // taglia eventuali sbordi della maschera interna
-    }}
-  >
-    {/* maschera interna: regola padding per “quanto” ritagliare */}
-    <div
-      style={{
-        width: 'calc(100% - 6px)',  // = 3px per lato → ritaglio preciso
-        height: 'calc(100% - 6px)',
-        margin: 3,
-        borderRadius: 10,
-        overflow: 'hidden'          // QUI avviene il ritaglio del video
-      }}
-    >
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="metadata"
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'block',
-          objectFit: 'cover',
-          filter: 'none'            // IMPORTANTISSIMO: elimina qualsiasi alone/glow ereditato
-        }}
-      >
-        <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-      </video>
-    </div>
-  </div>
-</button>
+            {/* Aggiungi manualmente */}
             <button
               onClick={() => setShowListForm(v => !v)}
               style={styles.iconCircle}
@@ -1648,7 +1639,7 @@ return (
             </button>
           </div>
 
-          {/* form lista (se aperto) */}
+          {/* Form lista */}
           {showListForm && (
             <div style={styles.sectionInner}>
               <form onSubmit={addManualItem} style={styles.formRow}>
@@ -1692,7 +1683,7 @@ return (
             </div>
           )}
 
-          {/* lista corrente */}
+          {/* Lista corrente */}
           <div style={styles.sectionInner}>
             <h3 style={styles.h3}>
               Lista corrente:{' '}
@@ -1720,7 +1711,6 @@ return (
                           );
                           return next;
                         });
-                        
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -1764,7 +1754,7 @@ return (
                             setStock(prev => {
                               const arr = [...prev];
                               const todayISO = new Date().toISOString().slice(0, 10);
-                             const idx = findStockIndexStrict(arr, p);
+                              const idx = findStockIndexStrict(arr, { name: item.name, brand: item.brand || '' });
                               const upp = Math.max(1, Number(item.unitsPerPack || 1));
                               const lbl = item.unitLabel || 'unità';
 
@@ -1817,77 +1807,66 @@ return (
         </section>
 
         {/* ===== SEZIONE 3 — ESAURIMENTO/SCADENZA ===== */}
-<section style={styles.sectionBox}>
-
-  {/* Banner “esauriti” (no tagli) */}
-  <div style={styles.bannerArea}>
-    <div style={{ ...styles.bannerBox, height: 'auto' }}>
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="metadata"
-        style={{
-          ...styles.bannerVideo,
-          width: '100%',
-          height: 'auto',
-          objectFit: 'contain',      // niente crop
-          objectPosition: 'center',  // centra il video
-          background: 'transparent',
-          display: 'block'
-        }}
-      >
-        <source src="/video/banner%20esauriti.mp4" type="video/mp4" />
-      </video>
-      {/* opzionale: lascia l’overlay se ti piace l’effetto */}
-      <div style={styles.bannerOverlay} />
-    </div>
-  </div>
-  {critical.length === 0 ? (
-    <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
-  ) : (
-    <div style={styles.critListWrap}>
-      {critical.map((s, i) => {
-        const { current, baseline, pct } = residueInfo(s);
-        const w = Math.round(pct * 100);
-        return (
-          <div key={i} style={styles.critRow}>
-            <div style={styles.critName}>
-              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-            </div>
-            <div style={styles.progressOuterCrit}>
-              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-            </div>
-            <div style={styles.critMeta}>
-              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-            </div>
-            <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
-              <button
-                title="Elimina definitivamente"
-                onClick={() => {
-                  const idx = stock.findIndex(
-                    ss => isSimilar(ss.name, s.name) && ((ss.brand || '') === (s.brand || ''))
-                  );
-                  if (idx >= 0) deleteStockRow(idx);
-                }}
-                style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+        <section style={styles.sectionBox}>
+          <div style={styles.bannerArea}>
+            <div style={{ ...styles.bannerBox, height: 'auto' }}>
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="metadata"
+                style={{ ...styles.bannerVideo, width: '100%', height: 'auto', objectFit: 'contain', objectPosition: 'center', background: 'transparent', display: 'block' }}
               >
-                <Trash2 size={18} />
-              </button>
+                <source src="/video/banner%20esauriti.mp4" type="video/mp4" />
+              </video>
+              <div style={styles.bannerOverlay} />
             </div>
           </div>
-        );
-      })}
-    </div>
-  )}
-</section>
 
+          {critical.length === 0 ? (
+            <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
+          ) : (
+            <div style={styles.critListWrap}>
+              {critical.map((s, i) => {
+                const { current, baseline, pct } = residueInfo(s);
+                const w = Math.round(pct * 100);
+                return (
+                  <div key={i} style={styles.critRow}>
+                    <div style={styles.critName}>
+                      {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                    </div>
+                    <div style={styles.progressOuterCrit}>
+                      <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                    </div>
+                    <div style={styles.critMeta}>
+                      {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                      {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
+                      <button
+                        title="Elimina definitivamente"
+                        onClick={() => {
+                          const idx = stock.findIndex(
+                            ss => isSimilar(ss.name, s.name) && ((ss.brand || '') === (s.brand || ''))
+                          );
+                          if (idx >= 0) deleteStockRow(idx);
+                        }}
+                        style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         {/* ===== SEZIONE 4 — DISPENSA (TUTTE LE SCORTE) ===== */}
         <section style={styles.sectionBox}>
-          {/* Banner largo con video + tasti sotto */}
+          {/* Banner + tasti */}
           <div style={styles.bannerArea}>
             <div style={styles.bannerBox}>
               <video
@@ -1895,8 +1874,8 @@ return (
                 loop
                 muted
                 playsInline
-                preload="none"
-                poster="/video/stato-scorte.png"
+                preload="metadata"
+                // poster="/video/stato-scorte.png"  // rimuovi se non esiste
                 style={styles.bannerVideo}
               >
                 <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
@@ -1904,283 +1883,195 @@ return (
               <div style={styles.bannerOverlay} />
             </div>
 
-            {/* Tasti sotto il banner */}
             <div style={styles.sectionLarge}>
               <div style={styles.ocrRow}>
-          {/* OCR scontrino — tasto 42x42 con video */}
-<button
-  type="button"
-  onClick={() => ocrInputRef.current?.click()}
-  style={styles.ocr42}
-  aria-label="Scanner scontrino (OCR)"
-  title="Scanner scontrino (OCR)"
->
-  <video
-    autoPlay
-    loop
-    muted
-    playsInline
-    preload="metadata"
-    style={styles.ocr42Video}
-    // opzionale: poster iniziale
-    // poster="/video/ocr-scontrini-poster.jpg"
-  >
-    <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
-  </video>
-</button>
-      {/* 🔊 Tasto vocale scorte – 42x42, ritagliato */}
-<button
-  type="button"
-  onClick={toggleVoiceInventory}
-  disabled={busy}
-  style={styles.voice42}           // << usa questo stile
-  aria-pressed={!!invRecBusy}
-  aria-label="Riconoscimento vocale scorte"
-  title={
-    busy
-      ? 'Elaborazione in corso…'
-      : (invRecBusy ? 'Stop registrazione scorte' : 'Riconoscimento vocale scorte')
-  }
->
-  <video
-    autoPlay
-    loop
-    muted
-    playsInline
-    preload="metadata"
-    style={styles.voice42Video}    // << e questo stile
-  >
-    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
-  </video>
-</button>
+                {/* OCR scontrino */}
+                <button
+                  type="button"
+                  onClick={() => ocrInputRef.current?.click()}
+                  style={styles.ocr42}
+                  aria-label="Scanner scontrino (OCR)"
+                  title="Scanner scontrino (OCR)"
+                >
+                  <video autoPlay loop muted playsInline preload="metadata" style={styles.ocr42Video}>
+                    <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+                  </video>
+                </button>
 
+                {/* Vocale scorte */}
+                <button
+                  type="button"
+                  onClick={toggleVoiceInventory}
+                  disabled={busy}
+                  style={styles.voice42}
+                  aria-pressed={!!invRecBusy}
+                  aria-label="Riconoscimento vocale scorte"
+                  title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Riconoscimento vocale scorte')}
+                >
+                  <video autoPlay loop muted playsInline preload="metadata" style={styles.voice42Video}>
+                    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+                  </video>
+                </button>
 
-               {/* ➕ Aggiungi manualmente */}
-<button
-  type="button"
-  onClick={() => setShowListForm(v => !v)}
-  style={styles.plusRound42}
-  aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente'}
-  title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente'}
->
-  {/* usa Next/Image se ce l’hai importato come `Image` */}
-  <Image
-    src="/img/icone%20%2B%20-/segno%20piu.png"  // "icone + -/segno piu.png"
-    alt="Aggiungi"
-    width={26}
-    height={26}
-    priority
-    style={{
-      display: 'block',
-      width: 26,
-      height: 26,
-      objectFit: 'contain',
-      filter: 'drop-shadow(0 0 4px rgba(0,0,0,.35))',
-    }}
-  />
-</button>
-{/* 🗓️ Inserisci scadenza */}
-<button
-  type="button"
-  onClick={() => setShowExpiryForm(v => !v)}
-  style={styles.calendarRound42}               // stesso look del tasto +
-  aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza'}
-  title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza'}
->
-  <Image
-    src="/img/icone%20%2B%20-/Calendario.png"
-    alt="Inserisci scadenza"
-    width={26}
-    height={26}
-    priority
-    style={{
-      display: 'block',
-      width: 26,
-      height: 26,
-      objectFit: 'contain',
-      filter: 'drop-shadow(0 0 4px rgba(0,0,0,.35))'
-    }}
-  />
-</button>
+                {/* + manuale */}
+                <button
+                  type="button"
+                  onClick={() => setShowListForm(v => !v)}
+                  style={styles.plusRound42}
+                  aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente'}
+                  title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente'}
+                >
+                  <Image
+                    src="/img/icone%20%2B%20-/segno%20piu.png"
+                    alt="Aggiungi"
+                    width={26}
+                    height={26}
+                    priority
+                    style={{ display: 'block', width: 26, height: 26, objectFit: 'contain', filter: 'drop-shadow(0 0 4px rgba(0,0,0,.35))' }}
+                  />
+                </button>
 
+                {/* Calendario/scadenza */}
+                <button
+                  type="button"
+                  onClick={() => setShowExpiryForm(v => !v)}
+                  style={styles.calendarRound42}
+                  aria-label={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza'}
+                  title={showExpiryForm ? 'Chiudi scadenza manuale' : 'Inserisci scadenza'}
+                >
+                  <Image
+                    src="/img/icone%20%2B%20-/Calendario.png"
+                    alt="Inserisci scadenza"
+                    width={26}
+                    height={26}
+                    priority
+                    style={{ display: 'block', width: 26, height: 26, objectFit: 'contain', filter: 'drop-shadow(0 0 4px rgba(0,0,0,.35))' }}
+                  />
+                </button>
               </div>
             </div>
           </div>
 
-{/* Scorte complete — LAYOUT A RIGHE */}
-<div style={{ marginTop: 12 }}>
-  <h4 style={styles.h4}>Tutte le scorte</h4>
+          {/* Scorte complete — layout a righe */}
+          <div style={{ marginTop: 12 }}>
+            <h4 style={styles.h4}>Tutte le scorte</h4>
 
-  {stock.length === 0 ? (
-    <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
-  ) : (
-    <div style={styles.stockList}>
-      {stock.map((s, idx) => {
-        const { current, baseline, pct } = residueInfo(s);
-        const w = Math.round(pct * 100);
-        const zebra = idx % 2 === 0;
-
-        return (
-          <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
-            {editingRow === idx ? (
-              /* --- Modalità editing --- */
-              <div>
-                <div style={styles.formRowWrap}>
-                  <input
-                    style={styles.input}
-                    value={editDraft.name}
-                    onChange={e => handleEditDraftChange('name', e.target.value)}
-                  />
-                  <input
-                    style={styles.input}
-                    value={editDraft.brand}
-                    onChange={e => handleEditDraftChange('brand', e.target.value)}
-                    placeholder="Marca"
-                  />
-                </div>
-                <div style={styles.formRowWrap}>
-                  <input
-                    style={{ ...styles.input, width: 120 }}
-                    inputMode="decimal"
-                    value={editDraft.packs}
-                    onChange={e => handleEditDraftChange('packs', e.target.value)}
-                    placeholder="Confezioni"
-                  />
-                  <input
-                    style={{ ...styles.input, width: 140 }}
-                    inputMode="decimal"
-                    value={editDraft.unitsPerPack}
-                    onChange={e => handleEditDraftChange('unitsPerPack', e.target.value)}
-                    placeholder="Unità/conf."
-                  />
-                  <input
-                    style={{ ...styles.input, width: 150 }}
-                    value={editDraft.unitLabel}
-                    onChange={e => handleEditDraftChange('unitLabel', e.target.value)}
-                    placeholder="Etichetta"
-                  />
-                </div>
-                <div style={styles.formRowWrap}>
-                  <input
-                    style={{ ...styles.input, width: 220 }}
-                    value={editDraft.expiresAt}
-                    onChange={e => handleEditDraftChange('expiresAt', e.target.value)}
-                    placeholder="YYYY-MM-DD o 15/08/2025"
-                  />
-                  <input
-                    style={{ ...styles.input, width: 190 }}
-                    inputMode="decimal"
-                    value={editDraft.residueUnits}
-                    onChange={e => handleEditDraftChange('residueUnits', e.target.value)}
-                    placeholder="Residuo unità o pacchi"
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <button onClick={() => saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
-                  <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
-                  <button
-                    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                    style={styles.smallGhostBtn}
-                  >
-                    OCR riga
-                  </button>
-                </div>
-              </div>
+            {stock.length === 0 ? (
+              <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
             ) : (
-              /* --- Modalità visualizzazione (responsive) --- */
-              <div className="stockRowGrid">
-                {/* thumb */}
-                <div
-                  className="thumb"
-                  role="button"
-                  title="Aggiungi/Modifica immagine"
-                  onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
-                  style={styles.imageBox}
-                >
-                  {s.image ? (
-                    <img src={s.image} alt={s.name} style={styles.imageThumb} />
-                  ) : (
-                    <div style={styles.imagePlaceholder}>＋</div>
-                  )}
-                </div>
+              <div style={styles.stockList}>
+                {stock.map((s, idx) => {
+                  const { current, baseline, pct } = residueInfo(s);
+                  const w = Math.round(pct * 100);
+                  const zebra = idx % 2 === 0;
 
-                {/* info principali */}
-                <div className="main" style={{ flex: 1, minWidth: 0 }}>
-                  <div style={styles.stockTitle}>
-                    {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
-                  </div>
-                  <div style={styles.progressOuterBig}>
-                    <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
-                  </div>
-                  <div style={styles.stockLineSmall}>
-                    {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                    {s.expiresAt ? (
-                      <span style={styles.expiryChip}>
-                        scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+                  return (
+                    <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
+                      {editingRow === idx ? (
+                        // --- Modalità editing ---
+                        <div>
+                          <div style={styles.formRowWrap}>
+                            <input style={styles.input} value={editDraft.name} onChange={e => handleEditDraftChange('name', e.target.value)} />
+                            <input style={styles.input} value={editDraft.brand} onChange={e => handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
+                          </div>
+                          <div style={styles.formRowWrap}>
+                            <input style={{ ...styles.input, width: 120 }} inputMode="decimal" value={editDraft.packs} onChange={e => handleEditDraftChange('packs', e.target.value)} placeholder="Confezioni" />
+                            <input style={{ ...styles.input, width: 140 }} inputMode="decimal" value={editDraft.unitsPerPack} onChange={e => handleEditDraftChange('unitsPerPack', e.target.value)} placeholder="Unità/conf." />
+                            <input style={{ ...styles.input, width: 150 }} value={editDraft.unitLabel} onChange={e => handleEditDraftChange('unitLabel', e.target.value)} placeholder="Etichetta" />
+                          </div>
+                          <div style={styles.formRowWrap}>
+                            <input style={{ ...styles.input, width: 220 }} value={editDraft.expiresAt} onChange={e => handleEditDraftChange('expiresAt', e.target.value)} placeholder="YYYY-MM-DD o 15/08/2025" />
+                            <input style={{ ...styles.input, width: 190 }} inputMode="decimal" value={editDraft.residueUnits} onChange={e => handleEditDraftChange('residueUnits', e.target.value)} placeholder="Residuo unità o pacchi" />
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                            <button onClick={() => saveRowEdit(idx)} style={styles.smallOkBtn}>Salva</button>
+                            <button onClick={cancelRowEdit} style={styles.smallGhostBtn}>Annulla</button>
+                            <button onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }} style={styles.smallGhostBtn}>OCR riga</button>
+                          </div>
+                        </div>
+                      ) : (
+                        // --- Modalità visualizzazione ---
+                        <div className="stockRowGrid">
+                          {/* thumb */}
+                          <div
+                            className="thumb"
+                            role="button"
+                            title="Aggiungi/Modifica immagine"
+                            onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }}
+                            style={styles.imageBox}
+                          >
+                            {s.image ? (
+                              <img src={s.image} alt={s.name} style={styles.imageThumb} />
+                            ) : (
+                              <div style={styles.imagePlaceholder}>＋</div>
+                            )}
+                          </div>
 
-                {/* metriche compatte */}
-                <div className="metrics">
-                  <div className="kv">
-                    <div className="kvL">Confezioni</div>
-                    <div className="kvV">{Number(s.packs || 0)}</div>
-                  </div>
-                  <div className="kv">
-                    <div className="kvL">Unità/conf.</div>
-                    <div className="kvV">{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div>
-                  </div>
-                  <div className="kv">
-                    <div className="kvL">Residuo unità</div>
-                    <div className="kvV">{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div>
-                  </div>
-                </div>
+                          {/* info principali */}
+                          <div className="main" style={{ flex: 1, minWidth: 0 }}>
+                            <div style={styles.stockTitle}>
+                              {(s.prettyName || s.name)}
+                              {s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+                            </div>
+                            <div style={styles.progressOuterBig}>
+                              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+                            </div>
+                            {s.desc ? <div style={{ fontSize: '.82rem', opacity: .85, marginTop: 2 }}>{s.desc}</div> : null}
+                            <div style={styles.stockLineSmall}>
+                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+                              {s.expiresAt ? (
+                                <span style={styles.expiryChip}>
+                                  scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
 
-                {/* azioni */}
-                <div className="actions" style={styles.rowActionsRight}>
-                  <button
-                    title="Modifica"
-                    onClick={() => startRowEdit(idx, s)}
-                    style={styles.iconCircle}
-                    aria-label="Modifica scorta"
-                  >
-                    <Pencil size={18} />
-                  </button>
-                  <button
-                    title="Imposta scadenza"
-                    onClick={() => { setShowExpiryForm(true); setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' }); }}
-                    style={styles.iconCircle}
-                    aria-label="Imposta scadenza"
-                  >
-                    <Calendar size={18} />
-                  </button>
-                  <button
-                    title="OCR riga"
-                    onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
-                    style={styles.iconCircle}
-                    aria-label="OCR riga"
-                  >
-                    <Camera size={18} />
-                  </button>
-                  <button
-                    title="Elimina definitivamente"
-                    onClick={() => deleteStockRow(idx)}
-                    style={{ ...styles.iconCircle, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
-                    aria-label="Elimina scorta"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
+                          {/* metriche compatte */}
+                          <div className="metrics">
+                            <div className="kv"><div className="kvL">Confezioni</div><div className="kvV">{Number(s.packs || 0)}</div></div>
+                            <div className="kv"><div className="kvL">Unità/conf.</div><div className="kvV">{s.packsOnly ? '–' : Number(s.unitsPerPack || 1)}</div></div>
+                            <div className="kv"><div className="kvL">Residuo unità</div><div className="kvV">{s.packsOnly ? '–' : Math.round(residueUnitsOf(s))}</div></div>
+                          </div>
+
+                          {/* azioni */}
+                          <div className="actions" style={styles.rowActionsRight}>
+                            <button title="Modifica" onClick={() => startRowEdit(idx, s)} style={styles.iconCircle} aria-label="Modifica scorta">
+                              <Pencil size={18} />
+                            </button>
+                            <button
+                              title="Imposta scadenza"
+                              onClick={() => { setShowExpiryForm(true); setExpiryForm({ name: s.name, expiresAt: s.expiresAt || '' }); }}
+                              style={styles.iconCircle}
+                              aria-label="Imposta scadenza"
+                            >
+                              <Calendar size={18} />
+                            </button>
+                            <button
+                              title="OCR riga"
+                              onClick={() => { setTargetRowIdx(idx); rowOcrInputRef.current?.click(); }}
+                              style={styles.iconCircle}
+                              aria-label="OCR riga"
+                            >
+                              <Camera size={18} />
+                            </button>
+                            <button
+                              title="Elimina definitivamente"
+                              onClick={() => deleteStockRow(idx)}
+                              style={{ ...styles.iconCircle, color: '#f87171', borderColor: 'rgba(248,113,113,.35)' }}
+                              aria-label="Elimina scorta"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
-        );
-      })}
-    </div>
-  )}
-</div>
         </section>
 
       </div>
@@ -2194,12 +2085,7 @@ return (
           bottom: 20,
           left: '50%',
           transform: 'translateX(-50%)',
-          background:
-            toast.type === 'ok'
-              ? '#16a34a'
-              : toast.type === 'err'
-              ? '#ef4444'
-              : '#334155',
+          background: toast.type === 'ok' ? '#16a34a' : toast.type === 'err' ? '#ef4444' : '#334155',
           color: '#fff',
           padding: '10px 14px',
           borderRadius: 10,
@@ -2211,9 +2097,7 @@ return (
       >
         {toast.msg}
       </div>
-     )}
-    {/* Modale disattivata */}
-
+    )}
 
     {/* INPUT NASCOSTI */}
     <input
@@ -2316,9 +2200,7 @@ return (
                 expiresAt: upd.expiresAt || old.expiresAt || '',
                 packsOnly: false,
               };
-              if (restock) {
-                next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
-              }
+              if (restock) next = { ...next, ...restockTouch(next.packs, todayISO, next.unitsPerPack) };
               arr[stockIndex] = next;
               return arr;
             }
@@ -2370,7 +2252,6 @@ return (
           setBusy(false);
           setTargetRowIdx(null);
         }
-              
       }}
     />
 
@@ -2391,8 +2272,7 @@ return (
     />
   </>
 );
-
-   
+  
 }
 /* =================== Styles (identici) =================== */
 const styles = {
