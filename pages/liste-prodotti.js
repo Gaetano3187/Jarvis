@@ -997,6 +997,7 @@ async function readTextSafe(res) {
   } catch {
     return '';
   }
+
 }
 
 async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
@@ -1030,6 +1031,48 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   } catch {
     return { data: raw };
   }
+  // === AI helper: chiama /api/assistant e prova a forzare il JSON ===
+async function askAssistantJSON(prompt, schema) {
+  try {
+    const body = schema
+      ? {
+          prompt,
+          // se il backend lo supporta, forza lo schema
+          response_format: 'json_schema',
+          schemaName: schema.title || 'Schema',
+          schema,
+        }
+      : { prompt };
+
+    const res = await timeoutFetch(
+      API_ASSISTANT_TEXT,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      45000
+    );
+
+    const safe = await readJsonSafe(res);
+    let answer = safe?.answer ?? safe?.data ?? safe;
+
+    // può arrivare come stringa JSON
+    if (typeof answer === 'string') {
+      try { answer = JSON.parse(answer); } catch { answer = null; }
+    }
+    // oppure wrappato in { ok, data }
+    if (answer && answer.ok && answer.data) {
+      try { return typeof answer.data === 'string' ? JSON.parse(answer.data) : answer.data; }
+      catch { return answer.data; }
+    }
+    return answer || null;
+  } catch (e) {
+    try { console.warn('[askAssistantJSON] fail:', e); } catch {}
+    return null;
+  }
+}
+
 }
 
 // ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (match robusto) =====
@@ -2689,6 +2732,37 @@ if (ocrText) {
   // prova con schema; se la tua /api/assistant non lo supporta, fa fallback
   parsed = await askAssistantJSON(prompt, RECEIPT_SCHEMA) || await askAssistantJSON(prompt, null);
 }
+// Schema atteso dal modello per l'estrazione scontrino
+const RECEIPT_SCHEMA = {
+  title: 'ReceiptExtraction',
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    store: { type: 'string' },
+    purchaseDate: { type: 'string' }, // YYYY-MM-DD
+    purchases: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name:        { type: 'string' },
+          brand:       { type: 'string' },
+          packs:       { type: 'number' },
+          unitsPerPack:{ type: 'number' },
+          unitLabel:   { type: 'string' },
+          priceEach:   { type: 'number' },
+          priceTotal:  { type: 'number' },
+          currency:    { type: 'string' },
+          expiresAt:   { type: 'string' }
+        },
+        required: ['name','brand','packs','unitsPerPack','unitLabel','priceEach','priceTotal','currency','expiresAt']
+      }
+    }
+  },
+  required: ['store','purchaseDate','purchases']
+};
+
 
 // ——— 3) Meta (store, data) ———
 let store        = toISODate('') && ''; // init neutro
@@ -2716,6 +2790,7 @@ if (Array.isArray(parsed?.purchases) && parsed.purchases.length) {
 
 // (opzionale) log di controllo
 try { console.log('[ai-only lines]', { ai: purchases.length }); } catch {}
+
 
 // ——— 5) Filtro sicurezza anti-rumore ———
 purchases = filterPurchasesNoise(purchases);
