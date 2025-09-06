@@ -160,6 +160,40 @@ function normKey(str) {
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+/* ===== Match rigoroso per NON accorpare righe tra loro ===== */
+function sameText(a = '', b = '') { return normKey(a) === normKey(b); }
+
+function isSameProductStrict(aName, aBrand, bName, bBrand) {
+  const na = normKey(aName), nb = normKey(bName);
+  const ba = normKey(aBrand), bb = normKey(bBrand);
+  if (!na || !nb) return false;
+
+  // 1) Nome identico → se i brand ci sono entrambi, devono coincidere
+  if (na === nb) {
+    if (ba && bb) return ba === bb;
+    return true;
+  }
+
+  // 2) Brand identico e nome quasi-identico (contenimento) ma solo se nomi "lunghi"
+  if (ba && bb && ba === bb) {
+    if (na.length >= 6 && nb.length >= 6 && (na.includes(nb) || nb.includes(na))) return true;
+  }
+  return false;
+}
+
+function findStockIndexStrict(arr, p) {
+  const name = String(p?.name || '');
+  const brand = String(p?.brand || '');
+
+  // nome+brand esatti (normalizzati)
+  let idx = arr.findIndex(s => isSameProductStrict(s?.name, s?.brand || '', name, brand));
+  if (idx >= 0) return idx;
+
+  // fallback: stesso nome, brand vuoto contro brand pieno
+  if (brand) idx = arr.findIndex(s => sameText(s?.name, name) && !normKey(s?.brand || ''));
+  return idx;
+}
+
 /* SAFETY SHIM — garantisce che isSimilar esista nel modulo */
  /* eslint-disable no-var, no-use-before-define */
 var isSimilar = isSimilar || function isSimilar(a, b) {
@@ -1756,7 +1790,7 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
   setStock(prev => {
     const arr = [...prev]; const todayISO = new Date().toISOString().slice(0,10);
     for (const p of addItems) {
-      const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+     const idx = findStockIndexStrict(arr, p);
       const packs = Math.max(0, Number(p.packs || 0));
       const upp   = Math.max(1, Number(p.unitsPerPack || 1));
       const hasCounts = packs > 0 || upp > 0;
@@ -2553,28 +2587,33 @@ function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
 
   const decList = (listKey) => {
-    const arr = [...(next[listKey] || [])];
-    for (const p of purchases) {
-      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-      const brand = (p.brand || '').trim();
-      const upp = Number(p.unitsPerPack ?? 1);
+  const arr = [...(next[listKey] || [])];
+  for (const p of purchases) {
+    const dec  = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+    const brand = (p.brand || '').trim();
+    const upp   = Number(p.unitsPerPack ?? 1);
 
-      let idx = arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        (!brand || isSimilar(i.brand || '', brand)) &&
-        Number(i.unitsPerPack || 1) === upp
-      );
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
+    // match esatto name+brand+UPP
+    let idx = arr.findIndex(i =>
+      sameText(i.name, p.name) &&
+      sameText(i.brand || '', brand) &&
+      Number(i.unitsPerPack || 1) === upp
+    );
+    // poi name+brand
+    if (idx < 0)
+      idx = arr.findIndex(i => sameText(i.name, p.name) && sameText(i.brand || '', brand));
+    // poi solo name
+    if (idx < 0)
+      idx = arr.findIndex(i => sameText(i.name, p.name));
 
-      if (idx >= 0) {
-        const cur = arr[idx];
-        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-        arr[idx] = { ...cur, qty: newQty, purchased: true };
-      }
+    if (idx >= 0) {
+      const cur    = arr[idx];
+      const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+      arr[idx]     = { ...cur, qty: newQty, purchased: true };
     }
-    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-  };
+  }
+  next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+};
 
   decList(LIST_TYPES.SUPERMARKET);
   decList(LIST_TYPES.ONLINE);
@@ -2673,39 +2712,7 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
   ].join('\n');
 }
 
-/* ====================== Decrementa liste da scontrino ====================== */
-function decrementAcrossBothLists(prevLists, purchases) {
-  const next = { ...prevLists };
 
-  const decList = (listKey) => {
-    const arr = [...(next[listKey] || [])];
-    for (const p of purchases) {
-      const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-      const brand = (p.brand || '').trim();
-      const upp = Number(p.unitsPerPack ?? 1);
-
-      // match progressivo
-      let idx = arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        (!brand || isSimilar(i.brand || '', brand)) &&
-        Number(i.unitsPerPack || 1) === upp
-      );
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
-
-      if (idx >= 0) {
-        const cur = arr[idx];
-        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-        arr[idx] = { ...cur, qty: newQty, purchased: true };
-      }
-    }
-    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-  };
-
-  decList(LIST_TYPES.SUPERMARKET);
-  decList(LIST_TYPES.ONLINE);
-  return next;
-}
 function estimateCandidateLines(ocrText=''){
   const lines = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
@@ -2912,10 +2919,7 @@ setStock(prev => {
   const todayISO = new Date().toISOString().slice(0, 10);
 
   for (const p of purchases) {
-    const idx = arr.findIndex(
-      s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand))
-    );
-
+  const idx = findStockIndexStrict(arr, p);
     const packs = coerceNum(p.packs);
     const upp   = coerceNum(p.unitsPerPack);
     const hasCounts = packs > 0 || upp > 0;
@@ -3836,9 +3840,7 @@ return (
                             setStock(prev => {
                               const arr = [...prev];
                               const todayISO = new Date().toISOString().slice(0, 10);
-                              const idx = arr.findIndex(
-                                s => isSimilar(s.name, item.name) && (!item.brand || isSimilar(s.brand || '', item.brand))
-                              );
+                             const idx = findStockIndexStrict(arr, p);
                               const upp = Math.max(1, Number(item.unitsPerPack || 1));
                               const lbl = item.unitLabel || 'unità';
 
