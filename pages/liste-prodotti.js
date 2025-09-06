@@ -1122,6 +1122,7 @@ async function enrichPurchasesViaWeb(purchases = []) {
     console.warn('[enrich] fail:', err);
     return { items: purchases, images: {} };
   }
+  
 }
 
 
@@ -1829,6 +1830,13 @@ function ListeProdotti() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 1800);
   }
+  // elimina una riga di scorte per indice
+const deleteStockRow = useCallback((index) => {
+  setStock((prev) => prev.filter((_, i) => i !== index));
+  // aggiorna subito il timestamp locale per evitare che uno stato più vecchio sovrascriva
+  lastLocalAtRef.current = Date.now();
+}, []);
+
 
   // Persistenza debounce
   const persistTimerRef = useRef(null);
