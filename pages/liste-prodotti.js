@@ -1149,7 +1149,7 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
 
 }
 
-// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (match robusto) =====
+// ===== ENRICH: mantieni SEMPRE il nome originale; aggiungi solo brand (se manca), immagine e descrizione =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
@@ -1174,65 +1174,64 @@ async function enrichPurchasesViaWeb(purchases = []) {
       throw new Error(json?.error || `enrich HTTP ${resp.status}`);
     }
 
-    // indicizzazioni: full key (nome+brand) e solo nome
+    // indicizzazioni lato risposta
     const keyFull = (n, b) => `${normKey(n)}|${normKey(b||'')}`;
-    const keyName = (n)    => normKey(n);
-
     const byFull = new Map();
     const byName = new Map();
     for (const x of json.items) {
       const sn = String(x.sourceName || '');
       const br = String(x.brand || '');
       byFull.set(keyFull(sn, br), x);
-      if (!byName.has(keyName(sn))) byName.set(keyName(sn), x); // prima occorrenza
+      if (!byName.has(normKey(sn))) byName.set(normKey(sn), x);
     }
 
     const imagesMap = {};
     let improved = 0;
 
-    const out = purchases.map(p => {
+    const out = purchases.map((p) => {
       const n0 = String(p.name || '');
       const b0 = String(p.brand || '');
-      const fullKey = keyFull(n0, b0);
-      let hit = byFull.get(fullKey);
 
-      // 1) se niente, prova per solo nome
-      if (!hit) hit = byName.get(keyName(n0));
+      // prova match: prima name+brand, poi solo name
+      let hit = byFull.get(keyFull(n0, b0)) || byName.get(normKey(n0));
 
-      // 2) se ancora niente, fuzzy: cerca quello più simile sul nome (e se c’è anche la marca)
-      if (!hit) {
-        let best = null, bestScore = -1;
-        for (const cand of json.items) {
-          const nameSim  = isSimilar(n0, cand.sourceName) ? 1 : 0;
-          const brandSim = b0 ? (isSimilar(b0, cand.brand || '') ? 1 : 0) : 0.5; // se brand assente nel ticket, non penalizzare
-          const score = nameSim * 0.8 + brandSim * 0.2;
-          if (score > bestScore) { bestScore = score; best = cand; }
-        }
-        if (bestScore >= 0.8) hit = best; // soglia ragionevole
-      }
+      // brand: prendi quello dell’enrich SOLO se ti manca
+      const inferredBrand = String(hit?.brand || '').trim();
+      const finalBrand = b0 ? b0.trim() : inferredBrand;
 
-      if (!hit) return p; // nessun miglioramento
+      // descrizione breve
+      const shortDesc = String(hit?.shortDescription || hit?.category || '').trim();
 
-      const prettyName  = String(hit.normalizedName || p.name).trim();
-      const prettyBrand = String(hit.brand || p.brand || '').trim();
-
-      // costruisci un proxy assoluto (evita problemi di salvataggio/visualizzazione)
-      if (hit.imageUrl && /^https?:\/\//i.test(hit.imageUrl)) {
+      // immagine (proxata)
+      let proxied = '';
+      const imageUrl = hit?.imageUrl;
+      if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
         const origin = (typeof window !== 'undefined' && window.location) ? window.location.origin : '';
-        const proxied = origin ? `${origin}/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}` : `/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}`;
-        imagesMap[productKey(prettyName, prettyBrand)] = proxied;
+        proxied = origin
+          ? `${origin}/api/img-proxy?url=${encodeURIComponent(imageUrl)}`
+          : `/api/img-proxy?url=${encodeURIComponent(imageUrl)}`;
       }
 
-      // segna miglioramento solo se cambia qualcosa o se abbiamo immagine
-      const changed = (prettyName !== p.name) || (prettyBrand !== (p.brand || '')) || !!imagesMap[productKey(prettyName, prettyBrand)];
-      if (changed) improved++;
+      // chiavi immagine: SOLO sul nome originale (per evitare merge)
+      if (proxied) {
+        const k1 = productKey(n0, finalBrand);
+        const k2 = productKey(n0, '');
+        imagesMap[k1] = proxied;
+        imagesMap[k2] ||= proxied;
+      }
 
-      return { ...p, name: prettyName, brand: prettyBrand };
+      if ((finalBrand !== b0) || proxied || shortDesc) improved++;
+
+      return {
+        ...p,
+        // ⛔️ NON rinominare: mantieni esattamente il nome AI/OCR
+        name: n0,
+        brand: finalBrand,
+        description: shortDesc,
+      };
     });
 
-    // log utile in console
     try { console.log('[enrich applied]', { requested: purchases.length, improved }); } catch {}
-
     return { items: out, images: imagesMap };
 
   } catch (err) {
@@ -1240,6 +1239,7 @@ async function enrichPurchasesViaWeb(purchases = []) {
     return { items: purchases, images: {} };
   }
 }
+
 
 
 /* ====================== Calcoli scorte ====================== */
