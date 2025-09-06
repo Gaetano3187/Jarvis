@@ -11,7 +11,6 @@ import dynamic from 'next/dynamic';
 var mergedImagesIndex = (typeof mergedImagesIndex !== 'undefined') ? mergedImagesIndex : undefined;
 /* eslint-enable no-var */
 
-
 /*** === AI-only Receipt Extraction: definire PRIMA di ogni utilizzo === ***/
 
 // Schema atteso dal modello (usato solo come payload: costante non hoistata → deve stare prima)
@@ -45,7 +44,7 @@ const RECEIPT_SCHEMA = {
   required: ['store','purchaseDate','purchases']
 };
 
-// Funzione dichiarativa (function declaration) → HOISTED: non entra in TDZ
+// Funzione dichiarativa (function declaration) → HOISTED
 async function askAssistantJSON(prompt, schema) {
   try {
     const body = schema
@@ -55,7 +54,7 @@ async function askAssistantJSON(prompt, schema) {
     const res = await timeoutFetch(
       API_ASSISTANT_TEXT,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-      45000
+      60000
     );
 
     const safe = await readJsonSafe(res);
@@ -108,7 +107,13 @@ function toISODate(any) {
   return '';
 }
 
-
+// --- Numero robusto: "1,5" → 1.5; valori non numerici → 0 (hoisted)
+function coerceNum(x) {
+  if (x == null) return 0;
+  const s = String(x).trim().replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
 
 // ===== BASE LEXICON (minimo, espandibile) =====
 const GROCERY_LEXICON = [
@@ -231,22 +236,20 @@ var isSimilar = isSimilar || function isSimilar(a, b) {
 function productKey(name = '', brand = '') {
   return `${normKey(name)}|${normKey(brand)}`;
 }
-// Ricorda l'immagine se presente nell'indice (senza fare fetch o accedere al window)
-// Dipendenze: productKey, isSimilar, normKey (già nel file)
+
+// Ricorda l'immagine se presente nell'indice
 function withRememberedImage(row, imagesIdx = {}) {
   try {
     if (!row || typeof row !== 'object') return row;
-    if (row.image && typeof row.image === 'string') return row; // già impostata
+    if (row.image && typeof row.image === 'string') return row;
 
     const k1 = productKey(row?.name || '', row?.brand || '');
     const k2 = productKey(row?.name || '', '');
     let img = imagesIdx[k1] || imagesIdx[k2];
 
-    // fallback fuzzy: cerca nel map per chiave con name simile
     if (!img && imagesIdx && typeof imagesIdx === 'object') {
       const want = normKey(row?.name || '');
       for (const [key, url] of Object.entries(imagesIdx)) {
-        // key form: "<name>|<brand>"
         const keyName = String(key).split('|')[0] || '';
         if (isSimilar(keyName, want)) { img = url; break; }
       }
@@ -256,7 +259,6 @@ function withRememberedImage(row, imagesIdx = {}) {
     return row;
   }
 }
-
 
 /* ====================== Cloud: sanitizer stato per upsert ====================== */
 function stripForCloud(state = {}) {
@@ -380,46 +382,31 @@ function persistNow(snapshot) {
   }
 }
 
-/* ==================== LEXICON EXTENSION + QUANTITY SANITIZER + PROMPTS (SAFE) ==================== */
+/* ==================== LEXICON EXTENSION (no-op safe) ==================== */
 (() => {
   if (typeof GROCERY_LEXICON === 'undefined') return;
-
-  const __hasLex = (term) =>
-    Array.isArray(GROCERY_LEXICON) &&
-    GROCERY_LEXICON.some((x) => normKey(x) === normKey(term));
-  const __lexAdd = (arr) => {
-    arr.forEach((t) => { if (t && !__hasLex(t)) GROCERY_LEXICON.push(t); });
-  };
-
-  // … (omessi: definizioni LEX_* come nel tuo blocco) …
+  // (se vuoi estendere il lessico, fallo qui)
 })();
 
-// ——— Sanitizzazione quantità ——…
-const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
-const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
-const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,450,454,500,700,720,733,750,800,900,910,930,950,1000,1250,1500,1750,2000]);
-
-function cleanupPurchasesQuantities(list) {
-  return (Array.isArray(list) ? list : []).map((p) => {
-    const out = { ...p };
-    const joined = `${String(out.name || '')} ${String(out.brand || '')}`.toLowerCase();
-    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 || (joined.match(DIMENSION_RE) || []).length > 0;
-    const u = Math.max(0, Number(out.unitsPerPack || 0));
-    const packs = Math.max(0, Number(out.packs || 0));
-    const piecesHit = /\b(pz|pezzi|bottigli|capsul|pods|bust|lattin|vasett|rotol|fogli|uova|brick)\b/i.test(
-      normKey(`${out.unitLabel || ''} ${joined}`)
-    );
-    const looksWeightNumber = !piecesHit && (hasMeasure || SUSPECT_UPP.has(u));
-    if ((hasMeasure && u > 1) || looksWeightNumber) {
-      out.unitsPerPack = 1;
-      out.unitLabel = 'unità';
-      if (!packs) out.packs = 1;
-    }
-    return out;
-  });
+/* ==================== Filtri anti-rumore (AI-only safety) ==================== */
+const RX_HEADER_NOISE = /\b(documento\s+commerciale|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva\b|rt\b|cassa|cassiere|lotteria|scontrino|corrispettivi|fiscale)\b/i;
+const RX_ADDRESS     = /\b(via|viale|v\.\b|vle\.?|piazza|p\.?za|corso|c\.?so|strada|s\.?s\.?|km|civ\.?|snc|cap\s*\d{5}|tel\.?|telefono|pec|email|@)\b/i;
+const RX_LEGAL       = /\b(s\.?r\.?l\.?|s\.?p\.?a\.?|a\s*socio\s*unico|p\.?\s*iva|partita\s*iva|c\.?f\.?|rea|reg\.?\s*imp\.)\b/i;
+function filterPurchasesNoise(purchases = []) {
+  const arr = Array.isArray(purchases) ? purchases : [];
+  const out = [];
+  for (const p of arr) {
+    const nm = String(p?.name || '').trim();
+    if (!nm) continue;
+    if (RX_HEADER_NOISE.test(nm)) continue;
+    if (RX_ADDRESS.test(nm)) continue;
+    if (RX_LEGAL.test(nm)) continue;
+    const clean = nm.replace(/^['"`]+|['"`]+$/g, '').trim();
+    if (!clean) continue;
+    out.push({ ...p, name: clean });
+  }
+  return out;
 }
-
-// … (altri helper invariati) …
 
 /* ====================== Fetch helpers / util varie ====================== */
 async function readJsonSafe(res) {
@@ -437,17 +424,14 @@ function ensureArray(x) { return Array.isArray(x) ? x : []; }
 function timeoutFetch(url, opts = {}, ms = 25000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { ...opts, signal: ctrl.signal })
-    .finally(() => clearTimeout(t));
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
 }
-// Indice immagini sicuro (evita ReferenceError in SSR/CSR)
 function getImgIndexSafe(localCandidate) {
   if (localCandidate && typeof localCandidate === 'object') return localCandidate;
   try { if (typeof imagesIndex !== 'undefined' && imagesIndex) return imagesIndex; } catch {}
   try { if (typeof mergedImagesIndex !== 'undefined' && mergedImagesIndex) return mergedImagesIndex; } catch {}
   return {};
 }
-
 async function readTextSafe(res) { try { return await res.text(); } catch { return ''; } }
 async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   const r = await timeoutFetch(url, opts, timeoutMs);
@@ -526,203 +510,6 @@ async function enrichPurchasesViaWeb(purchases = []) {
   }
 }
 
-/* ====================== Calcoli scorte ====================== */
-// … (invariati: clamp01, residueUnitsOf, residueInfo, ecc.) …
-
-/* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
-async function applyAdditionalPurchases(addItems, meta = {}) {
-  if (!Array.isArray(addItems) || !addItems.length) return;
-
-  // 1) Decrementa liste
-  setLists(prev => decrementAcrossBothLists(prev, addItems));
-
-  // 2) Aggiorna scorte (match rigoroso + mantieni name OCR; usa prettyName/desc solo per display)
-  setStock(prev => {
-    const arr = [...prev];
-    const todayISO = new Date().toISOString().slice(0, 10);
-    const imgIdx = getImgIndexSafe(imagesIndex); // 👈 indice immagini sicuro
-
-    for (const p of addItems) {
-      const idx = findStockIndexStrict(arr, p);
-      const packs = Math.max(0, Number(p.packs || 0));
-      const upp   = Math.max(1, Number(p.unitsPerPack || 1));
-      const hasCounts = packs > 0 || upp > 0;
-
-      if (idx >= 0) {
-        const old = arr[idx];
-
-        if (hasCounts) {
-          const newP = Math.max(0, Number(old.packs || 0) + packs);
-          const newU = Math.max(1, Number(old.unitsPerPack || upp));
-
-          let updated = {
-            ...old,
-            name: old.name,
-            brand: (p.brand || old.brand || '').trim(),
-            packs: newP,
-            unitsPerPack: newU,
-            unitLabel: old.unitLabel || p.unitLabel || 'unità',
-            expiresAt: p.expiresAt || old.expiresAt || '',
-            prettyName: p.prettyName || old.prettyName || '',
-            desc: (p.description || old.desc || ''),
-            packsOnly: false,
-            needsUpdate: false,
-            ...restockTouch(newP, todayISO, newU),
-          };
-
-          // Aggancia immagine se disponibile
-          try {
-            if (!updated.image) {
-              const keys = [
-                productKey(updated.name, updated.brand || ''),
-                productKey(p.name || updated.name, p.brand || updated.brand || ''),
-                productKey(updated.name, ''),
-              ];
-              for (const k of keys) { if (imgIdx[k]) { updated.image = imgIdx[k]; break; } }
-            }
-          } catch {}
-
-          arr[idx] = updated;
-
-        } else {
-          if (DEFAULT_PACKS_IF_MISSING) {
-            const uo = Math.max(1, Number(old.unitsPerPack || 1));
-            const np = Math.max(0, Number(old.packs || 0) + 1);
-
-            let updated = {
-              ...old,
-              name: old.name,
-              brand: (p.brand || old.brand || '').trim(),
-              packs: np,
-              unitsPerPack: uo,
-              unitLabel: old.unitLabel || 'unità',
-              prettyName: p.prettyName || old.prettyName || '',
-              desc: (p.description || old.desc || ''),
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(np, todayISO, uo),
-            };
-
-            try {
-              if (!updated.image) {
-                const keys = [ productKey(updated.name, updated.brand || ''), productKey(updated.name, '') ];
-                for (const k of keys) { if (imgIdx[k]) { updated.image = imgIdx[k]; break; } }
-              }
-            } catch {}
-
-            arr[idx] = updated;
-
-          } else {
-            arr[idx] = { ...old, needsUpdate: true };
-          }
-        }
-
-      } else {
-        // nuova riga scorte
-        const baseRow = {
-          name: p.name,
-          brand: p.brand || '',
-          unitLabel: p.unitLabel || 'unità',
-          expiresAt: p.expiresAt || '',
-          prettyName: p.prettyName || '',
-          desc: (p.description || ''),
-        };
-
-        if (hasCounts) {
-          arr.unshift(withRememberedImage({
-            ...baseRow,
-            packs,
-            unitsPerPack: upp,
-            baselinePacks: packs,
-            lastRestockAt: todayISO,
-            avgDailyUnits: 0,
-            residueUnits: packs * upp,
-            packsOnly: false,
-            needsUpdate: false
-          }, imgIdx));
-        } else if (DEFAULT_PACKS_IF_MISSING) {
-          arr.unshift(withRememberedImage({
-            ...baseRow,
-            packs: 1,
-            unitsPerPack: 1,
-            baselinePacks: 1,
-            lastRestockAt: todayISO,
-            avgDailyUnits: 0,
-            residueUnits: 1,
-            packsOnly: false,
-            needsUpdate: false
-          }, imgIdx));
-        } else {
-          arr.unshift(withRememberedImage({
-            ...baseRow,
-            packs: 0,
-            unitsPerPack: 1,
-            unitLabel: '-',
-            baselinePacks: 0,
-            lastRestockAt: '',
-            avgDailyUnits: 0,
-            residueUnits: 0,
-            packsOnly: true,
-            needsUpdate: true
-          }, imgIdx));
-        }
-      }
-    }
-    return arr;
-  });
-
-  // 3) Finanze
-  try {
-    const itemsSafe = addItems.map(p => ({
-      name: p.name,
-      brand: p.brand || '',
-      packs: Number(p.packs || 0),
-      unitsPerPack: Number(p.unitsPerPack || 0),
-      unitLabel: p.unitLabel || '',
-      priceEach: Number(p.priceEach || 0),
-      priceTotal: Number(p.priceTotal || 0),
-      currency: p.currency || 'EUR',
-      expiresAt: p.expiresAt || '',
-    }));
-    await fetchJSONStrict(
-      API_FINANCES_INGEST,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-          ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
-          ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
-          payment_method: 'cash',
-          card_label: null,
-          items: itemsSafe,
-        }),
-      },
-      30000
-    );
-  } catch (e) {
-    if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e);
-  }
-}
-
-// Conferma selezionati
-async function applyReviewSelection() {
-  const selected = reviewItems.filter(it => reviewPick[productKey(it.name, it.brand || '')]);
-  setReviewOpen(false); setReviewItems([]); setReviewPick({});
-  if (!selected.length) return;
-  const cleaned = normalizeReviewedItems(selected);
-  await applyAdditionalPurchases(cleaned, pendingOcrMeta || {});
-  setPendingOcrMeta(null);
-  showToast(`Aggiunti ${cleaned.length} articoli convalidati ✓`, 'ok');
-}
-
-/* ==== Toggle riconoscimento/agent (arricchimento attivo) ==== */
-const ENRICH_MODE = 'on';         // 'off' | 'auto' | 'on'
-const ASSIST_TIMEOUT_MS = 15000;  // timeout breve per l'agente
-const OCR_IMAGE_MAXSIDE = 1200;
-const OCR_IMAGE_QUALITY = 0.66;
-const ENABLE_REVIEW = false;
-
 /* ==== DIRECT RECOGNITION (stile ChatGPT Web) ==== */
 const DIRECT_RECOGNITION = true;
 
@@ -758,32 +545,31 @@ function buildDirectReceiptPrompt(ocrText) {
     '--- FINE OCR ---',
   ].join('\n');
 }
+
 // --- Media workaround (safe no-op, evita errori in SSR/CSR) ---
 function theMediaWorkaround() {
-  // non fare nulla: serve solo a mantenere compatibile il codice esistente
-  // Se in futuro vuoi “sbloccare” l’audio su iOS/Chrome:
-  // try { if (typeof window !== 'undefined') { /* eventuale warm-up audio */ } } catch {}
+  // no-op
 }
+
 
 
 
 /* ====================== Component principale ====================== */
 function ListeProdotti() {
+  // === Stato liste ===
   const [currentList, setCurrentList] = useState(LIST_TYPES.SUPERMARKET);
   const [lists, setLists] = useState({
     [LIST_TYPES.SUPERMARKET]: [],
     [LIST_TYPES.ONLINE]: [],
   });
-
-  // Form Lista (apri/chiudi)
   const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
   const [showListForm, setShowListForm] = useState(false);
 
-  // Scorte & critici
+  // === Stato scorte ===
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
 
-  // Edit riga scorte
+  // === Editing riga scorte ===
   const [editingRow, setEditingRow] = useState(null);
   const [editDraft, setEditDraft] = useState({
     name: '',
@@ -796,34 +582,35 @@ function ListeProdotti() {
     _ruTouched: false,
   });
 
-  // UI / Toast / Busy
+  // === UI / Toast / Busy ===
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
-  function showToast(msg, type='ok'){
+  function showToast(msg, type = 'ok') {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 1800);
   }
 
-  // Persistenza debounce
+  // === Riferimenti/varie ===
   const persistTimerRef = useRef(null);
+  const lastLocalAtRef = useRef(0);
 
-  // Vocale lista
-  theMediaWorkaround();
+  // === OCR / Input file ===
+  const ocrInputRef = useRef(null);
+  const rowOcrInputRef = useRef(null);
+  const [targetRowIdx, setTargetRowIdx] = useState(null);
 
-  const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
-  const mediaRecRef = useRef(null);
-  const recordedChunks = useRef([]);
-  const streamRef = useRef(null);
-  const [recBusy, setRecBusy] = useState(false);
+  // === Immagini riga scorte ===
+  const rowImageInputRef = useRef(null);
+  const [targetImageIdx, setTargetImageIdx] = useState(null);
 
+  // === Scadenze manuali ===
+  const [expiryForm, setExpiryForm] = useState({ name: '', expiresAt: '' });
+  const [showExpiryForm, setShowExpiryForm] = useState(false);
 
+  // === Indice immagini ===
+  const [imagesIndex, setImagesIndex] = useState({});
 
-  // registra i setter per gli helper globali
-  useEffect(() => {
-    registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
-  }, []);
-
-  // Learning (memoria prodotti/alias/keep)
+  // === Memoria “learned” ===
   const [learned, setLearned] = useState({
     products: {},
     aliases: { product: {}, brand: {} },
@@ -831,36 +618,13 @@ function ListeProdotti() {
     discardTerms: {}
   });
 
-  // Vocale inventario unificato
-  const invMediaRef = useRef(null);
-  const invChunksRef = useRef([]);
-  const invStreamRef = useRef(null);
-  const [invRecBusy, setInvRecBusy] = useState(false);
+  // === Cloud (Supabase) ===
+  const userIdRef = useRef(null);
 
-  // OCR inputs
-  const ocrInputRef = useRef(null);
-  const rowOcrInputRef = useRef(null);
-  const [targetRowIdx, setTargetRowIdx] = useState(null);
-
-  // Upload immagine per riga scorte
-  const rowImageInputRef = useRef(null);
-  const [targetImageIdx, setTargetImageIdx] = useState(null);
-
-  // Scorte manuali
-  const [stockForm, setStockForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '' });
-  const [showStockForm, setShowStockForm] = useState(false);
-
-  // Scadenze manuali
-  const [expiryForm, setExpiryForm] = useState({ name: '', expiresAt: '' });
-  const [showExpiryForm, setShowExpiryForm] = useState(false);
-
-  // 🔥 indice immagini: { "latte|parmalat": "data:image/..." }
-  const [imagesIndex, setImagesIndex] = useState({});
-
-  const curItems = lists[currentList] || [];
+  // Sblocca media su alcuni browser (no-op sicuro)
+  useEffect(() => { theMediaWorkaround(); }, []);
 
   /* =================== Cloud Sync (Supabase) — opzionale =================== */
-  const userIdRef = useRef(null);
   useEffect(() => {
     if (!CLOUD_SYNC) return;
     let mounted = true;
@@ -903,7 +667,7 @@ function ListeProdotti() {
           setCurrentList(st.currentList);
         }
         if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
-        //if (st.imagesIndex && typeof st.imagesIndex === 'object') setImagesIndex(st.imagesIndex);
+        if (st.imagesIndex && typeof st.imagesIndex === 'object') setImagesIndex(st.imagesIndex);
       } catch (e) {
         if (DEBUG) console.warn('[cloud init] skipped', e);
       }
@@ -912,37 +676,7 @@ function ListeProdotti() {
     return () => { mounted = false; };
   }, []);
 
-/* ==== Helpers per stato "safe" (solo utilità locali, nessun return qui) ==== */
-const safeStock = (stock || []).map((s) => {
-  const base = { ...s };
-  const img = base.image;
-  // rimuovi immagini non http/https o troppo lunghe (evita base64 pesanti)
-  if (!(typeof img === 'string' && /^https?:\/\//i.test(img) && img.length <= 500)) {
-    delete base.image;
-  }
-  return base;
-}); // <-- CHIUSURA map CORRETTA
-
-const safeImagesIndex = {};
-if (imagesIndex && typeof imagesIndex === 'object') {
-  for (const [k, v] of Object.entries(imagesIndex)) {
-    if (typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500) {
-      safeImagesIndex[k] = v;
-    }
-  }
-}
-
-const safeLearned =
-  learned && typeof learned === 'object'
-    ? learned
-    : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
-
-const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
-  ? currentList
-  : LIST_TYPES.SUPERMARKET;
-// (niente return qui)
-
-
+  // Upsert sul cloud con debounce
   const cloudTimerRef = useRef(null);
   useEffect(() => {
     if (!CLOUD_SYNC || !__supabase) return;
@@ -950,9 +684,7 @@ const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
 
     if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
 
-    // NON mandiamo imagesIndex in cloud, e togliamo field .image
-   const cloudState = stripForCloud({ lists, stock, currentList, learned, imagesIndex });
-
+    const cloudState = stripForCloud({ lists, stock, currentList, learned, imagesIndex });
     const payload = { user_id: userIdRef.current, state: cloudState };
 
     cloudTimerRef.current = setTimeout(async () => {
@@ -966,9 +698,9 @@ const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
     }, 1200);
 
     return () => clearTimeout(cloudTimerRef.current);
-  }, [lists, stock, currentList, learned]);
+  }, [lists, stock, currentList, learned, imagesIndex]);
 
-  /* === Brain Hub – versione robusta (evita forme incompatibili) === */
+  /* === Brain Hub – versione robusta === */
   const HUB_KEY = '__jarvisBrainHub_v2';
   function getHub() {
     if (typeof window === 'undefined') return null;
@@ -1005,8 +737,8 @@ const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
       },
       list() {
         return {
-          datasources: [...this._datasources.keys() ],
-          commands:    [...this._commands.keys()    ],
+          datasources: [...this._datasources.keys()],
+          commands:    [...this._commands.keys()],
         };
       },
     };
@@ -1021,7 +753,7 @@ const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
 
     const safeRegDS = (def) => {
       if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
-    }
+    };
 
     safeRegDS({
       name: 'scorte-complete',
@@ -1073,7 +805,12 @@ const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
 
     safeRegDS({
       name: 'scorte-scadenza',
-      fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => isExpiringSoon(s, entroGiorni)),
+      fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => {
+        if (!s?.expiresAt) return false;
+        const t = Date.parse(s.expiresAt);
+        if (Number.isNaN(t)) return false;
+        return Math.floor((t - Date.now()) / 86400000) <= entroGiorni;
+      }),
     });
 
     safeRegDS({
@@ -1101,1017 +838,301 @@ const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
     });
   }, [stock, lists]);
 
-   /* =================== Hydration iniziale (locale) =================== */
-useEffect(() => {
-  if (typeof window === 'undefined') return;
-  const saved = loadPersisted();
-  if (!saved) return;
-
-  if (saved.lists && typeof saved.lists === 'object') {
-    setLists({
-      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET])
-        ? saved.lists[LIST_TYPES.SUPERMARKET]
-        : [],
-      [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE])
-        ? saved.lists[LIST_TYPES.ONLINE]
-        : [],
-    });
-  }
-
-  if (Array.isArray(saved.stock)) setStock(saved.stock);
-
-  if (
-    saved.currentList &&
-    (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)
-  ) {
-    setCurrentList(saved.currentList);
-  }
-
-  if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
-    setImagesIndex(saved.imagesIndex);
-  }
-
-  if (saved.learned && typeof saved.learned === 'object') {
-    setLearned(saved.learned);
-  }
-}, []);
-
-
-/* =================== Autosave debounce (locale) =================== */
-// tiene traccia dell’ultimo salvataggio locale applicato (per confronto negli eventi storage)
-const lastLocalAtRef = useRef(0);
-
-useEffect(() => {
-  if (typeof window === 'undefined') return;
-
-  // clear eventuale debounce precedente
-  if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-
-  // snapshot dell’attuale stato che vogliamo persistere
-  const snapshot = { lists, stock, currentList, imagesIndex, learned };
-
-  // debounce breve per ridurre I/O su localStorage
-  persistTimerRef.current = setTimeout(() => {
-    try {
-      // salva su localStorage (persistNow imposta anche "at")
-      persistNow(snapshot);
-      // aggiorna il timestamp locale per i confronti cross-tab
-      lastLocalAtRef.current = Date.now();
-    } catch (e) {
-      if (DEBUG) console.warn('[persistNow] failed', e);
-    }
-  }, 300);
-
-  return () => {
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-  };
-}, [lists, stock, currentList, imagesIndex, learned]);
-
-/* =================== Sync tra tab =================== */
-useEffect(() => {
-  if (typeof window === 'undefined') return;
-
-  const onStorage = (e) => {
-    if (e.key !== LS_KEY) return;
-
+  /* =================== Hydration iniziale (locale) =================== */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     const saved = loadPersisted();
-    if (!saved || saved.v !== LS_VER) return;
+    if (!saved) return;
 
-    // evita che uno stato PIÙ VECCHIO proveniente da un’altra tab sovrascriva il nostro
-    const savedAt = Number(saved.at || 0);
-    if (savedAt && savedAt < Number(lastLocalAtRef.current || 0)) {
-      if (DEBUG) console.log('[storage] ignorato stato più vecchio', {
-        savedAt,
-        localAt: lastLocalAtRef.current,
+    if (saved.lists && typeof saved.lists === 'object') {
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET])
+          ? saved.lists[LIST_TYPES.SUPERMARKET]
+          : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE])
+          ? saved.lists[LIST_TYPES.ONLINE]
+          : [],
       });
-      return;
     }
 
-    // applica lo stato ricevuto e aggiorna il riferimento di ultimo "apply"
-    setLists({
-      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET])
-        ? saved.lists[LIST_TYPES.SUPERMARKET]
-        : [],
-      [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE])
-        ? saved.lists[LIST_TYPES.ONLINE]
-        : [],
+    if (Array.isArray(saved.stock)) setStock(saved.stock);
+
+    if (saved.currentList === LIST_TYPES.ONLINE || saved.currentList === LIST_TYPES.SUPERMARKET) {
+      setCurrentList(saved.currentList);
+    }
+
+    if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
+      setImagesIndex(saved.imagesIndex);
+    }
+
+    if (saved.learned && typeof saved.learned === 'object') {
+      setLearned(saved.learned);
+    }
+  }, []);
+
+  /* =================== Autosave debounce (locale) =================== */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+
+    const snapshot = { lists, stock, currentList, imagesIndex, learned };
+
+    persistTimerRef.current = setTimeout(() => {
+      try {
+        persistNow(snapshot);
+        lastLocalAtRef.current = Date.now();
+      } catch (e) {
+        if (DEBUG) console.warn('[persistNow] failed', e);
+      }
+    }, 300);
+
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [lists, stock, currentList, imagesIndex, learned]);
+
+  /* =================== Sync tra tab =================== */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const onStorage = (e) => {
+      if (e.key !== LS_KEY) return;
+
+      const saved = loadPersisted();
+      if (!saved || saved.v !== LS_VER) return;
+
+      const savedAt = Number(saved.at || 0);
+      if (savedAt && savedAt < Number(lastLocalAtRef.current || 0)) {
+        if (DEBUG) console.log('[storage] ignorato stato più vecchio', { savedAt, localAt: lastLocalAtRef.current });
+        return;
+      }
+
+      setLists({
+        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+      });
+      setStock(Array.isArray(saved.stock) ? saved.stock : []);
+      setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+      setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
+
+      lastLocalAtRef.current = savedAt || Date.now();
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  /* =================== Derivati: critici =================== */
+  useEffect(() => {
+    const crit = (stock || []).filter((p) => {
+      const current = residueUnitsOf(p);
+      const baseline = baselineUnitsOf(p);
+      const pct = baseline ? current / baseline : 1;
+      const lowResidue = pct < 0.2;
+
+      // scadenza entro 10gg (inline, no dipendenze esterne)
+      let expSoon = false;
+      if (p?.expiresAt) {
+        const t = Date.parse(p.expiresAt);
+        if (!Number.isNaN(t)) {
+          expSoon = Math.floor((t - Date.now()) / 86400000) <= 10;
+        }
+      }
+      return lowResidue || expSoon;
     });
-    setStock(Array.isArray(saved.stock) ? saved.stock : []);
-    setCurrentList(
-      saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET
-    );
-    setImagesIndex(
-      saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {}
-    );
+    setCritical(crit);
+  }, [stock]);
 
-    lastLocalAtRef.current = savedAt || Date.now();
-  };
+  // elimina una riga di scorte per indice (serve negli onClick)
+  const deleteStockRow = useCallback((index) => {
+    setStock((prev) => prev.filter((_, i) => i !== index));
+    lastLocalAtRef.current = Date.now();
+  }, []);
 
-  window.addEventListener('storage', onStorage);
-  return () => window.removeEventListener('storage', onStorage);
-}, []);
+  /* =================== LISTE: azioni =================== */
+  function addManualItem(e) {
+    e.preventDefault();
+    const name = form.name.trim();
+    if (!name) return;
 
-/* =================== Derivati: critici =================== */
-// helper “safe” (non ridefinisce eventuali versioni globali)
-function daysToExpirySafe(iso) {
-  if (!iso) return Infinity;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return Infinity;
-  return Math.floor((t - Date.now()) / 86400000);
-}
-function isExpiringSoonSafe(item, days = 10) {
-  return daysToExpirySafe(item?.expiresAt) <= days;
-}
+    const brand        = form.brand.trim();
+    const packs        = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
+    const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
+    const unitLabel    = (form.unitLabel || 'unità').trim() || 'unità';
 
-useEffect(() => {
-  const crit = (stock || []).filter((p) => {
-    const current = residueUnitsOf(p);
-    const baseline = baselineUnitsOf(p);
-    const pct = baseline ? current / baseline : 1;
-    const lowResidue = pct < 0.2;
-    const expSoon = isExpiringSoonSafe(p, 10);
-    return lowResidue || expSoon;
-  });
-  setCritical(crit);
-}, [stock]);
+    setLists((prev) => {
+      const next  = { ...prev };
+      const items = [...(prev[currentList] || [])];
 
-
-// elimina una riga di scorte per indice (serve negli onClick)
-const deleteStockRow = useCallback((index) => {
-  setStock((prev) => prev.filter((_, i) => i !== index));
-  // aggiorna subito il "lastAt" così eventuali storage più vecchi vengono ignorati
-  lastLocalAtRef.current = Date.now();
-}, []);
-
-/* =================== LISTE: azioni =================== */
-function addManualItem(e) {
-  e.preventDefault();
-  const name = form.name.trim();
-  if (!name) return;
-
-  const brand = form.brand.trim();
-  const packs = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
-  const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
-  const unitLabel = (form.unitLabel || 'unità').trim() || 'unità';
-
-  setLists((prev) => {
-    const next = { ...prev };
-    const items = [...(prev[currentList] || [])];
-
-    const idx = items.findIndex(
-      (i) =>
-        i.name.toLowerCase() === name.toLowerCase() &&
-        (i.brand || '').toLowerCase() === brand.toLowerCase() &&
-        Number(i.unitsPerPack || 1) === unitsPerPack
-    );
-
-    if (idx >= 0) {
-      items[idx] = {
-        ...items[idx],
-        qty: Math.max(0, Number(items[idx].qty || 0) + packs),
-      };
-    } else {
-      items.push({
-        id: 'tmp-' + Math.random().toString(36).slice(2),
-        name,
-        brand,
-        qty: packs,
-        unitsPerPack,
-        unitLabel,
-        purchased: false,
-      });
-    }
-
-    next[currentList] = items;
-    return next;
-  });
-
-  // aggiorna subito "lastAt" per proteggere da eventuali sync vecchi
-  lastLocalAtRef.current = Date.now();
-
-  setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
-  setShowListForm(false);
-}
-
-function removeItem(id) {
-  setLists((prev) => {
-    const next = { ...prev };
-    next[currentList] = (prev[currentList] || []).filter((i) => i.id !== id);
-    return next;
-  });
-  lastLocalAtRef.current = Date.now();
-}
-
-function incQty(id, delta) {
-  setLists((prev) => {
-    const next = { ...prev };
-    next[currentList] = (prev[currentList] || [])
-      .map((i) => (i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i))
-      .filter((i) => i.qty > 0);
-    return next;
-  });
-  lastLocalAtRef.current = Date.now();
-}
-
-
-/* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
-function isBlobish(v){
-  try {
-    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function');
-  } catch { return false; }
-}
-function dataUrlToBlob(dataUrl){
-  try {
-    const [head, base64]=String(dataUrl||'').split(',');
-    const m=head.match(/data:(.*?);base64/i);
-    const mime=m?m[1]:'application/octet-stream';
-    const bin=atob(base64||'');
-    const u8=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
-    return new Blob([u8],{type:mime});
-  } catch { return null; }
-}
-function guessExt(mime=''){
-  const m=(mime||'').toLowerCase();
-  if(m.includes('pdf'))return'pdf';
-  if(m.includes('png'))return'png';
-  if(m.includes('jpeg')||m.includes('jpg'))return'jpg';
-  if(m.includes('webp'))return'webp';
-  if(m.includes('heic'))return'heic';
-  return'bin';
-}
-async function collectImageBlobs(input){
-  const list = Array.from(input || []);
-  const out=[];
-  for (const f of list){
-    if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
-    if (typeof f === 'string'){
-      if (f.startsWith('data:')){ const b=dataUrlToBlob(f); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); continue; }
-      if (/^(blob:|https?:)/i.test(f)){ try { const resp=await fetch(f); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); } catch {} continue; }
-    }
-    if (f && typeof f === 'object'){
-      const maybe=f.file || f.blob;
-      if (isBlobish(maybe)){ out.push({ blob:maybe, name:f.name || `upload.${guessExt(maybe.type)}` }); continue; }
-      const url=f.preview || f.uri || f.url;
-      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)){
-        try {
-          if (url.startsWith('data:')){ const b=dataUrlToBlob(url); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
-          else { const resp=await fetch(url); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
-        } catch {}
-      }
-    }
-  }
-  return out;
-}
-// === Ripulisce l'OCR da messaggi di rifiuto / policy ===
-function sanitizeOcrText(t) {
-  const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-  return String(t || '')
-    .split(/\r?\n/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .filter(s => !BAD.test(s))
-    .join('\n');
-}
-// === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
-async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
-  try {
-    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
-
-    const getBitmap = async (blob) => {
-      if (typeof window !== 'undefined' && window.createImageBitmap) {
-        return await createImageBitmap(blob);
-      }
-      const dataUrl = await new Promise((ok, ko) => {
-        const r = new FileReader();
-        r.onload = () => ok(r.result);
-        r.onerror = ko;
-        r.readAsDataURL(blob);
-      });
-      const img = new Image();
-      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-      return img;
-    };
-
-    const bmp = await getBitmap(file);
-    const w0 = bmp.width || bmp.naturalWidth;
-    const h0 = bmp.height || bmp.naturalHeight;
-    const scale = Math.min(1, maxSide / Math.max(w0, h0));
-    if (scale === 1 && file.size <= 1_200_000) return file;
-
-    const w = Math.max(1, Math.round(w0 * scale));
-    const h = Math.max(1, Math.round(h0 * scale));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bmp, 0, 0, w, h);
-
-    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
-    if (!blob) return file;
-    if (blob.size >= file.size) return file;
-
-    const base = (file.name || 'upload').replace(/\.\w+$/, '');
-    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
-  } catch {
-    return file;
-  }
-}
-
-/* ====================== Prompt builder OCR Riga ====================== */
-function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-  return [
-    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
-    'RISPONDI SOLO JSON con schema esatto:',
-    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
-    '',
-    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
-    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
-    '- Scadenza in formato YYYY-MM-DD se presente',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
-
-/* ====================== Decrementa liste da scontrino ====================== */
-function decrementAcrossBothLists(prevLists, purchases) {
-  const next = { ...prevLists };
-
-  const decList = (listKey) => {
-  const arr = [...(next[listKey] || [])];
-  for (const p of purchases) {
-    const dec  = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-    const brand = (p.brand || '').trim();
-    const upp   = Number(p.unitsPerPack ?? 1);
-
-    // match esatto name+brand+UPP
-    let idx = arr.findIndex(i =>
-      sameText(i.name, p.name) &&
-      sameText(i.brand || '', brand) &&
-      Number(i.unitsPerPack || 1) === upp
-    );
-    // poi name+brand
-    if (idx < 0)
-      idx = arr.findIndex(i => sameText(i.name, p.name) && sameText(i.brand || '', brand));
-    // poi solo name
-    if (idx < 0)
-      idx = arr.findIndex(i => sameText(i.name, p.name));
-
-    if (idx >= 0) {
-      const cur    = arr[idx];
-      const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-      arr[idx]     = { ...cur, qty: newQty, purchased: true };
-    }
-  }
-  next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-};
-
-  decList(LIST_TYPES.SUPERMARKET);
-  decList(LIST_TYPES.ONLINE);
-  return next;
-}
-function estimateCandidateLines(ocrText=''){
-  const lines = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
-  let count = 0;
-  for (const ln of lines){
-    if (HEADER.test(ln)) continue;
-    if (ln.length < 4) continue;
-    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
-  }
-  return count;
-}
-
-// === Ripulisce l'OCR da messaggi di rifiuto / policy ===
-function sanitizeOcrText(t) {
-  const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-  return String(t || '')
-    .split(/\r?\n/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .filter(s => !BAD.test(s))   // elimina righe tipo “Mi dispiace…”
-    .join('\n');
-}
-
-// === Helper: ridimensiona/comprime immagini prima dell'upload (mobile-friendly) ===
-async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
-  try {
-    // Non toccare PDF o file non immagine
-    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
-
-    // Crea un bitmap (o <img> come fallback) per disegnare su canvas
-    const getBitmap = async (blob) => {
-      if (typeof window !== 'undefined' && window.createImageBitmap) {
-        return await createImageBitmap(blob);
-      }
-      const dataUrl = await new Promise((ok, ko) => {
-        const r = new FileReader();
-        r.onload = () => ok(r.result);
-        r.onerror = ko;
-        r.readAsDataURL(blob);
-      });
-      const img = new Image();
-      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-      return img;
-    };
-
-    const bmp = await getBitmap(file);
-    const w0 = bmp.width || bmp.naturalWidth;
-    const h0 = bmp.height || bmp.naturalHeight;
-    const scale = Math.min(1, maxSide / Math.max(w0, h0));
-
-    // Se già piccolo (<~1.2MB) o lato max <= maxSide, lascia stare
-    if (scale === 1 && file.size <= 1_200_000) return file;
-
-    const w = Math.max(1, Math.round(w0 * scale));
-    const h = Math.max(1, Math.round(h0 * scale));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bmp, 0, 0, w, h);
-
-    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
-    if (!blob) return file;
-
-    // Se per qualche motivo non comprimiamo davvero, tieni l'originale
-    if (blob.size >= file.size) return file;
-
-    const base = (file.name || 'upload').replace(/\.\w+$/, '');
-    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
-  } catch {
-    // In caso di errore, non bloccare il flusso: torna l’originale
-    return file;
-  }
-}
-
-/* ====================== Prompt builder OCR Riga ====================== */
-function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-  return [
-    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
-    'RISPONDI SOLO JSON con schema esatto:',
-    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
-    '',
-    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
-    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
-    '- Scadenza in formato YYYY-MM-DD se presente',
-    '',
-    '--- TESTO OCR INIZIO ---',
-    ocrText,
-    '--- TESTO OCR FINE ---'
-  ].join('\n');
-}
-
-
-function estimateCandidateLines(ocrText=''){
-  const lines = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
-  let count = 0;
-  for (const ln of lines){
-    if (HEADER.test(ln)) continue;
-    if (ln.length < 4) continue;
-    // euristica: riga con parole e senza sembrare solo prezzo
-    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
-  }
-  return count;
-}
-// === AI helper: chiama /api/assistant e prova a forzare il JSON ===
-function askAssistantJSON(prompt, schema) {
-  return (async () => {
-    try {
-      const body = schema
-        ? {
-            prompt,
-            response_format: 'json_schema',  // se supportato dal backend
-            schemaName: schema.title || 'Schema',
-            schema,
-          }
-        : { prompt };
-
-      const res = await timeoutFetch(
-        API_ASSISTANT_TEXT,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-        45000
+      const idx = items.findIndex(
+        (i) =>
+          i.name.toLowerCase() === name.toLowerCase() &&
+          (i.brand || '').toLowerCase() === brand.toLowerCase() &&
+          Number(i.unitsPerPack || 1) === unitsPerPack
       );
 
-      const safe = await readJsonSafe(res);
-      let answer = safe?.answer ?? safe?.data ?? safe;
-
-      if (typeof answer === 'string') {
-        try { answer = JSON.parse(answer); } catch { answer = null; }
-      }
-      if (answer && answer.ok && answer.data) {
-        try { return typeof answer.data === 'string' ? JSON.parse(answer.data) : answer.data; }
-        catch { return answer.data; }
-      }
-      return answer || null;
-    } catch (e) {
-      try { console.warn('[askAssistantJSON] fail:', e); } catch {}
-      return null;
-    }
-  })();
-}
-
-// Schema atteso dal modello per l'estrazione scontrino (AI-only)
-const RECEIPT_SCHEMA = {
-  title: 'ReceiptExtraction',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    store: { type: 'string' },
-    purchaseDate: { type: 'string' }, // YYYY-MM-DD
-    purchases: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          name:        { type: 'string' },
-          brand:       { type: 'string' },
-          packs:       { type: 'number' },
-          unitsPerPack:{ type: 'number' },
-          unitLabel:   { type: 'string' },
-          priceEach:   { type: 'number' },
-          priceTotal:  { type: 'number' },
-          currency:    { type: 'string' },
-          expiresAt:   { type: 'string' }
-        },
-        required: ['name','brand','packs','unitsPerPack','unitLabel','priceEach','priceTotal','currency','expiresAt']
-      }
-    }
-  },
-  required: ['store','purchaseDate','purchases']
-};
-// --- Numero robusto: "1,5" → 1.5; valori non numerici → 0
-function coerceNum(x) {
-  if (x == null) return 0;
-  const s = String(x).trim().replace(',', '.');
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-}
-/* ===== Filtri anti-rumore per righe NON prodotto (AI-only safety) ===== */
-const RX_HEADER_NOISE = /\b(documento\s+commerciale|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva\b|rt\b|cassa|cassiere|lotteria|scontrino|corrispettivi|fiscale)\b/i;
-const RX_ADDRESS     = /\b(via|viale|v\.\b|vle\.?|piazza|p\.?za|corso|c\.?so|strada|s\.?s\.?|km|civ\.?|snc|cap\s*\d{5}|tel\.?|telefono|pec|email|@)\b/i;
-const RX_LEGAL       = /\b(s\.?r\.?l\.?|s\.?p\.?a\.?|a\s*socio\s*unico|p\.?\s*iva|partita\s*iva|c\.?f\.?|rea|reg\.?\s*imp\.)\b/i;
-
-function filterPurchasesNoise(purchases = []) {
-  const arr = Array.isArray(purchases) ? purchases : [];
-  const out = [];
-  for (const p of arr) {
-    const nm = String(p?.name || '').trim();
-    if (!nm) continue;
-    if (RX_HEADER_NOISE.test(nm)) continue;
-    if (RX_ADDRESS.test(nm)) continue;
-    if (RX_LEGAL.test(nm)) continue;
-    const clean = nm.replace(/^['"`]+|['"`]+$/g, '').trim();
-    if (!clean) continue;
-    out.push({ ...p, name: clean });
-  }
-  return out;
-
-}
-// Indice immagini sicuro (SSR/CSR)
-function getImgIndexSafe(localCandidate) {
-  if (localCandidate && typeof localCandidate === 'object') return localCandidate;
-  try { if (typeof imagesIndex !== 'undefined' && imagesIndex) return imagesIndex; } catch {}
-  try { if (typeof mergedImagesIndex !== 'undefined' && mergedImagesIndex) return mergedImagesIndex; } catch {}
-  return {};
-}
-
-
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
-async function handleOCR(files) {
-  if (!files) return;
-  try {
-    setBusy(true);
-
-    // ——— 0) Filtra File validi ———
-    const toArray = (x) => Array.from(x || []);
-    const isFileLike = (v) => {
-      try {
-        return !!(
-          v &&
-          typeof v === 'object' &&
-          typeof v.type === 'string' &&
-          typeof v.size === 'number' &&
-          typeof v.arrayBuffer === 'function' &&
-          typeof v.slice === 'function'
-        );
-      } catch { return false; }
-    };
-    const picked = [];
-    for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
-    if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
-
-    // ——— 1) OCR immagine → testo (usa solo la prima foto, compressa) ———
-    const first = picked[0];
-    const slim  = await downscaleImageFile(first, { maxSide: OCR_IMAGE_MAXSIDE, quality: OCR_IMAGE_QUALITY });
-
-    const aliases = ['images','files','file','image'];
-    let fdOcr = new FormData();
-    for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
-
-    let ocrAns = null, ocrText = '';
-    try {
-      ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
-      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
-    } catch (err) {
-      showToast(`OCR errore: ${err.message}`, 'err');
-      throw err;
-    }
-
-    // Retry HEIC se serve
-    if (!ocrText && /heic|heif/i.test(first?.type || '')) {
-      fdOcr = new FormData();
-      for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
-      try {
-        const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
-        if (o2 && (o2.text || (o2.items && o2.items.length))) {
-          ocrAns  = o2;
-          ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
-        }
-      } catch {}
-    }
-
-    if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
-
-    // ——— 2) AI-only: JSON dal modello ———
-    let parsed = null;
-    if (ocrText) {
-      const prompt = buildDirectReceiptPrompt(ocrText);
-      parsed = await askAssistantJSON(prompt, RECEIPT_SCHEMA) || await askAssistantJSON(prompt, null);
-    }
-
-    // ——— 3) Meta (store, data) ———
-    let store        = '';
-    let purchaseDate = '';
-    if (parsed && typeof parsed === 'object') {
-      store        = String(parsed.store || '').trim();
-      purchaseDate = toISODate(parsed.purchaseDate || '');
-    }
-
-    // ——— 4) Righe acquisto (SOLO AI) ———
-    let purchases = [];
-    if (Array.isArray(parsed?.purchases) && parsed.purchases.length) {
-      purchases = parsed.purchases.map(p => ({
-        name: String(p?.name || '').trim(),
-        brand: String(p?.brand || '').trim(),
-        packs: coerceNum(p?.packs),
-        unitsPerPack: coerceNum(p?.unitsPerPack),
-        unitLabel: String(p?.unitLabel || '').trim(),
-        priceEach: coerceNum(p?.priceEach),
-        priceTotal: coerceNum(p?.priceTotal),
-        currency: String(p?.currency || 'EUR').trim() || 'EUR',
-        expiresAt: toISODate(p?.expiresAt || '')
-      })).filter(p => p.name);
-    }
-
-    // (opzionale) log di controllo
-    try { console.log('[ai-only lines]', { ai: purchases.length }); } catch {}
-
-    // ——— 5) Filtro sicurezza anti-rumore ———
-    purchases = filterPurchasesNoise(purchases);
-
-    // No parser locale, no merge: se non c'è nulla fermati qui
-    if (!Array.isArray(purchases) || purchases.length === 0) {
-      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-      return;
-    }
-
-    // ——— 6) ENRICH VIA WEB: prettyName/brand/desc/immagini ———
-    let imgIndex = getImgIndexSafe(imagesIndex);
-    if (purchases.length) {
-      const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
-      purchases = Array.isArray(enriched) ? enriched : purchases;
-      // unisci immagini nuove con quelle già note
-      imgIndex = { ...imgIndex, ...(imap || {}) };
-      setImagesIndex(imgIndex);
-    }
-
-    // ——— 7) Memorizzazione termini (no-op se non usi) ———
-    if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
-
-    // ——— 8) Decrementa liste ———
-    setLists(prev => decrementAcrossBothLists(prev, purchases));
-
-    // ——— 9) Aggiorna scorte ———
-    setStock(prev => {
-      const arr = [...prev];
-      const todayISO = new Date().toISOString().slice(0, 10);
-
-      for (const p of purchases) {
-        const idx = findStockIndexStrict(arr, p);
-        const packs = coerceNum(p.packs);
-        const upp   = coerceNum(p.unitsPerPack);
-        const hasCounts = packs > 0 || upp > 0;
-
-        if (idx >= 0) {
-          const old = arr[idx];
-
-          if (hasCounts) {
-            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
-            const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
-              ...old,
-              // 🔐 identità: mantieni sempre il name OCR
-              name: old.name,
-              // brand può migliorare se p.brand è valorizzato
-              brand: (p.brand && String(p.brand).trim()) || old.brand,
-              packs: newP,
-              unitsPerPack: newU,
-              unitLabel: old.unitLabel || p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || old.expiresAt || '',
-              // display fields
-              prettyName: p.prettyName || old.prettyName || '',
-              desc: (p.description || old.desc || ''),
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(newP, todayISO, newU),
-            };
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            const uo = Math.max(1, Number(old.unitsPerPack || 1));
-            const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = {
-              ...old,
-              name: old.name,
-              brand: (p.brand && String(p.brand).trim()) || old.brand,
-              packs: np,
-              unitsPerPack: uo,
-              unitLabel: old.unitLabel || 'unità',
-              prettyName: p.prettyName || old.prettyName || '',
-              desc: (p.description || old.desc || ''),
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(np, todayISO, uo),
-            };
-          } else {
-            arr[idx] = {
-              ...old,
-              name: old.name,
-              brand: (p.brand && String(p.brand).trim()) || old.brand,
-              needsUpdate: true,
-            };
-          }
-
-          // Aggancia immagine dall’indice locale
-          try {
-            const keys = [
-              productKey(arr[idx].name, arr[idx].brand || ''),
-              productKey(p.name,        p.brand        || ''),
-              productKey(arr[idx].name, ''),
-              productKey(p.name,        ''),
-            ];
-            for (const k of keys) {
-              if (imgIndex && imgIndex[k]) { arr[idx] = { ...arr[idx], image: imgIndex[k] }; break; }
-            }
-          } catch {}
-
-        } else {
-          // nuova riga
-          if (hasCounts) {
-            const u = Math.max(1, upp || 1);
-            arr.unshift(
-              withRememberedImage(
-                {
-                  name: p.name,
-                  brand: p.brand || '',
-                  packs: Math.max(0, packs || 1),
-                  unitsPerPack: u,
-                  unitLabel: p.unitLabel || 'unità',
-                  expiresAt: p.expiresAt || '',
-                  prettyName: p.prettyName || '',
-                  desc: (p.description || ''),
-                  baselinePacks: Math.max(0, packs || 1),
-                  lastRestockAt: todayISO,
-                  avgDailyUnits: 0,
-                  residueUnits: Math.max(0, (packs || 1) * u),
-                  packsOnly: false,
-                  needsUpdate: false,
-                },
-                imgIndex
-              )
-            );
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            arr.unshift(
-              withRememberedImage(
-                {
-                  name: p.name,
-                  brand: p.brand || '',
-                  packs: 1,
-                  unitsPerPack: 1,
-                  unitLabel: 'unità',
-                  expiresAt: p.expiresAt || '',
-                  prettyName: p.prettyName || '',
-                  desc: (p.description || ''),
-                  baselinePacks: 1,
-                  lastRestockAt: todayISO,
-                  avgDailyUnits: 0,
-                  residueUnits: 1,
-                  packsOnly: false,
-                  needsUpdate: false,
-                },
-                imgIndex
-              )
-            );
-          } else {
-            arr.unshift(
-              withRememberedImage(
-                {
-                  name: p.name,
-                  brand: p.brand || '',
-                  packs: 0,
-                  unitsPerPack: 1,
-                  unitLabel: '-',
-                  expiresAt: p.expiresAt || '',
-                  prettyName: p.prettyName || '',
-                  desc: (p.description || ''),
-                  baselinePacks: 0,
-                  lastRestockAt: '',
-                  avgDailyUnits: 0,
-                  residueUnits: 0,
-                  packsOnly: true,
-                  needsUpdate: true,
-                },
-                imgIndex
-              )
-            );
-          }
-        }
+      if (idx >= 0) {
+        items[idx] = { ...items[idx], qty: Math.max(0, Number(items[idx].qty || 0) + packs) };
+      } else {
+        items.push({
+          id: 'tmp-' + Math.random().toString(36).slice(2),
+          name, brand, qty: packs, unitsPerPack, unitLabel, purchased: false,
+        });
       }
 
-      return arr;
+      next[currentList] = items;
+      return next;
     });
 
-    // ——— 10) Finanze ———
-    let financesOk = true;
-    try {
-      const itemsSafe = purchases.map(p => ({
-        name: p.name, brand: p.brand || '',
-        packs: Number.isFinite(p.packs) ? p.packs : 0,
-        unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
-        unitLabel: p.unitLabel || '',
-        priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
-        priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
-        currency: p.currency || 'EUR',
-        expiresAt: p.expiresAt || ''
-      }));
-      const payload = {
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(store ? { store } : {}),
-        ...(purchaseDate ? { purchaseDate } : {}),
-        payment_method:'cash', card_label:null,
-        items: itemsSafe
+    lastLocalAtRef.current = Date.now();
+    setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+    setShowListForm(false);
+  }
+
+  function removeItem(id) {
+    setLists((prev) => {
+      const next = { ...prev };
+      next[currentList] = (prev[currentList] || []).filter((i) => i.id !== id);
+      return next;
+    });
+    lastLocalAtRef.current = Date.now();
+  }
+
+  function incQty(id, delta) {
+    setLists((prev) => {
+      const next = { ...prev };
+      next[currentList] = (prev[currentList] || [])
+        .map((i) => (i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i))
+        .filter((i) => i.qty > 0);
+      return next;
+    });
+    lastLocalAtRef.current = Date.now();
+  }
+
+  /* =================== Gestione immagine riga scorte =================== */
+  async function handleRowImage(files, idx) {
+    const file = (files && files[0]) || null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setStock(prev => {
+        const arr = [...prev];
+        if (!arr[idx]) return prev;
+        const updated = { ...arr[idx], image: dataUrl };
+        arr[idx] = updated;
+
+        // salva in indice immagini
+        const key = productKey(updated.name, updated.brand || '');
+        setImagesIndex(prevIdx => ({ ...prevIdx, [key]: dataUrl }));
+
+        return arr;
+      });
+      showToast('Immagine prodotto aggiornata ✓', 'ok');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /* === Edit riga scorte === */
+  function startRowEdit(index, row) {
+    const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
+    setEditingRow(index);
+    setEditDraft({
+      name: row.name || '',
+      brand: row.brand || '',
+      packs: String(Number(row.packs ?? 0)),
+      unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
+      unitLabel: row.unitLabel || 'unità',
+      expiresAt: row.expiresAt || '',
+      residueUnits: row.packsOnly ? String(Number(row.packs||0)) : (row.residueUnits ?? initRU),
+      _ruTouched: false,
+    });
+  }
+  function handleEditDraftChange(field, value) {
+    setEditDraft(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'residueUnits' ? { _ruTouched: true } : null),
+    }));
+  }
+  function cancelRowEdit() {
+    setEditingRow(null);
+    setEditDraft({
+      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '', residueUnits: '0', _ruTouched:false
+    });
+  }
+  function saveRowEdit(index) {
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[index];
+      if (!old) return prev;
+
+      const name = (editDraft.name || '').trim();
+      const brand = (editDraft.brand || '').trim();
+      const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
+      const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
+      const expiresAt = toISODate(editDraft.expiresAt || '');
+
+      const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
+
+      const todayISO = new Date().toISOString().slice(0,10);
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = old.packsOnly ? Number(old.packs||0) : Number(old.packs || 0) * uppOld;
+      const nowUnits = newPacks * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      let ru = residueUnitsOf(old);
+      const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
+      if (ruTouched) {
+        const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+        if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
+      }
+      const fullNow = Math.max(unitsPerPack, nowUnits);
+      if (!old.packsOnly) ru = Math.min(ru, fullNow);
+
+      const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+
+      let next = {
+        ...old,
+        name, brand,
+        packs: newPacks,
+        unitsPerPack, unitLabel,
+        expiresAt,
+        avgDailyUnits,
+        packsOnly: false
       };
-      await fetchJSONStrict(API_FINANCES_INGEST, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }, 30000);
-    } catch (e) {
-      financesOk = false;
-      console.warn('[FINANCES_INGEST] fail', e);
-      showToast(`Finanze: ${e.message}`, 'err');
-    }
 
-    if (financesOk) showToast('OCR scorte (diretto) completato ✓', 'ok');
+      if (restock) {
+        next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
+      } else {
+        next.residueUnits = old.packsOnly ? Math.max(0, Number(newPacks)) : ru;
+      }
 
-  } catch (e) {
-    console.error('[OCR scorte] error', e);
-    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-  } finally {
-    setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
-  }
-}
-
-
-/* =================== Edit riga scorte =================== */
-function startRowEdit(index, row){
-  const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
-  setEditingRow(index);
-  setEditDraft({
-    name: row.name || '',
-    brand: row.brand || '',
-    packs: String(Number(row.packs ?? 0)),
-    unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
-    unitLabel: row.unitLabel || 'unità',
-    expiresAt: row.expiresAt || '',
-    residueUnits: row.packsOnly ? String(Number(row.packs||0)) : (row.residueUnits ?? initRU),
-    _ruTouched: false,
-  });
-}
-function handleEditDraftChange(field, value){
-  setEditDraft(prev => ({
-    ...prev,
-    [field]: value,
-    ...(field === 'residueUnits' ? { _ruTouched: true } : null),
-  }));
-}
-function cancelRowEdit(){
-  setEditingRow(null);
-  setEditDraft({
-    name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '', residueUnits: '0', _ruTouched:false
-  });
-}
-function saveRowEdit(index){
-  setStock(prev => {
-    const arr = [...prev];
-    const old = arr[index];
-    if (!old) return prev;
-
-    const name = (editDraft.name || '').trim();
-    const brand = (editDraft.brand || '').trim();
-    const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
-    const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
-    const expiresAt = toISODate(editDraft.expiresAt || '');
-
-    const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
-
-    const todayISO = new Date().toISOString().slice(0,10);
-    const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
-    const wasUnits = old.packsOnly ? Number(old.packs||0) : Number(old.packs || 0) * uppOld;
-    const nowUnits = newPacks * unitsPerPack;
-    const restock = nowUnits > wasUnits;
-
-    let ru = residueUnitsOf(old);
-    const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
-    if (ruTouched) {
-      const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
-      if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
-    }
-    const fullNow = Math.max(unitsPerPack, nowUnits);
-    if (!old.packsOnly) ru = Math.min(ru, fullNow);
-
-    const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
-
-    let next = {
-      ...old,
-      name, brand,
-      packs: newPacks,
-      unitsPerPack, unitLabel,
-      expiresAt,
-      avgDailyUnits,
-      packsOnly: false
-    };
-
-    if (restock) {
-      next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
-    } else {
-      next.residueUnits = old.packsOnly ? Math.max(0, Number(newPacks)) : ru;
-    }
-
-    arr[index] = next;
-    return arr;
-  });
-
-  setEditingRow(null);
-}
-function applyDeltaToStock(index, { setUnits }) {
-  setStock(prev => {
-    const arr = [...prev];
-    const row = arr[index];
-    if (!row) return prev;
-    if (row.packsOnly) {
-      const baselinePacks = Math.max(1, Number(row.baselinePacks || row.packs || 1));
-      const clampedP = Math.max(0, Math.min(Number(setUnits || 0), baselinePacks));
-      arr[index] = { ...row, packs: clampedP };
-      return arr;
-    }
-    const baseline = baselineUnitsOf(row) || Math.max(1, Number(row.unitsPerPack || 1));
-    const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
-    arr[index] = { ...row, residueUnits: clamped, packsOnly:false };
-    return arr;
-  });
-}
-
-
-/* =================== Gestione immagine riga scorte =================== */
-async function handleRowImage(files, idx) {
-  const file = (files && files[0]) || null;
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = String(reader.result || '');
-    setStock(prev => {
-      const arr = [...prev];
-      if (!arr[idx]) return prev;
-      const updated = { ...arr[idx], image: dataUrl };
-      arr[idx] = updated;
-
-      // salva in indice immagini
-      const key = productKey(updated.name, updated.brand || '');
-      setImagesIndex(prevIdx => ({ ...prevIdx, [key]: dataUrl }));
-
+      arr[index] = next;
       return arr;
     });
-    showToast('Immagine prodotto aggiornata ✓', 'ok');
-  };
-  reader.readAsDataURL(file);
-}
+
+    setEditingRow(null);
+  }
+
+  function applyDeltaToStock(index, { setUnits }) {
+    setStock(prev => {
+      const arr = [...prev];
+      const row = arr[index];
+      if (!row) return prev;
+      if (row.packsOnly) {
+        const baselinePacks = Math.max(1, Number(row.baselinePacks || row.packs || 1));
+        const clampedP = Math.max(0, Math.min(Number(setUnits || 0), baselinePacks));
+        arr[index] = { ...row, packs: clampedP };
+        return arr;
+      }
+      const baseline = baselineUnitsOf(row) || Math.max(1, Number(row.unitsPerPack || 1));
+      const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
+      arr[index] = { ...row, residueUnits: clamped, packsOnly:false };
+      return arr;
+    });
+  }
 
 
   /* =================== Vocale LISTA =================== */
