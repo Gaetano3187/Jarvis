@@ -6,8 +6,68 @@ import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
+/*** === AI-only Receipt Extraction: definire PRIMA di ogni utilizzo === ***/
 
+// Schema atteso dal modello (usato solo come payload: costante non hoistata → deve stare prima)
+const RECEIPT_SCHEMA = {
+  title: 'ReceiptExtraction',
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    store: { type: 'string' },
+    purchaseDate: { type: 'string' },
+    purchases: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name:        { type: 'string' },
+          brand:       { type: 'string' },
+          packs:       { type: 'number' },
+          unitsPerPack:{ type: 'number' },
+          unitLabel:   { type: 'string' },
+          priceEach:   { type: 'number' },
+          priceTotal:  { type: 'number' },
+          currency:    { type: 'string' },
+          expiresAt:   { type: 'string' }
+        },
+        required: ['name','brand','packs','unitsPerPack','unitLabel','priceEach','priceTotal','currency','expiresAt']
+      }
+    }
+  },
+  required: ['store','purchaseDate','purchases']
+};
 
+// Funzione dichiarativa (function declaration) → HOISTED: non entra in TDZ
+async function askAssistantJSON(prompt, schema) {
+  try {
+    const body = schema
+      ? { prompt, response_format: 'json_schema', schemaName: schema.title || 'Schema', schema }
+      : { prompt };
+
+    const res = await timeoutFetch(
+      API_ASSISTANT_TEXT,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      45000
+    );
+
+    const safe = await readJsonSafe(res);
+    let answer = safe?.answer ?? safe?.data ?? safe;
+
+    if (typeof answer === 'string') {
+      try { answer = JSON.parse(answer); } catch { answer = null; }
+    }
+    if (answer && answer.ok && answer.data) {
+      try { return typeof answer.data === 'string' ? JSON.parse(answer.data) : answer.data; }
+      catch { return answer.data; }
+    }
+    return answer || null;
+  } catch (e) {
+    try { console.warn('[askAssistantJSON] fail:', e); } catch {}
+    return null;
+  }
+}
 
 
 // ===== BASE LEXICON (minimo, espandibile) =====
@@ -2756,44 +2816,13 @@ async function handleOCR(files) {
     }
 
     if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
-// ——— 2) AI-only: chiedi all’assistente il JSON finale ———
+// AI-only: JSON dal modello
 let parsed = null;
 if (ocrText) {
   const prompt = buildDirectReceiptPrompt(ocrText);
-  // prova con schema; se la tua /api/assistant non lo supporta, fa fallback
+  // usa lo schema (già definito sopra); se il backend non lo supporta, fallback
   parsed = await askAssistantJSON(prompt, RECEIPT_SCHEMA) || await askAssistantJSON(prompt, null);
 }
-// Schema atteso dal modello per l'estrazione scontrino
-const RECEIPT_SCHEMA = {
-  title: 'ReceiptExtraction',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    store: { type: 'string' },
-    purchaseDate: { type: 'string' }, // YYYY-MM-DD
-    purchases: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          name:        { type: 'string' },
-          brand:       { type: 'string' },
-          packs:       { type: 'number' },
-          unitsPerPack:{ type: 'number' },
-          unitLabel:   { type: 'string' },
-          priceEach:   { type: 'number' },
-          priceTotal:  { type: 'number' },
-          currency:    { type: 'string' },
-          expiresAt:   { type: 'string' }
-        },
-        required: ['name','brand','packs','unitsPerPack','unitLabel','priceEach','priceTotal','currency','expiresAt']
-      }
-    }
-  },
-  required: ['store','purchaseDate','purchases']
-};
-
 
 // ——— 3) Meta (store, data) ———
 let store        = toISODate('') && ''; // init neutro
