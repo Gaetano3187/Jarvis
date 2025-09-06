@@ -452,6 +452,92 @@ function ListeProdotti() {
     decList(LIST_TYPES.SUPERMARKET); decList(LIST_TYPES.ONLINE);
     return next;
   }
+  // --- Fallback OCR scontrino → righe prodotto (hoisted) ---
+function parseReceiptPurchases(ocrText) {
+  const text = String(ocrText || '');
+  if (!text.trim()) return [];
+
+  // 1) normalizza righe ed elimina vuoti
+  const rawLines = text
+    .split(/\r?\n/)
+    .map(s => s.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  // 2) regex di servizio
+  const RX_HEADER =
+    /^(documento\s+commerciale|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva\b|rt\b|cassa|cassiere|tessera|lotteria|corrispettivi|fiscale|codice|reparto)/i;
+  const RX_IGNORE = /\b(shopper|sacchetto|busta|cauzione|vuoto|ecocontributo|eco[- ]?contributo|off\.)\b/i;
+  const RX_PRICE_TAIL = /\s*(?:€|eur|euro)?\s*\d+(?:[.,]\d{2})?\s*$/i;
+  const RX_WEIGHT = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt)\b/gi;
+
+  const out = [];
+
+  for (let line of rawLines) {
+    // salta header e rumore ovvio
+    if (RX_HEADER.test(line)) continue;
+
+    // unisci eventuale riga quantità "2 x 3,60 7,20" alla precedente? (qui gestiamo in-line)
+    line = line.replace(/^[*+\-]+\s*/, '').trim();
+    if (!line) continue;
+    if (RX_IGNORE.test(line)) continue;
+
+    // 3) estrai eventuale "N x prezzo [totale]" in coda (prendo N come packs)
+    let packsFromTail = null;
+    const mTail = line.match(/(\d+)\s*[xX]\s*\d+(?:[.,]\d{2})(?:\s+\d+(?:[.,]\d{2}))?\s*$/);
+    if (mTail) {
+      packsFromTail = parseInt(mTail[1], 10);
+      line = line.replace(mTail[0], '').trim();
+    }
+
+    // 4) rimuovi prezzo finale, IVA o simboli moneta
+    line = line.replace(/\s+\d{1,2}%\s+\d+(?:[.,]\d{2})\s*$/i, '').replace(RX_PRICE_TAIL, '').trim();
+    if (!line) continue;
+
+    // 5) quantità "x6" / "X6" dentro la riga → unitsPerPack
+    let unitsPerPack = 1;
+    const mInline = line.match(/\bx\s*(\d+)\b/i);
+    if (mInline) {
+      unitsPerPack = Math.max(1, parseInt(mInline[1], 10));
+      line = line.replace(mInline[0], '').trim();
+    }
+
+    // 6) rimuovi pesi/volumi (non sono quantità)
+    line = line.replace(RX_WEIGHT, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (!line) continue;
+
+    // 7) brand = ultima parola in "stile brand" (maiuscolo/Capitalized)
+    let name = line, brand = '';
+    const parts = name.split(' ');
+    if (parts.length > 1) {
+      const last = parts[parts.length - 1];
+      if (/^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-'.]*$/.test(last)) {
+        brand = last; name = parts.slice(0, -1).join(' ');
+      }
+    }
+
+    // piccoli fix comuni
+    const low = name.toLowerCase();
+    if (/yo-?yo/.test(low)) name = 'merendine yo-yo';
+    else if (/pan\s+bauletto/.test(low)) name = 'pan bauletto';
+    else if (/lacca\b/.test(low)) name = 'lacca per capelli';
+    else if (/\bcaff[eè]\b/.test(low)) name = 'caffè';
+
+    // 8) packs = tail se presente, altrimenti 1
+    const packs = Math.max(1, packsFromTail || 1);
+
+    out.push({
+      name: name.trim(),
+      brand: brand || '',
+      packs,
+      unitsPerPack: Math.max(1, unitsPerPack),
+      unitLabel: 'unità',
+      expiresAt: ''
+    });
+  }
+
+  return out;
+}
+
 
   async function handleOCR(files) {
     if (!files) return;
