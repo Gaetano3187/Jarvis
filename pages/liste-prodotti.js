@@ -1620,9 +1620,16 @@ const RECEIPT_SCHEMA = {
   },
   required: ['store','purchaseDate','purchases']
 };
-
+// --- Numero robusto: "1,5" → 1.5; valori non numerici → 0
+function coerceNum(x) {
+  if (x == null) return 0;
+  const s = String(x).trim().replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
+
 async function handleOCR(files) {
   if (!files) return;
   try {
