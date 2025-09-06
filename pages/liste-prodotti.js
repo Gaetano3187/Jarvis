@@ -1032,22 +1032,23 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   }
 }
 
-// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (proxy-safe, con fuzzy match) =====
-// pages/liste-prodotti.js  —— funzione enrichPurchasesViaWeb
-
+// ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (match robusto) =====
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
   }
 
   const payload = {
-    items: purchases.map(p => ({ name: String(p.name||''), brand: String(p.brand||'') })),
+    items: purchases.map(p => ({
+      name: String(p.name || ''),
+      brand: String(p.brand || '')
+    })),
   };
 
   try {
     const resp = await timeoutFetch(API_PRODUCTS_ENRICH, {
       method: 'POST',
-      headers: { 'Content-Type':'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }, 25000);
 
@@ -1056,40 +1057,67 @@ async function enrichPurchasesViaWeb(purchases = []) {
       throw new Error(json?.error || `enrich HTTP ${resp.status}`);
     }
 
-    const map = new Map(json.items.map(x => [
-      `${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x
-    ]));
+    // indicizzazioni: full key (nome+brand) e solo nome
+    const keyFull = (n, b) => `${normKey(n)}|${normKey(b||'')}`;
+    const keyName = (n)    => normKey(n);
+
+    const byFull = new Map();
+    const byName = new Map();
+    for (const x of json.items) {
+      const sn = String(x.sourceName || '');
+      const br = String(x.brand || '');
+      byFull.set(keyFull(sn, br), x);
+      if (!byName.has(keyName(sn))) byName.set(keyName(sn), x); // prima occorrenza
+    }
 
     const imagesMap = {};
+    let improved = 0;
+
     const out = purchases.map(p => {
-      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
-      const e = map.get(k);
-      if (!e) return p;
+      const n0 = String(p.name || '');
+      const b0 = String(p.brand || '');
+      const fullKey = keyFull(n0, b0);
+      let hit = byFull.get(fullKey);
 
-      const prettyName  = String(e.normalizedName || p.name).trim();
-      const prettyBrand = String(e.brand || p.brand || '').trim();
+      // 1) se niente, prova per solo nome
+      if (!hit) hit = byName.get(keyName(n0));
 
-      // ⬇️  QUESTA È LA MODIFICA IMPORTANTE: URL ASSOLUTO DEL PROXY
-      if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
-        const rel = `/api/img-proxy?url=${encodeURIComponent(e.imageUrl)}`;
-        const abs = (typeof window !== 'undefined' && window.location)
-          ? `${window.location.origin}${rel}`
-          : rel; // fallback (in pratica non usato in client)
-        imagesMap[productKey(prettyName, prettyBrand)] = abs;
+      // 2) se ancora niente, fuzzy: cerca quello più simile sul nome (e se c’è anche la marca)
+      if (!hit) {
+        let best = null, bestScore = -1;
+        for (const cand of json.items) {
+          const nameSim  = isSimilar(n0, cand.sourceName) ? 1 : 0;
+          const brandSim = b0 ? (isSimilar(b0, cand.brand || '') ? 1 : 0) : 0.5; // se brand assente nel ticket, non penalizzare
+          const score = nameSim * 0.8 + brandSim * 0.2;
+          if (score > bestScore) { bestScore = score; best = cand; }
+        }
+        if (bestScore >= 0.8) hit = best; // soglia ragionevole
       }
+
+      if (!hit) return p; // nessun miglioramento
+
+      const prettyName  = String(hit.normalizedName || p.name).trim();
+      const prettyBrand = String(hit.brand || p.brand || '').trim();
+
+      // costruisci un proxy assoluto (evita problemi di salvataggio/visualizzazione)
+      if (hit.imageUrl && /^https?:\/\//i.test(hit.imageUrl)) {
+        const origin = (typeof window !== 'undefined' && window.location) ? window.location.origin : '';
+        const proxied = origin ? `${origin}/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}` : `/api/img-proxy?url=${encodeURIComponent(hit.imageUrl)}`;
+        imagesMap[productKey(prettyName, prettyBrand)] = proxied;
+      }
+
+      // segna miglioramento solo se cambia qualcosa o se abbiamo immagine
+      const changed = (prettyName !== p.name) || (prettyBrand !== (p.brand || '')) || !!imagesMap[productKey(prettyName, prettyBrand)];
+      if (changed) improved++;
 
       return { ...p, name: prettyName, brand: prettyBrand };
     });
 
-    // opzionale: log di controllo
-    try {
-      const improved = out.filter((o,i) =>
-        (o.name !== purchases[i].name) || (o.brand !== purchases[i].brand)
-      ).length;
-      console.log('[enrich applied]', { requested: purchases.length, improved });
-    } catch {}
+    // log utile in console
+    try { console.log('[enrich applied]', { requested: purchases.length, improved }); } catch {}
 
     return { items: out, images: imagesMap };
+
   } catch (err) {
     console.warn('[enrich] fail:', err);
     return { items: purchases, images: {} };
