@@ -1850,6 +1850,33 @@ async function handleOCR(files) {
       ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
     } catch (err) { showToast(`OCR errore: ${err.message}`, 'err'); throw err; }
 
+    // NEW: se Vision ha già estratto lo scontrino completo
+if (Array.isArray(ocrAns?.purchases) && ocrAns.purchases.length) {
+  purchases = ocrAns.purchases.map(p => ({
+    name: String(p.name||'').trim(),
+    brand: String(p.brand||'').trim(),
+    packs: coerceNum(p.packs),
+    unitsPerPack: coerceNum(p.unitsPerPack),
+    unitLabel: normalizeUnitLabel(p.unitLabel || 'unità'),
+    priceEach: coerceNum(p.priceEach),
+    priceTotal: coerceNum(p.priceTotal),
+    currency: String(p.currency||'').trim() || 'EUR',
+    expiresAt: toISODate(p.expiresAt || '')
+  }));
+
+  // meta per Finanze/Spese Casa
+  const metaFromVision = {
+    store: ocrAns.store || '',
+    purchaseDate: toISODate(ocrAns.purchaseDate || ''),
+    location: ocrAns.location || '',
+    totalPaid: coerceNum(ocrAns.totalPaid),
+    currency: ocrAns.currency || 'EUR',
+    paymentMethod: ocrAns.paymentMethod || 'cash',
+  };
+  if (typeof setPendingOcrMeta === 'function') setPendingOcrMeta(metaFromVision);
+}
+
+
     // Retry HEIC (Safari) se testo ancora vuoto
     if (!ocrText && /heic|heif/i.test(first?.type || '')) {
       fdOcr = new FormData(); for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
@@ -2117,6 +2144,23 @@ setStock(prev => {
     setBusy(false);
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
+  const meta = pendingOcrMeta || {};
+const payload = {
+  ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+  ...(meta.store ? { store: meta.store } : {}),
+  ...(meta.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
+  ...(meta.location ? { location: meta.location } : {}),
+  ...(Number.isFinite(Number(meta.totalPaid)) ? { totalPaid: Number(meta.totalPaid) } : {}),
+  ...(meta.currency ? { currency: meta.currency } : {}),
+  payment_method: meta.paymentMethod || 'cash',
+  card_label: null,
+  items: itemsSafe
+};
+await fetchJSONStrict(API_FINANCES_INGEST, {
+  method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify(payload)
+}, 30000);
+
 }
 
   /* =================== Edit riga scorte =================== */
