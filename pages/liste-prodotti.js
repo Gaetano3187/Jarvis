@@ -1627,6 +1627,26 @@ function coerceNum(x) {
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
+/* ===== Filtri anti-rumore per righe NON prodotto (AI-only safety) ===== */
+const RX_HEADER_NOISE = /\b(documento\s+commerciale|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva\b|rt\b|cassa|cassiere|lotteria|scontrino|corrispettivi|fiscale)\b/i;
+const RX_ADDRESS     = /\b(via|viale|v\.\b|vle\.?|piazza|p\.?za|corso|c\.?so|strada|s\.?s\.?|km|civ\.?|snc|cap\s*\d{5}|tel\.?|telefono|pec|email|@)\b/i;
+const RX_LEGAL       = /\b(s\.?r\.?l\.?|s\.?p\.?a\.?|a\s*socio\s*unico|p\.?\s*iva|partita\s*iva|c\.?f\.?|rea|reg\.?\s*imp\.)\b/i;
+
+function filterPurchasesNoise(purchases = []) {
+  const arr = Array.isArray(purchases) ? purchases : [];
+  const out = [];
+  for (const p of arr) {
+    const nm = String(p?.name || '').trim();
+    if (!nm) continue;
+    if (RX_HEADER_NOISE.test(nm)) continue;
+    if (RX_ADDRESS.test(nm)) continue;
+    if (RX_LEGAL.test(nm)) continue;
+    const clean = nm.replace(/^['"`]+|['"`]+$/g, '').trim();
+    if (!clean) continue;
+    out.push({ ...p, name: clean });
+  }
+  return out;
+}
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
 
