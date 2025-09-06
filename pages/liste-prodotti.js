@@ -1765,32 +1765,36 @@ const DIRECT_RECOGNITION = true;
 /** Prompt “diretto”: nessuna normalizzazione, nessun sinonimo, mantieni i nomi come sullo scontrino */
 function buildDirectReceiptPrompt(ocrText) {
   return [
-    'Sei Jarvis. Estrai le righe di UN SCONTRINO da TESTO OCR.',
-    '⚠️ IMPORTANTISSIMO: NON normalizzare, NON tradurre, NON sostituire sinonimi.',
-    'Mantieni i nomi (name) esattamente come appaiono sullo scontrino. "brand" solo se è scritto in riga; altrimenti stringa vuota.',
+    'Sei Jarvis. Estrai SOLO le RIGHE PRODOTTO da un TESTO OCR di SCONTRINO.',
+    'Mantieni i nomi esattamente come appaiono (nessuna normalizzazione). "brand" solo se è scritto nella STESSA riga.',
     '',
-    'Rispondi SOLO JSON (nessun commento) con schema esatto:',
+    'RISPOSTA SOLO JSON:',
     '{ "store":"", "purchaseDate":"", "purchases":[{"name":"","brand":"","packs":0,"unitsPerPack":0,"unitLabel":"","priceEach":0,"priceTotal":0,"currency":"EUR","expiresAt":""}] }',
     '',
-    'Regole quantità:',
-    '- Compila packs/unitsPerPack SOLO se il formato è esplicito (es. "2x6", "2 confezioni da 6", "6 bottiglie").',
-    '- Pesi/volumi/dimensioni (g, kg, ml, L, cm, ecc.) NON sono quantità: non usarli per packs/unitsPerPack.',
-    '- Se manca la quantità esplicita, lascia packs=0, unitsPerPack=0, unitLabel="".',
+    'ESCLUDI SEMPRE (NON inserirli in purchases):',
+    '- intestazioni/forme societarie (SRL/SPA/a socio unico), P.IVA/CF/REA, indirizzi (via/v.le/p.zza/corso/Km/CAP), città/provincia, email/PEC/telefono',
+    '- RT/cassa/cassiere/codici a barre, metodo di pagamento, RESTO/SUBTOTALE/TOTALE/di cui IVA',
+    '- righe promozionali, shopper/sacchetti, ecocontributi, cauzioni/vuoti',
     '',
-    'Regole prezzi:',
-    '- priceEach se presente prezzo unitario; altrimenti 0.',
-    '- priceTotal è il totale della riga (non il totale scontrino).',
-    '- currency in "EUR" se non indicato.',
+    'Quantità:',
+    '- Imposta packs/unitsPerPack SOLO se espliciti (es. "2x6", "2 confezioni da 6", "6 bottiglie").',
+    '- Pesi/volumi/dimensioni (g, kg, ml, L, cm) NON sono quantità → lascia packs=0, unitsPerPack=0, unitLabel="".',
+    '',
+    'Prezzi:',
+    '- priceEach se c’è prezzo unitario; altrimenti 0.',
+    '- priceTotal è il totale della riga prodotto.',
+    '- currency: "EUR" se non indicato.',
     '',
     'Date/Store:',
-    '- purchaseDate nel formato YYYY-MM-DD se presente.',
-    '- store è il nome dell’esercizio (testo dell’intestazione), non i metodi di pagamento.',
+    '- purchaseDate come "YYYY-MM-DD" se presente nello scontrino.',
+    '- store: solo nome esercizio (non includere indirizzo o forma societaria).',
     '',
     '--- INIZIO OCR ---',
     ocrText,
     '--- FINE OCR ---'
   ].join('\n');
 }
+
 
 
 /* ====================== Component principale ====================== */
@@ -2678,109 +2682,50 @@ async function handleOCR(files) {
     }
 
     if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
+// ——— 2) AI-only: chiedi all’assistente il JSON finale ———
+let parsed = null;
+if (ocrText) {
+  const prompt = buildDirectReceiptPrompt(ocrText);
+  // prova con schema; se la tua /api/assistant non lo supporta, fa fallback
+  parsed = await askAssistantJSON(prompt, RECEIPT_SCHEMA) || await askAssistantJSON(prompt, null);
+}
 
-    // ——— 2) DIRETTO: chiedi all’agente il JSON finale (niente normalizzatori) ———
-    let parsed = null;
-    if (ocrText) {
-      const prompt = buildDirectReceiptPrompt(ocrText);
-      try {
-        const r = await timeoutFetch(
-          API_ASSISTANT_TEXT,
-          { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ prompt }) },
-          45000
-        );
-        const safe   = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        parsed = typeof answer === 'string'
-          ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })()
-          : answer;
-      } catch (e) {
-        if (DEBUG) console.warn('[ASSISTANT direct parse] fail', e);
-      }
-    }
+// ——— 3) Meta (store, data) ———
+let store        = toISODate('') && ''; // init neutro
+let purchaseDate = '';
+if (parsed && typeof parsed === 'object') {
+  store        = String(parsed.store || '').trim();
+  purchaseDate = toISODate(parsed.purchaseDate || '');
+}
 
-    // ——— 3) Meta (store, data) ———
-    const metaFallback = parseReceiptMeta(ocrText || '');
-    let store        = String(parsed?.store || metaFallback.store || '').trim();
-    let purchaseDate = toISODate(parsed?.purchaseDate || metaFallback.purchaseDate || '');
+// ——— 4) Righe acquisto (SOLO AI) ———
+let purchases = [];
+if (Array.isArray(parsed?.purchases) && parsed.purchases.length) {
+  purchases = parsed.purchases.map(p => ({
+    name: String(p?.name || '').trim(),
+    brand: String(p?.brand || '').trim(),
+    packs: coerceNum(p?.packs),
+    unitsPerPack: coerceNum(p?.unitsPerPack),
+    unitLabel: String(p?.unitLabel || '').trim(),
+    priceEach: coerceNum(p?.priceEach),
+    priceTotal: coerceNum(p?.priceTotal),
+    currency: String(p?.currency || 'EUR').trim() || 'EUR',
+    expiresAt: toISODate(p?.expiresAt || '')
+  })).filter(p => p.name);
+}
 
-    // ——— 4) Righe acquisto ———
-    let purchases = [];
-    if (Array.isArray(parsed?.purchases) && parsed.purchases.length) {
-      purchases = parsed.purchases.map(p => ({
-        name: String(p?.name || '').trim(),
-        brand: String(p?.brand || '').trim(),
-        packs: coerceNum(p?.packs),
-        unitsPerPack: coerceNum(p?.unitsPerPack),
-        unitLabel: String(p?.unitLabel || '').trim(),
-        priceEach: coerceNum(p?.priceEach),
-        priceTotal: coerceNum(p?.priceTotal),
-        currency: String(p?.currency || 'EUR').trim() || 'EUR',
-        expiresAt: toISODate(p?.expiresAt || '')
-      })).filter(p => p.name);
-    }
+// (opzionale) log di controllo
+try { console.log('[ai-only lines]', { ai: purchases.length }); } catch {}
 
-    // ——— 5) Fallback locali SOLO se l’agente non ha dato nulla ———
-    if (!purchases.length && ocrText) {
-      const local = parseReceiptPurchases(ocrText).map(p => ({
-        name: p.name, brand: p.brand || '',
-        packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
-        unitLabel: String(p.unitLabel || '').trim(),
-        priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
-      }));
-      purchases = local;
-    }
-    if (!purchases.length && ocrText) {
-      purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
-    }
+// ——— 5) Filtro sicurezza anti-rumore ———
+purchases = filterPurchasesNoise(purchases);
 
-    // ——— 6) NIENTE normalizzazioni se DIRECT_RECOGNITION ———
-    if (!DIRECT_RECOGNITION) {
-      // 🔸(Modalità legacy) eventuali normalizzatori se mai ti servissero
-      if (Array.isArray(purchases)) {
-        purchases = purchases.map(p => {
-          if (typeof applyLearnedAliases === 'function') {
-            const a = applyLearnedAliases({ name:p.name, brand:p.brand }, (typeof learned !== 'undefined' ? learned : {}));
-            return { ...p, name: a.name, brand: a.brand };
-          }
-          return p;
-        });
-        if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
-        if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
-      }
-      if (typeof mergeAndCanonizePurchases === 'function') {
-        purchases = mergeAndCanonizePurchases(purchases);
-      }
-    }
+// No parser locale, no merge: se non c'è nulla fermati qui
+if (!Array.isArray(purchases) || purchases.length === 0) {
+  showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+  return;
+}
 
-    // ——— 7) (Facoltativo) filtra cose palesemente non-merce ———
-    // Non è “normalizzazione”: evitiamo solo shopper/cauzioni ecc. per non sporcare le scorte.
-    const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
-    const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-    purchases = (purchases || []).filter(p => {
-      const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
-      if (!nm || DISCARD_MSG.test(nm)) return false;
-      return !NOT_PRODUCT_RE.test(nm);
-    });
-
-    // ——— 8) Candidati per review (se vuoi mostrare ciò che non è entrato) ———
-    let reviewCandidates = [];
-    if (typeof collectReviewCandidatesFromOCRText === 'function' && ocrText) {
-      reviewCandidates = collectReviewCandidatesFromOCRText(ocrText, purchases);
-    }
-    if (reviewCandidates.length && typeof openValidation === 'function') {
-      openValidation(reviewCandidates, { store, purchaseDate });
-    }
-
-    // ——— 9) Niente riconosciuto? ———
-    if ((!Array.isArray(purchases) || purchases.length === 0) && reviewCandidates.length) {
-      showToast('Nessuna riga confermata: verifica i candidati', 'err');
-      return;
-    }
-    if (!Array.isArray(purchases) || purchases.length === 0) {
-      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-      return;
-    }
 // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
 let mergedImagesIndex = imagesIndex; // mappa "pronta" anche per setStock
 if (purchases.length) {
