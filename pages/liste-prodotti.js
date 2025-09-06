@@ -1020,119 +1020,63 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
 }
 
 // ===== ENRICH: normalizza nome/categoria e recupera immagine dal web (proxy-safe, con fuzzy match) =====
+// pages/liste-prodotti.js  —— funzione enrichPurchasesViaWeb
+
 async function enrichPurchasesViaWeb(purchases = []) {
   if (!Array.isArray(purchases) || purchases.length === 0) {
     return { items: purchases, images: {} };
   }
 
   const payload = {
-    items: purchases.map(p => ({
-      name: String(p.name || ''),
-      brand: String(p.brand || '')
-    })),
-  };
-
-  // util per confronto “morbido”
-  const nk = (s='') => String(s)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'')
-    .replace(/[^a-z0-9\s]/g,' ')
-    .replace(/\s{2,}/g,' ')
-    .trim();
-
-  const jaccard = (a, b) => {
-    const A = new Set(nk(a).split(' ').filter(Boolean));
-    const B = new Set(nk(b).split(' ').filter(Boolean));
-    if (!A.size || !B.size) return 0;
-    let inter = 0;
-    A.forEach(t => { if (B.has(t)) inter++; });
-    return inter / new Set([...A, ...B]).size;
-  };
-
-  const scorePair = (p, x) => {
-    // peso brand > nome
-    let s = 0;
-    if (p.brand && x.brand) {
-      s += (nk(p.brand) === nk(x.brand)) ? 0.6 : jaccard(p.brand, x.brand) * 0.6;
-    }
-    s += jaccard(p.name, x.sourceName || x.normalizedName || '') * 0.5;
-    // piccolo boost se una stringa contiene l’altra
-    const pn = nk(p.name), xn = nk(x.sourceName || x.normalizedName || '');
-    if (pn && xn && (pn.includes(xn) || xn.includes(pn))) s += 0.2;
-    return s;
+    items: purchases.map(p => ({ name: String(p.name||''), brand: String(p.brand||'') })),
   };
 
   try {
-    const resp = await timeoutFetch(
-      API_PRODUCTS_ENRICH,
-      {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify(payload),
-      },
-      25000
-    );
+    const resp = await timeoutFetch(API_PRODUCTS_ENRICH, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(payload),
+    }, 25000);
 
     const json = await resp.json().catch(() => null);
     if (!resp.ok || !json || !json.ok || !Array.isArray(json.items)) {
       throw new Error(json?.error || `enrich HTTP ${resp.status}`);
     }
 
-    // mappa “esatta”
-    const exact = new Map(
-      json.items.map(x => [
-        `${nk(x.sourceName)}|${nk(x.brand || '')}`,
-        x
-      ])
-    );
+    const map = new Map(json.items.map(x => [
+      `${normKey(x.sourceName)}|${normKey(x.brand||'')}`, x
+    ]));
 
     const imagesMap = {};
-    const enrichedOut = purchases.map((p) => {
-      const exactKey = `${nk(p.name)}|${nk(p.brand || '')}`;
-      let e = exact.get(exactKey);
-
-      // se non trova, prova fuzzy
-      if (!e) {
-        let best = null, bestScore = 0;
-        for (const cand of json.items) {
-          const s = scorePair(p, cand);
-          if (s > bestScore) { best = cand; bestScore = s; }
-        }
-        // soglia “ragionevole” per evitare abbinamenti sbagliati
-        if (best && bestScore >= 0.35) {
-          e = best;
-          if (DEBUG) console.log('[enrich:fuzzy] matched', { from: p, to: best, score: bestScore.toFixed(2) });
-        } else if (DEBUG) {
-          console.warn('[enrich:fuzzy] no match for', p);
-        }
-      }
-
-      if (!e) return p; // nessun miglioramento
+    const out = purchases.map(p => {
+      const k = `${normKey(p.name)}|${normKey(p.brand||'')}`;
+      const e = map.get(k);
+      if (!e) return p;
 
       const prettyName  = String(e.normalizedName || p.name).trim();
       const prettyBrand = String(e.brand || p.brand || '').trim();
 
-      // proxy per evitare hotlink/CORS
+      // ⬇️  QUESTA È LA MODIFICA IMPORTANTE: URL ASSOLUTO DEL PROXY
       if (e.imageUrl && /^https?:\/\//i.test(e.imageUrl)) {
-        imagesMap[productKey(prettyName, prettyBrand)] =
-          `/api/img-proxy?url=${encodeURIComponent(e.imageUrl)}`;
+        const rel = `/api/img-proxy?url=${encodeURIComponent(e.imageUrl)}`;
+        const abs = (typeof window !== 'undefined' && window.location)
+          ? `${window.location.origin}${rel}`
+          : rel; // fallback (in pratica non usato in client)
+        imagesMap[productKey(prettyName, prettyBrand)] = abs;
       }
 
       return { ...p, name: prettyName, brand: prettyBrand };
     });
 
-    if (DEBUG) {
-      console.log('[enrich meta]', json.meta || {});
-      console.log('[enrich applied]', {
-        requested: purchases.length,
-        improved: enrichedOut.filter((r, i) =>
-          nk(r.name) !== nk(purchases[i].name) || nk(r.brand) !== nk(purchases[i].brand || '')
-        ).length
-      });
-    }
+    // opzionale: log di controllo
+    try {
+      const improved = out.filter((o,i) =>
+        (o.name !== purchases[i].name) || (o.brand !== purchases[i].brand)
+      ).length;
+      console.log('[enrich applied]', { requested: purchases.length, improved });
+    } catch {}
 
-    return { items: enrichedOut, images: imagesMap };
+    return { items: out, images: imagesMap };
   } catch (err) {
     console.warn('[enrich] fail:', err);
     return { items: purchases, images: {} };
