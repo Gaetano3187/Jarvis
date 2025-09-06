@@ -231,6 +231,231 @@ function ListeProdotti() {
   const [form, setForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
   const [showListForm, setShowListForm] = useState(false);
 
+  const handleOCR = useCallback(async (files) => {
+  if (!files) return;
+  try {
+    setBusy(true);
+
+    // 0) file valido
+    const toArray = (x) => Array.from(x || []);
+    const isFileLike = (v) => {
+      try {
+        return !!(v && typeof v === 'object' && typeof v.type === 'string' && typeof v.size === 'number' && typeof v.arrayBuffer === 'function' && typeof v.slice === 'function');
+      } catch { return false; }
+    };
+    const picked = []; for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
+    if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
+
+    // 1) OCR
+    const first = picked[0];
+    const slim  = await downscaleImageFile(first, { maxSide: 1400, quality: 0.7 });
+    const aliases = ['images','files','file','image'];
+    let fdOcr = new FormData(); for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
+
+    let ocrAns = null, ocrText = '';
+    try {
+      ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 60000);
+      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
+    } catch (err) { showToast(`OCR errore: ${err.message}`, 'err'); throw err; }
+
+    // HEIC retry
+    if (!ocrText && /heic|heif/i.test(first?.type || '')) {
+      fdOcr = new FormData(); for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
+      try {
+        const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 60000);
+        if (o2 && (o2.text || (o2.items && o2.items.length))) {
+          ocrAns  = o2;
+          ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
+        }
+      } catch {}
+    }
+
+    if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
+
+    // 2) Preferisci items strutturati (Vision)
+    let purchases = [];
+    const itemsFromVision = Array.isArray(ocrAns?.items) ? ocrAns.items : [];
+    if (itemsFromVision.length) {
+      purchases = itemsFromVision.map(p => ({
+        name: String(p?.name || '').trim(),
+        brand: String(p?.brand || '').trim(),
+        packs: coerceNum(p?.packs),
+        unitsPerPack: coerceNum(p?.unitsPerPack),
+        unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
+        priceEach: 0, priceTotal: 0, currency: 'EUR',
+        expiresAt: toISODate(p?.expiresAt || '')
+      })).filter(p => p.name);
+    }
+
+    // 3) Fallback parsing locale se Vision non ha items
+    if (!purchases.length && ocrText) {
+      purchases = parseReceiptPurchases(ocrText).map(p => ({
+        name: p.name, brand: p.brand || '',
+        packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
+        unitLabel: normalizeUnitLabel(p.unitLabel || ''),
+        priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
+      }));
+    }
+
+    // 3.b) Pulizia token ticket e filtro rumore PRIMA dell'enrich
+    if (typeof stripTicketArtifacts === 'function') {
+      purchases = purchases.map(p => ({ ...p, name: stripTicketArtifacts(p.name) }));
+    }
+    if (typeof filterPurchasesNoise === 'function') {
+      purchases = filterPurchasesNoise(purchases);
+    }
+    if (!purchases.length) {
+      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+      setBusy(false);
+      return;
+    }
+
+    // 4) Enrich: prettyName/immagine/descrizione
+    let imgIndex = getImgIndexSafe(imagesIndex);
+    const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
+    purchases = Array.isArray(enriched) ? enriched : purchases;
+    imgIndex  = { ...imgIndex, ...(imap || {}) };
+    setImagesIndex(imgIndex);
+
+    // 5) Decrementa liste
+    setLists(prev => decrementAcrossBothLists(prev, purchases));
+
+    // 6) Aggiorna scorte (NO MERGE: incrementa solo se name+brand esatti)
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0, 10);
+
+      for (const p of purchases) {
+        const idx = arr.findIndex(s => sameText(s.name, p.name) && sameText(s.brand || '', p.brand || ''));
+        const packs = coerceNum(p.packs);
+        const upp   = coerceNum(p.unitsPerPack);
+        const hasCounts = packs > 0 || upp > 0;
+
+        if (idx >= 0) {
+          const old = arr[idx];
+          if (hasCounts) {
+            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
+            arr[idx] = {
+              ...old,
+              name: old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              packs: newP,
+              unitsPerPack: newU,
+              unitLabel: old.unitLabel || p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || old.expiresAt || '',
+              prettyName: p.prettyName || old.prettyName || '',
+              desc: (p.description || old.desc || ''),
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(newP, todayISO, newU),
+            };
+          } else if (DEFAULT_PACKS_IF_MISSING) {
+            const uo = Math.max(1, Number(old.unitsPerPack || 1));
+            const np = Math.max(0, Number(old.packs || 0) + 1);
+            arr[idx] = {
+              ...old,
+              name: old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              packs: np,
+              unitsPerPack: uo,
+              unitLabel: old.unitLabel || 'unità',
+              prettyName: p.prettyName || old.prettyName || '',
+              desc: (p.description || old.desc || ''),
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(np, todayISO, uo),
+            };
+          } else {
+            arr[idx] = { ...old, name: old.name, brand: (p.brand && String(p.brand).trim()) || old.brand, needsUpdate: true };
+          }
+
+          // Aggancia immagine
+          try {
+            const keys = [
+              productKey(arr[idx].name, arr[idx].brand || ''),
+              productKey(p.name,        p.brand        || ''),
+              productKey(arr[idx].name, ''),
+              productKey(p.name,        ''),
+            ];
+            for (const k of keys) {
+              if (imgIndex && imgIndex[k]) { arr[idx] = { ...arr[idx], image: imgIndex[k] }; break; }
+            }
+          } catch {}
+        } else {
+          // nuova riga
+          if (hasCounts) {
+            const u = Math.max(1, upp || 1);
+            arr.unshift(
+              withRememberedImage({
+                name: p.name, brand: p.brand || '',
+                packs: Math.max(0, packs || 1), unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
+                expiresAt: p.expiresAt || '',
+                prettyName: p.prettyName || '', desc: (p.description || ''),
+                baselinePacks: Math.max(0, packs || 1), lastRestockAt: todayISO,
+                avgDailyUnits: 0, residueUnits: Math.max(0, (packs || 1) * u),
+                packsOnly: false, needsUpdate: false,
+              }, imgIndex)
+            );
+          } else if (DEFAULT_PACKS_IF_MISSING) {
+            arr.unshift(
+              withRememberedImage({
+                name: p.name, brand: p.brand || '',
+                packs: 1, unitsPerPack: 1, unitLabel: 'unità',
+                expiresAt: p.expiresAt || '',
+                prettyName: p.prettyName || '', desc: (p.description || ''),
+                baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0, residueUnits: 1,
+                packsOnly: false, needsUpdate: false,
+              }, imgIndex)
+            );
+          } else {
+            arr.unshift(
+              withRememberedImage({
+                name: p.name, brand: p.brand || '',
+                packs: 0, unitsPerPack: 1, unitLabel: '-',
+                expiresAt: p.expiresAt || '',
+                prettyName: p.prettyName || '', desc: (p.description || ''),
+                baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0,
+                packsOnly: true, needsUpdate: true,
+              }, imgIndex)
+            );
+          }
+        }
+      }
+      return arr;
+    });
+
+    // 7) Finanze
+    try {
+      const itemsSafe = purchases.map(p => ({
+        name: p.name, brand: p.brand || '',
+        packs: Number.isFinite(p.packs) ? p.packs : 0,
+        unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
+        unitLabel: p.unitLabel || '',
+        priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
+        priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
+        currency: p.currency || 'EUR',
+        expiresAt: p.expiresAt || ''
+      }));
+      await fetchJSONStrict(API_FINANCES_INGEST, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: itemsSafe })
+      }, 30000);
+    } catch (e) {
+      if (DEBUG) console.warn('[FINANCES_INGEST] fail', e);
+    }
+
+    showToast('OCR scorte completato ✓', 'ok');
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+}, [imagesIndex, setImagesIndex, setLists, setStock, showToast]);
+
+
   // Scorte
   const [stock, setStock] = useState([]);
   const [critical, setCritical] = useState([]);
