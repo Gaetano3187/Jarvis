@@ -127,21 +127,35 @@ export default async function handler(req, res) {
       let name  = cleanName(guessName(titles, brand) || srcName).replace(/\bgr?\.?\b/ig,'').trim();
       if (!name) name = cleanName(srcName);
 
-      // immagine diretta (niente proxy: <img> non soffre di CORS)
-      let imageUrl = '';
-      if (img?.items?.length) {
-        const best = img.items.find(x => brand && (x.title||'').toLowerCase().includes(brand.toLowerCase())) || img.items[0];
-        imageUrl = (best?.link || '').trim();
-      }
-      if (!imageUrl && web?.items?.length) {
-        for (const w of web.items) {
-          const og = w?.pagemap?.metatags?.[0]?.['og:image'];
-          const cs = w?.pagemap?.cse_image?.[0]?.src;
-          const any = og || cs;
-          if (any && /^https?:\/\//i.test(any)) { imageUrl = any; break; }
-        }
-      }
+  // IMMAGINE (img → og:image → cse_image → cse_thumbnail)
+let imageUrl = '';
+if (img?.items?.length) {
+  const best = img.items.find(x =>
+    brandNorm && (x.title || '').toLowerCase().includes(brandNorm.toLowerCase())
+  ) || img.items[0];
+  imageUrl = (best?.link || '').trim();
+}
+if (!imageUrl && web?.items?.length) {
+  for (const w of web.items) {
+    const og = w?.pagemap?.metatags?.[0]?.['og:image'];
+    const cs = w?.pagemap?.cse_image?.[0]?.src;
+    const tn = w?.pagemap?.cse_thumbnail?.[0]?.src;
+    const any = og || cs || tn;
+    if (any && /^https?:\/\//i.test(any)) { imageUrl = any; break; }
+  }
+}
 
+// Ultimo tentativo: query “foto”/“immagine prodotto”
+if (!imageUrl) {
+  try {
+    const imgs2 = await googleImg(`${q} immagine prodotto`);
+    const cand2 = imgs2?.items?.slice(0, 10) || [];
+    const best2 = cand2.find(x =>
+      brandNorm && (x.title || '').toLowerCase().includes(brandNorm.toLowerCase())
+    ) || cand2[0];
+    imageUrl = (best2?.link || '').trim();
+  } catch {}
+}
       // chiave di match che il client userà per mappare (stessa logica di “pulizia”)
       const matchKey = `${normKey(srcName)}|${normKey(srcBrand)}`;
 
