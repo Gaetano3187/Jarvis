@@ -692,6 +692,13 @@ function buildDirectReceiptPrompt(ocrText) {
     '--- FINE OCR ---',
   ].join('\n');
 }
+// --- Media workaround (safe no-op, evita errori in SSR/CSR) ---
+function theMediaWorkaround() {
+  // non fare nulla: serve solo a mantenere compatibile il codice esistente
+  // Se in futuro vuoi “sbloccare” l’audio su iOS/Chrome:
+  // try { if (typeof window !== 'undefined') { /* eventuale warm-up audio */ } } catch {}
+}
+
 
 
 /* ====================== Component principale ====================== */
@@ -1161,6 +1168,7 @@ useEffect(() => {
   });
   setCritical(crit);
 }, [stock]);
+
 
 // elimina una riga di scorte per indice (serve negli onClick)
 const deleteStockRow = useCallback((index) => {
