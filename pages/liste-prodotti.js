@@ -1031,47 +1031,6 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 40000) {
   } catch {
     return { data: raw };
   }
-  // === AI helper: chiama /api/assistant e prova a forzare il JSON ===
-async function askAssistantJSON(prompt, schema) {
-  try {
-    const body = schema
-      ? {
-          prompt,
-          // se il backend lo supporta, forza lo schema
-          response_format: 'json_schema',
-          schemaName: schema.title || 'Schema',
-          schema,
-        }
-      : { prompt };
-
-    const res = await timeoutFetch(
-      API_ASSISTANT_TEXT,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-      45000
-    );
-
-    const safe = await readJsonSafe(res);
-    let answer = safe?.answer ?? safe?.data ?? safe;
-
-    // può arrivare come stringa JSON
-    if (typeof answer === 'string') {
-      try { answer = JSON.parse(answer); } catch { answer = null; }
-    }
-    // oppure wrappato in { ok, data }
-    if (answer && answer.ok && answer.data) {
-      try { return typeof answer.data === 'string' ? JSON.parse(answer.data) : answer.data; }
-      catch { return answer.data; }
-    }
-    return answer || null;
-  } catch (e) {
-    try { console.warn('[askAssistantJSON] fail:', e); } catch {}
-    return null;
-  }
-}
 
 }
 
@@ -2678,6 +2637,78 @@ function estimateCandidateLines(ocrText=''){
   }
   return count;
 }
+// === AI helper: chiama /api/assistant e prova a forzare il JSON ===
+function askAssistantJSON(prompt, schema) {
+  return (async () => {
+    try {
+      const body = schema
+        ? {
+            prompt,
+            response_format: 'json_schema',  // se supportato dal backend
+            schemaName: schema.title || 'Schema',
+            schema,
+          }
+        : { prompt };
+
+      const res = await timeoutFetch(
+        API_ASSISTANT_TEXT,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        45000
+      );
+
+      const safe = await readJsonSafe(res);
+      let answer = safe?.answer ?? safe?.data ?? safe;
+
+      if (typeof answer === 'string') {
+        try { answer = JSON.parse(answer); } catch { answer = null; }
+      }
+      if (answer && answer.ok && answer.data) {
+        try { return typeof answer.data === 'string' ? JSON.parse(answer.data) : answer.data; }
+        catch { return answer.data; }
+      }
+      return answer || null;
+    } catch (e) {
+      try { console.warn('[askAssistantJSON] fail:', e); } catch {}
+      return null;
+    }
+  })();
+}
+
+// Schema atteso dal modello per l'estrazione scontrino (AI-only)
+const RECEIPT_SCHEMA = {
+  title: 'ReceiptExtraction',
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    store: { type: 'string' },
+    purchaseDate: { type: 'string' }, // YYYY-MM-DD
+    purchases: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name:        { type: 'string' },
+          brand:       { type: 'string' },
+          packs:       { type: 'number' },
+          unitsPerPack:{ type: 'number' },
+          unitLabel:   { type: 'string' },
+          priceEach:   { type: 'number' },
+          priceTotal:  { type: 'number' },
+          currency:    { type: 'string' },
+          expiresAt:   { type: 'string' }
+        },
+        required: ['name','brand','packs','unitsPerPack','unitLabel','priceEach','priceTotal','currency','expiresAt']
+      }
+    }
+  },
+  required: ['store','purchaseDate','purchases']
+};
+
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
 async function handleOCR(files) {
