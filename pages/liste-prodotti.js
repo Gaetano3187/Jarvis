@@ -164,29 +164,27 @@ function stripForCloud(state = {}) {
     };
 
     // Mantieni immagine solo se è URL http/https e non troppo lunga
-    const img = s?.image;
-    if (
-      typeof img === 'string' &&
-      /^https?:\/\//i.test(img) &&
-      img.length <= 500
-    ) {
-      base.image = img;
-    }
+  const img = s?.image;
+if (typeof img === 'string') {
+  const isHttp = /^https?:\/\//i.test(img);
+  const isProxyRel = img.startsWith('/api/img-proxy?'); // <— aggiunto
+  if ((isHttp || isProxyRel) && img.length <= 900) {     // <— aumentato limite prudente
+    base.image = img;
+  }
+}
+
 
     return base;
   });
 
   // 3) imagesIndex: includi solo URL http/https brevi (no base64)
-  const srcIdx =
-    state.imagesIndex && typeof state.imagesIndex === 'object'
-      ? state.imagesIndex
-      : {};
-  const imagesIndex = {};
-  for (const [k, v] of Object.entries(srcIdx)) {
-    if (typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500) {
-      imagesIndex[k] = v;
-    }
+for (const [k, v] of Object.entries(srcIdx)) {
+  const isHttp = typeof v === 'string' && /^https?:\/\//i.test(v);
+  const isProxyRel = typeof v === 'string' && v.startsWith('/api/img-proxy?'); // <—
+  if ((isHttp || isProxyRel) && v.length <= 900) {
+    imagesIndex[k] = v;
   }
+}
 
   // 4) learned (solo quello utile)
   const learned =
