@@ -1780,51 +1780,168 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
   // 1) Decrementa liste
   setLists(prev => decrementAcrossBothLists(prev, addItems));
 
-  // 2) Aggiorna scorte
+  // 2) Aggiorna scorte (match rigoroso + mantieni name OCR; usa prettyName/desc solo per display)
   setStock(prev => {
-    const arr = [...prev]; const todayISO = new Date().toISOString().slice(0,10);
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0, 10);
+
     for (const p of addItems) {
-     const idx = findStockIndexStrict(arr, p);
+      const idx = findStockIndexStrict(arr, p);
       const packs = Math.max(0, Number(p.packs || 0));
       const upp   = Math.max(1, Number(p.unitsPerPack || 1));
       const hasCounts = packs > 0 || upp > 0;
 
       if (idx >= 0) {
         const old = arr[idx];
+
         if (hasCounts) {
           const newP = Math.max(0, Number(old.packs || 0) + packs);
           const newU = Math.max(1, Number(old.unitsPerPack || upp));
-          arr[idx] = { ...old, packs:newP, unitsPerPack:newU,
+
+          let updated = {
+            ...old,
+            // IDENTITÀ: nome OCR resta invariato
+            name: old.name,
+            brand: (p.brand || old.brand || '').trim(),
+            packs: newP,
+            unitsPerPack: newU,
             unitLabel: old.unitLabel || p.unitLabel || 'unità',
             expiresAt: p.expiresAt || old.expiresAt || '',
-            packsOnly:false, needsUpdate:false, ...restockTouch(newP, todayISO, newU) };
+            // DISPLAY: mantieni eventuale prettyName/desc
+            prettyName: p.prettyName || old.prettyName || '',
+            desc: (p.description || old.desc || ''),
+            packsOnly: false,
+            needsUpdate: false,
+            ...restockTouch(newP, todayISO, newU),
+          };
+
+          // Aggancia immagine se presente da enrich e mancante nella riga
+          try {
+            if (!updated.image && imagesIndex && typeof imagesIndex === 'object') {
+              const keys = [
+                productKey(updated.name, updated.brand || ''),
+                productKey(p.name || updated.name, p.brand || updated.brand || ''),
+                productKey(updated.name, ''),
+              ];
+              for (const k of keys) {
+                if (imagesIndex[k]) { updated.image = imagesIndex[k]; break; }
+              }
+            }
+          } catch {}
+
+          arr[idx] = updated;
+
         } else {
           if (DEFAULT_PACKS_IF_MISSING) {
             const uo = Math.max(1, Number(old.unitsPerPack || 1));
             const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = { ...old, packs:np, unitsPerPack:uo, unitLabel: old.unitLabel || 'unità',
-              packsOnly:false, needsUpdate:false, ...restockTouch(np, todayISO, uo) };
-          } else { arr[idx] = { ...old, needsUpdate:true }; }
+
+            let updated = {
+              ...old,
+              name: old.name,
+              brand: (p.brand || old.brand || '').trim(),
+              packs: np,
+              unitsPerPack: uo,
+              unitLabel: old.unitLabel || 'unità',
+              prettyName: p.prettyName || old.prettyName || '',
+              desc: (p.description || old.desc || ''),
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(np, todayISO, uo),
+            };
+
+            // immagine se disponibile
+            try {
+              if (!updated.image && imagesIndex && typeof imagesIndex === 'object') {
+                const keys = [
+                  productKey(updated.name, updated.brand || ''),
+                  productKey(updated.name, ''),
+                ];
+                for (const k of keys) {
+                  if (imagesIndex[k]) { updated.image = imagesIndex[k]; break; }
+                }
+              }
+            } catch {}
+
+            arr[idx] = updated;
+
+          } else {
+            arr[idx] = { ...old, needsUpdate: true };
+          }
         }
+
       } else {
+        // nuova riga scorte
         if (hasCounts) {
-          arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand || '', packs, unitsPerPack:upp, unitLabel:p.unitLabel || 'unità',
-            expiresAt:p.expiresAt || '', baselinePacks:packs, lastRestockAt:todayISO, avgDailyUnits:0,
-            residueUnits:packs*upp, packsOnly:false, needsUpdate:false
-          }, imagesIndex));
+          arr.unshift(
+            withRememberedImage(
+              {
+                // IDENTITÀ
+                name: p.name,
+                brand: p.brand || '',
+                // QUANTITÀ
+                packs,
+                unitsPerPack: upp,
+                unitLabel: p.unitLabel || 'unità',
+                expiresAt: p.expiresAt || '',
+                // DISPLAY
+                prettyName: p.prettyName || '',
+                desc: (p.description || ''),
+                // METRICHE
+                baselinePacks: packs,
+                lastRestockAt: todayISO,
+                avgDailyUnits: 0,
+                residueUnits: packs * upp,
+                packsOnly: false,
+                needsUpdate: false,
+              },
+              imagesIndex
+            )
+          );
         } else if (DEFAULT_PACKS_IF_MISSING) {
-          arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand || '', packs:1, unitsPerPack:1, unitLabel:'unità',
-            expiresAt:p.expiresAt || '', baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
-            residueUnits:1, packsOnly:false, needsUpdate:false
-          }, imagesIndex));
+          arr.unshift(
+            withRememberedImage(
+              {
+                name: p.name,
+                brand: p.brand || '',
+                packs: 1,
+                unitsPerPack: 1,
+                unitLabel: 'unità',
+                expiresAt: p.expiresAt || '',
+                prettyName: p.prettyName || '',
+                desc: (p.description || ''),
+                baselinePacks: 1,
+                lastRestockAt: todayISO,
+                avgDailyUnits: 0,
+                residueUnits: 1,
+                packsOnly: false,
+                needsUpdate: false,
+              },
+              imagesIndex
+            )
+          );
         } else {
-          arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand || '', packs:0, unitsPerPack:1, unitLabel:'-',
-            expiresAt:p.expiresAt || '', baselinePacks:0, lastRestockAt:'', avgDailyUnits:0,
-            residueUnits:0, packsOnly:true, needsUpdate:true
-          }, imagesIndex));
+          arr.unshift(
+            withRememberedImage(
+              {
+                name: p.name,
+                brand: p.brand || '',
+                packs: 0,
+                unitsPerPack: 1,
+                unitLabel: '-',
+                expiresAt: p.expiresAt || '',
+                prettyName: p.prettyName || '',
+                desc: (p.description || ''),
+                baselinePacks: 0,
+                lastRestockAt: '',
+                avgDailyUnits: 0,
+                residueUnits: 0,
+                packsOnly: true,
+                needsUpdate: true,
+              },
+              imagesIndex
+            )
+          );
         }
       }
     }
@@ -1834,20 +1951,35 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
   // 3) Finanze
   try {
     const itemsSafe = addItems.map(p => ({
-      name:p.name, brand:p.brand||'', packs:Number(p.packs||0), unitsPerPack:Number(p.unitsPerPack||0),
-      unitLabel:p.unitLabel||'', priceEach:Number(p.priceEach||0), priceTotal:Number(p.priceTotal||0),
-      currency:p.currency||'EUR', expiresAt:p.expiresAt||''
+      name: p.name,
+      brand: p.brand || '',
+      packs: Number(p.packs || 0),
+      unitsPerPack: Number(p.unitsPerPack || 0),
+      unitLabel: p.unitLabel || '',
+      priceEach: Number(p.priceEach || 0),
+      priceTotal: Number(p.priceTotal || 0),
+      currency: p.currency || 'EUR',
+      expiresAt: p.expiresAt || '',
     }));
-    await fetchJSONStrict(API_FINANCES_INGEST, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
-        ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
-        payment_method:'cash', card_label:null, items: itemsSafe
-      })
-    }, 30000);
-  } catch(e){ if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e); }
+    await fetchJSONStrict(
+      API_FINANCES_INGEST,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+          ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
+          ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
+          payment_method: 'cash',
+          card_label: null,
+          items: itemsSafe,
+        }),
+      },
+      30000
+    );
+  } catch (e) {
+    if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e);
+  }
 }
 
 // Conferma selezionati
@@ -1864,7 +1996,6 @@ async function applyReviewSelection() {
 
 /* ==== Toggle riconoscimento/agent (arricchimento attivo) ==== */
 const ENRICH_MODE = 'on';         // 'off' | 'auto' | 'on'
-// Disattiva modale di review/normalizzazione
 const ASSIST_TIMEOUT_MS = 15000;  // timeout breve per l'agente
 const OCR_IMAGE_MAXSIDE = 1200;
 const OCR_IMAGE_QUALITY = 0.66;
@@ -1902,7 +2033,7 @@ function buildDirectReceiptPrompt(ocrText) {
     '',
     '--- INIZIO OCR ---',
     ocrText,
-    '--- FINE OCR ---'
+    '--- FINE OCR ---',
   ].join('\n');
 }
 
