@@ -2193,7 +2193,7 @@ useEffect(() => {
   };
 }, [lists, stock, currentList, imagesIndex, learned]);
 
-/* =================== Sync tra tab =================== */
+/* =================== Sync tra tab (robusto) =================== */
 useEffect(() => {
   if (typeof window === 'undefined') return;
 
@@ -2203,39 +2203,32 @@ useEffect(() => {
     const saved = loadPersisted();
     if (!saved || saved.v !== LS_VER) return;
 
-    // evita che uno stato PIÙ VECCHIO proveniente da un’altra tab sovrascriva il nostro
+    // ignora snapshot senza timestamp o NON più nuovi
     const savedAt = Number(saved.at || 0);
-    if (savedAt && savedAt < Number(lastLocalAtRef.current || 0)) {
-      if (DEBUG) console.log('[storage] ignorato stato più vecchio', {
-        savedAt,
-        localAt: lastLocalAtRef.current,
-      });
+    const lastAt  = Number(lastLocalAtRef.current || 0);
+    if (!savedAt || savedAt <= lastAt) {
+      if (DEBUG) console.log('[storage] ignorato (vecchio/uguale)', { savedAt, lastAt });
       return;
     }
 
-    // applica lo stato ricevuto e aggiorna il riferimento di ultimo "apply"
+    if (DEBUG) console.log('[storage] applico stato più recente', { savedAt, lastAt });
+
     setLists({
-      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET])
-        ? saved.lists[LIST_TYPES.SUPERMARKET]
-        : [],
-      [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE])
-        ? saved.lists[LIST_TYPES.ONLINE]
-        : [],
+      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+      [LIST_TYPES.ONLINE]:      Array.isArray(saved.lists?.[LIST_TYPES.ONLINE])      ? saved.lists[LIST_TYPES.ONLINE]      : [],
     });
     setStock(Array.isArray(saved.stock) ? saved.stock : []);
-    setCurrentList(
-      saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET
-    );
-    setImagesIndex(
-      saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {}
-    );
+    setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+    setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
 
-    lastLocalAtRef.current = savedAt || Date.now();
+    // IMPORTANTISSIMO: porta avanti il nostro “last”
+    lastLocalAtRef.current = savedAt;
   };
 
   window.addEventListener('storage', onStorage);
   return () => window.removeEventListener('storage', onStorage);
 }, []);
+
 
 /* =================== Derivati: critici =================== */
 // helper “safe” (non ridefinisce eventuali versioni globali)
