@@ -6,6 +6,8 @@ import Image from 'next/image';
 import { Pencil, Trash2, Camera, Plus, Calendar } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
+
+
 /*** === AI-only Receipt Extraction: definire PRIMA di ogni utilizzo === ***/
 
 // Schema atteso dal modello (usato solo come payload: costante non hoistata → deve stare prima)
@@ -68,6 +70,40 @@ async function askAssistantJSON(prompt, schema) {
     return null;
   }
 }
+
+// --- Guard: toISODate (hoisted) ---
+function toISODate(any) {
+  const s = String(any || '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
+  let m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+  if (m) {
+    const d = String(m[1]).padStart(2,'0');
+    const M = String(m[2]).padStart(2,'0');
+    let y = String(m[3]);
+    if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
+    return `${y}-${M}-${d}`;
+  }
+
+  // es. “15 ago 2025”
+  const mesi = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+  m = s.toLowerCase().match(/(\d{1,2})\s+([a-zà-ú]+)\s+(\d{2,4})/i);
+  if (m) {
+    const d = String(m[1]).padStart(2,'0');
+    const mon = m[2].slice(0,3);
+    const idx = mesi.indexOf(mon);
+    if (idx >= 0) {
+      let y = String(m[3]);
+      if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
+      const M = String(idx+1).padStart(2,'0');
+      return `${y}-${M}-${d}`;
+    }
+  }
+  return '';
+}
+
 
 
 // ===== BASE LEXICON (minimo, espandibile) =====
