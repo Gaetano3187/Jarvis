@@ -1699,6 +1699,9 @@ function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
 function openValidation(/*discardedList, meta*/) {
   return; // modale disattivata
 }
+
+
+
 /* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
 async function applyAdditionalPurchases(addItems, meta = {}) {
   if (!Array.isArray(addItems) || !addItems.length) return;
@@ -1720,62 +1723,38 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
         if (hasCounts) {
           const newP = Math.max(0, Number(old.packs || 0) + packs);
           const newU = Math.max(1, Number(old.unitsPerPack || upp));
-          arr[idx] = {
-            ...old,
-            packs: newP,
-            unitsPerPack: newU,
+          arr[idx] = { ...old, packs:newP, unitsPerPack:newU,
             unitLabel: old.unitLabel || p.unitLabel || 'unità',
             expiresAt: p.expiresAt || old.expiresAt || '',
-            desc: (p.description || old.desc || ''),               // 👈 descrizione
-            packsOnly: false,
-            needsUpdate: false,
-            ...restockTouch(newP, todayISO, newU)
-          };
+            desc: (p.description || old.desc || ''),
+            packsOnly:false, needsUpdate:false, ...restockTouch(newP, todayISO, newU) };
+            
         } else {
           if (DEFAULT_PACKS_IF_MISSING) {
             const uo = Math.max(1, Number(old.unitsPerPack || 1));
             const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = {
-              ...old,
-              packs: np,
-              unitsPerPack: uo,
-              unitLabel: old.unitLabel || 'unità',
-              desc: (p.description || old.desc || ''),             // 👈 descrizione
-              packsOnly: false,
-              needsUpdate: false,
-              ...restockTouch(np, todayISO, uo)
-            };
-          } else {
-            arr[idx] = { ...old, needsUpdate: true };
-          }
+            arr[idx] = { ...old, packs:np, unitsPerPack:uo, unitLabel: old.unitLabel || 'unità',
+              packsOnly:false, needsUpdate:false, ...restockTouch(np, todayISO, uo) };
+          } else { arr[idx] = { ...old, needsUpdate:true }; }
         }
       } else {
         if (hasCounts) {
           arr.unshift(withRememberedImage({
-            name: p.name, brand: p.brand || '',
-            packs, unitsPerPack: upp, unitLabel: p.unitLabel || 'unità',
-            expiresAt: p.expiresAt || '',
-            desc: (p.description || ''),                           // 👈 descrizione
-            baselinePacks: packs, lastRestockAt: todayISO, avgDailyUnits: 0,
-            residueUnits: packs * upp, packsOnly: false, needsUpdate: false
+            name:p.name, brand:p.brand || '', packs, unitsPerPack:upp, unitLabel:p.unitLabel || 'unità',
+            expiresAt:p.expiresAt || '', baselinePacks:packs, lastRestockAt:todayISO, avgDailyUnits:0,
+            residueUnits:packs*upp, packsOnly:false, needsUpdate:false
           }, imagesIndex));
         } else if (DEFAULT_PACKS_IF_MISSING) {
           arr.unshift(withRememberedImage({
-            name: p.name, brand: p.brand || '',
-            packs: 1, unitsPerPack: 1, unitLabel: 'unità',
-            expiresAt: p.expiresAt || '',
-            desc: (p.description || ''),                           // 👈 descrizione
-            baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
-            residueUnits: 1, packsOnly: false, needsUpdate: false
+            name:p.name, brand:p.brand || '', packs:1, unitsPerPack:1, unitLabel:'unità',
+            expiresAt:p.expiresAt || '', baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
+            residueUnits:1, packsOnly:false, needsUpdate:false
           }, imagesIndex));
         } else {
           arr.unshift(withRememberedImage({
-            name: p.name, brand: p.brand || '',
-            packs: 0, unitsPerPack: 1, unitLabel: '-',
-            expiresAt: p.expiresAt || '',
-            desc: (p.description || ''),                           // 👈 descrizione
-            baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0,
-            residueUnits: 0, packsOnly: true, needsUpdate: true
+            name:p.name, brand:p.brand || '', packs:0, unitsPerPack:1, unitLabel:'-',
+            expiresAt:p.expiresAt || '', baselinePacks:0, lastRestockAt:'', avgDailyUnits:0,
+            residueUnits:0, packsOnly:true, needsUpdate:true
           }, imagesIndex));
         }
       }
@@ -1893,11 +1872,11 @@ function ListeProdotti() {
     setTimeout(() => setToast(null), 1800);
   }
   // elimina una riga di scorte per indice
-  const deleteStockRow = useCallback((index) => {
-    setStock((prev) => prev.filter((_, i) => i !== index));
-    // aggiorna subito il timestamp locale per evitare che uno stato più vecchio sovrascriva
-    lastLocalAtRef.current = Date.now();
-  }, []);
+const deleteStockRow = useCallback((index) => {
+  setStock((prev) => prev.filter((_, i) => i !== index));
+  // aggiorna subito il timestamp locale per evitare che uno stato più vecchio sovrascriva
+  lastLocalAtRef.current = Date.now();
+}, []);
 
 
   // Persistenza debounce
@@ -2008,35 +1987,35 @@ function ListeProdotti() {
     return () => { mounted = false; };
   }, []);
 
-  /* ==== Helpers per stato "safe" (solo utilità locali, nessun return qui) ==== */
-  const safeStock = (stock || []).map((s) => {
-    const base = { ...s };
-    const img = base.image;
-    // rimuovi immagini non http/https o troppo lunghe (evita base64 pesanti)
-    if (!(typeof img === 'string' && /^https?:\/\//i.test(img) && img.length <= 500)) {
-      delete base.image;
-    }
-    return base;
-  }); // <-- CHIUSURA map CORRETTA
+/* ==== Helpers per stato "safe" (solo utilità locali, nessun return qui) ==== */
+const safeStock = (stock || []).map((s) => {
+  const base = { ...s };
+  const img = base.image;
+  // rimuovi immagini non http/https o troppo lunghe (evita base64 pesanti)
+  if (!(typeof img === 'string' && /^https?:\/\//i.test(img) && img.length <= 500)) {
+    delete base.image;
+  }
+  return base;
+}); // <-- CHIUSURA map CORRETTA
 
-  const safeImagesIndex = {};
-  if (imagesIndex && typeof imagesIndex === 'object') {
-    for (const [k, v] of Object.entries(imagesIndex)) {
-      if (typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500) {
-        safeImagesIndex[k] = v;
-      }
+const safeImagesIndex = {};
+if (imagesIndex && typeof imagesIndex === 'object') {
+  for (const [k, v] of Object.entries(imagesIndex)) {
+    if (typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500) {
+      safeImagesIndex[k] = v;
     }
   }
+}
 
-  const safeLearned =
-    learned && typeof learned === 'object'
-      ? learned
-      : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
+const safeLearned =
+  learned && typeof learned === 'object'
+    ? learned
+    : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
 
-  const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
-    ? currentList
-    : LIST_TYPES.SUPERMARKET;
-  // (niente return qui)
+const cur = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(currentList)
+  ? currentList
+  : LIST_TYPES.SUPERMARKET;
+// (niente return qui)
 
 
   const cloudTimerRef = useRef(null);
@@ -2047,7 +2026,7 @@ function ListeProdotti() {
     if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
 
     // NON mandiamo imagesIndex in cloud, e togliamo field .image
-    const cloudState = stripForCloud({ lists, stock, currentList, learned, imagesIndex });
+   const cloudState = stripForCloud({ lists, stock, currentList, learned, imagesIndex });
 
     const payload = { user_id: userIdRef.current, state: cloudState };
 
@@ -2197,1023 +2176,1021 @@ function ListeProdotti() {
     });
   }, [stock, lists]);
 
-  /* =================== Hydration iniziale (locale) =================== */
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const saved = loadPersisted();
-    if (!saved) return;
+   /* =================== Hydration iniziale (locale) =================== */
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  const saved = loadPersisted();
+  if (!saved) return;
 
-    if (saved.lists && typeof saved.lists === 'object') {
-      setLists({
-        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET])
-          ? saved.lists[LIST_TYPES.SUPERMARKET]
-          : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE])
-          ? saved.lists[LIST_TYPES.ONLINE]
-          : [],
+  if (saved.lists && typeof saved.lists === 'object') {
+    setLists({
+      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET])
+        ? saved.lists[LIST_TYPES.SUPERMARKET]
+        : [],
+      [LIST_TYPES.ONLINE]: Array.isArray(saved.lists[LIST_TYPES.ONLINE])
+        ? saved.lists[LIST_TYPES.ONLINE]
+        : [],
+    });
+  }
+
+  if (Array.isArray(saved.stock)) setStock(saved.stock);
+
+  if (
+    saved.currentList &&
+    (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)
+  ) {
+    setCurrentList(saved.currentList);
+  }
+
+  if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
+    setImagesIndex(saved.imagesIndex);
+  }
+
+  if (saved.learned && typeof saved.learned === 'object') {
+    setLearned(saved.learned);
+  }
+}, []);
+
+
+/* =================== Autosave debounce (locale) =================== */
+// tiene traccia dell’ultimo salvataggio locale applicato (per confronto negli eventi storage)
+const lastLocalAtRef = useRef(0);
+
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+
+  // clear eventuale debounce precedente
+  if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+
+  // snapshot dell’attuale stato che vogliamo persistere
+  const snapshot = { lists, stock, currentList, imagesIndex, learned };
+
+  // debounce breve per ridurre I/O su localStorage
+  persistTimerRef.current = setTimeout(() => {
+    try {
+      // salva su localStorage (persistNow imposta anche "at")
+      persistNow(snapshot);
+      // aggiorna il timestamp locale per i confronti cross-tab
+      lastLocalAtRef.current = Date.now();
+    } catch (e) {
+      if (DEBUG) console.warn('[persistNow] failed', e);
+    }
+  }, 300);
+
+  return () => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+  };
+}, [lists, stock, currentList, imagesIndex, learned]);
+
+/* =================== LISTE: azioni =================== */
+function addManualItem(e) {
+  e.preventDefault();
+  const name = form.name.trim();
+  if (!name) return;
+
+  const brand        = form.brand.trim();
+  const packs        = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
+  const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
+  const unitLabel    = (form.unitLabel || 'unità').trim() || 'unità';
+
+  setLists((prev) => {
+    const next  = { ...prev };
+    const items = [...(prev[currentList] || [])];
+
+    const idx = items.findIndex(
+      (i) =>
+        i.name.toLowerCase() === name.toLowerCase() &&
+        (i.brand || '').toLowerCase() === brand.toLowerCase() &&
+        Number(i.unitsPerPack || 1) === unitsPerPack
+    );
+
+    if (idx >= 0) {
+      items[idx] = { ...items[idx], qty: Math.max(0, Number(items[idx].qty || 0) + packs) };
+    } else {
+      items.push({
+        id: 'tmp-' + Math.random().toString(36).slice(2),
+        name, brand, qty: packs, unitsPerPack, unitLabel, purchased: false,
       });
     }
 
-    if (Array.isArray(saved.stock)) setStock(saved.stock);
+    next[currentList] = items;
+    return next;
+  });
 
-    if (
-      saved.currentList &&
-      (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)
-    ) {
-      setCurrentList(saved.currentList);
-    }
+  // aggiorna subito "lastAt" per proteggere da eventuali sync vecchi
+  lastLocalAtRef.current = Date.now();
 
-    if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
-      setImagesIndex(saved.imagesIndex);
-    }
+  setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
+  setShowListForm(false);
+}
 
-    if (saved.learned && typeof saved.learned === 'object') {
-      setLearned(saved.learned);
-    }
-  }, []);
+function removeItem(id) {
+  setLists((prev) => {
+    const next = { ...prev };
+    next[currentList] = (prev[currentList] || []).filter((i) => i.id !== id);
+    return next;
+  });
+  lastLocalAtRef.current = Date.now();
+}
 
+function incQty(id, delta) {
+  setLists((prev) => {
+    const next = { ...prev };
+    next[currentList] = (prev[currentList] || [])
+      .map((i) =>
+        i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i
+      )
+      .filter((i) => i.qty > 0);
+    return next;
+  });
+  lastLocalAtRef.current = Date.now();
+}
 
-  /* =================== Autosave debounce (locale) =================== */
-  // tiene traccia dell’ultimo salvataggio locale applicato (per confronto negli eventi storage)
-  const lastLocalAtRef = useRef(0);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    // clear eventuale debounce precedente
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-
-    // snapshot dell’attuale stato che vogliamo persistere
-    const snapshot = { lists, stock, currentList, imagesIndex, learned };
-
-    // debounce breve per ridurre I/O su localStorage
-    persistTimerRef.current = setTimeout(() => {
-      try {
-        // salva su localStorage (persistNow imposta anche "at")
-        persistNow(snapshot);
-        // aggiorna il timestamp locale per i confronti cross-tab
-        lastLocalAtRef.current = Date.now();
-      } catch (e) {
-        if (DEBUG) console.warn('[persistNow] failed', e);
+/* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
+function isBlobish(v){
+  try {
+    return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' &&
+              typeof v.arrayBuffer==='function' && typeof v.slice==='function');
+  } catch { return false; }
+}
+function dataUrlToBlob(dataUrl){
+  try {
+    const [head, base64] = String(dataUrl||'').split(',');
+    const m    = head.match(/data:(.*?);base64/i);
+    const mime = m ? m[1] : 'application/octet-stream';
+    const bin  = atob(base64 || '');
+    const u8   = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    return new Blob([u8],{type:mime});
+  } catch { return null; }
+}
+function guessExt(mime=''){
+  const m=(mime||'').toLowerCase();
+  if(m.includes('pdf')) return 'pdf';
+  if(m.includes('png')) return 'png';
+  if(m.includes('jpeg')||m.includes('jpg')) return 'jpg';
+  if(m.includes('webp')) return 'webp';
+  if(m.includes('heic')) return 'heic';
+  return 'bin';
+}
+async function collectImageBlobs(input){
+  const list = Array.from(input || []);
+  const out=[];
+  for (const f of list){
+    if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
+    if (typeof f === 'string'){
+      if (f.startsWith('data:')){ const b=dataUrlToBlob(f); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); continue; }
+      if (/^(blob:|https?:)/i.test(f)){
+        try {
+          const resp=await fetch(f); const b=await resp.blob();
+          out.push({ blob:b, name:`upload.${guessExt(b.type)}` });
+        } catch {}
+        continue;
       }
-    }, 300);
+    }
+    if (f && typeof f === 'object'){
+      const maybe=f.file || f.blob;
+      if (isBlobish(maybe)){ out.push({ blob:maybe, name:f.name || `upload.${guessExt(maybe.type)}` }); continue; }
+      const url=f.preview || f.uri || f.url;
+      if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)){
+        try {
+          if (url.startsWith('data:')){ const b=dataUrlToBlob(url); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
+          else { const resp=await fetch(url); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
+        } catch {}
+      }
+    }
+  }
+  return out;
+}
 
-    return () => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+/* === Ripulisce l'OCR da messaggi di rifiuto / policy === */
+function sanitizeOcrText(t) {
+  const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+  return String(t || '')
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter(s => !BAD.test(s))
+    .join('\n');
+}
+
+/* === Ridimensiona/comprime immagini prima dell'upload === */
+async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
+  try {
+    if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
+
+    const getBitmap = async (blob) => {
+      if (typeof window !== 'undefined' && window.createImageBitmap) {
+        return await createImageBitmap(blob);
+      }
+      const dataUrl = await new Promise((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result);
+        r.onerror = ko;
+        r.readAsDataURL(blob);
+      });
+      const img = new Image();
+      await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
+      return img;
     };
-  }, [lists, stock, currentList, imagesIndex, learned]);
 
-  /* =================== LISTE: azioni =================== */
-  function addManualItem(e) {
-    e.preventDefault();
-    const name = form.name.trim();
-    if (!name) return;
+    const bmp = await getBitmap(file);
+    const w0 = bmp.width || bmp.naturalWidth;
+    const h0 = bmp.height || bmp.naturalHeight;
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+    if (scale === 1 && file.size <= 1_200_000) return file;
 
-    const brand        = form.brand.trim();
-    const packs        = Math.max(1, Number(String(form.packs).replace(',', '.')) || 1);
-    const unitsPerPack = Math.max(1, Number(String(form.unitsPerPack).replace(',', '.')) || 1);
-    const unitLabel    = (form.unitLabel || 'unità').trim() || 'unità';
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
 
-    setLists((prev) => {
-      const next  = { ...prev };
-      const items = [...(prev[currentList] || [])];
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, w, h);
 
-      const idx = items.findIndex(
-        (i) =>
-          i.name.toLowerCase() === name.toLowerCase() &&
-          (i.brand || '').toLowerCase() === brand.toLowerCase() &&
-          Number(i.unitsPerPack || 1) === unitsPerPack
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
+    if (!blob) return file;
+    if (blob.size >= file.size) return file;
+
+    const base = (file.name || 'upload').replace(/\.\w+$/, '');
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
+/* ====================== Prompt builder OCR Riga ====================== */
+function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
+  return [
+    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
+    'RISPONDI SOLO JSON con schema esatto:',
+    '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
+    '',
+    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
+    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
+    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
+    '- Scadenza in formato YYYY-MM-DD se presente',
+    '',
+    '--- TESTO OCR INIZIO ---',
+    ocrText,
+    '--- TESTO OCR FINE ---'
+  ].join('\n');
+}
+
+/* ====================== Decrementa liste da scontrino ====================== */
+function decrementAcrossBothLists(prevLists, purchases) {
+  const next = { ...prevLists };
+
+  const decList = (listKey) => {
+    const arr = [...(next[listKey] || [])];
+    for (const p of purchases) {
+      const dec  = Math.max(1, Number(p.packs ?? p.qty ?? 1));
+      const brand = (p.brand || '').trim();
+      const upp   = Number(p.unitsPerPack ?? 1);
+
+      // match progressivo
+      let idx = arr.findIndex(i =>
+        isSimilar(i.name, p.name) &&
+        (!brand || isSimilar(i.brand || '', brand)) &&
+        Number(i.unitsPerPack || 1) === upp
       );
+      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
+      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
 
       if (idx >= 0) {
-        items[idx] = { ...items[idx], qty: Math.max(0, Number(items[idx].qty || 0) + packs) };
-      } else {
-        items.push({
-          id: 'tmp-' + Math.random().toString(36).slice(2),
-          name, brand, qty: packs, unitsPerPack, unitLabel, purchased: false,
-        });
-      }
-
-      next[currentList] = items;
-      return next;
-    });
-
-    // aggiorna subito "lastAt" per proteggere da eventuali sync vecchi
-    lastLocalAtRef.current = Date.now();
-
-    setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
-    setShowListForm(false);
-  }
-
-  function removeItem(id) {
-    setLists((prev) => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).filter((i) => i.id !== id);
-      return next;
-    });
-    lastLocalAtRef.current = Date.now();
-  }
-
-  function incQty(id, delta) {
-    setLists((prev) => {
-      const next = { ...prev };
-      next[currentList] = (prev[currentList] || [])
-        .map((i) =>
-          i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i
-        )
-        .filter((i) => i.qty > 0);
-      return next;
-    });
-    lastLocalAtRef.current = Date.now();
-  }
-
-  /* ====================== Helpers immagini/Blob – UNICA COPIA ====================== */
-  function isBlobish(v){
-    try {
-      return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' &&
-                typeof v.arrayBuffer==='function' && typeof v.slice==='function');
-    } catch { return false; }
-  }
-  function dataUrlToBlob(dataUrl){
-    try {
-      const [head, base64] = String(dataUrl||'').split(',');
-      const m    = head.match(/data:(.*?);base64/i);
-      const mime = m ? m[1] : 'application/octet-stream';
-      const bin  = atob(base64 || '');
-      const u8   = new Uint8Array(bin.length);
-      for (let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
-      return new Blob([u8],{type:mime});
-    } catch { return null; }
-  }
-  function guessExt(mime=''){
-    const m=(mime||'').toLowerCase();
-    if(m.includes('pdf')) return 'pdf';
-    if(m.includes('png')) return 'png';
-    if(m.includes('jpeg')||m.includes('jpg')) return 'jpg';
-    if(m.includes('webp')) return 'webp';
-    if(m.includes('heic')) return 'heic';
-    return 'bin';
-  }
-  async function collectImageBlobs(input){
-    const list = Array.from(input || []);
-    const out=[];
-    for (const f of list){
-      if (isBlobish(f)){ out.push({ blob:f, name:f.name || `upload.${guessExt(f.type)}` }); continue; }
-      if (typeof f === 'string'){
-        if (f.startsWith('data:')){ const b=dataUrlToBlob(f); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); continue; }
-        if (/^(blob:|https?:)/i.test(f)){
-          try {
-            const resp=await fetch(f); const b=await resp.blob();
-            out.push({ blob:b, name:`upload.${guessExt(b.type)}` });
-          } catch {}
-          continue;
-        }
-      }
-      if (f && typeof f === 'object'){
-        const maybe=f.file || f.blob;
-        if (isBlobish(maybe)){ out.push({ blob:maybe, name:f.name || `upload.${guessExt(maybe.type)}` }); continue; }
-        const url=f.preview || f.uri || f.url;
-        if (typeof url === 'string' && /^(data:|blob:|https?:)/i.test(url)){
-          try {
-            if (url.startsWith('data:')){ const b=dataUrlToBlob(url); if (b) out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
-            else { const resp=await fetch(url); const b=await resp.blob(); out.push({ blob:b, name:`upload.${guessExt(b.type)}` }); }
-          } catch {}
-        }
+        const cur    = arr[idx];
+        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
+        arr[idx]     = { ...cur, qty: newQty, purchased: true };
       }
     }
-    return out;
-  }
+    next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
+  };
 
-  /* === Ripulisce l'OCR da messaggi di rifiuto / policy === */
-  function sanitizeOcrText(t) {
-    const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-    return String(t || '')
-      .split(/\r?\n/)
-      .map(s => s.trim())
-      .filter(Boolean)
-      .filter(s => !BAD.test(s))
-      .join('\n');
-  }
+  decList(LIST_TYPES.SUPERMARKET);
+  decList(LIST_TYPES.ONLINE);
+  return next;
+}
 
-  /* === Ridimensiona/comprime immagini prima dell'upload === */
-  async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {}) {
+function estimateCandidateLines(ocrText=''){
+  const lines  = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
+  let count = 0;
+  for (const ln of lines){
+    if (HEADER.test(ln)) continue;
+    if (ln.length < 4) continue;
+    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
+  }
+  return count;
+}
+
+/* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
+async function handleOCR(files) {
+  if (!files) return;
+  try {
+    setBusy(true);
+
+    // ——— 0) Filtra File validi ———
+    const toArray = (x) => Array.from(x || []);
+    const isFileLike = (v) => {
+      try {
+        return !!(v && typeof v === 'object' && typeof v.type === 'string' &&
+                  typeof v.size === 'number' && typeof v.arrayBuffer === 'function' &&
+                  typeof v.slice === 'function');
+      } catch { return false; }
+    };
+    const picked=[]; for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
+    if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
+
+    // ——— 1) OCR immagine → testo (usa solo la prima foto, compressa) ———
+    const first = picked[0];
+    const slim  = await downscaleImageFile(first, { maxSide: OCR_IMAGE_MAXSIDE, quality: OCR_IMAGE_QUALITY });
+
+    const aliases = ['images','files','file','image'];
+    let fdOcr = new FormData();
+    for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
+
+    let ocrAns = null, ocrText = '';
     try {
-      if (!file || file.type === 'application/pdf' || !/^image\//i.test(file.type)) return file;
-
-      const getBitmap = async (blob) => {
-        if (typeof window !== 'undefined' && window.createImageBitmap) {
-          return await createImageBitmap(blob);
-        }
-        const dataUrl = await new Promise((ok, ko) => {
-          const r = new FileReader();
-          r.onload = () => ok(r.result);
-          r.onerror = ko;
-          r.readAsDataURL(blob);
-        });
-        const img = new Image();
-        await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-        return img;
-      };
-
-      const bmp = await getBitmap(file);
-      const w0 = bmp.width || bmp.naturalWidth;
-      const h0 = bmp.height || bmp.naturalHeight;
-      const scale = Math.min(1, maxSide / Math.max(w0, h0));
-      if (scale === 1 && file.size <= 1_200_000) return file;
-
-      const w = Math.max(1, Math.round(w0 * scale));
-      const h = Math.max(1, Math.round(h0 * scale));
-
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(bmp, 0, 0, w, h);
-
-      const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', quality));
-      if (!blob) return file;
-      if (blob.size >= file.size) return file;
-
-      const base = (file.name || 'upload').replace(/\.\w+$/, '');
-      return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
-    } catch {
-      return file;
+      ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
+      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
+    } catch (err) {
+      showToast(`OCR errore: ${err.message}`, 'err');
+      throw err;
     }
-  }
 
-  /* ====================== Prompt builder OCR Riga ====================== */
-  function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-    return [
-      'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
-      'RISPONDI SOLO JSON con schema esatto:',
-      '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
-      '',
-      `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
-      '- Estrai quantità come: packs, unitsPerPack, unitLabel',
-      '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
-      '- Scadenza in formato YYYY-MM-DD se presente',
-      '',
-      '--- TESTO OCR INIZIO ---',
-      ocrText,
-      '--- TESTO OCR FINE ---'
-    ].join('\n');
-  }
+    // Retry HEIC se serve
+    if (!ocrText && /heic|heif/i.test(first?.type || '')) {
+      fdOcr = new FormData(); for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
+      try {
+        const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
+        if (o2 && (o2.text || (o2.items && o2.items.length))) {
+          ocrAns  = o2;
+          ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
+        }
+      } catch {}
+    }
 
-  /* ====================== Decrementa liste da scontrino ====================== */
-  function decrementAcrossBothLists(prevLists, purchases) {
-    const next = { ...prevLists };
+    if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
 
-    const decList = (listKey) => {
-      const arr = [...(next[listKey] || [])];
-      for (const p of purchases) {
-        const dec  = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-        const brand = (p.brand || '').trim();
-        const upp   = Number(p.unitsPerPack ?? 1);
-
-        // match progressivo
-        let idx = arr.findIndex(i =>
-          isSimilar(i.name, p.name) &&
-          (!brand || isSimilar(i.brand || '', brand)) &&
-          Number(i.unitsPerPack || 1) === upp
+    // ——— 2) DIRETTO: chiedi all’agente il JSON finale (niente normalizzatori) ———
+    let parsed = null;
+    if (ocrText) {
+      const prompt = buildDirectReceiptPrompt(ocrText);
+      try {
+        const r = await timeoutFetch(
+          API_ASSISTANT_TEXT,
+          { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ prompt }) },
+          45000
         );
-        if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
-        if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
+        const safe   = await readJsonSafe(r);
+        const answer = safe?.answer || safe?.data || safe;
+        parsed = typeof answer === 'string'
+          ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })()
+          : answer;
+      } catch (e) {
+        if (DEBUG) console.warn('[ASSISTANT direct parse] fail', e);
+      }
+    }
+
+    // ——— 3) Meta (store, data) ———
+    const metaFallback = parseReceiptMeta(ocrText || '');
+    let store        = String(parsed?.store || metaFallback.store || '').trim();
+    let purchaseDate = toISODate(parsed?.purchaseDate || metaFallback.purchaseDate || '');
+
+   // ——— 4) Righe acquisto ———
+let purchases = [];
+if (Array.isArray(parsed?.purchases) && parsed.purchases.length) {
+  purchases = parsed.purchases.map(p => ({
+    name: String(p?.name || '').trim(),
+    brand: String(p?.brand || '').trim(),
+    packs: coerceNum(p?.packs),
+    unitsPerPack: coerceNum(p?.unitsPerPack),
+    unitLabel: String(p?.unitLabel || '').trim(),
+    priceEach: coerceNum(p?.priceEach),
+    priceTotal: coerceNum(p?.priceTotal),
+    currency: String(p?.currency || 'EUR').trim() || 'EUR',
+    expiresAt: toISODate(p?.expiresAt || '')
+  })).filter(p => p.name);
+}
+
+// Calcola quante "righe candidate" ci sono nel testo OCR (stima robusta)
+const est = estimateCandidateLines(ocrText || '');
+const aiCount = purchases.length;
+const coverage = aiCount / Math.max(1, est);
+
+// Se l'AI ha coperto poco (<80%) o mancano chiaramente righe, fondi con il parser locale
+if (coverage < 0.8) {
+  const local = parseReceiptPurchases(ocrText).map(p => ({
+    name: p.name, brand: p.brand || '',
+    packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
+    unitLabel: String(p.unitLabel || '').trim(),
+    priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
+  }));
+
+  // Unione AI + locale (chiave: name+brand normalizzati). Mantieni i dati AI ove presenti.
+  const byKey = new Map();
+  const put = (x) => {
+    const k = productKey(String(x.name||''), String(x.brand||''));
+    if (!byKey.has(k)) byKey.set(k, { ...x });
+    else {
+      const prev = byKey.get(k);
+      // preferisci i campi meglio valorizzati
+      byKey.set(k, {
+        ...prev,
+        unitLabel: String(x.unitLabel || prev.unitLabel || ''),
+        packs: Number.isFinite(x.packs) && x.packs > 0 ? x.packs : prev.packs || 0,
+        unitsPerPack: Number.isFinite(x.unitsPerPack) && x.unitsPerPack > 0 ? x.unitsPerPack : prev.unitsPerPack || 0,
+        priceEach: Number.isFinite(x.priceEach) && x.priceEach > 0 ? x.priceEach : prev.priceEach || 0,
+        priceTotal: Number.isFinite(x.priceTotal) && x.priceTotal > 0 ? x.priceTotal : prev.priceTotal || 0,
+        expiresAt: toISODate(x.expiresAt) || prev.expiresAt || '',
+      });
+    }
+  };
+
+  (purchases || []).forEach(put);
+  (local || []).forEach(put);
+  purchases = [...byKey.values()];
+}
+
+// Se ancora vuoto, usa il fallback puro
+if (!purchases.length && ocrText) {
+  const local = parseReceiptPurchases(ocrText).map(p => ({
+    name: p.name, brand: p.brand || '',
+    packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
+    unitLabel: String(p.unitLabel || '').trim(),
+    priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
+  }));
+  purchases = local;
+}
+
+// Piccolo log utile a debug
+try { console.log('[receipt coverage]', { est, ai: aiCount, merged: purchases.length, rate: Number((aiCount/Math.max(1,est))).toFixed(2) }); } catch {}
+
+
+    // ——— 6) NIENTE normalizzazioni se DIRECT_RECOGNITION ———
+    if (!DIRECT_RECOGNITION) {
+      if (Array.isArray(purchases)) {
+        purchases = purchases.map(p => {
+          if (typeof applyLearnedAliases === 'function') {
+            const a = applyLearnedAliases({ name:p.name, brand:p.brand }, (typeof learned !== 'undefined' ? learned : {}));
+            return { ...p, name: a.name, brand: a.brand };
+          }
+          return p;
+        });
+        if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
+        if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
+      }
+      if (typeof mergeAndCanonizePurchases === 'function') {
+        purchases = mergeAndCanonizePurchases(purchases);
+      }
+    }
+
+    // ——— 7) Filtra cose palesemente non-merce ———
+    const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
+    const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
+    purchases = (purchases || []).filter(p => {
+      const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
+      if (!nm || DISCARD_MSG.test(nm)) return false;
+      return !NOT_PRODUCT_RE.test(nm);
+    });
+
+    // ——— 8/9) Exit se nessuna riga ———
+    if (!Array.isArray(purchases) || purchases.length === 0) {
+      showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
+      return;
+    }
+
+    // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
+    let mergedImagesIndex = imagesIndex;
+    if (purchases.length) {
+      const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
+      purchases = Array.isArray(enriched) ? enriched : purchases;
+      mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
+      setImagesIndex(mergedImagesIndex);
+      try {
+        showToast(`Enrich web: ${purchases.length} righe, immagini: ${Object.keys(imap||{}).length}`, 'ok');
+      } catch {}
+    }
+
+    // ——— 10) Memorizzazione termini (no-op se non usi) ———
+    if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
+
+    // ——— 11) Decrementa liste ———
+    setLists(prev => decrementAcrossBothLists(prev, purchases));
+
+    // ——— 12) Aggiorna scorte ———
+    setStock(prev => {
+      const arr = [...prev];
+      const todayISO = new Date().toISOString().slice(0, 10);
+
+      for (const p of purchases) {
+        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand)));
+        const packs = coerceNum(p.packs);
+        const upp   = coerceNum(p.unitsPerPack);
+        const hasCounts = packs > 0 || upp > 0;
 
         if (idx >= 0) {
-          const cur    = arr[idx];
-          const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-          arr[idx]     = { ...cur, qty: newQty, purchased: true };
-        }
-      }
-      next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
-    };
+          const old = arr[idx];
 
-    decList(LIST_TYPES.SUPERMARKET);
-    decList(LIST_TYPES.ONLINE);
-    return next;
-  }
-
-  function estimateCandidateLines(ocrText=''){
-    const lines  = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-    const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
-    let count = 0;
-    for (const ln of lines){
-      if (HEADER.test(ln)) continue;
-      if (ln.length < 4) continue;
-      if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
-    }
-    return count;
-  }
-
-  /* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
-  async function handleOCR(files) {
-    if (!files) return;
-    try {
-      setBusy(true);
-
-      // ——— 0) Filtra File validi ———
-      const toArray = (x) => Array.from(x || []);
-      const isFileLike = (v) => {
-        try {
-          return !!(v && typeof v === 'object' && typeof v.type === 'string' &&
-                    typeof v.size === 'number' && typeof v.arrayBuffer === 'function' &&
-                    typeof v.slice === 'function');
-        } catch { return false; }
-      };
-      const picked=[]; for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
-      if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
-
-      // ——— 1) OCR immagine → testo (usa solo la prima foto, compressa) ———
-      const first = picked[0];
-      const slim  = await downscaleImageFile(first, { maxSide: OCR_IMAGE_MAXSIDE, quality: OCR_IMAGE_QUALITY });
-
-      const aliases = ['images','files','file','image'];
-      let fdOcr = new FormData();
-      for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
-
-      let ocrAns = null, ocrText = '';
-      try {
-        ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
-        ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
-      } catch (err) {
-        showToast(`OCR errore: ${err.message}`, 'err');
-        throw err;
-      }
-
-      // Retry HEIC se serve
-      if (!ocrText && /heic|heif/i.test(first?.type || '')) {
-        fdOcr = new FormData(); for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
-        try {
-          const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
-          if (o2 && (o2.text || (o2.items && o2.items.length))) {
-            ocrAns  = o2;
-            ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
+          if (hasCounts) {
+            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
+            arr[idx] = {
+              ...old,
+              name: (p.name && String(p.name).trim()) || old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              packs: newP,
+              unitsPerPack: newU,
+              unitLabel: old.unitLabel || p.unitLabel || 'unità',
+              expiresAt: p.expiresAt || old.expiresAt || '',
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(newP, todayISO, newU),
+            };
+          } else if (DEFAULT_PACKS_IF_MISSING) {
+            const uo = Math.max(1, Number(old.unitsPerPack || 1));
+            const np = Math.max(0, Number(old.packs || 0) + 1);
+            arr[idx] = {
+              ...old,
+              name: (p.name && String(p.name).trim()) || old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              packs: np,
+              unitsPerPack: uo,
+              unitLabel: old.unitLabel || 'unità',
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(np, todayISO, uo),
+            };
+          } else {
+            arr[idx] = {
+              ...old,
+              name: (p.name && String(p.name).trim()) || old.name,
+              brand: (p.brand && String(p.brand).trim()) || old.brand,
+              needsUpdate: true,
+            };
           }
-        } catch {}
-      }
 
-      if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
-
-      // ——— 2) DIRETTO: chiedi all’agente il JSON finale (niente normalizzatori) ———
-      let parsed = null;
-      if (ocrText) {
-        const prompt = buildDirectReceiptPrompt(ocrText);
-        try {
-          const r = await timeoutFetch(
-            API_ASSISTANT_TEXT,
-            { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ prompt }) },
-            45000
-          );
-          const safe   = await readJsonSafe(r);
-          const answer = safe?.answer || safe?.data || safe;
-          parsed = typeof answer === 'string'
-            ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })()
-            : answer;
-        } catch (e) {
-          if (DEBUG) console.warn('[ASSISTANT direct parse] fail', e);
-        }
-      }
-
-      // ——— 3) Meta (store, data) ———
-      const metaFallback = parseReceiptMeta(ocrText || '');
-      let store        = String(parsed?.store || metaFallback.store || '').trim();
-      let purchaseDate = toISODate(parsed?.purchaseDate || metaFallback.purchaseDate || '');
-
-      // ——— 4) Righe acquisto ———
-      let purchases = [];
-      if (Array.isArray(parsed?.purchases) && parsed.purchases.length) {
-        purchases = parsed.purchases.map(p => ({
-          name: String(p?.name || '').trim(),
-          brand: String(p?.brand || '').trim(),
-          packs: coerceNum(p?.packs),
-          unitsPerPack: coerceNum(p?.unitsPerPack),
-          unitLabel: String(p?.unitLabel || '').trim(),
-          priceEach: coerceNum(p?.priceEach),
-          priceTotal: coerceNum(p?.priceTotal),
-          currency: String(p?.currency || 'EUR').trim() || 'EUR',
-          expiresAt: toISODate(p?.expiresAt || '')
-        })).filter(p => p.name);
-      }
-
-      // Calcola quante "righe candidate" ci sono nel testo OCR (stima robusta)
-      const est = estimateCandidateLines(ocrText || '');
-      const aiCount = purchases.length;
-      const coverage = aiCount / Math.max(1, est);
-
-      // Se l'AI ha coperto poco (<80%) o mancano chiaramente righe, fondi con il parser locale
-      if (coverage < 0.8) {
-        const local = parseReceiptPurchases(ocrText).map(p => ({
-          name: p.name, brand: p.brand || '',
-          packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
-          unitLabel: String(p.unitLabel || '').trim(),
-          priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
-        }));
-
-        // Unione AI + locale (chiave: name+brand normalizzati). Mantieni i dati AI ove presenti.
-        const byKey = new Map();
-        const put = (x) => {
-          const k = productKey(String(x.name||''), String(x.brand||''));
-          if (!byKey.has(k)) byKey.set(k, { ...x });
-          else {
-            const prev = byKey.get(k);
-            byKey.set(k, {
-              ...prev,
-              unitLabel: String(x.unitLabel || prev.unitLabel || ''),
-              packs: Number.isFinite(x.packs) && x.packs > 0 ? x.packs : prev.packs || 0,
-              unitsPerPack: Number.isFinite(x.unitsPerPack) && x.unitsPerPack > 0 ? x.unitsPerPack : prev.unitsPerPack || 0,
-              priceEach: Number.isFinite(x.priceEach) && x.priceEach > 0 ? x.priceEach : prev.priceEach || 0,
-              priceTotal: Number.isFinite(x.priceTotal) && x.priceTotal > 0 ? x.priceTotal : prev.priceTotal || 0,
-              expiresAt: toISODate(x.expiresAt) || prev.expiresAt || '',
-            });
-          }
-        };
-
-        (purchases || []).forEach(put);
-        (local || []).forEach(put);
-        purchases = [...byKey.values()];
-      }
-
-      // Se ancora vuoto, usa il fallback puro
-      if (!purchases.length && ocrText) {
-        const local = parseReceiptPurchases(ocrText).map(p => ({
-          name: p.name, brand: p.brand || '',
-          packs: p.packs || 0, unitsPerPack: p.unitsPerPack || 0,
-          unitLabel: String(p.unitLabel || '').trim(),
-          priceEach: 0, priceTotal: 0, currency: 'EUR', expiresAt: ''
-        }));
-        purchases = local;
-      }
-
-      // Piccolo log utile a debug
-      try { console.log('[receipt coverage]', { est, ai: aiCount, merged: purchases.length, rate: Number((aiCount/Math.max(1,est))).toFixed(2) }); } catch {}
-
-      // ——— 6) NIENTE normalizzazioni se DIRECT_RECOGNITION ———
-      if (!DIRECT_RECOGNITION) {
-        if (Array.isArray(purchases)) {
-          purchases = purchases.map(p => {
-            if (typeof applyLearnedAliases === 'function') {
-              const a = applyLearnedAliases({ name:p.name, brand:p.brand }, (typeof learned !== 'undefined' ? learned : {}));
-              return { ...p, name: a.name, brand: a.brand };
+          // aggancia subito l'immagine dall’enrichment (chiavi normalizzate + fallback)
+          try {
+            const keys = [
+              productKey(arr[idx].name, arr[idx].brand || ''),
+              productKey(p.name,        p.brand        || ''),
+              productKey(arr[idx].name, ''), // fallback senza brand
+              productKey(p.name,        '')
+            ];
+            let pic = '';
+            if (mergedImagesIndex) {
+              for (const k of keys) { if (mergedImagesIndex[k]) { pic = mergedImagesIndex[k]; break; } }
             }
-            return p;
-          });
-          if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
-          if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
+            if (pic && !arr[idx].image) arr[idx] = { ...arr[idx], image: pic };
+          } catch {}
+        } else {
+          if (hasCounts) {
+            const u = Math.max(1, upp || 1);
+            arr.unshift(
+              withRememberedImage(
+                {
+                  name: p.name,
+                  brand: p.brand || '',
+                  packs: Math.max(0, packs || 1),
+                  unitsPerPack: u,
+                  unitLabel: p.unitLabel || 'unità',
+                  expiresAt: p.expiresAt || '',
+                  baselinePacks: Math.max(0, packs || 1),
+                  lastRestockAt: todayISO,
+                  avgDailyUnits: 0,
+                  residueUnits: Math.max(0, (packs || 1) * u),
+                  packsOnly: false,
+                  needsUpdate: false,
+                },
+                mergedImagesIndex
+              )
+            );
+          } else if (DEFAULT_PACKS_IF_MISSING) {
+            arr.unshift(
+              withRememberedImage(
+                {
+                  name: p.name,
+                  brand: p.brand || '',
+                  packs: 1,
+                  unitsPerPack: 1,
+                  unitLabel: 'unità',
+                  expiresAt: p.expiresAt || '',
+                  baselinePacks: 1,
+                  lastRestockAt: todayISO,
+                  avgDailyUnits: 0,
+                  residueUnits: 1,
+                  packsOnly: false,
+                  needsUpdate: false,
+                },
+                mergedImagesIndex
+              )
+            );
+          } else {
+            arr.unshift(
+              withRememberedImage(
+                {
+                  name: p.name,
+                  brand: p.brand || '',
+                  packs: 0,
+                  unitsPerPack: 1,
+                  unitLabel: '-',
+                  expiresAt: p.expiresAt || '',
+                  baselinePacks: 0,
+                  lastRestockAt: '',
+                  avgDailyUnits: 0,
+                  residueUnits: 0,
+                  packsOnly: true,
+                  needsUpdate: true,
+                },
+                mergedImagesIndex
+              )
+            );
+          }
         }
-        if (typeof mergeAndCanonizePurchases === 'function') {
-          purchases = mergeAndCanonizePurchases(purchases);
-        }
       }
 
-      // ——— 7) Filtra cose palesemente non-merce ———
-      const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
-      const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-      purchases = (purchases || []).filter(p => {
-        const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
-        if (!nm || DISCARD_MSG.test(nm)) return false;
-        return !NOT_PRODUCT_RE.test(nm);
-      });
+      return arr;
+    });
 
-      // ——— 8/9) Exit se nessuna riga ———
-      if (!Array.isArray(purchases) || purchases.length === 0) {
-        showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
-        return;
+    // ——— 13) Finanze (facoltativo) ———
+    try {
+      const itemsSafe = purchases.map(p => ({
+        name: p.name, brand: p.brand || '',
+        packs: Number.isFinite(p.packs) ? p.packs : 0,
+        unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
+        unitLabel: p.unitLabel || '',
+        priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
+        priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
+        currency: p.currency || 'EUR',
+        expiresAt: p.expiresAt || ''
+      }));
+      const payload = {
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(store ? { store } : {}),
+        ...(purchaseDate ? { purchaseDate } : {}),
+        payment_method: 'cash',
+        card_label: null,
+        items: itemsSafe
+      };
+      await fetchJSONStrict(API_FINANCES_INGEST, {
+        method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload)
+      }, 30000);
+      showToast('OCR scorte (diretto) completato ✓', 'ok');
+    } catch (e) {
+      console.warn('[FINANCES_INGEST] fail', e);
+      showToast(`Finanze: ${e.message}`, 'err');
+    }
+
+  } catch (e) {
+    console.error('[OCR scorte] error', e);
+    showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+}
+
+
+/* =================== Vocale LISTA =================== */
+async function toggleRecList() {
+  if (recBusy) { try { mediaRecRef.current?.stop(); } catch (e) {} return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    mediaRecRef.current = new MediaRecorder(stream);
+    recordedChunks.current = [];
+    mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
+    mediaRecRef.current.onstop = processVoiceList;
+    mediaRecRef.current.start();
+    setRecBusy(true);
+  } catch (e) {
+    alert('Microfono non disponibile');
+  }
+}
+async function processVoiceList() {
+  const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+  const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
+  try {
+    setBusy(true);
+    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+    const { text } = await res.json();
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    let appended = false;
+    try {
+      const payload = {
+        prompt: [
+          'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
+          '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
+          'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
+          'Voci comuni: ' + GROCERY_LEXICON.join(', '),
+          'Testo:', text
+        ].join('\n'),
+      };
+      const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      }, 25000);
+      const safe = await readJsonSafe(r);
+      const answer = safe?.answer || safe?.data || safe;
+      const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
+      const arr = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (arr.length) {
+        setLists(prev => {
+          const next = { ...prev };
+          const target = currentList;
+          const existing = [...(prev[target] || [])];
+          for (const raw of arr) {
+            const it = {
+              id: 'tmp-' + Math.random().toString(36).slice(2),
+              name: String(raw.name||'').trim(),
+              brand: String(raw.brand||'').trim(),
+              qty: Math.max(1, Number(raw.packs||raw.qty||1)),
+              unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
+              unitLabel: String(raw.unitLabel||'unità'),
+              purchased: false,
+            };
+            if (!it.name) continue;
+            const idx = existing.findIndex(i =>
+              i.name.toLowerCase() === it.name.toLowerCase() &&
+              (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
+              Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+            );
+            if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
+            else existing.push(it);
+          }
+          next[target] = existing;
+          return next;
+        });
+        appended = true;
       }
-
-      // ——— ENRICH VIA WEB: normalizza nomi e popola immagini ———
-      let mergedImagesIndex = imagesIndex;
-      if (purchases.length) {
-        const { items: enriched, images: imap } = await enrichPurchasesViaWeb(purchases);
-        purchases = Array.isArray(enriched) ? enriched : purchases;
-        mergedImagesIndex = { ...(imagesIndex || {}), ...(imap || {}) };
-        setImagesIndex(mergedImagesIndex);
-        try {
-          showToast(`Enrich web: ${purchases.length} righe, immagini: ${Object.keys(imap||{}).length}`, 'ok');
-        } catch {}
+    } catch (e) {}
+    if (!appended) {
+      const local = parseLinesToItems(text);
+      if (local.length) {
+        setLists(prev => {
+          const next = { ...prev };
+          const target = currentList;
+          const existing = [...(prev[target] || [])];
+          for (const it of local) {
+            const idx = existing.findIndex(i =>
+              i.name.toLowerCase() === it.name.toLowerCase() &&
+              (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
+              Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+            );
+            if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
+            else existing.push(it);
+          }
+          next[target] = existing;
+          return next;
+        });
+        appended = true;
       }
+    }
+    showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
+  } catch (e) {
+    alert('Errore nel riconoscimento vocale');
+  } finally {
+    setRecBusy(false);
+    setBusy(false);
+    try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
+    mediaRecRef.current = null;
+    streamRef.current = null;
+    recordedChunks.current = [];
+  }
+}
 
-      // ——— 10) Memorizzazione termini (no-op se non usi) ———
-      if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: false });
+/* =================== Vocale UNIFICATO INVENTARIO =================== */
+async function toggleVoiceInventory() {
+  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch(e) {} return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    invStreamRef.current = stream;
 
-      // ——— 11) Decrementa liste ———
-      setLists(prev => decrementAcrossBothLists(prev, purchases));
+    const { mime, ext } = pickAudioMime();
+    recMimeRef.current = { mime, ext };
 
-      // ——— 12) Aggiorna scorte ———
+    invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    invChunksRef.current = [];
+    invMediaRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) invChunksRef.current.push(e.data); };
+    invMediaRef.current.onstop = processVoiceInventory;
+    invMediaRef.current.start(500);
+    setInvRecBusy(true);
+  } catch (e) {
+    alert('Microfono non disponibile');
+  }
+}
+
+async function processVoiceInventory() {
+  try {
+    // Stop microfono e chiudi recorder
+    try {
+      const tracks = invStreamRef.current && invStreamRef.current.getTracks ? invStreamRef.current.getTracks() : [];
+      tracks && tracks.forEach(t => t.stop());
+    } catch (e) {}
+    setInvRecBusy(false);
+
+    // Nessun audio?
+    if (!invChunksRef.current || invChunksRef.current.length === 0) {
+      if (DEBUG) console.warn('[STT inventory] Nessun chunk audio');
+      showToast('Nessun audio catturato', 'err');
+      return;
+    }
+
+    // Blob audio con MIME corretto per il device
+    const { mime, ext } = recMimeRef.current || { mime: 'audio/webm', ext: 'webm' };
+    const blob = new Blob(invChunksRef.current, { type: mime || 'audio/webm' });
+    invChunksRef.current = [];
+
+    // Invio allo STT
+    const fd = new FormData();
+    fd.append('audio', blob, `inventory.${ext}`);
+
+    setBusy(true);
+    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+
+    let payload = {};
+    try { payload = await res.json(); } catch (e) {}
+    if (!res.ok) {
+      const msg = payload && payload.error ? `: ${payload.error}` : '';
+      throw new Error(`STT HTTP ${res.status}${msg}`);
+    }
+
+    const text = String(payload && payload.text ? payload.text : '').trim();
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    if (DEBUG) console.log('[STT inventory text]', text);
+
+    // 1) Scadenze dal parlato
+    const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
+
+    // 2) Aggiornamenti quantità (parser vocale)
+    const updates = parseStockUpdateText(text);
+    const todayISO = new Date().toISOString().slice(0, 10);
+
+    // "SET assoluto" globale se il testo contiene parole chiave (sono / restano / ci sono ancora / ecc.)
+    const absoluteGlobal =
+      wantsAbsoluteSet(text) ||
+      (typeof hasAbsoluteKeywords === 'function'
+        ? hasAbsoluteKeywords(text)
+        : /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
+
+    // Applica scadenze
+    if (expPairs.length) {
       setStock(prev => {
         const arr = [...prev];
-        const todayISO = new Date().toISOString().slice(0, 10);
-
-        for (const p of purchases) {
-          const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand || '', p.brand)));
-          const packs = coerceNum(p.packs);
-          const upp   = coerceNum(p.unitsPerPack);
-          const hasCounts = packs > 0 || upp > 0;
-
-          if (idx >= 0) {
-            const old = arr[idx];
-
-            if (hasCounts) {
-              const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
-              const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
-              arr[idx] = {
-                ...old,
-                name: (p.name && String(p.name).trim()) || old.name,
-                brand: (p.brand && String(p.brand).trim()) || old.brand,
-                packs: newP,
-                unitsPerPack: newU,
-                unitLabel: old.unitLabel || p.unitLabel || 'unità',
-                expiresAt: p.expiresAt || old.expiresAt || '',
-                desc: (p.description || old.desc || ''),           // 👈 descrizione
-                packsOnly: false,
-                needsUpdate: false,
-                ...restockTouch(newP, todayISO, newU),
-              };
-            } else if (DEFAULT_PACKS_IF_MISSING) {
-              const uo = Math.max(1, Number(old.unitsPerPack || 1));
-              const np = Math.max(0, Number(old.packs || 0) + 1);
-              arr[idx] = {
-                ...old,
-                name: (p.name && String(p.name).trim()) || old.name,
-                brand: (p.brand && String(p.brand).trim()) || old.brand,
-                packs: np,
-                unitsPerPack: uo,
-                unitLabel: old.unitLabel || 'unità',
-                desc: (p.description || old.desc || ''),           // 👈 descrizione
-                packsOnly: false,
-                needsUpdate: false,
-                ...restockTouch(np, todayISO, uo),
-              };
-            } else {
-              arr[idx] = {
-                ...old,
-                name: (p.name && String(p.name).trim()) || old.name,
-                brand: (p.brand && String(p.brand).trim()) || old.brand,
-                needsUpdate: true,
-              };
-            }
-
-            // aggancia subito l'immagine dall’enrichment (chiavi normalizzate + fallback)
-            try {
-              const keys = [
-                productKey(arr[idx].name, arr[idx].brand || ''),
-                productKey(p.name,        p.brand        || ''),
-                productKey(arr[idx].name, ''), // fallback senza brand
-                productKey(p.name,        '')
-              ];
-              let pic = '';
-              if (mergedImagesIndex) {
-                for (const k of keys) { if (mergedImagesIndex[k]) { pic = mergedImagesIndex[k]; break; } }
-              }
-              if (pic && !arr[idx].image) arr[idx] = { ...arr[idx], image: pic };
-            } catch {}
+        for (const ex of expPairs) {
+          const i = arr.findIndex(s => isSimilar(s.name, ex.name));
+          if (i >= 0) {
+            arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
           } else {
-            if (hasCounts) {
-              const u = Math.max(1, upp || 1);
-              arr.unshift(
-                withRememberedImage(
-                  {
-                    name: p.name,
-                    brand: p.brand || '',
-                    packs: Math.max(0, packs || 1),
-                    unitsPerPack: u,
-                    unitLabel: p.unitLabel || 'unità',
-                    expiresAt: p.expiresAt || '',
-                    desc: (p.description || ''),                     // 👈 descrizione
-                    baselinePacks: Math.max(0, packs || 1),
-                    lastRestockAt: todayISO,
-                    avgDailyUnits: 0,
-                    residueUnits: Math.max(0, (packs || 1) * u),
-                    packsOnly: false,
-                    needsUpdate: false,
-                  },
-                  mergedImagesIndex
-                )
-              );
-            } else if (DEFAULT_PACKS_IF_MISSING) {
-              arr.unshift(
-                withRememberedImage(
-                  {
-                    name: p.name,
-                    brand: p.brand || '',
-                    packs: 1,
-                    unitsPerPack: 1,
-                    unitLabel: 'unità',
-                    expiresAt: p.expiresAt || '',
-                    desc: (p.description || ''),                     // 👈 descrizione
-                    baselinePacks: 1,
-                    lastRestockAt: todayISO,
-                    avgDailyUnits: 0,
-                    residueUnits: 1,
-                    packsOnly: false,
-                    needsUpdate: false,
-                  },
-                  mergedImagesIndex
-                )
-              );
+            arr.unshift(withRememberedImage({
+              name: ex.name, brand: '', packs: 0, unitsPerPack: 1, unitLabel: 'unità',
+              expiresAt: ex.expiresAt, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0, packsOnly: false
+            }, imagesIndex));
+          }
+        }
+        return arr;
+      });
+    }
+
+    // Helper per modalità "solo confezioni"
+    const makePacksOnly = (base) => ({
+      ...base,
+      unitsPerPack: 1,
+      unitLabel: 'conf.',
+      packsOnly: true,
+      residueUnits: Math.max(0, Number(base.packs || 0)), // barra sui pacchi
+    });
+
+    // Applica quantità (pacchi / unità) con normalizzazione finale per gli aggiornamenti a unità
+    if (updates.length) {
+      setStock(prev => {
+        const arr = [...prev];
+
+        // ⬅ traccia di quali prodotti sono stati aggiornati a UNITÀ (per normalizzare a fine ciclo)
+        const unitsUpdated = new Set();
+
+        for (const u of updates) {
+          const j = arr.findIndex(s => isSimilar(s.name, u.name));
+          const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
+
+          if (j < 0) {
+            // Crea riga nuova
+            if (u.mode === 'packs') {
+              const packs = Math.max(0, Number(u.value || u._packs || 0));
+              if (u.explicit && u._upp > 1) {
+                const up = Math.max(1, Number(u._upp || 1));
+                const row = {
+                  name: u.name, brand: '', packs,
+                  unitsPerPack: up, unitLabel: 'unità',
+                  expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly: false
+                };
+                arr.unshift(withRememberedImage(row, imagesIndex));
+              } else {
+                const row = makePacksOnly({
+                  name: u.name, brand: '', packs,
+                  expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
+                });
+                arr.unshift(withRememberedImage(row, imagesIndex));
+              }
             } else {
-              arr.unshift(
-                withRememberedImage(
-                  {
-                    name: p.name,
-                    brand: p.brand || '',
-                    packs: 0,
-                    unitsPerPack: 1,
-                    unitLabel: '-',
-                    expiresAt: p.expiresAt || '',
-                    desc: (p.description || ''),                     // 👈 descrizione
-                    baselinePacks: 0,
-                    lastRestockAt: '',
-                    avgDailyUnits: 0,
-                    residueUnits: 0,
-                    packsOnly: true,
-                    needsUpdate: true,
-                  },
-                  mergedImagesIndex
-                )
-              );
+              // mode: 'units' → imposta residuo unità
+              const units = Math.max(0, Number(u.value || 1));
+              const base = {
+                name: u.name, brand: '', packs: 1,
+                unitsPerPack: 1, unitLabel: 'unità',
+                expiresAt: '', baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
+                residueUnits: units, packsOnly: false
+              };
+              arr.unshift(withRememberedImage(base, imagesIndex));
+              unitsUpdated.add(normKey(u.name));
+            }
+            continue;
+          }
+
+          // Aggiorna riga esistente
+          const old = arr[j];
+
+          if (u.op === 'restockExplicit' || u.mode === 'packs') {
+            // Aggiornamento a pacchi
+            const uppFromVoice = Math.max(1, Number(u._upp || 1));
+            const packsNew = abs
+              ? Math.max(0, Number(u.value || u._packs || 0))                          // SET
+              : Math.max(0, Number(old.packs || 0) + Number(u.value || u._packs || 0)); // SOMMA
+
+            if (u.explicit && uppFromVoice > 1) {
+              // Pacchi + UPP noti → reset pieno
+              arr[j] = {
+                ...old,
+                packs: packsNew,
+                unitsPerPack: uppFromVoice,
+                unitLabel: old.unitLabel || 'unità',
+                packsOnly: false,
+                ...restockTouch(packsNew, todayISO, uppFromVoice)
+              };
+            } else {
+              // Solo pacchi → packsOnly
+              arr[j] = makePacksOnly({
+                ...old,
+                packs: packsNew,
+                ...restockTouch(packsNew, todayISO, 1)
+              });
+            }
+          } else {
+            // Aggiornamento a unità → residuo unità (ricalcolo confezioni dopo il loop)
+            const upp = Math.max(1, Number(old.unitsPerPack || 1));
+            const baseline = baselineUnitsOf(old) || upp;
+            const current = residueUnitsOf(old);
+            const targetUnits = abs
+              ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
+              : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
+
+            arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
+            unitsUpdated.add(normKey(u.name));
+          }
+        }
+
+        // ⬅ NORMALIZZAZIONE FINALE:
+        if (unitsUpdated.size > 0) {
+          for (let k = 0; k < arr.length; k++) {
+            const row = arr[k];
+            if (!row || !unitsUpdated.has(normKey(row.name))) continue;
+
+            const upp = Math.max(1, Number(row.unitsPerPack || 1));
+            if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
+              const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
+              // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
+              const newPacks =
+                ruInt === 0 ? 0 :
+                (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
+
+              if (newPacks !== Number(row.packs || 0)) {
+                arr[k] = { ...row, packs: newPacks };
+              }
             }
           }
         }
 
         return arr;
       });
-
-      // ——— 13) Finanze (facoltativo) ———
-      try {
-        const itemsSafe = purchases.map(p => ({
-          name: p.name, brand: p.brand || '',
-          packs: Number.isFinite(p.packs) ? p.packs : 0,
-          unitsPerPack: Number.isFinite(p.unitsPerPack) ? p.unitsPerPack : 0,
-          unitLabel: p.unitLabel || '',
-          priceEach: Number.isFinite(p.priceEach) ? p.priceEach : 0,
-          priceTotal: Number.isFinite(p.priceTotal) ? p.priceTotal : 0,
-          currency: p.currency || 'EUR',
-          expiresAt: p.expiresAt || ''
-        }));
-        const payload = {
-          ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-          ...(store ? { store } : {}),
-          ...(purchaseDate ? { purchaseDate } : {}),
-          payment_method: 'cash',
-          card_label: null,
-          items: itemsSafe
-        };
-        await fetchJSONStrict(API_FINANCES_INGEST, {
-          method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload)
-        }, 30000);
-        showToast('OCR scorte (diretto) completato ✓', 'ok');
-      } catch (e) {
-        console.warn('[FINANCES_INGEST] fail', e);
-        showToast(`Finanze: ${e.message}`, 'err');
-      }
-
-    } catch (e) {
-      console.error('[OCR scorte] error', e);
-      showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
-    } finally {
-      setBusy(false);
-      if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
-  }
 
-
-  /* =================== Vocale LISTA =================== */
-  async function toggleRecList() {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch (e) {} return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      mediaRecRef.current = new MediaRecorder(stream);
-      recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
-      mediaRecRef.current.onstop = processVoiceList;
-      mediaRecRef.current.start();
-      setRecBusy(true);
-    } catch (e) {
-      alert('Microfono non disponibile');
+    if (!expPairs.length && !updates.length) {
+      showToast('Nessun dato inventario riconosciuto', 'err');
+    } else {
+      showToast('Inventario aggiornato da Vocale ✓', 'ok');
     }
+  } catch (e) {
+    console.error('[voice inventory] error', e);
+    showToast(`Errore vocale inventario: ${e && e.message ? e.message : String(e)}`, 'err');
+  } finally {
+    setBusy(false);
+    invMediaRef.current = null;
+    invStreamRef.current = null;
   }
-  async function processVoiceList() {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
-    try {
-      setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
-      const { text } = await res.json();
-      if (!text) throw new Error('Testo non riconosciuto');
+}
 
-      let appended = false;
-      try {
-        const payload = {
-          prompt: [
-            'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
-            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
-            'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
-            'Voci comuni: ' + GROCERY_LEXICON.join(', '),
-            'Testo:', text
-          ].join('\n'),
-        };
-        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-        }, 25000);
-        const safe = await readJsonSafe(r);
-        const answer = safe?.answer || safe?.data || safe;
-        const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
-        const arr = Array.isArray(parsed?.items) ? parsed.items : [];
-        if (arr.length) {
-          setLists(prev => {
-            const next = { ...prev };
-            const target = currentList;
-            const existing = [...(prev[target] || [])];
-            for (const raw of arr) {
-              const it = {
-                id: 'tmp-' + Math.random().toString(36).slice(2),
-                name: String(raw.name||'').trim(),
-                brand: String(raw.brand||'').trim(),
-                qty: Math.max(1, Number(raw.packs||raw.qty||1)),
-                unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
-                unitLabel: String(raw.unitLabel||'unità'),
-                purchased: false,
-              };
-              if (!it.name) continue;
-              const idx = existing.findIndex(i =>
-                i.name.toLowerCase() === it.name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-              );
-              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
-              else existing.push(it);
-            }
-            next[target] = existing;
-            return next;
-          });
-          appended = true;
-        }
-      } catch (e) {}
-      if (!appended) {
-        const local = parseLinesToItems(text);
-        if (local.length) {
-          setLists(prev => {
-            const next = { ...prev };
-            const target = currentList;
-            const existing = [...(prev[target] || [])];
-            for (const it of local) {
-              const idx = existing.findIndex(i =>
-                i.name.toLowerCase() === it.name.toLowerCase() &&
-                (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
-                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
-              );
-              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
-              else existing.push(it);
-            }
-            next[target] = existing;
-            return next;
-          });
-          appended = true;
-        }
-      }
-      showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
-    } catch (e) {
-      alert('Errore nel riconoscimento vocale');
-    } finally {
-      setRecBusy(false);
-      setBusy(false);
-      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
-      mediaRecRef.current = null;
-      streamRef.current = null;
-      recordedChunks.current = [];
-    }
-  }
-
-  /* =================== Vocale UNIFICATO INVENTARIO =================== */
-  async function toggleVoiceInventory() {
-    if (invRecBusy) { try { invMediaRef.current?.stop(); } catch(e) {} return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      invStreamRef.current = stream;
-
-      const { mime, ext } = pickAudioMime();
-      recMimeRef.current = { mime, ext };
-
-      invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      invChunksRef.current = [];
-      invMediaRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) invChunksRef.current.push(e.data); };
-      invMediaRef.current.onstop = processVoiceInventory;
-      invMediaRef.current.start(500);
-      setInvRecBusy(true);
-    } catch (e) {
-      alert('Microfono non disponibile');
-    }
-  }
-
-  async function processVoiceInventory() {
-    try {
-      // Stop microfono e chiudi recorder
-      try {
-        const tracks = invStreamRef.current && invStreamRef.current.getTracks ? invStreamRef.current.getTracks() : [];
-        tracks && tracks.forEach(t => t.stop());
-      } catch (e) {}
-      setInvRecBusy(false);
-
-      // Nessun audio?
-      if (!invChunksRef.current || invChunksRef.current.length === 0) {
-        if (DEBUG) console.warn('[STT inventory] Nessun chunk audio');
-        showToast('Nessun audio catturato', 'err');
-        return;
-      }
-
-      // Blob audio con MIME corretto per il device
-      const { mime, ext } = recMimeRef.current || { mime: 'audio/webm', ext: 'webm' };
-      const blob = new Blob(invChunksRef.current, { type: mime || 'audio/webm' });
-      invChunksRef.current = [];
-
-      // Invio allo STT
-      const fd = new FormData();
-      fd.append('audio', blob, `inventory.${ext}`);
-
-      setBusy(true);
-      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
-
-      let payload = {};
-      try { payload = await res.json(); } catch (e) {}
-      if (!res.ok) {
-        const msg = payload && payload.error ? `: ${payload.error}` : '';
-        throw new Error(`STT HTTP ${res.status}${msg}`);
-      }
-
-      const text = String(payload && payload.text ? payload.text : '').trim();
-      if (!text) throw new Error('Testo non riconosciuto');
-
-      if (DEBUG) console.log('[STT inventory text]', text);
-
-      // 1) Scadenze dal parlato
-      const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
-
-      // 2) Aggiornamenti quantità (parser vocale)
-      const updates = parseStockUpdateText(text);
-      const todayISO = new Date().toISOString().slice(0, 10);
-
-      // "SET assoluto" globale se il testo contiene parole chiave (sono / restano / ci sono ancora / ecc.)
-      const absoluteGlobal =
-        wantsAbsoluteSet(text) ||
-        (typeof hasAbsoluteKeywords === 'function'
-          ? hasAbsoluteKeywords(text)
-          : /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
-
-      // Applica scadenze
-      if (expPairs.length) {
-        setStock(prev => {
-          const arr = [...prev];
-          for (const ex of expPairs) {
-            const i = arr.findIndex(s => isSimilar(s.name, ex.name));
-            if (i >= 0) {
-              arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
-            } else {
-              arr.unshift(withRememberedImage({
-                name: ex.name, brand: '', packs: 0, unitsPerPack: 1, unitLabel: 'unità',
-                expiresAt: ex.expiresAt, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0, packsOnly: false
-              }, imagesIndex));
-            }
-          }
-          return arr;
-        });
-      }
-
-      // Helper per modalità "solo confezioni"
-      const makePacksOnly = (base) => ({
-        ...base,
-        unitsPerPack: 1,
-        unitLabel: 'conf.',
-        packsOnly: true,
-        residueUnits: Math.max(0, Number(base.packs || 0)), // barra sui pacchi
-      });
-
-      // Applica quantità (pacchi / unità) con normalizzazione finale per gli aggiornamenti a unità
-      if (updates.length) {
-        setStock(prev => {
-          const arr = [...prev];
-
-          // ⬅ traccia di quali prodotti sono stati aggiornati a UNITÀ (per normalizzare a fine ciclo)
-          const unitsUpdated = new Set();
-
-          for (const u of updates) {
-            const j = arr.findIndex(s => isSimilar(s.name, u.name));
-            const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
-
-            if (j < 0) {
-              // Crea riga nuova
-              if (u.mode === 'packs') {
-                const packs = Math.max(0, Number(u.value || u._packs || 0));
-                if (u.explicit && u._upp > 1) {
-                  const up = Math.max(1, Number(u._upp || 1));
-                  const row = {
-                    name: u.name, brand: '', packs,
-                    unitsPerPack: up, unitLabel: 'unità',
-                    expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly: false
-                  };
-                  arr.unshift(withRememberedImage(row, imagesIndex));
-                } else {
-                  const row = makePacksOnly({
-                    name: u.name, brand: '', packs,
-                    expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
-                  });
-                  arr.unshift(withRememberedImage(row, imagesIndex));
-                }
-              } else {
-                // mode: 'units' → imposta residuo unità
-                const units = Math.max(0, Number(u.value || 1));
-                const base = {
-                  name: u.name, brand: '', packs: 1,
-                  unitsPerPack: 1, unitLabel: 'unità',
-                  expiresAt: '', baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
-                  residueUnits: units, packsOnly: false
-                };
-                arr.unshift(withRememberedImage(base, imagesIndex));
-                unitsUpdated.add(normKey(u.name));
-              }
-              continue;
-            }
-
-            // Aggiorna riga esistente
-            const old = arr[j];
-
-            if (u.op === 'restockExplicit' || u.mode === 'packs') {
-              // Aggiornamento a pacchi
-              const uppFromVoice = Math.max(1, Number(u._upp || 1));
-              const packsNew = abs
-                ? Math.max(0, Number(u.value || u._packs || 0))                          // SET
-                : Math.max(0, Number(old.packs || 0) + Number(u.value || u._packs || 0)); // SOMMA
-
-              if (u.explicit && uppFromVoice > 1) {
-                // Pacchi + UPP noti → reset pieno
-                arr[j] = {
-                  ...old,
-                  packs: packsNew,
-                  unitsPerPack: uppFromVoice,
-                  unitLabel: old.unitLabel || 'unità',
-                  packsOnly: false,
-                  ...restockTouch(packsNew, todayISO, uppFromVoice)
-                };
-              } else {
-                // Solo pacchi → packsOnly
-                arr[j] = makePacksOnly({
-                  ...old,
-                  packs: packsNew,
-                  ...restockTouch(packsNew, todayISO, 1)
-                });
-              }
-            } else {
-              // Aggiornamento a unità → residuo unità (ricalcolo confezioni dopo il loop)
-              const upp = Math.max(1, Number(old.unitsPerPack || 1));
-              const baseline = baselineUnitsOf(old) || upp;
-              const current = residueUnitsOf(old);
-              const targetUnits = abs
-                ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
-                : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
-
-              arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
-              unitsUpdated.add(normKey(u.name));
-            }
-          }
-
-          // ⬅ NORMALIZZAZIONE FINALE:
-          if (unitsUpdated.size > 0) {
-            for (let k = 0; k < arr.length; k++) {
-              const row = arr[k];
-              if (!row || !unitsUpdated.has(normKey(row.name))) continue;
-
-              const upp = Math.max(1, Number(row.unitsPerPack || 1));
-              if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
-                const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
-                // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
-                const newPacks =
-                  ruInt === 0 ? 0 :
-                  (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
-
-                if (newPacks !== Number(row.packs || 0)) {
-                  arr[k] = { ...row, packs: newPacks };
-                }
-              }
-            }
-          }
-
-          return arr;
-        });
-      }
-
-      if (!expPairs.length && !updates.length) {
-        showToast('Nessun dato inventario riconosciuto', 'err');
-      } else {
-        showToast('Inventario aggiornato da Vocale ✓', 'ok');
-      }
-    } catch (e) {
-      console.error('[voice inventory] error', e);
-      showToast(`Errore vocale inventario: ${e && e.message ? e.message : String(e)}`, 'err');
-    } finally {
-      setBusy(false);
-      invMediaRef.current = null;
-      invStreamRef.current = null;
-    }
-  }
 
 /* =================== Render =================== */
 return (

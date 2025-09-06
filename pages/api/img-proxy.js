@@ -23,7 +23,7 @@ const ALLOWED_HOSTS = [
   /(^|\.)static\-ssl\.microsoft\.com$/i,
   /(^|\.)ebayimg\.com$/i,
   /(^|\.)akamaihd\.net$/i,
-  /(^|\.)cdn\.[a-z0-9\-]+\.com$/i, // parecchi e-commerce usano sottodomini cdn.*
+  /(^|\.)cdn\.[a-z0-9\-]+\.com$/i, // molti e-commerce usano cdn.*
 
   // Brand noti (esempio)
   /(^|\.)vileda\.(com|it)$/i,
@@ -99,6 +99,7 @@ export default async function handler(req, res) {
     const reader = upstream.body?.getReader?.();
     if (reader) {
       res.status(200);
+      // stream chunk-by-chunk
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -108,7 +109,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Fallback non-streaming (in caso il runtime non esponga getReader)
+    // Fallback non-streaming
     const buf = Buffer.from(await upstream.arrayBuffer());
     res.status(200).send(buf);
   } catch (e) {
