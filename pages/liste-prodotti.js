@@ -123,8 +123,9 @@ function productKey(name = '', brand = '') {
 /* ====================== Cloud: sanitizer stato per upsert ====================== */
 // 👉 Versione aggiornata: include _ts (timestamp), sincronizza imagesIndex (solo URL http/https brevi)
 //    e mantiene l’immagine in stock SOLO se è un URL http/https (no base64 pesanti).
+// ⬇️ rimpiazza completamente questa funzione nel file pages/liste-prodotti.js
 function stripForCloud(state = {}) {
-  // 1) Liste (tieni solo campi essenziali; NON salviamo image nelle liste)
+  // 1) Liste (campi essenziali, mai immagini)
   const safeList = (arr) =>
     (Array.isArray(arr) ? arr : []).map((it) => ({
       id: String(it?.id ?? ''),
@@ -136,15 +137,14 @@ function stripForCloud(state = {}) {
       purchased: !!it?.purchased,
     }));
 
-  const lists = state.lists || {};
+  const lists = state?.lists || {};
   const safeLists = {
     [LIST_TYPES.SUPERMARKET]: safeList(lists[LIST_TYPES.SUPERMARKET]),
-    [LIST_TYPES.ONLINE]: safeList(lists[LIST_TYPES.ONLINE]),
+    [LIST_TYPES.ONLINE]:      safeList(lists[LIST_TYPES.ONLINE]),
   };
 
-  // 2) Scorte: copia campi persistibili.
-  //    Mantieni s.image SOLO se è un URL http/https "breve" (evita base64).
-  const safeStock = (Array.isArray(state.stock) ? state.stock : []).map((s) => {
+  // 2) Scorte (togli immagini non http/https e quelle troppo lunghe)
+  const safeStock = (Array.isArray(state?.stock) ? state.stock : []).map((s) => {
     const base = {
       name: String(s?.name ?? ''),
       brand: String(s?.brand ?? ''),
@@ -155,40 +155,56 @@ function stripForCloud(state = {}) {
       baselinePacks: Number(s?.baselinePacks ?? 0),
       lastRestockAt: String(s?.lastRestockAt ?? ''),
       avgDailyUnits: Number(s?.avgDailyUnits ?? 0),
-      residueUnits:
-        Number(
-          s?.residueUnits ??
-            Number(s?.packs ?? 0) * Number(s?.unitsPerPack ?? 1)
-        ),
+      residueUnits: Number(
+        s?.residueUnits ?? (Number(s?.packs ?? 0) * Number(s?.unitsPerPack ?? 1))
+      ),
       packsOnly: !!s?.packsOnly,
     };
 
-    // Mantieni immagine solo se è URL http/https e non troppo lunga
-  const img = s?.image;
-if (typeof img === 'string') {
-  const isHttp = /^https?:\/\//i.test(img);
-  const isProxyRel = img.startsWith('/api/img-proxy?'); // <— aggiunto
-  if ((isHttp || isProxyRel) && img.length <= 900) {     // <— aumentato limite prudente
-    base.image = img;
-  }
-}
-
-
+    const img = s?.image;
+    if (typeof img === 'string') {
+      // accetto http/https o il proxy relativo
+      const isHttp = /^https?:\/\//i.test(img);
+      const isProxy = img.startsWith('/api/img-proxy?');
+      if (isHttp && img.length <= 2000) base.image = img;
+      else if (isProxy) {
+        try {
+          const abs = (typeof window !== 'undefined' && window.location)
+            ? `${window.location.origin}${img}`
+            : img;
+          if (/^https?:\/\//i.test(abs) && abs.length <= 2000) base.image = abs;
+        } catch {}
+      }
+    }
     return base;
   });
 
-  // 3) imagesIndex: includi solo URL http/https brevi (no base64)
-for (const [k, v] of Object.entries(srcIdx)) {
-  const isHttp = typeof v === 'string' && /^https?:\/\//i.test(v);
-  const isProxyRel = typeof v === 'string' && v.startsWith('/api/img-proxy?'); // <—
-  if ((isHttp || isProxyRel) && v.length <= 900) {
-    imagesIndex[k] = v;
-  }
-}
+  // 3) imagesIndex (accetta http/https e proxy relativo; se relativo → assoluto)
+  const imagesIndex = {};
+  const source = (state?.imagesIndex && typeof state.imagesIndex === 'object')
+    ? state.imagesIndex
+    : {};
 
-  // 4) learned (solo quello utile)
+  for (const [k, v] of Object.entries(source)) {
+    if (typeof v !== 'string') continue;
+
+    if (/^https?:\/\//i.test(v)) {
+      if (v.length <= 2000) imagesIndex[k] = v;
+      continue;
+    }
+    if (v.startsWith('/api/img-proxy?')) {
+      try {
+        const abs = (typeof window !== 'undefined' && window.location)
+          ? `${window.location.origin}${v}`
+          : v;
+        if (/^https?:\/\//i.test(abs) && abs.length <= 2000) imagesIndex[k] = abs;
+      } catch {}
+    }
+  }
+
+  // 4) learned “snellito”
   const learned =
-    state.learned && typeof state.learned === 'object'
+    state?.learned && typeof state.learned === 'object'
       ? {
           products: state.learned.products || {},
           aliases: state.learned.aliases || { product: {}, brand: {} },
@@ -196,18 +212,17 @@ for (const [k, v] of Object.entries(srcIdx)) {
         }
       : undefined;
 
-  // 5) currentList sicuro
-  const currentList = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(
-    state.currentList
-  )
+  // 5) currentList sicura
+  const currentList = [LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(state?.currentList)
     ? state.currentList
     : LIST_TYPES.SUPERMARKET;
 
-  // 6) timestamp per risoluzione conflitti (last-write-wins)
+  // 6) timestamp per LWW
   const _ts = Date.now();
 
   return { _ts, lists: safeLists, stock: safeStock, currentList, imagesIndex, learned };
 }
+
 
 function loadPersisted() {
   try {
