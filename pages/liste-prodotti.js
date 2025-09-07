@@ -1765,6 +1765,17 @@ function estimateCandidateLines(ocrText = '') {
   }
   return count;
 }
+// ——— NO-MERGE helpers ———
+const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;               // name|brand normalizzati
+const rawKeyOf = (p = {}) => `${keyNB(p?.name || '', p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`; // + UPP
+
+// match SOLO per _keyRaw (nessun fallback su nome/brand normalizzati)
+function findStockIndexStrict(arr = [], p = {}) {
+  const rk = String(p?._keyRaw || '');
+  if (!rk) return -1;
+  return arr.findIndex(s => String(s?._keyRaw || '') === rk);
+}
+
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte (no-merge righe + normalizzazione web + immagini) ====================== */
 async function handleOCR(files) {
