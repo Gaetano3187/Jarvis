@@ -31,6 +31,21 @@ async function googleSearch(q, num = 5) {
   }
 }
 
+// 👇 ricerca immagine (1 risultato) via Google CSE Image
+async function googleImage(q) {
+  if (!USE_WEB) return null;
+  const url = `https://www.googleapis.com/customsearch/v1?searchType=image&imgSize=medium&num=1&key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const it = Array.isArray(j.items) ? j.items[0] : null;
+    return it?.link || null;
+  } catch {
+    return null;
+  }
+}
+
 function promptFor(item, webLines, mode) {
   return [
     'Sei un normalizzatore di voci prodotto per la spesa (IT).',
@@ -73,6 +88,9 @@ export default async function handler(req, res) {
       const { items: webItems, mode } = await googleSearch(q, 5);
       const webLines = (webItems || []).map(w => `- ${w.title} • ${w.snippet} • ${w.displayLink}`);
 
+      // 👉 immagine (se web abilitato)
+      const img = await googleImage(q);
+
       let result = {
         in: { name: raw?.name || '', brand: raw?.brand || '' },
         out: {
@@ -82,7 +100,8 @@ export default async function handler(req, res) {
           subcategory: '',
           attributes: [],
           confidence: 0.2,
-          reason: mode === 'web' ? 'Fallback senza LLM' : 'LLM-only fallback'
+          reason: mode === 'web' ? 'Fallback senza LLM' : 'LLM-only fallback',
+          imageUrl: img || null            // <-- di default usa l’immagine web
         },
         mode
       };
@@ -108,18 +127,27 @@ export default async function handler(req, res) {
           subcategory: String(j?.subcategory || ''),
           attributes: Array.isArray(j?.attributes) ? j.attributes.slice(0, 8) : [],
           confidence: Number(j?.confidence || 0),
-          reason: String(j?.reason || '').slice(0, 200)
+          reason: String(j?.reason || '').slice(0, 200),
+          imageUrl: img || j?.imageUrl || null     // 👈 priorità all’immagine web
         };
       } catch (e) {
-        // lascio fallback
+        // lascio fallback + eventuale img web
         result.error = e?.message || String(e);
+        result.out.imageUrl = img || result.out.imageUrl || null;
       }
 
       mem.set(key, { t: now(), v: result });
       out.push(result);
     }
 
-    res.status(200).json({ ok:true, results: out, usedWeb: USE_WEB, note: USE_WEB ? 'web+llm' : 'llm-only', ts: Date.now(), ...(trace?{debug:true}: {}) });
+    res.status(200).json({
+      ok:true,
+      results: out,
+      usedWeb: USE_WEB,
+      note: USE_WEB ? 'web+llm' : 'llm-only',
+      ts: Date.now(),
+      ...(trace ? { debug:true } : {})
+    });
   } catch (e) {
     console.error('[normalize] fail', e);
     res.status(500).json({ ok:false, error: e?.message || String(e) });

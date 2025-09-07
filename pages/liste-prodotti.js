@@ -1759,6 +1759,7 @@ function estimateCandidateLines(ocrText = '') {
 }
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte (robusto + normalizzazione web) ====================== */
+/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (robusto + normalizzazione web + immagini) ====================== */
 async function handleOCR(files) {
   if (!files) return;
   if (busy) return; // evita doppie esecuzioni
@@ -1905,32 +1906,36 @@ async function handleOCR(files) {
       return nm && !DISCARD_MSG.test(nm) && !NOT_PRODUCT_RE.test(nm);
     });
 
-    // 7) Normalizzazione Web/LLM (non blocca in caso di errore)
+    // 7) Normalizzazione Web/LLM (non blocca in caso di errore) + IMAGE
     try {
       const resp = await timeoutFetch('/api/normalize', {
-        method:'POST', headers:{'Content-Type':'application/json'},
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ items: purchases.map(p => ({ name:p.name, brand:p.brand||'' })), locale:'it-IT' })
       }, 60000);
       if (resp.ok) {
         const j = await resp.json().catch(()=>null);
         const results = Array.isArray(j?.results) ? j.results : [];
         if (results.length) {
-          purchases = purchases.map((p,i) => {
+          purchases = purchases.map((p, i) => {
             const r = results[i]?.out;
             if (!r) return p;
-            const nn = String(r.normalizedName||'').trim();
-            const cb = String(r.canonicalBrand||'').trim();
-            return {
+
+            const normName   = String(r.normalizedName || '').trim();
+            const canonBrand = String(r.canonicalBrand || '').trim();
+            const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+
+            const out = {
               ...p,
-              name: nn || p.name,
-              brand: cb || p.brand || '',
-              meta: {
-                category: r?.category || '',
-                subcategory: r?.subcategory || '',
-                attributes: Array.isArray(r?.attributes) ? r.attributes : [],
-                confidence: Number(r?.confidence || 0)
-              }
+              name:  normName   || p.name,
+              brand: canonBrand || p.brand || ''
             };
+
+            // thumb via proxy (evita CORS, ridimensiona)
+            if (imageUrl) {
+              out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+            }
+            return out;
           });
         }
       }
@@ -1943,14 +1948,14 @@ async function handleOCR(files) {
     }
     showToast(`Righe riconosciute: ${purchases.length}`, 'ok');
 
-    // 8) Liste & Scorte
+    // 8) Liste & Scorte (NO accorpamenti: match esatto)
     setLists(prev => decrementAcrossBothLists(prev, purchases));
 
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
       for (const p of purchases) {
-       const idx = findStockIndexExact(arr, p);   // match ESATTO: name+brand+UPP
+        const idx = findStockIndexExact(arr, p);   // name+brand+UPP
         const packs = coerceNum(p.packs), upp = coerceNum(p.unitsPerPack);
         const hasCounts = packs > 0 || upp > 0;
 
@@ -1959,35 +1964,52 @@ async function handleOCR(files) {
           if (hasCounts) {
             const newP = Math.max(0, Number(old.packs||0) + (packs||0));
             const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = { ...old,
-              name:p.name, brand:p.brand||old.brand,
-              packs:newP, unitsPerPack:newU,
+            arr[idx] = {
+              ...old,
+              name: p.name,
+              brand: p.brand || old.brand,
+              packs: newP,
+              unitsPerPack: newU,
               unitLabel: old.unitLabel || p.unitLabel || 'unità',
               expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly:false, needsUpdate:false,
+              packsOnly: false,
+              needsUpdate: false,
+              ...( !old.image && p.image ? { image: p.image } : {} ),  // 👈 imposta thumb se mancante
               ...restockTouch(newP, todayISO, newU)
             };
           } else {
             const uo = Math.max(1, Number(old.unitsPerPack || 1));
             const np = Math.max(0, Number(old.packs||0) + 1);
-            arr[idx] = { ...old,
-              name:p.name, brand:p.brand||old.brand,
-              packs:np, unitsPerPack:uo,
+            arr[idx] = {
+              ...old,
+              name: p.name,
+              brand: p.brand || old.brand,
+              packs: np,
+              unitsPerPack: uo,
               unitLabel: old.unitLabel || 'unità',
-              packsOnly:false, needsUpdate:false,
+              packsOnly: false,
+              needsUpdate: false,
+              ...( !old.image && p.image ? { image: p.image } : {} ),  // 👈 imposta thumb se mancante
               ...restockTouch(np, todayISO, uo)
             };
           }
         } else {
-          const upp = Math.max(1, coerceNum(p.unitsPerPack) || 1);
-          const packs = Math.max(0, coerceNum(p.packs) || 1);
+          const uppNew  = Math.max(1, coerceNum(p.unitsPerPack) || 1);
+          const packsNew= Math.max(0, coerceNum(p.packs) || 1);
           arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand||'',
-            packs, unitsPerPack: upp, unitLabel: p.unitLabel || 'unità',
+            name: p.name,
+            brand: p.brand || '',
+            packs: packsNew,
+            unitsPerPack: uppNew,
+            unitLabel: p.unitLabel || 'unità',
             expiresAt: p.expiresAt || '',
-            baselinePacks: packs, lastRestockAt: todayISO, avgDailyUnits: 0,
-            residueUnits: packs * upp,
-            packsOnly:false, needsUpdate:false
+            baselinePacks: packsNew,
+            lastRestockAt: todayISO,
+            avgDailyUnits: 0,
+            residueUnits: packsNew * uppNew,
+            packsOnly: false,
+            needsUpdate: false,
+            image: p.image || ''                   // 👈 salva subito la thumb se presente
           }, imagesIndex));
         }
       }
