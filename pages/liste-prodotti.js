@@ -1787,11 +1787,20 @@ async function handleOCR(files) {
   let store = '';
   let purchaseDate = '';
 
-  // helper: raw key per riga PRIMA della normalizzazione
+  // helper: RAW-KEY per riga PRIMA della normalizzazione
   const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;
-  const rawKeyOf = (p) => `${keyNB(p?.name || '', p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`;
+  // 👇 canonizza il nome “raw” togliendo pesi/volumi/codici numerici che variano tra righe uguali (es. 500, 500g, 500gr)
+  const canonicalRawName = (name = '') => {
+    return String(name)
+      .replace(MEASURE_TOKEN_RE, ' ')      // kg, g, gr, ml, cl, l, lt, ecc.
+      .replace(/\b\d{2,5}\b/g, ' ')        // numeri isolati (es. 500)
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+  const rawKeyOf = (p) =>
+    `${keyNB(canonicalRawName(p?.name || ''), p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`;
 
-  // match SOLO su _keyRaw (evita qualunque accorpamento non voluto)
+  // match SOLO su _keyRaw (evita accorpamenti non voluti)
   const findStockIndexStrict = (arr = [], p = {}) => {
     const rk = String(p?._keyRaw || '');
     if (!rk) return -1;
