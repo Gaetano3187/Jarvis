@@ -5,6 +5,9 @@ import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
 import { supabase } from '@/lib/supabaseClient';
 
+// Endpoint OCR dedicato a questa pagina 
+const OCR_API_GENERIC = '/api/ocr-generic';
+
 // Leaflet (no SSR)
 const MapContainer = dynamic(() => import('react-leaflet').then(m => m.MapContainer), { ssr:false });
 const TileLayer    = dynamic(() => import('react-leaflet').then(m => m.TileLayer),    { ssr:false });
@@ -648,7 +651,7 @@ function ProdottiTipiciViniPage() {
         fd.append('images', jf, jf.name || `foto_${i+1}.jpg`);
       }
 
-      const r = await fetch('/api/ocr', { method:'POST', body: fd });
+     const r = await fetch(OCR_API_GENERIC, { method:'POST', body: fd });
       if (!r.ok) {
         const txt = await r.text().catch(()=> '');
         throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
@@ -744,7 +747,7 @@ function ProdottiTipiciViniPage() {
       const safeFile = await toJpegIfNeeded(file);
       const fd = new FormData();
       fd.append('images', safeFile, safeFile.name || 'label.jpg');
-      const r1 = await fetch('/api/ocr', { method:'POST', body: fd });
+     const r1 = await fetch(OCR_API_GENERIC, { method:'POST', body: fd })
       const j1 = await r1.json();
 
       const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
