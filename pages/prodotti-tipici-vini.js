@@ -641,31 +641,79 @@ function ProdottiTipiciViniPage() {
   const [q, setQ] = useState('');
   const fileSommelierRef = useRef(null);
 
-  async function handleSommelierOcrFiles(files) {
-    try {
-      if (!files || !files.length) { alert('Nessun file selezionato'); return; }
+  // Limite prudenziale per ogni POST a /api/ocr (3.5 MB)
+const OCR_BATCH_BUDGET = 3_500_000;
 
-      const fd = new FormData();
-      for (let i=0; i<files.length; i++) {
-        const jf = await toJpegIfNeeded(files[i]);
-        fd.append('images', jf, jf.name || `foto_${i+1}.jpg`);
-      }
+// helper: invia un piccolo lotto di file a /api/ocr e ritorna il testo
+async function postOcrBatch(filesBatch) {
+  const fd = new FormData();
+  filesBatch.forEach((f, i) => fd.append('images', f, f.name || `page_${i + 1}.jpg`));
 
-     const r = await fetch(OCR_API_GENERIC, { method:'POST', body: fd });
-      if (!r.ok) {
-        const txt = await r.text().catch(()=> '');
-        throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
-      }
-      const j = await r.json();
-      const text = String(j?.text || j?.data?.text || j?.data || '').trim();
-      if (!text) { alert('OCR: nessun testo letto.'); return; }
-      setSommelierLists(prev => [...prev, text]);
-      showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
-    } catch (e) {
-      console.error('OCR upload error', e);
-      alert('Errore Sommelier OCR: ' + (e?.message || e));
-    }
+  const r = await fetch('/api/ocr-generic.js', { method: 'POST', body: fd });
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (!r.ok) {
+    const msg = j?.error || r.statusText || 'OCR error';
+    // messaggio chiaro per 413
+    if (r.status === 413) throw new Error('OCR 413: payload troppo grande. Riprovo in lotti più piccoli.');
+    throw new Error(`OCR HTTP ${r.status} - ${msg}`);
   }
+  return String(j?.text || j?.data?.text || j?.data || '').trim();
+}
+
+// Sostituisci completamente la tua funzione con questa
+async function handleSommelierOcrFiles(files) {
+  try {
+    if (!files || !files.length) { alert('Nessun file selezionato'); return; }
+
+    // 1) conversione/resize aggressivo per stare sotto i limiti (iPhone HEIC inclusi)
+    const converted = [];
+    for (let i = 0; i < files.length; i++) {
+      // Parametri più stretti per i 413: lato max 1500px e qualità 0.72
+      const jf = await toJpegIfNeeded(files[i], { maxSide: 1500, quality: 0.72 });
+      converted.push(jf);
+    }
+
+    // 2) batching: spezza in più richieste per evitare 413
+    const texts = [];
+    let batch = [];
+    let size = 0;
+
+    const flush = async () => {
+      if (!batch.length) return;
+      const t = await postOcrBatch(batch);
+      if (t) texts.push(t);
+      batch = [];
+      size = 0;
+    };
+
+    for (const f of converted) {
+      // se aggiungere questo file sfora il budget, invia il batch corrente e ricomincia
+      if (size && size + f.size > OCR_BATCH_BUDGET) {
+        await flush();
+      }
+      batch.push(f);
+      size += f.size;
+
+      // se per caso un singolo file è già grande da solo, invialo da solo
+      if (f.size > OCR_BATCH_BUDGET) {
+        await flush();
+      }
+    }
+    await flush();
+
+    const fullText = texts.filter(Boolean).join('\n').trim();
+    if (!fullText) { alert('OCR: nessun testo letto.'); return; }
+
+    // Accoda la/e carta/e lette ai tuoi allegati Sommelier
+    setSommelierLists(prev => [...prev, fullText]);
+    showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
+  } catch (e) {
+    console.error('OCR upload error', e);
+    alert(`Errore Sommelier OCR: ${e?.message || e}`);
+  }
+}
+
 
   async function runSommelier() {
     try {
