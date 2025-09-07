@@ -1947,14 +1947,9 @@ async function handleOCR(files) {
               brand: canonBrand || p.brand || ''
             };
 
-            // thumb via proxy (evita CORS, ridimensiona) + persistenza in imagesIndex
+            // thumb via proxy (evita CORS, ridimensiona)
             if (imageUrl) {
-              const proxied = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-              out.image = proxied;
-              try {
-                const key = productKey(out.name, out.brand || '');
-                setImagesIndex(prev => (prev && prev[key] === proxied) ? prev : { ...prev, [key]: proxied });
-              } catch {}
+              out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
             }
             return out;
           });
@@ -2081,7 +2076,6 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
-
 
 
   /* =================== Edit riga scorte =================== */
