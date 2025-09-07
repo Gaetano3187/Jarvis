@@ -1791,20 +1791,11 @@ async function handleOCR(files) {
   const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;
   const rawKeyOf = (p) => `${keyNB(p?.name || '', p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`;
 
-  // match esatto in SCORTE con priorità al raw-key (evita accorpamenti non voluti)
+  // match SOLO su _keyRaw (evita qualunque accorpamento non voluto)
   const findStockIndexStrict = (arr = [], p = {}) => {
     const rk = String(p?._keyRaw || '');
-    if (rk) {
-      const j = arr.findIndex(s => String(s?._keyRaw || '') === rk);
-      if (j >= 0) return j;
-    }
-    // fallback: name+brand+UPP esatti (per righe storiche senza _keyRaw)
-    const upp = Number(p?.unitsPerPack || 1);
-    const key = keyNB(p?.name || '', p?.brand || '');
-    return arr.findIndex(s =>
-      keyNB(s?.name || '', s?.brand || '') === key &&
-      Number(s?.unitsPerPack || 1) === upp
-    );
+    if (!rk) return -1;
+    return arr.findIndex(s => String(s?._keyRaw || '') === rk);
   };
 
   try {
@@ -1976,7 +1967,7 @@ async function handleOCR(files) {
             const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
 
             const out = {
-              ...p,                       // <-- conserva _keyRaw
+              ...p, // conserva _keyRaw
               name:  normName   || p.name,
               brand: canonBrand || p.brand || ''
             };
@@ -1985,7 +1976,7 @@ async function handleOCR(files) {
             if (imageUrl) {
               const proxied = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
               out.image = proxied;
-              out.imageDirect = imageUrl;     // backup: link diretto
+              out.imageDirect = imageUrl; // backup: link diretto
               try {
                 const key = productKey(out.name, out.brand || '');
                 setImagesIndex(prev => (prev && prev[key] === proxied) ? prev : { ...prev, [key]: proxied });
@@ -2011,7 +2002,7 @@ async function handleOCR(files) {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
       for (const p of purchases) {
-        const idx = findStockIndexStrict(arr, p);   // usa _keyRaw se presente
+        const idx = findStockIndexStrict(arr, p); // usa SOLO _keyRaw
         const packs = coerceNum(p.packs), upp = coerceNum(p.unitsPerPack);
         const hasCounts = packs > 0 || upp > 0;
 
@@ -2030,7 +2021,7 @@ async function handleOCR(files) {
               expiresAt: p.expiresAt || old.expiresAt || '',
               packsOnly: false,
               needsUpdate: false,
-              _keyRaw: old._keyRaw || p._keyRaw || rawKeyOf(p),      // <-- conserva raw key
+              _keyRaw: old._keyRaw || p._keyRaw || rawKeyOf(p),
               ...( !old.image && p.image ? { image: p.image } : {} ),
               ...restockTouch(newP, todayISO, newU)
             };
@@ -2068,7 +2059,7 @@ async function handleOCR(files) {
             packsOnly: false,
             needsUpdate: false,
             image: p.image || '',
-            _keyRaw: p._keyRaw || rawKeyOf(p)                     // <-- salva raw key
+            _keyRaw: p._keyRaw || rawKeyOf(p)
           }, imagesIndex));
         }
       }
@@ -2119,7 +2110,6 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
-
 
 
   /* =================== Edit riga scorte =================== */
