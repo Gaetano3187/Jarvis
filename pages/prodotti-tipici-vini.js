@@ -47,6 +47,44 @@ const Stars = ({value=0,onChange})=>(
   </span>
 );
 
+/* ---------- Helper: converti HEIC/HEIF in JPEG (client) ---------- */
+async function toJpegIfNeeded(file) {
+  try {
+    if (!file) return file;
+    const t = (file.type || '').toLowerCase();
+    if (t === 'application/pdf') return file; // lasciamo i PDF invariati
+    if (!/heic|heif|image\/heic|image\/heif/.test(t)) return file;
+
+    const buf = await file.arrayBuffer();
+    const blob = new Blob([buf], { type: file.type });
+    const dataUrl = await new Promise((ok, ko) => {
+      const r = new FileReader();
+      r.onload = () => ok(r.result);
+      r.onerror = ko;
+      r.readAsDataURL(blob);
+    });
+
+    const img = await new Promise((ok, ko) => {
+      const el = new Image();
+      el.onload = () => ok(el);
+      el.onerror = ko;
+      el.src = dataUrl;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    const jpegBlob = await new Promise(ok => canvas.toBlob(b => ok(b), 'image/jpeg', 0.9));
+    if (!jpegBlob) return file;
+    return new File([jpegBlob], (file.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 /* ------------- MOBILE actions (select) ------------- */
 function ActionsMobile({ options, onAction }) {
   return (
@@ -72,7 +110,7 @@ function SectionToolbar({ label, onAddManual, onOcr, showAdd }) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"   // ← include PDF
         capture="environment"
         style={{display:'none'}}
         onChange={(e)=> e.target.files?.[0] && onOcr?.(e.target.files[0])}
@@ -607,7 +645,11 @@ function ProdottiTipiciViniPage() {
     try {
       if (!files || !files.length) { alert('Nessun file selezionato'); return; }
       const fd = new FormData();
-      files.forEach((f, i) => fd.append('images', f, f.name || `foto_${i+1}.jpg`));
+      // HEIC → JPEG conversion per ciascun file (PDF lasciati intatti)
+      for (let i = 0; i < files.length; i++) {
+        const f = await toJpegIfNeeded(files[i]);
+        fd.append('images', f, f.name || `foto_${i+1}.jpg`);
+      }
       const r = await fetch('/api/ocr', { method:'POST', body: fd });
       if (!r.ok) {
         const txt = await r.text().catch(()=> '');
@@ -634,7 +676,9 @@ function ProdottiTipiciViniPage() {
         query: q || '',
         wineLists: sommelierLists,
         wineList: aggregatedList || null,
-        qrLinks: sommelierQr
+        qrLinks: sommelierQr,
+        web: true,
+        trace: true
       };
 
       const r = await fetch('/api/sommelier', {
@@ -700,7 +744,9 @@ function ProdottiTipiciViniPage() {
   async function addWineByOcr(file) {
     try {
       if (!userId) return alert('Sessione assente');
-      const fd = new FormData(); fd.append('images', file, file.name || 'label.jpg');
+      // HEIC → JPEG se serve
+      const fileConv = await toJpegIfNeeded(file);
+      const fd = new FormData(); fd.append('images', fileConv, fileConv.name || 'label.jpg');
       const r1 = await fetch('/api/ocr', { method:'POST', body: fd });
       const j1 = await r1.json();
       const text = (j1?.text || '').trim();
@@ -831,7 +877,7 @@ function ProdottiTipiciViniPage() {
         <input
           ref={fileSommelierRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf"   // ← include PDF per carte
           multiple
           capture="environment"
           style={{ display:'none' }}
