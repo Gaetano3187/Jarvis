@@ -5,15 +5,19 @@ const CSE_ID  = process.env.GOOGLE_CSE_ID || '';
 const CSE_KEY = process.env.GOOGLE_CSE_KEY || '';
 const USE_WEB = !!(CSE_ID && CSE_KEY);
 
-// ✅ Safe model resolution (fallback hard a gpt-4o-mini se env/export mancano)
+// ✅ modello sicuro (fallback a gpt-4o-mini se env/export mancano)
 const MODEL = (process.env.OPENAI_TEXT_MODEL?.trim?.() || EXPORTED_MODEL || 'gpt-4o-mini').trim();
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
-// cache in-mem 10min
+// cache in-mem 10 min
 const mem = new Map();
 const TTL = 10 * 60 * 1000;
 const now = () => Date.now();
+
+// Placeholder leggibile se non troviamo una foto reale
+const FALLBACK_IMG = (q) =>
+  `https://dummyimage.com/256x256/0b1220/ffffff&text=${encodeURIComponent(String(q || '').slice(0, 18))}`;
 
 async function googleSearch(q, num = 5) {
   if (!USE_WEB) return { items: [], mode: 'llm-only' };
@@ -22,12 +26,14 @@ async function googleSearch(q, num = 5) {
     const r = await fetch(url);
     if (!r.ok) return { items: [], mode: 'web-failed' };
     const j = await r.json();
-    const items = Array.isArray(j.items) ? j.items.map(it => ({
-      title: it.title || '',
-      snippet: it.snippet || '',
-      link: it.link || '',
-      displayLink: it.displayLink || ''
-    })) : [];
+    const items = Array.isArray(j.items)
+      ? j.items.map(it => ({
+          title: it.title || '',
+          snippet: it.snippet || '',
+          link: it.link || '',
+          displayLink: it.displayLink || ''
+        }))
+      : [];
     return { items, mode: 'web' };
   } catch {
     return { items: [], mode: 'web-error' };
@@ -43,8 +49,12 @@ async function googleImage(q) {
     if (!r.ok) return null;
     const j = await r.json();
     const it = Array.isArray(j.items) ? j.items[0] : null;
-    return it?.link || null;
-  } catch { return null; }
+    const link = it?.link || null;
+    console.log('[normalize:image]', q, '→', link);
+    return link;
+  } catch {
+    return null;
+  }
 }
 
 function promptFor(item, webLines, mode) {
@@ -79,7 +89,7 @@ export default async function handler(req, res) {
     const { items = [], locale = 'it-IT', trace = false } = req.body || {};
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ ok:false, error:'items[] richiesto' });
 
-    // 🔐 Controllo difensivo: se proprio MODEL fosse vuoto, fallback hard
+    // modello attivo (difensivo)
     const activeModel = (typeof MODEL === 'string' && MODEL.length) ? MODEL : 'gpt-4o-mini';
 
     const out = [];
@@ -91,9 +101,7 @@ export default async function handler(req, res) {
       const q = [raw?.brand, raw?.name].filter(Boolean).join(' ').trim() || (raw?.name || '');
       const { items: webItems, mode } = await googleSearch(q, 5);
       const webLines = (webItems || []).map(w => `- ${w.title} • ${w.snippet} • ${w.displayLink}`);
-
-      // immagine web (se disponibile)
-      const img = await googleImage(q);
+      const img = await googleImage(q); // può essere null
 
       let result = {
         in: { name: raw?.name || '', brand: raw?.brand || '' },
@@ -105,7 +113,8 @@ export default async function handler(req, res) {
           attributes: [],
           confidence: 0.2,
           reason: mode === 'web' ? 'Fallback senza LLM' : 'LLM-only fallback',
-          imageUrl: img || null
+          // sempre un'immagine: web o placeholder (anche in llm-only)
+          imageUrl: img || FALLBACK_IMG(q)
         },
         mode
       };
@@ -132,12 +141,13 @@ export default async function handler(req, res) {
           attributes: Array.isArray(j?.attributes) ? j.attributes.slice(0, 8) : [],
           confidence: Number(j?.confidence || 0),
           reason: String(j?.reason || '').slice(0, 200),
-          imageUrl: img || j?.imageUrl || null
+          // priorità: immagine web → eventuale da modello → placeholder già messo
+          imageUrl: img || j?.imageUrl || result.out.imageUrl
         };
       } catch (e) {
-        // lascio fallback + eventuale img web
+        // lascio fallback + eventuale img web/placeholder
         result.error = e?.message || String(e);
-        result.out.imageUrl = img || result.out.imageUrl || null;
+        result.out.imageUrl = img || result.out.imageUrl;
       }
 
       mem.set(key, { t: now(), v: result });
