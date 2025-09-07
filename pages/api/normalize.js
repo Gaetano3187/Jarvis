@@ -1,9 +1,12 @@
 // pages/api/normalize.js
-import { openai, TEXT_MODEL } from '@/lib/openai';
+import { openai, TEXT_MODEL as EXPORTED_MODEL } from '@/lib/openai';
 
 const CSE_ID  = process.env.GOOGLE_CSE_ID || '';
 const CSE_KEY = process.env.GOOGLE_CSE_KEY || '';
 const USE_WEB = !!(CSE_ID && CSE_KEY);
+
+// ✅ Safe model resolution (fallback hard a gpt-4o-mini se env/export mancano)
+const MODEL = (process.env.OPENAI_TEXT_MODEL?.trim?.() || EXPORTED_MODEL || 'gpt-4o-mini').trim();
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
@@ -31,7 +34,7 @@ async function googleSearch(q, num = 5) {
   }
 }
 
-// 👇 ricerca immagine (1 risultato) via Google CSE Image
+// 🔎 1 immagine (se web attivo)
 async function googleImage(q) {
   if (!USE_WEB) return null;
   const url = `https://www.googleapis.com/customsearch/v1?searchType=image&imgSize=medium&num=1&key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}`;
@@ -41,9 +44,7 @@ async function googleImage(q) {
     const j = await r.json();
     const it = Array.isArray(j.items) ? j.items[0] : null;
     return it?.link || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function promptFor(item, webLines, mode) {
@@ -78,6 +79,9 @@ export default async function handler(req, res) {
     const { items = [], locale = 'it-IT', trace = false } = req.body || {};
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ ok:false, error:'items[] richiesto' });
 
+    // 🔐 Controllo difensivo: se proprio MODEL fosse vuoto, fallback hard
+    const activeModel = (typeof MODEL === 'string' && MODEL.length) ? MODEL : 'gpt-4o-mini';
+
     const out = [];
     for (const raw of items) {
       const key = JSON.stringify({ n: (raw?.name||'').trim(), b: (raw?.brand||'').trim() }).toLowerCase();
@@ -88,7 +92,7 @@ export default async function handler(req, res) {
       const { items: webItems, mode } = await googleSearch(q, 5);
       const webLines = (webItems || []).map(w => `- ${w.title} • ${w.snippet} • ${w.displayLink}`);
 
-      // 👉 immagine (se web abilitato)
+      // immagine web (se disponibile)
       const img = await googleImage(q);
 
       let result = {
@@ -101,7 +105,7 @@ export default async function handler(req, res) {
           attributes: [],
           confidence: 0.2,
           reason: mode === 'web' ? 'Fallback senza LLM' : 'LLM-only fallback',
-          imageUrl: img || null            // <-- di default usa l’immagine web
+          imageUrl: img || null
         },
         mode
       };
@@ -109,7 +113,7 @@ export default async function handler(req, res) {
       try {
         const prompt = promptFor({ name: raw?.name || '', brand: raw?.brand || '', locale }, webLines, mode);
         const r = await openai.chat.completions.create({
-          model: TEXT_MODEL,
+          model: activeModel,          // ✅ sempre presente
           temperature: 0.2,
           response_format: { type: 'json_object' },
           messages: [
@@ -128,7 +132,7 @@ export default async function handler(req, res) {
           attributes: Array.isArray(j?.attributes) ? j.attributes.slice(0, 8) : [],
           confidence: Number(j?.confidence || 0),
           reason: String(j?.reason || '').slice(0, 200),
-          imageUrl: img || j?.imageUrl || null     // 👈 priorità all’immagine web
+          imageUrl: img || j?.imageUrl || null
         };
       } catch (e) {
         // lascio fallback + eventuale img web
@@ -146,7 +150,7 @@ export default async function handler(req, res) {
       usedWeb: USE_WEB,
       note: USE_WEB ? 'web+llm' : 'llm-only',
       ts: Date.now(),
-      ...(trace ? { debug:true } : {})
+      ...(trace ? { debug:true, model: MODEL } : {})
     });
   } catch (e) {
     console.error('[normalize] fail', e);
