@@ -1280,11 +1280,7 @@ useEffect(() => {
 
     return () => { mounted = false; };
   }, []);
-  
-  // evita sovrascrittura durante il lock
-if (stockLockRef.current && Date.now() < stockLockRef.current) return;
-// se ho già stock locale non vuoto e il cloud è vuoto/vecchio, non sovrascrivo
-if (Array.isArray(stock) && stock.length > 0 && (!st?.stock || st.stock.length === 0)) return;
+
 
 
   // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
