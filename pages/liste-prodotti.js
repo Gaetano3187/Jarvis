@@ -388,6 +388,8 @@ async function readJsonSafe(res) {
 
 function ensureArray(x) { return Array.isArray(x) ? x : []; }
 
+// ===== Net helpers (single copy) =====
+
 function timeoutFetch(url, opts = {}, ms = 90000) { // 90s default
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), ms);
@@ -426,34 +428,11 @@ async function fetchJSONStrict(url, opts = {}, timeoutMs = 90000) {
   }
 }
 
+
 /* === NEW: helper per errori chiari e JSON rigoroso === */
 async function readTextSafe(res){
   try { return await res.text(); } catch { return ''; }
 }
-
-async function fetchJSONStrict(url, opts={}, timeoutMs=40000){
-  const r = await timeoutFetch(url, opts, timeoutMs);
-  const ct = (r.headers.get?.('content-type') || '').toLowerCase();
-  const raw = await readTextSafe(r);
-
-  if (!r.ok) {
-    let msg = raw;
-    if (ct.includes('application/json')) {
-      try {
-        const j = JSON.parse(raw);
-        msg = j.error || j.message || JSON.stringify(j);
-      } catch {}
-    }
-    throw new Error(`HTTP ${r.status} ${r.statusText || ''} — ${String(msg).slice(0,250)}`);
-  }
-
-  if (!raw.trim()) return {};
-  if (ct.includes('application/json')) {
-    try { return JSON.parse(raw); } catch (e) { throw new Error(`JSON parse error: ${e?.message||e}`); }
-  }
-  try { return JSON.parse(raw); } catch { return { data: raw }; }
-}
-
 
 /* ====================== Calcoli scorte ====================== */
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
