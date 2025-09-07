@@ -757,7 +757,7 @@ function ProdottiTipiciViniPage() {
       if (!text) { alert('OCR: nessun testo letto.'); return; }
 
       // Normalizza → schema vino
-      const r2 = await fetch('/api/ingest/normalize', {
+     const r2 = await fetch('/api/normalize', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ text, target:'wine' })
       });
