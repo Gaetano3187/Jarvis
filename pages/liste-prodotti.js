@@ -388,13 +388,48 @@ async function readJsonSafe(res) {
 
 function ensureArray(x) { return Array.isArray(x) ? x : []; }
 
-function timeoutFetch(url, opts={}, ms=25000) {
-  if (DEBUG) console.log('[fetch] →', url, opts);
+function timeoutFetch(url, opts = {}, ms = 60000) { // 60s default
   const ctrl = new AbortController();
-  const t = setTimeout(()=>ctrl.abort(), ms);
+  const timer = setTimeout(() => ctrl.abort('timeout'), ms);
+
   return fetch(url, { ...opts, signal: ctrl.signal })
-    .then(r => { if (DEBUG) console.log('[fetch] ←', url, r.status); return r; })
-    .finally(()=>clearTimeout(t));
+    .finally(() => clearTimeout(timer))
+    .catch(err => {
+      if (err?.name === 'AbortError') {
+        const reason = typeof ctrl.signal?.reason === 'string' ? ctrl.signal.reason : 'timeout';
+        throw new Error(`Timeout/Abort (${reason}) dopo ${Math.round(ms/1000)}s`);
+      }
+      throw err;
+    });
+}
+
+async function fetchJSONStrict(url, opts = {}, timeoutMs = 60000) {
+  // 1° tentativo
+  try {
+    const r = await timeoutFetch(url, opts, timeoutMs);
+    const ct = (r.headers.get?.('content-type') || '').toLowerCase();
+    const raw = await r.text?.() || '';
+    if (!r.ok) {
+      let msg = raw;
+      if (ct.includes('application/json')) { try { msg = JSON.parse(raw).error || JSON.parse(raw).message || JSON.stringify(JSON.parse(raw)); } catch {} }
+      throw new Error(`HTTP ${r.status} ${r.statusText || ''} — ${String(msg).slice(0,250)}`);
+    }
+    if (!raw.trim()) return {};
+    if (ct.includes('application/json')) { try { return JSON.parse(raw); } catch (e) { throw new Error(`JSON parse error: ${e?.message||e}`); } }
+    try { return JSON.parse(raw); } catch { return { data: raw }; }
+  } catch (e) {
+    // Retry solo per Abort/Timeout
+    if (/Timeout|Abort/i.test(String(e?.message || ''))) {
+      const r2 = await timeoutFetch(url, opts, Math.max(90000, timeoutMs + 30000)); // +30s
+      const ct = (r2.headers.get?.('content-type') || '').toLowerCase();
+      const raw = await r2.text?.() || '';
+      if (!r2.ok) throw new Error(`HTTP ${r2.status} ${r2.statusText || ''} — ${String(raw).slice(0,250)}`);
+      if (!raw.trim()) return {};
+      if (ct.includes('application/json')) { try { return JSON.parse(raw); } catch (e2) { throw new Error(`JSON parse error: ${e2?.message||e2}`); } }
+      try { return JSON.parse(raw); } catch { return { data: raw }; }
+    }
+    throw e;
+  }
 }
 
 /* === NEW: helper per errori chiari e JSON rigoroso === */
@@ -1729,6 +1764,7 @@ function estimateCandidateLines(ocrText=''){
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte (con normalizzazione web) ====================== */
 async function handleOCR(files) {
   if (!files) return;
+  if (busy) return;                 // evita doppie esecuzioni
 
   let purchases = [];
   let store = '';
@@ -1758,14 +1794,14 @@ async function handleOCR(files) {
 
     let ocrAns = null, ocrText = '';
     try {
-      ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
+      ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000); // timeout esteso
       ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
     } catch (err) {
       showToast(`OCR errore: ${err.message}`, 'err');
       throw err;
     }
 
-    // Se Vision ha già estratto tutto (one-shot)
+    // Vision one-shot (purchases/metadati già estratti)
     if (Array.isArray(ocrAns?.purchases) && ocrAns.purchases.length) {
       purchases = ocrAns.purchases.map(p => ({
         name: String(p.name||'').trim(),
@@ -1781,7 +1817,6 @@ async function handleOCR(files) {
 
       store        = String(ocrAns.store || '').trim();
       purchaseDate = toISODate(ocrAns.purchaseDate || '');
-
       const metaFromVision = {
         store,
         purchaseDate,
@@ -1798,7 +1833,7 @@ async function handleOCR(files) {
       fdOcr = new FormData();
       for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
       try {
-        const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 50000);
+        const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000);
         if (o2 && (o2.text || (o2.items && o2.items.length))) {
           ocrAns = o2;
           ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
@@ -1829,7 +1864,9 @@ async function handleOCR(files) {
     if (!purchases.length && ocrText) {
       const promptTicket = (typeof buildOcrAssistantPrompt === 'function') ? buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON) : ocrText;
       try {
-        const r = await timeoutFetch(API_ASSISTANT_TEXT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: promptTicket }) }, 35000);
+        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: promptTicket })
+        }, 60000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
         parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
@@ -1843,7 +1880,7 @@ async function handleOCR(files) {
       purchaseDate = toISODate(purchaseDate || meta.purchaseDate || '');
     }
 
-    // Righe dal parser
+    // Righe dal parser (se servono)
     if (!purchases.length && parsed) {
       purchases = ensureArray(parsed?.purchases).map(p => ({
         name: String(p?.name||'').trim(),
@@ -1883,7 +1920,7 @@ async function handleOCR(files) {
       if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
       if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
     }
-    // Non unire: vogliamo processare ogni riga così com'è
+    // Non unire: processiamo ogni riga così com'è
 
     // ——— 6) Filtra non-merce ovvia ———
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
@@ -1895,17 +1932,19 @@ async function handleOCR(files) {
 
     // ——— 7) Normalizzazione Web (Google CSE + LLM) ———
     try {
-      const resp = await fetch('/api/normalize', {
+      const resp = await timeoutFetch('/api/normalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: purchases.map(p => ({ name: p.name, brand: p.brand || '' })),
-          locale: 'it-IT'
+          locale: 'it-IT',
+          trace: false
         })
-      });
+      }, 60000);
       if (resp.ok) {
-        const { results } = await resp.json();
-        if (Array.isArray(results)) {
+        const j = await resp.json().catch(()=>null);
+        const results = Array.isArray(j?.results) ? j.results : [];
+        if (results.length) {
           purchases = purchases.map((p, i) => {
             const r = results[i]?.out;
             if (!r) return p;
@@ -1915,12 +1954,11 @@ async function handleOCR(files) {
               ...p,
               name: normName || p.name,
               brand: canonBrand || p.brand || '',
-              // opzionale: metadati utili
               meta: {
-                category: r.category || '',
-                subcategory: r.subcategory || '',
-                attributes: Array.isArray(r.attributes) ? r.attributes : [],
-                confidence: Number(r.confidence || 0)
+                category: r?.category || '',
+                subcategory: r?.subcategory || '',
+                attributes: Array.isArray(r?.attributes) ? r.attributes : [],
+                confidence: Number(r?.confidence || 0)
               }
             };
           });
@@ -2012,6 +2050,7 @@ async function handleOCR(files) {
     });
 
     // ——— 9) Finanze ———
+    if (!purchases.length) return;  // evita 400
     let financesOk = true;
     try {
       const meta = pendingOcrMeta || { store, purchaseDate };
@@ -2041,7 +2080,7 @@ async function handleOCR(files) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      }, 30000);
+      }, 40000);
     } catch (e) {
       financesOk = false;
       console.warn('[FINANCES_INGEST] fail', e);
@@ -2055,48 +2094,9 @@ async function handleOCR(files) {
   } finally {
     setBusy(false);
     if (ocrInputRef.current) ocrInputRef.current.value = '';
-         
-    // ——— 13) Finanze ———
-    let financesOk = true;
-    try {
-      const meta = pendingOcrMeta || { store, purchaseDate };
-      const payload = {
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(meta.store ? { store: meta.store } : {}),
-        ...(meta.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
-        ...(meta.location ? { location: meta.location } : {}),
-        ...(Number.isFinite(Number(meta.totalPaid)) ? { totalPaid: Number(meta.totalPaid) } : {}),
-        ...(meta.currency ? { currency: meta.currency } : {}),
-        payment_method: meta.paymentMethod || 'cash',
-        card_label: null,
-        items: (purchases || []).map(p => ({
-          name: p.name,
-          brand: p.brand || '',
-          packs: Number(p.packs || 0),
-          unitsPerPack: Number(p.unitsPerPack || 0),
-          unitLabel: p.unitLabel || '',
-          priceEach: Number(p.priceEach || 0),
-          priceTotal: Number(p.priceTotal || 0),
-          currency: p.currency || 'EUR',
-          expiresAt: p.expiresAt || ''
-        }))
-      };
-
-      await fetchJSONStrict(API_FINANCES_INGEST, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }, 30000);
-    } catch (e) {
-      financesOk = false;
-      console.warn('[FINANCES_INGEST] fail', e);
-      showToast(`Finanze: ${e.message}`, 'err');
-    }
-    if (financesOk) showToast('OCR scorte completato ✓', 'ok');
-      setBusy(false);
-    if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
+
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
