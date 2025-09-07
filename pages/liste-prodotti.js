@@ -1029,6 +1029,8 @@ try {
   if (DEBUG) console.warn('[normalize web] skip', e);
 }
 
+stockLockRef.current = Date.now() + 3000; // 3s: blocca idratazioni/sync concorrenti
+
 
   // 1) Decrementa liste
   setLists(prev => decrementAcrossBothLists(prev, addItems));
@@ -1158,9 +1160,9 @@ export default function ListeProdotti() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 1800);
   }
-  // lock per evitare reset di stock subito dopo l’OCR
+// === anti-reset lock per lo stock ===
 const stockLockRef = useRef(0);
-// debug: log ogni volta che cambia lo stato stock
+// (facoltativo) log utile
 useEffect(() => {
   console.log('[UI] stock state len =', stock.length, stock);
 }, [stock]);
@@ -1274,10 +1276,16 @@ useEffect(() => {
       } catch (e) {
         if (DEBUG) console.warn('[cloud init] skipped', e);
       }
-    })();
+          })();
 
     return () => { mounted = false; };
   }, []);
+  
+  // evita sovrascrittura durante il lock
+if (stockLockRef.current && Date.now() < stockLockRef.current) return;
+// se ho già stock locale non vuoto e il cloud è vuoto/vecchio, non sovrascrivo
+if (Array.isArray(stock) && stock.length > 0 && (!st?.stock || st.stock.length === 0)) return;
+
 
   // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
   function stripForCloud({ lists, stock, currentList, learned }) {
@@ -1456,6 +1464,9 @@ useEffect(() => {
   const saved = loadPersisted();
   if (!saved) return;
 
+  // ⛔ evita di sovrascrivere mentre c’è un lock attivo
+  if (stockLockRef.current && Date.now() < stockLockRef.current) return;  // <—
+
   if (saved.lists && typeof saved.lists === 'object') {
     setLists({
       [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
@@ -1466,12 +1477,8 @@ useEffect(() => {
   if (saved.currentList && (saved.currentList === LIST_TYPES.SUPERMARKET || saved.currentList === LIST_TYPES.ONLINE)) {
     setCurrentList(saved.currentList);
   }
-  if (saved.imagesIndex && typeof saved.imagesIndex === 'object') {
-    setImagesIndex(saved.imagesIndex);
-  }
-  if (saved.learned && typeof saved.learned === 'object') {
-    setLearned(saved.learned);
-  }
+  if (saved.imagesIndex && typeof saved.imagesIndex === 'object') setImagesIndex(saved.imagesIndex);
+  if (saved.learned && typeof saved.learned === 'object') setLearned(saved.learned);
 }, []);
 
   /* =================== Autosave debounce (locale) =================== */
@@ -1483,25 +1490,29 @@ useEffect(() => {
     return () => clearTimeout(persistTimerRef.current);
   }, [lists, stock, currentList, imagesIndex, learned]);
 
-  /* =================== Sync tra tab =================== */
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onStorage = (e) => {
-      if (e.key !== LS_KEY) return;
-      const saved = loadPersisted();
-      if (!saved) return;
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  const onStorage = (e) => {
+    if (e.key !== LS_KEY) return;
 
-      setLists({
-        [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
-        [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
-      });
-      setStock(Array.isArray(saved.stock) ? saved.stock : []);
-      setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
-      setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    // ⛔ evita sync durante il lock
+    if (stockLockRef.current && Date.now() < stockLockRef.current) return;  // <—
+
+    const saved = loadPersisted();
+    if (!saved) return;
+
+    setLists({
+      [LIST_TYPES.SUPERMARKET]: Array.isArray(saved.lists?.[LIST_TYPES.SUPERMARKET]) ? saved.lists[LIST_TYPES.SUPERMARKET] : [],
+      [LIST_TYPES.ONLINE]: Array.isArray(saved.lists?.[LIST_TYPES.ONLINE]) ? saved.lists[LIST_TYPES.ONLINE] : [],
+    });
+    setStock(Array.isArray(saved.stock) ? saved.stock : []);
+    setCurrentList(saved.currentList === LIST_TYPES.ONLINE ? LIST_TYPES.ONLINE : LIST_TYPES.SUPERMARKET);
+    setImagesIndex(saved.imagesIndex && typeof saved.imagesIndex === 'object' ? saved.imagesIndex : {});
+  };
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}, []);
+
 
   /* =================== Derivati: critici =================== */
   useEffect(() => {
