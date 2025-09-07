@@ -451,12 +451,9 @@ async function readTextSafe(res){
 
 /* ====================== Calcoli scorte ====================== */
 function clamp01(x){ return Math.max(0, Math.min(1, Number(x) || 0)); }
+
 function residueUnitsOf(s){
-  const upp = Math.max(1, Number(s.unitsPerPack || 1));
-  const ru = Number(s.residueUnits);
-  if (s.packsOnly) return Math.max(0, Number(s.packs || 0)); // barra sui pacchi in modalità solo confezioni
-  if (Number.isFinite(ru)) return Math.max(0, ru);
-  return Math.max(0, Number(s.packs || 0) * upp);
+  return projectedResidueUnits(s, new Date());
 }
 function baselineUnitsOf(s){
   const upp = Math.max(1, Number(s.unitsPerPack || 1));
@@ -489,6 +486,38 @@ function isExpiringSoon(s, days=10){
   return daysToExpiry(s?.expiresAt) <= days;
 }
 function totalUnitsOf(s){ return (Number(s.packs||0) * Number(s.unitsPerPack||1)); }
+
+/* ===== Auto-Consumo (proiezione dinamica) ===== */
+const AUTO_DEPLETION = true; // puoi disattivarla se serve
+
+function daysBetweenISOFloat(aISO, bISO = new Date().toISOString()) {
+  const a = new Date(String(aISO||'')); const b = new Date(String(bISO||''));
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  return Math.max(0, (b - a) / 86400000);
+}
+
+/* Residuo “raw” memorizzato */
+function storedResidueUnits(s){
+  const upp = Math.max(1, Number(s?.unitsPerPack || 1));
+  if (s?.packsOnly) return Math.max(0, Number(s?.packs || 0));
+  const ru = Number(s?.residueUnits);
+  return Number.isFinite(ru) ? Math.max(0, ru) : Math.max(0, Number(s?.packs || 0) * upp);
+}
+
+/* Residuo proiettato adesso, scalando per media e tempo passato */
+function projectedResidueUnits(s, now = new Date()){
+  if (!AUTO_DEPLETION || !s || s.packsOnly) return storedResidueUnits(s);
+  const rate = Number(s.avgDailyUnits || 0);                 // unità/giorno
+  if (!(rate > 0)) return storedResidueUnits(s);
+  const anchorISO = s.driftBaseAt || s.lastRestockAt;        // da dove scalare
+  if (!anchorISO) return storedResidueUnits(s);
+  const baseRU = Number.isFinite(Number(s.driftBaseRU)) ? Number(s.driftBaseRU) : baselineUnitsOf(s);
+  const est = baseRU - rate * daysBetweenISOFloat(anchorISO, now.toISOString());
+  return Math.max(0, Math.min(baselineUnitsOf(s), est));
+}
+
+
+
 
 /* ====================== Prompt builders (moved) ====================== */
 // Le funzioni buildOcrAssistantPrompt e buildOcrStockBagPrompt sono state spostate
@@ -817,6 +846,20 @@ function computeNewAvgDailyUnits(old, newPacks) {
   }
   return avg;
 }
+/* Media dal ciclo appena concluso (consumato / giorni) */
+function computeAvgFromCycle(oldRow, nowISO){
+  try{
+    if (!oldRow?.lastRestockAt) return Number(oldRow?.avgDailyUnits || 0);
+    const baseUnits = baselineUnitsOf(oldRow);
+    const ruRaw     = storedResidueUnits(oldRow);
+    const days      = daysBetweenISOFloat(oldRow.lastRestockAt, nowISO);
+    if (days <= 0) return Number(oldRow?.avgDailyUnits || 0);
+    const used = Math.max(0, baseUnits - ruRaw);
+    const day  = used / days;
+    return day > 0 ? day : Number(oldRow?.avgDailyUnits || 0);
+  }catch{ return Number(oldRow?.avgDailyUnits || 0); }
+}
+
 function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
   const upp = Math.max(1, Number(unitsPerPack || 1));
   const bp  = Math.max(0, Number(baselineFromPacks || 0));
@@ -825,8 +868,13 @@ function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
     baselinePacks: bp,
     lastRestockAt: lastDateISO,
     residueUnits: fullUnits,
+    // ancoraggi per auto-deplezione
+    driftBaseRU: fullUnits,
+    driftBaseAt: lastDateISO,
   };
 }
+
+
 
 /* ====================== Piccola utility media (no-op sicura) ====================== */
 function theMediaWorkaround(){ return; }
@@ -1002,105 +1050,195 @@ function openValidation(discardedList, meta) {
   }
   
 }
-
 /* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
 async function applyAdditionalPurchases(addItems, meta = {}) {
   if (!Array.isArray(addItems) || !addItems.length) return;
 
-// ——— Normalizzazione via web/LLM ———
-try {
-  const resp = await fetch('/api/normalize', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      items: purchases.map(p => ({ name: p.name, brand: p.brand || '' })),
-      locale: 'it-IT',
-      trace: true
-    })
-  });
-  const j = await resp.json().catch(()=>null);
-  if (!resp.ok) { if (DEBUG) console.warn('[normalize] HTTP', resp.status, j); }
-  if (j?.ok && Array.isArray(j.results)) {
-    if (DEBUG) console.log('[normalize] mode:', j.note, j.results);
-    purchases = purchases.map((p, i) => {
-      const r = j.results[i]?.out;
-      if (!r) return p;
-      const normName   = String(r.normalizedName || '').trim();
-      const canonBrand = String(r.canonicalBrand || '').trim();
-      return {
-        ...p,
-        name: normName || p.name,
-        brand: canonBrand || p.brand || '',
-        meta: {
-          category: r.category || '',
-          subcategory: r.subcategory || '',
-          attributes: Array.isArray(r.attributes) ? r.attributes : [],
-          confidence: Number(r.confidence || 0)
-        }
-      };
+  // Copia locale mutabile
+  let items = addItems.map(p => ({ ...p }));
+
+  // ——— Normalizzazione via web/LLM ———
+  try {
+    const resp = await fetch('/api/normalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: items.map(p => ({ name: p.name, brand: p.brand || '' })),
+        locale: 'it-IT',
+        trace: true
+      })
     });
+    const j = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      if (DEBUG) console.warn('[normalize] HTTP', resp.status, j);
+    } else if (j?.ok && Array.isArray(j.results)) {
+      if (DEBUG) console.log('[normalize] mode:', j.note, j.results);
+      items = items.map((p, i) => {
+        const r = j.results[i]?.out;
+        if (!r) return p;
+        const normName   = String(r.normalizedName || '').trim();
+        const canonBrand = String(r.canonicalBrand || '').trim();
+        return {
+          ...p,
+          name: normName || p.name,
+          brand: canonBrand || p.brand || '',
+          meta: {
+            category: r.category || '',
+            subcategory: r.subcategory || '',
+            attributes: Array.isArray(r.attributes) ? r.attributes : [],
+            confidence: Number(r.confidence || 0)
+          }
+        };
+      });
+    }
+  } catch (e) {
+    if (DEBUG) console.warn('[normalize web] skip', e);
   }
-} catch (e) {
-  if (DEBUG) console.warn('[normalize web] skip', e);
-}
 
-stockLockRef.current = Date.now() + 3000; // 3s: blocca idratazioni/sync concorrenti
-
+  // 3s: blocca idratazioni/sync concorrenti
+  stockLockRef.current = Date.now() + 3000;
 
   // 1) Decrementa liste
-  setLists(prev => decrementAcrossBothLists(prev, addItems));
+  setLists(prev => decrementAcrossBothLists(prev, items));
 
-  // 2) Aggiorna scorte
+  // 2) Aggiorna scorte (con media dal ciclo + restockTouch)
   setStock(prev => {
-    const arr = [...prev]; const todayISO = new Date().toISOString().slice(0,10);
-    for (const p of addItems) {
-     const idx = findStockIndexExact(arr, p);   // match ESATTO: name+brand+UPP
+    const arr = [...prev];
+    const todayISO = new Date().toISOString().slice(0, 10);
+
+    for (const p of items) {
+      const idx = findStockIndexExact(arr, p);  // match ESATTO: name+brand+UPP
 
       const packs = Math.max(0, Number(p.packs || 0));
-      const upp   = Math.max(1, Number(p.unitsPerPack || 1));
-      const hasCounts = packs > 0 || upp > 0;
+      const rawUPP = Number(p.unitsPerPack);
+      const hasUPP = Number.isFinite(rawUPP) && rawUPP > 0;
+      const upp = hasUPP ? rawUPP : (idx >= 0 ? Math.max(1, Number(arr[idx].unitsPerPack || 1)) : 1);
+      const hasCounts = (packs > 0) || hasUPP;
 
       if (idx >= 0) {
         const old = arr[idx];
+
         if (hasCounts) {
-          const newP = Math.max(0, Number(old.packs || 0) + packs);
-          const newU = Math.max(1, Number(old.unitsPerPack || upp));
-          arr[idx] = { ...old, packs:newP, unitsPerPack:newU,
+          const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
+          const newU = Math.max(1, Number(hasUPP ? rawUPP : (old.unitsPerPack || 1)));
+          const newAvg = computeAvgFromCycle(old, todayISO); // NEW
+
+          arr[idx] = {
+            ...old,
+            packs: newP,
+            unitsPerPack: newU,
             unitLabel: old.unitLabel || p.unitLabel || 'unità',
             expiresAt: p.expiresAt || old.expiresAt || '',
-            packsOnly:false, needsUpdate:false, ...restockTouch(newP, todayISO, newU) };
+            avgDailyUnits: newAvg,                            // NEW
+            packsOnly: false,
+            needsUpdate: false,
+            ...restockTouch(newP, todayISO, newU)            // NEW
+          };
+
         } else {
           if (DEFAULT_PACKS_IF_MISSING) {
             const uo = Math.max(1, Number(old.unitsPerPack || 1));
             const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = { ...old, packs:np, unitsPerPack:uo, unitLabel: old.unitLabel || 'unità',
-              packsOnly:false, needsUpdate:false, ...restockTouch(np, todayISO, uo) };
-          } else { arr[idx] = { ...old, needsUpdate:true }; }
+            const newAvg = computeAvgFromCycle(old, todayISO); // NEW
+
+            arr[idx] = {
+              ...old,
+              packs: np,
+              unitsPerPack: uo,
+              unitLabel: old.unitLabel || 'unità',
+              avgDailyUnits: newAvg,                          // NEW
+              packsOnly: false,
+              needsUpdate: false,
+              ...restockTouch(np, todayISO, uo)               // NEW
+            };
+          } else {
+            arr[idx] = { ...old, needsUpdate: true };
+          }
         }
+
       } else {
         if (hasCounts) {
           arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand || '', packs, unitsPerPack:upp, unitLabel:p.unitLabel || 'unità',
-            expiresAt:p.expiresAt || '', baselinePacks:packs, lastRestockAt:todayISO, avgDailyUnits:0,
-            residueUnits:packs*upp, packsOnly:false, needsUpdate:false
+            name: p.name,
+            brand: p.brand || '',
+            packs,
+            unitsPerPack: upp,
+            unitLabel: p.unitLabel || 'unità',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: packs,
+            lastRestockAt: todayISO,
+            avgDailyUnits: 0,
+            residueUnits: packs * upp,
+            packsOnly: false,
+            needsUpdate: false
           }, imagesIndex));
         } else if (DEFAULT_PACKS_IF_MISSING) {
           arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand || '', packs:1, unitsPerPack:1, unitLabel:'unità',
-            expiresAt:p.expiresAt || '', baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
-            residueUnits:1, packsOnly:false, needsUpdate:false
+            name: p.name,
+            brand: p.brand || '',
+            packs: 1,
+            unitsPerPack: 1,
+            unitLabel: 'unità',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: 1,
+            lastRestockAt: todayISO,
+            avgDailyUnits: 0,
+            residueUnits: 1,
+            packsOnly: false,
+            needsUpdate: false
           }, imagesIndex));
         } else {
           arr.unshift(withRememberedImage({
-            name:p.name, brand:p.brand || '', packs:0, unitsPerPack:1, unitLabel:'-',
-            expiresAt:p.expiresAt || '', baselinePacks:0, lastRestockAt:'', avgDailyUnits:0,
-            residueUnits:0, packsOnly:true, needsUpdate:true
+            name: p.name,
+            brand: p.brand || '',
+            packs: 0,
+            unitsPerPack: 1,
+            unitLabel: '-',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: 0,
+            lastRestockAt: '',
+            avgDailyUnits: 0,
+            residueUnits: 0,
+            packsOnly: true,
+            needsUpdate: true
           }, imagesIndex));
         }
       }
     }
+
     return arr;
   });
+
+  // 3) Finanze
+  try {
+    const itemsSafe = items.map(p => ({
+      name: p.name,
+      brand: p.brand || '',
+      packs: Number(p.packs || 0),
+      unitsPerPack: Number(p.unitsPerPack || 0),
+      unitLabel: p.unitLabel || '',
+      priceEach: Number(p.priceEach || 0),
+      priceTotal: Number(p.priceTotal || 0),
+      currency: p.currency || 'EUR',
+      expiresAt: p.expiresAt || ''
+    }));
+
+    await fetchJSONStrict(API_FINANCES_INGEST, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(meta?.store ? { store: meta.store } : {}),
+        ...(meta?.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
+        payment_method: 'cash',
+        card_label: null,
+        items: itemsSafe
+      })
+    }, 30000);
+  } catch (e) {
+    if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e);
+  }
+
 
   // 3) Finanze
   try {
