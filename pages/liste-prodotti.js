@@ -1729,7 +1729,7 @@ function estimateCandidateLines(ocrText=''){
   return count;
 }
 
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte ====================== */
+/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (con normalizzazione web) ====================== */
 async function handleOCR(files) {
   if (!files) return;
 
@@ -1784,6 +1784,7 @@ async function handleOCR(files) {
 
       store        = String(ocrAns.store || '').trim();
       purchaseDate = toISODate(ocrAns.purchaseDate || '');
+
       const metaFromVision = {
         store,
         purchaseDate,
@@ -1838,7 +1839,7 @@ async function handleOCR(files) {
       } catch (e) { if (DEBUG) console.warn('[ASSISTANT ticket parse] fallito', e); }
     }
 
-    // Meta
+    // Meta da OCR testo (se mancano)
     if (!store || !purchaseDate) {
       const meta = parseReceiptMeta(ocrText || '');
       store        = (store || meta.store || '').trim();
@@ -1873,7 +1874,7 @@ async function handleOCR(files) {
       purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
     }
 
-    // ——— 5) Normalizzazioni + filtri ———
+    // ——— 5) Normalizzazioni base ———
     if (Array.isArray(purchases)) {
       purchases = purchases.map(p => {
         if (typeof applyLearnedAliases === 'function') {
@@ -1885,49 +1886,65 @@ async function handleOCR(files) {
       if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
       if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
     }
-   // Non unire: vogliamo processare ogni riga così com'è
+    // Non unire: vogliamo processare ogni riga così com'è
 
+    // ——— 6) Filtra non-merce ovvia ———
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
     const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-
-    const filtered = [];
-    const discardedForReview = [];
-    for (const p of (Array.isArray(purchases) ? purchases : [])) {
+    purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
       const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
-      if (!nm || DISCARD_MSG.test(nm)) continue;
-      if (NOT_PRODUCT_RE.test(nm)) { discardedForReview.push(p); continue; }
-      filtered.push(p);
-    }
-    purchases = filtered;
+      return nm && !DISCARD_MSG.test(nm) && !NOT_PRODUCT_RE.test(nm);
+    });
 
-    // Candidati review (se vuoi mantenerli)
-    let reviewCandidates = [];
-    if (typeof collectReviewCandidatesFromOCRText === 'function') {
-      reviewCandidates = collectReviewCandidatesFromOCRText(ocrText, purchases);
-    }
-    if (discardedForReview.length) {
-      const already = new Set(reviewCandidates.map(x => productKey(x.name, x.brand || '')));
-      for (const p of discardedForReview) {
-        const key = productKey(p.name, p.brand || '');
-        if (!already.has(key)) { reviewCandidates.push(p); already.add(key); }
+    // ——— 7) Normalizzazione Web (Google CSE + LLM) ———
+    try {
+      const resp = await fetch('/api/normalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: purchases.map(p => ({ name: p.name, brand: p.brand || '' })),
+          locale: 'it-IT'
+        })
+      });
+      if (resp.ok) {
+        const { results } = await resp.json();
+        if (Array.isArray(results)) {
+          purchases = purchases.map((p, i) => {
+            const r = results[i]?.out;
+            if (!r) return p;
+            const normName   = String(r.normalizedName || '').trim();
+            const canonBrand = String(r.canonicalBrand || '').trim();
+            return {
+              ...p,
+              name: normName || p.name,
+              brand: canonBrand || p.brand || '',
+              // opzionale: metadati utili
+              meta: {
+                category: r.category || '',
+                subcategory: r.subcategory || '',
+                attributes: Array.isArray(r.attributes) ? r.attributes : [],
+                confidence: Number(r.confidence || 0)
+              }
+            };
+          });
+        }
       }
+    } catch (e) {
+      if (DEBUG) console.warn('[normalize web] skip', e);
     }
-    if (reviewCandidates.length && typeof openValidation === 'function') {
-      openValidation(reviewCandidates, { store, purchaseDate });
-    }
-    if ((!Array.isArray(purchases) || purchases.length === 0) && reviewCandidates.length) {
-      showToast('Nessuna riga confermata: verifica i candidati', 'err');
-      return;
-    }
-    if ((!Array.isArray(purchases) || purchases.length === 0) && reviewCandidates.length === 0) {
+
+    // ——— 8) Inserimento diretto (niente modale) ———
+    if (!Array.isArray(purchases) || purchases.length === 0) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
     }
 
     if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: true });
 
-    // ——— Liste & Scorte ———
+    // Liste: decrementa
     setLists(prev => decrementAcrossBothLists(prev, purchases));
+
+    // Scorte: aggiungi/somma
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0, 10);
@@ -1943,6 +1960,7 @@ async function handleOCR(files) {
             const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
             arr[idx] = {
               ...old,
+              name: p.name, brand: p.brand || old.brand,
               packs: newP, unitsPerPack: newU,
               unitLabel: old.unitLabel || p.unitLabel || 'unità',
               expiresAt: p.expiresAt || old.expiresAt || '',
@@ -1954,6 +1972,7 @@ async function handleOCR(files) {
             const np = Math.max(0, Number(old.packs || 0) + 1);
             arr[idx] = {
               ...old,
+              name: p.name, brand: p.brand || old.brand,
               packs: np, unitsPerPack: uo,
               unitLabel: old.unitLabel || 'unità',
               packsOnly: false, needsUpdate: false,
@@ -1995,7 +2014,7 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // ——— 13) Finanze ———
+    // ——— 9) Finanze ———
     let financesOk = true;
     try {
       const meta = pendingOcrMeta || { store, purchaseDate };
@@ -2038,6 +2057,46 @@ async function handleOCR(files) {
     showToast(`Errore OCR scorte: ${e?.message || e}`, 'err');
   } finally {
     setBusy(false);
+    if (ocrInputRef.current) ocrInputRef.current.value = '';
+         
+    // ——— 13) Finanze ———
+    let financesOk = true;
+    try {
+      const meta = pendingOcrMeta || { store, purchaseDate };
+      const payload = {
+        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+        ...(meta.store ? { store: meta.store } : {}),
+        ...(meta.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
+        ...(meta.location ? { location: meta.location } : {}),
+        ...(Number.isFinite(Number(meta.totalPaid)) ? { totalPaid: Number(meta.totalPaid) } : {}),
+        ...(meta.currency ? { currency: meta.currency } : {}),
+        payment_method: meta.paymentMethod || 'cash',
+        card_label: null,
+        items: (purchases || []).map(p => ({
+          name: p.name,
+          brand: p.brand || '',
+          packs: Number(p.packs || 0),
+          unitsPerPack: Number(p.unitsPerPack || 0),
+          unitLabel: p.unitLabel || '',
+          priceEach: Number(p.priceEach || 0),
+          priceTotal: Number(p.priceTotal || 0),
+          currency: p.currency || 'EUR',
+          expiresAt: p.expiresAt || ''
+        }))
+      };
+
+      await fetchJSONStrict(API_FINANCES_INGEST, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }, 30000);
+    } catch (e) {
+      financesOk = false;
+      console.warn('[FINANCES_INGEST] fail', e);
+      showToast(`Finanze: ${e.message}`, 'err');
+    }
+    if (financesOk) showToast('OCR scorte completato ✓', 'ok');
+      setBusy(false);
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
