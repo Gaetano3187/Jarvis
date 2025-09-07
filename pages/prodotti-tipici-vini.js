@@ -47,41 +47,44 @@ const Stars = ({value=0,onChange})=>(
   </span>
 );
 
-/* ---------- Helper: converti HEIC/HEIF in JPEG (client) ---------- */
-async function toJpegIfNeeded(file) {
+/* ---------- NEW: util client per convertire HEIC/immagini grandi in JPEG ---------- */
+async function toJpegIfNeeded(file, { maxSide=1800, quality=0.82 } = {}) {
   try {
-    if (!file) return file;
-    const t = (file.type || '').toLowerCase();
-    if (t === 'application/pdf') return file; // lasciamo i PDF invariati
-    if (!/heic|heif|image\/heic|image\/heif/.test(t)) return file;
+    const isHeic = /heic|heif/i.test(file.type || file.name || '');
+    const tooBig = file.size > 7_000_000; // ~7MB
+    if (!isHeic && !tooBig) return file;
 
-    const buf = await file.arrayBuffer();
-    const blob = new Blob([buf], { type: file.type });
     const dataUrl = await new Promise((ok, ko) => {
       const r = new FileReader();
       r.onload = () => ok(r.result);
       r.onerror = ko;
-      r.readAsDataURL(blob);
+      r.readAsDataURL(file);
     });
 
     const img = await new Promise((ok, ko) => {
-      const el = new Image();
-      el.onload = () => ok(el);
-      el.onerror = ko;
-      el.src = dataUrl;
+      const im = new Image();
+      im.onload = () => ok(im);
+      im.onerror = ko;
+      im.src = dataUrl;
     });
 
-    const canvas = document.createElement('canvas');
-    canvas.width  = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
+    const w0 = img.naturalWidth || img.width;
+    const h0 = img.naturalHeight || img.height;
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
 
-    const jpegBlob = await new Promise(ok => canvas.toBlob(b => ok(b), 'image/jpeg', 0.9));
-    if (!jpegBlob) return file;
-    return new File([jpegBlob], (file.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
+    if (!blob) return file;
+    const name = (file.name || 'upload').replace(/\.\w+$/, '') + '.jpg';
+    return new File([blob], name, { type: 'image/jpeg' });
   } catch {
-    return file;
+    return file; // in caso di errore non bloccare
   }
 }
 
@@ -110,10 +113,10 @@ function SectionToolbar({ label, onAddManual, onOcr, showAdd }) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*,application/pdf"   // ← include PDF
+        accept="image/*,application/pdf"    
         capture="environment"
         style={{display:'none'}}
-        onChange={(e)=> e.target.files?.[0] && onOcr?.(e.target.files[0])}
+        onChange={async (e)=> e.target.files?.[0] && onOcr?.(e.target.files[0])}
       />
     </div>
   );
@@ -466,7 +469,6 @@ const AddCellarForm = React.forwardRef(function AddCellarForm({ userId, wines = 
   );
 });
 
-
 /* ===================== Pagina ===================== */
 function ProdottiTipiciViniPage() {
   const [tab, setTab] = useState('wines'); // 'artisan' | 'wines' | 'cellar'
@@ -641,22 +643,24 @@ function ProdottiTipiciViniPage() {
   const [q, setQ] = useState('');
   const fileSommelierRef = useRef(null);
 
+  // NEW: conversione prima di inviare all'OCR + parsing robusto
   async function handleSommelierOcrFiles(files) {
     try {
       if (!files || !files.length) { alert('Nessun file selezionato'); return; }
+
       const fd = new FormData();
-      // HEIC → JPEG conversion per ciascun file (PDF lasciati intatti)
-      for (let i = 0; i < files.length; i++) {
-        const f = await toJpegIfNeeded(files[i]);
-        fd.append('images', f, f.name || `foto_${i+1}.jpg`);
+      for (let i=0; i<files.length; i++) {
+        const jf = await toJpegIfNeeded(files[i]);        // NEW
+        fd.append('images', jf, jf.name || `foto_${i+1}.jpg`);
       }
+
       const r = await fetch('/api/ocr', { method:'POST', body: fd });
       if (!r.ok) {
         const txt = await r.text().catch(()=> '');
         throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
       }
-    const j = await r.json();
- const text = String(j?.text || j?.data?.text || j?.data || '').trim();
+      const j = await r.json();
+      const text = String(j?.text || j?.data?.text || j?.data || '').trim();   // NEW
       if (!text) { alert('OCR: nessun testo letto.'); return; }
       setSommelierLists(prev => [...prev, text]);
       showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
@@ -676,9 +680,7 @@ function ProdottiTipiciViniPage() {
         query: q || '',
         wineLists: sommelierLists,
         wineList: aggregatedList || null,
-        qrLinks: sommelierQr,
-        web: true,
-        trace: true
+        qrLinks: sommelierQr
       };
 
       const r = await fetch('/api/sommelier', {
@@ -744,12 +746,14 @@ function ProdottiTipiciViniPage() {
   async function addWineByOcr(file) {
     try {
       if (!userId) return alert('Sessione assente');
-      // HEIC → JPEG se serve
-      const fileConv = await toJpegIfNeeded(file);
-      const fd = new FormData(); fd.append('images', fileConv, fileConv.name || 'label.jpg');
+
+      const safeFile = await toJpegIfNeeded(file);              // NEW
+      const fd = new FormData();
+      fd.append('images', safeFile, safeFile.name || 'label.jpg');
       const r1 = await fetch('/api/ocr', { method:'POST', body: fd });
       const j1 = await r1.json();
-const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
+
+      const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();  // NEW
       if (!text) { alert('OCR: nessun testo letto.'); return; }
 
       // Normalizza → schema vino
@@ -759,12 +763,11 @@ const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
       });
       const norm = await r2.json();
       const d = norm?.data || {};
-      // Inferenze locali (gradazione, vitigni possono mancare)
+
       const regionGuess = d.region || guessRegionFromText(
         [d.name, d.denomination, d.winery].filter(Boolean).join(' ')
       ).region || null;
 
-      // Insert
       const { data: newWine, error } = await supabase.from('wines').insert([{
         user_id: userId,
         name: (d.name || '').trim() || 'Vino (da etichetta)',
@@ -780,7 +783,6 @@ const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
       }]).select().single();
       if (error) throw error;
 
-      // Origine: se c’è lat/lng ok; se no geocoding povero su regione/denominazione/cantina
       const orig = d.origin?.lat && d.origin?.lng
         ? d.origin
         : (await searchGeocode(regionGuess || d.denomination || d.winery || d.name));
@@ -805,7 +807,6 @@ const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
       if (!place?.id) return;
       const w = wineById[place.item_id];
       if (!w) return;
-      // best-effort API interna (se presente). Altrimenti fallback locale.
       let info = { vintages: [], pairing: '' };
       try {
         const q = [w.name, w.denomination, w.region, w.winery].filter(Boolean).join(' ');
@@ -832,7 +833,6 @@ const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
   const deleteWine = useCallback(async (id)=>{
     if (!userId) return;
     if (!confirm('Eliminare questo vino?')) return;
-    // elimina luoghi collegati (se non hai cascade)
     await supabase.from('product_places').delete().eq('item_type','wine').eq('item_id',id).eq('user_id',userId);
     const { error } = await supabase.from('wines').delete().eq('id',id).eq('user_id',userId);
     if (error) return alert('Errore eliminazione: '+error.message);
@@ -877,7 +877,7 @@ const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
         <input
           ref={fileSommelierRef}
           type="file"
-          accept="image/*,application/pdf"   // ← include PDF per carte
+          accept="image/*,application/pdf"   // NEW
           multiple
           capture="environment"
           style={{ display:'none' }}
