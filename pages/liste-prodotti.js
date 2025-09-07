@@ -388,45 +388,39 @@ async function readJsonSafe(res) {
 
 function ensureArray(x) { return Array.isArray(x) ? x : []; }
 
-function timeoutFetch(url, opts = {}, ms = 60000) { // 60s default
+function timeoutFetch(url, opts = {}, ms = 90000) { // 90s default
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort('timeout'), ms);
-
+  const t = setTimeout(() => ctrl.abort('timeout'), ms);
   return fetch(url, { ...opts, signal: ctrl.signal })
-    .finally(() => clearTimeout(timer))
+    .finally(() => clearTimeout(t))
     .catch(err => {
       if (err?.name === 'AbortError') {
-        const reason = typeof ctrl.signal?.reason === 'string' ? ctrl.signal.reason : 'timeout';
-        throw new Error(`Timeout/Abort (${reason}) dopo ${Math.round(ms/1000)}s`);
+        const why = ctrl.signal?.reason || 'timeout';
+        throw new Error(`Abort/Timeout (${why}) dopo ${Math.round(ms/1000)}s`);
       }
       throw err;
     });
 }
 
-async function fetchJSONStrict(url, opts = {}, timeoutMs = 60000) {
-  // 1° tentativo
+async function fetchJSONStrict(url, opts = {}, timeoutMs = 90000) {
   try {
     const r = await timeoutFetch(url, opts, timeoutMs);
     const ct = (r.headers.get?.('content-type') || '').toLowerCase();
     const raw = await r.text?.() || '';
-    if (!r.ok) {
-      let msg = raw;
-      if (ct.includes('application/json')) { try { msg = JSON.parse(raw).error || JSON.parse(raw).message || JSON.stringify(JSON.parse(raw)); } catch {} }
-      throw new Error(`HTTP ${r.status} ${r.statusText || ''} — ${String(msg).slice(0,250)}`);
-    }
+    if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText || ''} — ${raw.slice(0,250)}`);
     if (!raw.trim()) return {};
-    if (ct.includes('application/json')) { try { return JSON.parse(raw); } catch (e) { throw new Error(`JSON parse error: ${e?.message||e}`); } }
+    if (ct.includes('application/json')) return JSON.parse(raw);
     try { return JSON.parse(raw); } catch { return { data: raw }; }
   } catch (e) {
-    // Retry solo per Abort/Timeout
-    if (/Timeout|Abort/i.test(String(e?.message || ''))) {
-      const r2 = await timeoutFetch(url, opts, Math.max(90000, timeoutMs + 30000)); // +30s
-      const ct = (r2.headers.get?.('content-type') || '').toLowerCase();
-      const raw = await r2.text?.() || '';
-      if (!r2.ok) throw new Error(`HTTP ${r2.status} ${r2.statusText || ''} — ${String(raw).slice(0,250)}`);
-      if (!raw.trim()) return {};
-      if (ct.includes('application/json')) { try { return JSON.parse(raw); } catch (e2) { throw new Error(`JSON parse error: ${e2?.message||e2}`); } }
-      try { return JSON.parse(raw); } catch { return { data: raw }; }
+    // retry una volta se era abort/timeout
+    if (/Abort|Timeout/i.test(String(e?.message||''))) {
+      const r2 = await timeoutFetch(url, opts, Math.max(120000, timeoutMs+30000));
+      const ct2 = (r2.headers.get?.('content-type') || '').toLowerCase();
+      const raw2 = await r2.text?.() || '';
+      if (!r2.ok) throw new Error(`HTTP ${r2.status} ${r2.statusText || ''} — ${raw2.slice(0,250)}`);
+      if (!raw2.trim()) return {};
+      if (ct2.includes('application/json')) return JSON.parse(raw2);
+      try { return JSON.parse(raw2); } catch { return { data: raw2 }; }
     }
     throw e;
   }
@@ -1764,7 +1758,7 @@ function estimateCandidateLines(ocrText=''){
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte (con normalizzazione web) ====================== */
 async function handleOCR(files) {
   if (!files) return;
-  if (busy) return;                 // evita doppie esecuzioni
+  if (busy) return;
 
   let purchases = [];
   let store = '';
@@ -1773,18 +1767,16 @@ async function handleOCR(files) {
   try {
     setBusy(true);
 
-    // ——— 0) Seleziona solo File reali dall’input ———
+    // 0) pick file valido
     const toArray = (x) => Array.from(x || []);
     const isFileLike = (v) => {
-      try {
-        return !!(v && typeof v === 'object' && typeof v.type === 'string' && typeof v.size === 'number' && typeof v.arrayBuffer === 'function' && typeof v.slice === 'function');
-      } catch { return false; }
+      try { return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function'); }
+      catch { return false; }
     };
-    const picked = [];
-    for (const f of toArray(files)) if (isFileLike(f)) picked.push(f);
+    const picked = toArray(files).filter(isFileLike);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
-    // ——— 1) OCR con immagine compressa ———
+    // 1) OCR
     const first = picked[0];
     const aliases = ['images','files','file','image'];
     const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
@@ -1792,16 +1784,10 @@ async function handleOCR(files) {
     let fdOcr = new FormData();
     for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
 
-    let ocrAns = null, ocrText = '';
-    try {
-      ocrAns  = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000); // timeout esteso
-      ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
-    } catch (err) {
-      showToast(`OCR errore: ${err.message}`, 'err');
-      throw err;
-    }
+    let ocrAns = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000);
+    let ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
 
-    // Vision one-shot (purchases/metadati già estratti)
+    // Vision one-shot
     if (Array.isArray(ocrAns?.purchases) && ocrAns.purchases.length) {
       purchases = ocrAns.purchases.map(p => ({
         name: String(p.name||'').trim(),
@@ -1814,52 +1800,43 @@ async function handleOCR(files) {
         currency: String(p.currency||'').trim() || 'EUR',
         expiresAt: toISODate(p.expiresAt || '')
       }));
-
       store        = String(ocrAns.store || '').trim();
       purchaseDate = toISODate(ocrAns.purchaseDate || '');
-      const metaFromVision = {
-        store,
-        purchaseDate,
+      setPendingOcrMeta?.({
+        store, purchaseDate,
         location: ocrAns.location || '',
         totalPaid: coerceNum(ocrAns.totalPaid),
         currency: ocrAns.currency || 'EUR',
-        paymentMethod: ocrAns.paymentMethod || 'cash',
-      };
-      if (typeof setPendingOcrMeta === 'function') setPendingOcrMeta(metaFromVision);
+        paymentMethod: ocrAns.paymentMethod || 'cash'
+      });
     }
 
-    // Retry HEIC (Safari) se testo ancora vuoto
+    // HEIC retry
     if (!ocrText && /heic|heif/i.test(first?.type || '')) {
       fdOcr = new FormData();
       for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
-      try {
-        const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000);
-        if (o2 && (o2.text || (o2.items && o2.items.length))) {
-          ocrAns = o2;
-          ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
-        }
-      } catch {}
-    }
-
-    if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
-
-    // ——— 2) Preferisci items “busta/etichette” da Vision ———
-    if (!purchases.length) {
-      const itemsFromVision = Array.isArray(ocrAns?.items) ? ocrAns.items : [];
-      if (itemsFromVision.length) {
-        purchases = itemsFromVision.map(p => ({
-          name: String(p?.name || '').trim(),
-          brand: String(p?.brand || '').trim(),
-          packs: coerceNum(p?.packs),
-          unitsPerPack: coerceNum(p?.unitsPerPack),
-          unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
-          priceEach: 0, priceTotal: 0, currency: 'EUR',
-          expiresAt: toISODate(p?.expiresAt || '')
-        })).filter(p => p.name);
+      const o2 = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000);
+      if (o2 && (o2.text || (o2.items && o2.items.length))) {
+        ocrAns = o2;
+        ocrText = String(o2?.text || o2?.data?.text || o2?.data || '').trim();
       }
     }
+    if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
 
-    // ——— 3) Parser scontrino testo → JSON (Assistant) ———
+    // 2) items da Vision (etichette)
+    if (!purchases.length && Array.isArray(ocrAns?.items) && ocrAns.items.length) {
+      purchases = ocrAns.items.map(p => ({
+        name: String(p?.name||'').trim(),
+        brand: String(p?.brand||'').trim(),
+        packs: coerceNum(p?.packs),
+        unitsPerPack: coerceNum(p?.unitsPerPack),
+        unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
+        priceEach: 0, priceTotal: 0, currency: 'EUR',
+        expiresAt: toISODate(p?.expiresAt || '')
+      })).filter(p => p.name);
+    }
+
+    // 3) Parser testo (fallback)
     let parsed = null;
     if (!purchases.length && ocrText) {
       const promptTicket = (typeof buildOcrAssistantPrompt === 'function') ? buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON) : ocrText;
@@ -1869,18 +1846,17 @@ async function handleOCR(files) {
         }, 60000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
-        parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
-      } catch (e) { if (DEBUG) console.warn('[ASSISTANT ticket parse] fallito', e); }
+        parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })() : answer;
+      } catch {}
     }
 
-    // Meta da OCR testo (se mancano)
+    // meta da OCR testo
     if (!store || !purchaseDate) {
       const meta = parseReceiptMeta(ocrText || '');
       store        = (store || meta.store || '').trim();
       purchaseDate = toISODate(purchaseDate || meta.purchaseDate || '');
     }
 
-    // Righe dal parser (se servono)
     if (!purchases.length && parsed) {
       purchases = ensureArray(parsed?.purchases).map(p => ({
         name: String(p?.name||'').trim(),
@@ -1895,7 +1871,7 @@ async function handleOCR(files) {
       })).filter(p => p.name);
     }
 
-    // ——— 4) Fallback locali ———
+    // 4) Fallback locali
     if (!purchases.length && ocrText) {
       purchases = parseReceiptPurchases(ocrText).map(p => ({
         name: p.name, brand: p.brand || '',
@@ -1908,7 +1884,7 @@ async function handleOCR(files) {
       purchases = parseByLexicon(ocrText, GROCERY_LEXICON);
     }
 
-    // ——— 5) Normalizzazioni base ———
+    // 5) Normalizzazioni base
     if (Array.isArray(purchases)) {
       purchases = purchases.map(p => {
         if (typeof applyLearnedAliases === 'function') {
@@ -1920,40 +1896,35 @@ async function handleOCR(files) {
       if (typeof normalizeNameBrandPurchase === 'function') purchases = purchases.map(normalizeNameBrandPurchase);
       if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
     }
-    // Non unire: processiamo ogni riga così com'è
 
-    // ——— 6) Filtra non-merce ovvia ———
+    // 6) Filtri non-merce
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
     const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
-    purchases = (Array.isArray(purchases) ? purchases : []).filter(p => {
+    purchases = purchases.filter(p => {
       const nm = normKey(`${p?.name || ''} ${p?.brand || ''}`);
       return nm && !DISCARD_MSG.test(nm) && !NOT_PRODUCT_RE.test(nm);
     });
 
-    // ——— 7) Normalizzazione Web (Google CSE + LLM) ———
+    // 7) Normalizzazione web/LLM
     try {
       const resp = await timeoutFetch('/api/normalize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: purchases.map(p => ({ name: p.name, brand: p.brand || '' })),
-          locale: 'it-IT',
-          trace: false
-        })
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ items: purchases.map(p => ({ name:p.name, brand:p.brand||'' })), locale:'it-IT' })
       }, 60000);
       if (resp.ok) {
         const j = await resp.json().catch(()=>null);
         const results = Array.isArray(j?.results) ? j.results : [];
         if (results.length) {
-          purchases = purchases.map((p, i) => {
+          purchases = purchases.map((p,i) => {
             const r = results[i]?.out;
             if (!r) return p;
-            const normName   = String(r.normalizedName || '').trim();
-            const canonBrand = String(r.canonicalBrand || '').trim();
+            const nn = String(r.normalizedName||'').trim();
+            const cb = String(r.canonicalBrand||'').trim();
             return {
               ...p,
-              name: normName || p.name,
-              brand: canonBrand || p.brand || '',
+              name: nn || p.name,
+              brand: cb || p.brand || '',
               meta: {
                 category: r?.category || '',
                 subcategory: r?.subcategory || '',
@@ -1964,25 +1935,21 @@ async function handleOCR(files) {
           });
         }
       }
-    } catch (e) {
-      if (DEBUG) console.warn('[normalize web] skip', e);
-    }
+    } catch {}
 
-    // ——— 8) Inserimento diretto (niente modale) ———
-    if (!Array.isArray(purchases) || purchases.length === 0) {
+    // 8) Inserimento diretto
+    if (!purchases.length) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
     }
 
     if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: true });
 
-    // Liste: decrementa
     setLists(prev => decrementAcrossBothLists(prev, purchases));
 
-    // Scorte: aggiungi/somma
     setStock(prev => {
       const arr = [...prev];
-      const todayISO = new Date().toISOString().slice(0, 10);
+      const todayISO = new Date().toISOString().slice(0,10);
       for (const p of purchases) {
         const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
         const packs = coerceNum(p.packs), upp = coerceNum(p.unitsPerPack);
@@ -1991,57 +1958,46 @@ async function handleOCR(files) {
         if (idx >= 0) {
           const old = arr[idx];
           if (hasCounts) {
-            const newP = Math.max(0, Number(old.packs || 0) + (packs || 0));
+            const newP = Math.max(0, Number(old.packs||0) + (packs||0));
             const newU = Math.max(1, Number(old.unitsPerPack || upp || 1));
-            arr[idx] = {
-              ...old,
-              name: p.name, brand: p.brand || old.brand,
-              packs: newP, unitsPerPack: newU,
+            arr[idx] = { ...old,
+              name:p.name, brand:p.brand||old.brand,
+              packs:newP, unitsPerPack:newU,
               unitLabel: old.unitLabel || p.unitLabel || 'unità',
               expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly: false, needsUpdate: false,
+              packsOnly:false, needsUpdate:false,
               ...restockTouch(newP, todayISO, newU)
             };
-          } else if (DEFAULT_PACKS_IF_MISSING) {
+          } else {
+            // default 1 conf se non abbiamo conteggi
             const uo = Math.max(1, Number(old.unitsPerPack || 1));
-            const np = Math.max(0, Number(old.packs || 0) + 1);
-            arr[idx] = {
-              ...old,
-              name: p.name, brand: p.brand || old.brand,
-              packs: np, unitsPerPack: uo,
+            const np = Math.max(0, Number(old.packs||0) + 1);
+            arr[idx] = { ...old,
+              name:p.name, brand:p.brand||old.brand,
+              packs:np, unitsPerPack:uo,
               unitLabel: old.unitLabel || 'unità',
-              packsOnly: false, needsUpdate: false,
+              packsOnly:false, needsUpdate:false,
               ...restockTouch(np, todayISO, uo)
             };
-          } else {
-            arr[idx] = { ...old, needsUpdate: true };
           }
         } else {
           if (hasCounts) {
             const u = Math.max(1, upp || 1);
             arr.unshift(withRememberedImage({
-              name: p.name, brand: p.brand || '',
-              packs: Math.max(0, packs || 1), unitsPerPack: u, unitLabel: p.unitLabel || 'unità',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: Math.max(0, packs || 1), lastRestockAt: todayISO, avgDailyUnits: 0,
-              residueUnits: Math.max(0, (packs || 1) * u),
-              packsOnly: false, needsUpdate: false
-            }, imagesIndex));
-          } else if (DEFAULT_PACKS_IF_MISSING) {
-            arr.unshift(withRememberedImage({
-              name: p.name, brand: p.brand || '',
-              packs: 1, unitsPerPack: 1, unitLabel: 'unità',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
-              residueUnits: 1, packsOnly: false, needsUpdate: false
+              name:p.name, brand:p.brand||'',
+              packs:Math.max(0, packs||1), unitsPerPack:u, unitLabel:p.unitLabel||'unità',
+              expiresAt:p.expiresAt||'',
+              baselinePacks:Math.max(0, packs||1), lastRestockAt:todayISO, avgDailyUnits:0,
+              residueUnits:Math.max(0,(packs||1)*u),
+              packsOnly:false, needsUpdate:false
             }, imagesIndex));
           } else {
             arr.unshift(withRememberedImage({
-              name: p.name, brand: p.brand || '',
-              packs: 0, unitsPerPack: 1, unitLabel: '-',
-              expiresAt: p.expiresAt || '',
-              baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0,
-              residueUnits: 0, packsOnly: true, needsUpdate: true
+              name:p.name, brand:p.brand||'',
+              packs:1, unitsPerPack:1, unitLabel:'unità',
+              expiresAt:p.expiresAt||'',
+              baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
+              residueUnits:1, packsOnly:false, needsUpdate:false
             }, imagesIndex));
           }
         }
@@ -2049,8 +2005,9 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // ——— 9) Finanze ———
-    if (!purchases.length) return;  // evita 400
+    // 9) Finanze — chiama SOLO se c’è qualcosa
+    if (!purchases.length) return;
+
     let financesOk = true;
     try {
       const meta = pendingOcrMeta || { store, purchaseDate };
@@ -2063,7 +2020,7 @@ async function handleOCR(files) {
         ...(meta.currency ? { currency: meta.currency } : {}),
         payment_method: meta.paymentMethod || 'cash',
         card_label: null,
-        items: (purchases || []).map(p => ({
+        items: purchases.map(p => ({
           name: p.name,
           brand: p.brand || '',
           packs: Number(p.packs || 0),
@@ -2077,8 +2034,8 @@ async function handleOCR(files) {
       };
 
       await fetchJSONStrict(API_FINANCES_INGEST, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify(payload)
       }, 40000);
     } catch (e) {
@@ -2096,7 +2053,6 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
-
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
