@@ -1720,35 +1720,22 @@ async function downscaleImageFile(file, { maxSide = 1600, quality = 0.74 } = {})
     // In caso di errore, non bloccare il flusso: torna l’originale
     return file;
   }
-}/* ====================== Prompt builder OCR Riga (più rigoroso) ====================== */
-function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
-  const keepName  = String(name || '').trim();
-  const keepBrand = String(brand || '').trim();
+}
 
+/* ====================== Prompt builder OCR Riga ====================== */
+function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
   return [
-    'Sei Jarvis. Hai l\'OCR di una ETICHETTA/PRODOTTO o di una PORZIONE DI SCONTRINO riferita a UNA SOLA VOCE.',
-    'DEVI rispondere SOLO con JSON VALIDO (nessun testo extra) nello schema esatto:',
+    'Sei Jarvis. Hai OCR di una ETICHETTA/PRODOTTO o porzione di scontrino riferita a UNA SOLA VOCE.',
+    'RISPONDI SOLO JSON con schema esatto:',
     '{ "name":"", "brand":"", "packs":0, "unitsPerPack":0, "unitLabel":"", "expiresAt":"" }',
     '',
-    'Regole di estrazione:',
-    '- name: il nome commerciale del prodotto (conciso).',
-    '- brand: la marca (vuoto se non presente).',
-    '- packs: numero confezioni/pz acquistati (intero; se non deducibile, 0).',
-    '- unitsPerPack: unità per confezione (intero; se non deducibile, 0).',
-    '- unitLabel: etichetta quantità (tra: "unità", "pezzi", "bottiglie", "buste", "lattine", "vasetti", "barattoli", "vaschette", "rotoli", "capsule", "brick", "uova"; vuoto se sconosciuto).',
-    '- expiresAt: data scadenza in formato YYYY-MM-DD se esplicitamente presente; altrimenti "".',
-    '',
-    (keepName || keepBrand)
-      ? `Vincoli: se compatibile con l'OCR, mantieni coerenza con name≈"${keepName}" e brand≈"${keepBrand}".`
-      : 'Vincoli: non inventare marche o quantità mancanti.',
-    '',
-    'Attenzione:',
-    '- Non interpretare pesi/volumi/dimensioni (es. 500g, 1.5L, 30x30cm) come unitsPerPack.',
-    '- Riconosci pattern espliciti tipo: "2x6", "2 conf. da 6", "6 bottiglie", "3 pezzi".',
-    '- Restituisci SOLTANTO il JSON richiesto, senza campi extra, commenti o testo.',
+    `Vincoli: se possibile mantieni name≈"${name}" e brand≈"${brand}"`,
+    '- Estrai quantità come: packs, unitsPerPack, unitLabel',
+    '- Se non deduci packs/unitsPerPack lascia 0 e unitLabel ""',
+    '- Scadenza in formato YYYY-MM-DD se presente',
     '',
     '--- TESTO OCR INIZIO ---',
-    String(ocrText || ''),
+    ocrText,
     '--- TESTO OCR FINE ---'
   ].join('\n');
 }
@@ -1800,35 +1787,17 @@ function estimateCandidateLines(ocrText = '') {
   }
   return count;
 }
+// ——— NO-MERGE helpers ———
+const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;               // name|brand normalizzati
+const rawKeyOf = (p = {}) => `${keyNB(p?.name || '', p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`; // + UPP
 
-/* ========== NO-MERGE helpers (global) — usa chiave RAW con nome “canonico” ========== */
-const __MEASURE_TOKEN_RE = (typeof MEASURE_TOKEN_RE !== 'undefined'
-  ? MEASURE_TOKEN_RE
-  : /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi);
-
-const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;
-
-/** Rimuove pesi/volumi e numeri isolati che variano tra righe dello stesso prodotto */
-function canonicalRawName(name = '') {
-  return String(name || '')
-    .replace(__MEASURE_TOKEN_RE, ' ')   // es. 500g, 1.5L, 30x30cm, etc.
-    .replace(/\b\d{2,5}\b/g, ' ')       // numeri isolati (es. 500)
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
-/** Chiave RAW = (name canonico | brand) + UPP – calcolata PRIMA di normalizzare col web */
-function rawKeyOf(p = {}) {
-  const canon = canonicalRawName(p?.name || '');
-  return `${keyNB(canon, p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`;
-}
-
-/** Cerca SOLO per _keyRaw (nessun fallback su nome/brand) */
+// match SOLO per _keyRaw (nessun fallback su nome/brand normalizzati)
 function findStockIndexStrict(arr = [], p = {}) {
   const rk = String(p?._keyRaw || '');
   if (!rk) return -1;
   return arr.findIndex(s => String(s?._keyRaw || '') === rk);
 }
+
 
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte (no-merge righe + normalizzazione web + immagini) ====================== */
 async function handleOCR(files) {
@@ -1839,6 +1808,26 @@ async function handleOCR(files) {
   let purchases = [];
   let store = '';
   let purchaseDate = '';
+
+  // helper: RAW-KEY per riga PRIMA della normalizzazione
+  const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;
+  // 👇 canonizza il nome “raw” togliendo pesi/volumi/codici numerici che variano tra righe uguali (es. 500, 500g, 500gr)
+  const canonicalRawName = (name = '') => {
+    return String(name)
+      .replace(MEASURE_TOKEN_RE, ' ')      // kg, g, gr, ml, cl, l, lt, ecc.
+      .replace(/\b\d{2,5}\b/g, ' ')        // numeri isolati (es. 500)
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+  const rawKeyOf = (p) =>
+    `${keyNB(canonicalRawName(p?.name || ''), p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`;
+
+  // match SOLO su _keyRaw (evita accorpamenti non voluti)
+  const findStockIndexStrict = (arr = [], p = {}) => {
+    const rk = String(p?._keyRaw || '');
+    if (!rk) return -1;
+    return arr.findIndex(s => String(s?._keyRaw || '') === rk);
+  };
 
   try {
     // 0) pick file valido
@@ -2020,8 +2009,8 @@ async function handleOCR(files) {
               out.image = proxied;
               out.imageDirect = imageUrl; // backup: link diretto
               try {
-                const k = productKey(out.name, out.brand || '');
-                setImagesIndex(prev => (prev && prev[k] === proxied) ? prev : { ...prev, [k]: proxied });
+                const key = productKey(out.name, out.brand || '');
+                setImagesIndex(prev => (prev && prev[key] === proxied) ? prev : { ...prev, [key]: proxied });
               } catch {}
             }
             return out;
@@ -2150,6 +2139,474 @@ async function handleOCR(files) {
   } finally {
     setBusy(false);
     if (ocrInputRef.current) ocrInputRef.current.value = '';
+  }
+}
+
+
+  /* =================== Edit riga scorte =================== */
+  function startRowEdit(index, row){
+    const initRU = String(Number(row.packs || 0) * Number(row.unitsPerPack || 1));
+    setEditingRow(index);
+    setEditDraft({
+      name: row.name || '',
+      brand: row.brand || '',
+      packs: String(Number(row.packs ?? 0)),
+      unitsPerPack: String(Number(row.unitsPerPack ?? 1)),
+      unitLabel: row.unitLabel || 'unità',
+      expiresAt: row.expiresAt || '',
+      residueUnits: row.packsOnly ? String(Number(row.packs||0)) : (row.residueUnits ?? initRU),
+      _ruTouched: false,
+    });
+  }
+  function handleEditDraftChange(field, value){
+    setEditDraft(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'residueUnits' ? { _ruTouched: true } : null),
+    }));
+  }
+  function cancelRowEdit(){
+    setEditingRow(null);
+    setEditDraft({
+      name: '', brand: '', packs: '0', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '', residueUnits: '0', _ruTouched:false
+    });
+  }
+  function saveRowEdit(index){
+    setStock(prev => {
+      const arr = [...prev];
+      const old = arr[index];
+      if (!old) return prev;
+
+      const name = (editDraft.name || '').trim();
+      const brand = (editDraft.brand || '').trim();
+      const unitsPerPack = Math.max(1, Number(String(editDraft.unitsPerPack).replace(',','.')) || 1);
+      const unitLabel = (editDraft.unitLabel || 'unità').trim() || 'unità';
+      const expiresAt = toISODate(editDraft.expiresAt || '');
+
+      const newPacks = Math.max(0, Number(String(editDraft.packs).replace(',','.')) || 0);
+
+      const todayISO = new Date().toISOString().slice(0,10);
+      const uppOld = Math.max(1, Number(old.unitsPerPack || 1));
+      const wasUnits = old.packsOnly ? Number(old.packs||0) : Number(old.packs || 0) * uppOld;
+      const nowUnits = newPacks * unitsPerPack;
+      const restock = nowUnits > wasUnits;
+
+      let ru = residueUnitsOf(old);
+      const ruTouched = Object.prototype.hasOwnProperty.call(editDraft, '_ruTouched') ? !!editDraft._ruTouched : false;
+      if (ruTouched) {
+        const ruRaw = Number(String(editDraft.residueUnits ?? '').replace(',','.'));
+        if (Number.isFinite(ruRaw)) ru = Math.max(0, ruRaw);
+      }
+      const fullNow = Math.max(unitsPerPack, nowUnits);
+      if (!old.packsOnly) ru = Math.min(ru, fullNow);
+
+      const avgDailyUnits = computeNewAvgDailyUnits(old, newPacks);
+
+      let next = {
+        ...old,
+        name, brand,
+        packs: newPacks,
+        unitsPerPack, unitLabel,
+        expiresAt,
+        avgDailyUnits,
+        packsOnly: false
+      };
+
+      if (restock) {
+        next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
+      } else {
+        next.residueUnits = old.packsOnly ? Math.max(0, Number(newPacks)) : ru;
+      }
+
+      arr[index] = next;
+      return arr;
+    });
+
+    setEditingRow(null);
+  }
+  function applyDeltaToStock(index, { setUnits }) {
+    setStock(prev => {
+      const arr = [...prev];
+      const row = arr[index];
+      if (!row) return prev;
+      if (row.packsOnly) {
+        const baselinePacks = Math.max(1, Number(row.baselinePacks || row.packs || 1));
+        const clampedP = Math.max(0, Math.min(Number(setUnits || 0), baselinePacks));
+        arr[index] = { ...row, packs: clampedP };
+        return arr;
+      }
+      const baseline = baselineUnitsOf(row) || Math.max(1, Number(row.unitsPerPack || 1));
+      const clamped = Math.max(0, Math.min(Number(setUnits || 0), baseline));
+      arr[index] = { ...row, residueUnits: clamped, packsOnly:false };
+      return arr;
+    });
+  }
+  function deleteStockRow(index){
+  setStock(prev => prev.filter((_, i) => i !== index));
+}
+
+
+  /* =================== Gestione immagine riga scorte =================== */
+  async function handleRowImage(files, idx) {
+    const file = (files && files[0]) || null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setStock(prev => {
+        const arr = [...prev];
+        if (!arr[idx]) return prev;
+        const updated = { ...arr[idx], image: dataUrl };
+        arr[idx] = updated;
+
+        // salva in indice immagini
+        const key = productKey(updated.name, updated.brand || '');
+        setImagesIndex(prevIdx => ({ ...prevIdx, [key]: dataUrl }));
+
+        return arr;
+      });
+      showToast('Immagine prodotto aggiornata ✓', 'ok');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /* =================== Vocale LISTA =================== */
+  async function toggleRecList() {
+    if (recBusy) { try { mediaRecRef.current?.stop(); } catch (e) {} return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      mediaRecRef.current = new MediaRecorder(stream);
+      recordedChunks.current = [];
+      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
+      mediaRecRef.current.onstop = processVoiceList;
+      mediaRecRef.current.start();
+      setRecBusy(true);
+    } catch (e) {
+      alert('Microfono non disponibile');
+    }
+  }
+  async function processVoiceList() {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
+    try {
+      setBusy(true);
+      const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+      const { text } = await res.json();
+      if (!text) throw new Error('Testo non riconosciuto');
+
+      let appended = false;
+      try {
+        const payload = {
+          prompt: [
+            'Sei Jarvis. Capisci una LISTA SPESA. Rispondi SOLO JSON:',
+            '{ "items":[{ "name":"latte","brand":"Parmalat","packs":2,"unitsPerPack":6,"unitLabel":"bottiglie" }]}',
+            'Se manca brand metti "", packs default 1, unitsPerPack default 1, unitLabel default "unità".',
+            'Voci comuni: ' + GROCERY_LEXICON.join(', '),
+            'Testo:', text
+          ].join('\n'),
+        };
+        const r = await timeoutFetch(API_ASSISTANT_TEXT, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        }, 25000);
+        const safe = await readJsonSafe(r);
+        const answer = safe?.answer || safe?.data || safe;
+        const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
+        const arr = Array.isArray(parsed?.items) ? parsed.items : [];
+        if (arr.length) {
+          setLists(prev => {
+            const next = { ...prev };
+            const target = currentList;
+            const existing = [...(prev[target] || [])];
+            for (const raw of arr) {
+              const it = {
+                id: 'tmp-' + Math.random().toString(36).slice(2),
+                name: String(raw.name||'').trim(),
+                brand: String(raw.brand||'').trim(),
+                qty: Math.max(1, Number(raw.packs||raw.qty||1)),
+                unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
+                unitLabel: String(raw.unitLabel||'unità'),
+                purchased: false,
+              };
+              if (!it.name) continue;
+              const idx = existing.findIndex(i =>
+                i.name.toLowerCase() === it.name.toLowerCase() &&
+                (i.brand||'').toLowerCase() === it.brand.toLowerCase() &&
+                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+              );
+              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + it.qty };
+              else existing.push(it);
+            }
+            next[target] = existing;
+            return next;
+          });
+          appended = true;
+        }
+      } catch (e) {}
+      if (!appended) {
+        const local = parseLinesToItems(text);
+        if (local.length) {
+          setLists(prev => {
+            const next = { ...prev };
+            const target = currentList;
+            const existing = [...(prev[target] || [])];
+            for (const it of local) {
+              const idx = existing.findIndex(i =>
+                i.name.toLowerCase() === it.name.toLowerCase() &&
+                (i.brand||'').toLowerCase() === (it.brand||'').toLowerCase() &&
+                Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+              );
+              if (idx >= 0) existing[idx] = { ...existing[idx], qty: Number(existing[idx].qty || 0) + Number(it.qty || 1) };
+              else existing.push(it);
+            }
+            next[target] = existing;
+            return next;
+          });
+          appended = true;
+        }
+      }
+      showToast(appended ? 'Lista aggiornata da Vocale ✓' : 'Nessun elemento riconosciuto', appended ? 'ok' : 'err');
+    } catch (e) {
+      alert('Errore nel riconoscimento vocale');
+    } finally {
+      setRecBusy(false);
+      setBusy(false);
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch (e) {}
+      mediaRecRef.current = null;
+      streamRef.current = null;
+      recordedChunks.current = [];
+    }
+  }
+
+  /* =================== Vocale UNIFICATO INVENTARIO =================== */
+async function toggleVoiceInventory() {
+  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch(e) {} return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    invStreamRef.current = stream;
+
+    const { mime, ext } = pickAudioMime();
+    recMimeRef.current = { mime, ext };
+
+    invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    invChunksRef.current = [];
+    invMediaRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) invChunksRef.current.push(e.data); };
+    invMediaRef.current.onstop = processVoiceInventory;
+    invMediaRef.current.start(500);
+    setInvRecBusy(true);
+  } catch (e) {
+    alert('Microfono non disponibile');
+  }
+}
+
+async function processVoiceInventory() {
+  try {
+    // Stop microfono e chiudi recorder
+    try {
+      const tracks = invStreamRef.current && invStreamRef.current.getTracks ? invStreamRef.current.getTracks() : [];
+      tracks && tracks.forEach(t => t.stop());
+    } catch (e) {}
+    setInvRecBusy(false);
+
+    // Nessun audio?
+    if (!invChunksRef.current || invChunksRef.current.length === 0) {
+      if (DEBUG) console.warn('[STT inventory] Nessun chunk audio');
+      showToast('Nessun audio catturato', 'err');
+      return;
+    }
+
+    // Blob audio con MIME corretto per il device
+    const { mime, ext } = recMimeRef.current || { mime: 'audio/webm', ext: 'webm' };
+    const blob = new Blob(invChunksRef.current, { type: mime || 'audio/webm' });
+    invChunksRef.current = [];
+
+    // Invio allo STT
+    const fd = new FormData();
+    fd.append('audio', blob, `inventory.${ext}`);
+
+    setBusy(true);
+    const res = await timeoutFetch('/api/stt', { method: 'POST', body: fd }, 25000);
+
+    let payload = {};
+    try { payload = await res.json(); } catch (e) {}
+    if (!res.ok) {
+      const msg = payload && payload.error ? `: ${payload.error}` : '';
+      throw new Error(`STT HTTP ${res.status}${msg}`);
+    }
+
+    const text = String(payload && payload.text ? payload.text : '').trim();
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    if (DEBUG) console.log('[STT inventory text]', text);
+
+    // 1) Scadenze dal parlato
+    const expPairs = parseExpiryPairs(text, GROCERY_LEXICON, stock.map(s => s.name));
+
+    // 2) Aggiornamenti quantità (parser vocale)
+    const updates = parseStockUpdateText(text);
+    const todayISO = new Date().toISOString().slice(0, 10);
+
+    // "SET assoluto" globale se il testo contiene parole chiave (sono / restano / ci sono ancora / ecc.)
+    const absoluteGlobal =
+      wantsAbsoluteSet(text) ||
+      (typeof hasAbsoluteKeywords === 'function'
+        ? hasAbsoluteKeywords(text)
+        : /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(normKey(text)));
+
+    // Applica scadenze
+    if (expPairs.length) {
+      setStock(prev => {
+        const arr = [...prev];
+        for (const ex of expPairs) {
+          const i = arr.findIndex(s => isSimilar(s.name, ex.name));
+          if (i >= 0) {
+            arr[i] = { ...arr[i], expiresAt: ex.expiresAt };
+          } else {
+            arr.unshift(withRememberedImage({
+              name: ex.name, brand: '', packs: 0, unitsPerPack: 1, unitLabel: 'unità',
+              expiresAt: ex.expiresAt, baselinePacks: 0, lastRestockAt: '', avgDailyUnits: 0, residueUnits: 0, packsOnly: false
+            }, imagesIndex));
+          }
+        }
+        return arr;
+      });
+    }
+
+    // Helper per modalità "solo confezioni"
+    const makePacksOnly = (base) => ({
+      ...base,
+      unitsPerPack: 1,
+      unitLabel: 'conf.',
+      packsOnly: true,
+      residueUnits: Math.max(0, Number(base.packs || 0)), // barra sui pacchi
+    });
+
+    // Applica quantità (pacchi / unità) con normalizzazione finale per gli aggiornamenti a unità
+    if (updates.length) {
+      setStock(prev => {
+        const arr = [...prev];
+
+        // ⬅ traccia di quali prodotti sono stati aggiornati a UNITÀ (per normalizzare a fine ciclo)
+        const unitsUpdated = new Set();
+
+        for (const u of updates) {
+          const j = arr.findIndex(s => isSimilar(s.name, u.name));
+          const abs = (u && u.forceSet === true) ? true : absoluteGlobal; // SET per-chunk o globale
+
+          if (j < 0) {
+            // Crea riga nuova
+            if (u.mode === 'packs') {
+              const packs = Math.max(0, Number(u.value || u._packs || 0));
+              if (u.explicit && u._upp > 1) {
+                const up = Math.max(1, Number(u._upp || 1));
+                const row = {
+                  name: u.name, brand: '', packs,
+                  unitsPerPack: up, unitLabel: 'unità',
+                  expiresAt: '', ...restockTouch(packs, todayISO, up), avgDailyUnits: 0, packsOnly: false
+                };
+                arr.unshift(withRememberedImage(row, imagesIndex));
+              } else {
+                const row = makePacksOnly({
+                  name: u.name, brand: '', packs,
+                  expiresAt: '', ...restockTouch(packs, todayISO, 1), avgDailyUnits: 0
+                });
+                arr.unshift(withRememberedImage(row, imagesIndex));
+              }
+            } else {
+              // mode: 'units' → imposta residuo unità
+              const units = Math.max(0, Number(u.value || 1));
+              const base = {
+                name: u.name, brand: '', packs: 1,
+                unitsPerPack: 1, unitLabel: 'unità',
+                expiresAt: '', baselinePacks: 1, lastRestockAt: todayISO, avgDailyUnits: 0,
+                residueUnits: units, packsOnly: false
+              };
+              arr.unshift(withRememberedImage(base, imagesIndex));
+              unitsUpdated.add(normKey(u.name));
+            }
+            continue;
+          }
+
+          // Aggiorna riga esistente
+          const old = arr[j];
+
+          if (u.op === 'restockExplicit' || u.mode === 'packs') {
+            // Aggiornamento a pacchi
+            const uppFromVoice = Math.max(1, Number(u._upp || 1));
+            const packsNew = abs
+              ? Math.max(0, Number(u.value || u._packs || 0))                          // SET
+              : Math.max(0, Number(old.packs || 0) + Number(u.value || u._packs || 0)); // SOMMA
+
+            if (u.explicit && uppFromVoice > 1) {
+              // Pacchi + UPP noti → reset pieno
+              arr[j] = {
+                ...old,
+                packs: packsNew,
+                unitsPerPack: uppFromVoice,
+                unitLabel: old.unitLabel || 'unità',
+                packsOnly: false,
+                ...restockTouch(packsNew, todayISO, uppFromVoice)
+              };
+            } else {
+              // Solo pacchi → packsOnly
+              arr[j] = makePacksOnly({
+                ...old,
+                packs: packsNew,
+                ...restockTouch(packsNew, todayISO, 1)
+              });
+            }
+          } else {
+            // Aggiornamento a unità → residuo unità (ricalcolo confezioni dopo il loop)
+            const upp = Math.max(1, Number(old.unitsPerPack || 1));
+            const baseline = baselineUnitsOf(old) || upp;
+            const current = residueUnitsOf(old);
+            const targetUnits = abs
+              ? Math.max(0, Math.min(Number(u.value || 0), baseline))                   // SET
+              : Math.max(0, Math.min(current + Number(u.value || 0), baseline));        // SOMMA
+
+            arr[j] = { ...old, packsOnly: false, residueUnits: targetUnits };
+            unitsUpdated.add(normKey(u.name));
+          }
+        }
+
+     // ⬅ NORMALIZZAZIONE FINALE:
+if (unitsUpdated.size > 0) {
+  for (let k = 0; k < arr.length; k++) {
+    const row = arr[k];
+    if (!row || !unitsUpdated.has(normKey(row.name))) continue;
+
+    const upp = Math.max(1, Number(row.unitsPerPack || 1));
+    if (upp > 1 && Number.isFinite(Number(row.residueUnits))) {
+      const ruInt = Math.max(0, Math.round(Number(row.residueUnits)));
+      // packs = 0 se RU=0; se RU multiplo intero di UPP → RU/UPP; altrimenti 1
+      const newPacks =
+        ruInt === 0 ? 0 :
+        (ruInt % upp === 0 ? Math.max(1, ruInt / upp) : 1);
+
+      if (newPacks !== Number(row.packs || 0)) {
+        arr[k] = { ...row, packs: newPacks };
+      }
+    }
+  }
+}
+
+
+        return arr;
+      });
+    }
+
+    if (!expPairs.length && !updates.length) {
+      showToast('Nessun dato inventario riconosciuto', 'err');
+    } else {
+      showToast('Inventario aggiornato da Vocale ✓', 'ok');
+    }
+  } catch (e) {
+    console.error('[voice inventory] error', e);
+    showToast(`Errore vocale inventario: ${e && e.message ? e.message : String(e)}`, 'err');
+  } finally {
+    setBusy(false);
+    invMediaRef.current = null;
+    invStreamRef.current = null;
   }
 }
 
