@@ -113,10 +113,14 @@ function SectionToolbar({ label, onAddManual, onOcr, showAdd }) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*,application/pdf"    
+        accept="image/*,application/pdf"
         capture="environment"
         style={{display:'none'}}
-        onChange={async (e)=> e.target.files?.[0] && onOcr?.(e.target.files[0])}
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';        // ✅ reset per ri-triggerare onChange con lo stesso file
+          if (f) await onOcr?.(f);
+        }}
       />
     </div>
   );
@@ -531,7 +535,6 @@ function ProdottiTipiciViniPage() {
       setUserId(user?.id || null);
       sub = supabase.auth.onAuthStateChange((_e, session) => setUserId(session?.user?.id || null));
     })();
-    return () => { try { sub?.data?.subscription?.unsubscribe?.() } catch {} };
   }, []);
 
   const refreshAll = useCallback(async () => {
@@ -593,7 +596,6 @@ function ProdottiTipiciViniPage() {
     }]);
     if (error) { alert('Errore salvataggio luogo: ' + error.message); return; }
 
-    // Se hai aggiunto "dove l’ho bevuto" e non esiste ancora origine, prova a inferirla
     if (itemType==='wine' && kind==='purchase') {
       const alreadyOrigin = (placesByWine.get(itemId)||[]).some(pp=>pp.kind==='origin');
       if (!alreadyOrigin) await ensureOriginForWine(itemId);
@@ -618,24 +620,17 @@ function ProdottiTipiciViniPage() {
     } catch {}
   }
 
-  // Focus su vino: pulsa ORIGINE (rosso) + DOVE BEVUTO (blu)
   const focusWineOnMap = useCallback((wineId) => {
     const candidates = (placesByWine.get(wineId) || []);
     if (!candidates.length) { showToast('Nessun luogo salvato per questo vino'); return; }
 
     const target = candidates.find(c=>c.kind==='purchase') || candidates.find(c=>c.kind==='origin') || candidates[0];
 
-    // centra
     setMapCenter([target.lng, target.lat]);
     setMapZoom(7);
 
-    // evidenzia tutti i marker del vino
     setSelectedPlaceIds(new Set(candidates.map(p=>p.id)));
-
-    // scroll
     document.getElementById('map-italia')?.scrollIntoView({ behavior:'smooth', block:'start' });
-
-    // rimuovi pulse dopo 3s
     setTimeout(() => setSelectedPlaceIds(new Set()), 3000);
   }, [placesByWine, showToast]);
 
@@ -643,14 +638,13 @@ function ProdottiTipiciViniPage() {
   const [q, setQ] = useState('');
   const fileSommelierRef = useRef(null);
 
-  // NEW: conversione prima di inviare all'OCR + parsing robusto
   async function handleSommelierOcrFiles(files) {
     try {
       if (!files || !files.length) { alert('Nessun file selezionato'); return; }
 
       const fd = new FormData();
       for (let i=0; i<files.length; i++) {
-        const jf = await toJpegIfNeeded(files[i]);        // NEW
+        const jf = await toJpegIfNeeded(files[i]);
         fd.append('images', jf, jf.name || `foto_${i+1}.jpg`);
       }
 
@@ -660,7 +654,7 @@ function ProdottiTipiciViniPage() {
         throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
       }
       const j = await r.json();
-      const text = String(j?.text || j?.data?.text || j?.data || '').trim();   // NEW
+      const text = String(j?.text || j?.data?.text || j?.data || '').trim();
       if (!text) { alert('OCR: nessun testo letto.'); return; }
       setSommelierLists(prev => [...prev, text]);
       showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
@@ -747,17 +741,16 @@ function ProdottiTipiciViniPage() {
     try {
       if (!userId) return alert('Sessione assente');
 
-      const safeFile = await toJpegIfNeeded(file);              // NEW
+      const safeFile = await toJpegIfNeeded(file);
       const fd = new FormData();
       fd.append('images', safeFile, safeFile.name || 'label.jpg');
       const r1 = await fetch('/api/ocr', { method:'POST', body: fd });
       const j1 = await r1.json();
 
-      const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();  // NEW
+      const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
       if (!text) { alert('OCR: nessun testo letto.'); return; }
 
-      // Normalizza → schema vino
-     const r2 = await fetch('/api/normalize', {
+      const r2 = await fetch('/api/normalize', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ text, target:'wine' })
       });
@@ -877,11 +870,15 @@ function ProdottiTipiciViniPage() {
         <input
           ref={fileSommelierRef}
           type="file"
-          accept="image/*,application/pdf"   // NEW
+          accept="image/*,application/pdf"
           multiple
           capture="environment"
           style={{ display:'none' }}
-          onChange={e=> e.target.files?.length && handleSommelierOcrFiles(Array.from(e.target.files))}
+          onChange={async (e) => {
+            const files = e.target.files ? Array.from(e.target.files) : [];
+            e.target.value = '';                                // ✅ reset per ri-trigger
+            if (files.length) await handleSommelierOcrFiles(files);
+          }}
         />
         <button onClick={()=>setShowQr(true)} style={btn(false)}>Scanner QR</button>
       </div>
