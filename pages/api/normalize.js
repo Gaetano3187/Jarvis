@@ -41,43 +41,82 @@ async function googleSearch(q, num = 5) {
   }
 }
 
-// —— Google CSE Image (più tentativi + scelta link migliore)
-const IMG_EXT_OK = /\.(jpe?g|png|webp|gif)$/i;
+// —— Google CSE Image (più tentativi + scelta link migliore + log) ——
+const IMG_EXT_OK  = /\.(jpe?g|png|webp|gif)$/i;
 const DOMAIN_SKIP = /(^|\.)pinterest\.|(^|\.)alamy\.|(^|\.)istockphoto\.|(^|\.)dreamstime\./i;
+const isImgLink   = (u) => typeof u === 'string' && u.startsWith('http');
+const isGoodLink  = (u, dl) => isImgLink(u) && IMG_EXT_OK.test(u) && !DOMAIN_SKIP.test(dl || '');
 
+/**
+ * Una chiamata a CSE Image per la query q.
+ * Preferisce link diretti a immagini (estensione valida) e domini non "problematici".
+ * Logga sempre query, num risultati e link scelto.
+ */
 async function googleImageOnce(q, num = 6) {
   const url =
     `https://www.googleapis.com/customsearch/v1?searchType=image&imgType=photo&imgSize=large&safe=active&num=${num}` +
-    `&key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}&hl=it&gl=it`;
-  const r = await fetch(url);
-  if (!r.ok) return null;
-  const j = await r.json();
-  const items = Array.isArray(j.items) ? j.items : [];
-  // 1) preferisci link diretto a immagine con estensione valida e dominio “pulito”
-  for (const it of items) {
-    const link = it?.link || '';
-    const dl = (it?.displayLink || '');
-    if (link && IMG_EXT_OK.test(link) && !DOMAIN_SKIP.test(dl)) return link;
+    `&key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}&hl=it&gl=it` +
+    `&fields=items(link,displayLink,mime)`;
+
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      console.log('[normalize:image] HTTP', r.status, 'per', q);
+      return null;
+    }
+    const j = await r.json();
+    const items = Array.isArray(j.items) ? j.items : [];
+    console.log('[normalize:image] q=', q, 'items=', items.length);
+
+    // 1) Preferisci link diretto con estensione immagine e dominio “pulito”
+    for (const it of items) {
+      const link = it?.link || '';
+      const dl   = it?.displayLink || '';
+      if (isGoodLink(link, dl)) {
+        console.log('[normalize:image] pick (good ext/domain):', link);
+        return link;
+      }
+    }
+
+    // 2) Altrimenti prendi il primo link HTTP “sensato” (domain non bloccato)
+    for (const it of items) {
+      const link = it?.link || '';
+      const dl   = it?.displayLink || '';
+      if (isImgLink(link) && !DOMAIN_SKIP.test(dl)) {
+        console.log('[normalize:image] pick (first acceptable):', link);
+        return link;
+      }
+    }
+
+    // 3) Nessun candidato valido
+    console.log('[normalize:image] no candidate for', q);
+    return null;
+  } catch (e) {
+    console.log('[normalize:image] error for', q, '-', e?.message || e);
+    return null;
   }
-  // 2) altrimenti prendi il primo link “sensato”
-  for (const it of items) {
-    const link = it?.link || '';
-    if (link && !DOMAIN_SKIP.test(it?.displayLink || '')) return link;
-  }
-  return null;
 }
 
+/**
+ * Prova più query in sequenza (base + varianti),
+ * restituisce il primo link valido trovato.
+ */
 async function googleImageMulti(queries) {
   if (!USE_WEB) return null;
   for (const q of queries) {
-    if (!q || !q.trim()) continue;
+    const qq = String(q || '').trim();
+    if (!qq) continue;
     try {
-      const link = await googleImageOnce(q, 6);
+      const link = await googleImageOnce(qq, 6);
       if (link) return link;
-    } catch {}
+    } catch (e) {
+      console.log('[normalize:image] multi error for', qq, '-', e?.message || e);
+    }
   }
+  console.log('[normalize:image] no image for any query:', queries);
   return null;
 }
+
 
 function promptFor(item, webLines, mode) {
   return [

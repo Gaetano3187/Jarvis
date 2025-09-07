@@ -1985,6 +1985,7 @@ async function handleOCR(files) {
             if (imageUrl) {
               const proxied = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
               out.image = proxied;
+              out.imageDirect = imageUrl;     // backup: link diretto
               try {
                 const key = productKey(out.name, out.brand || '');
                 setImagesIndex(prev => (prev && prev[key] === proxied) ? prev : { ...prev, [key]: proxied });
@@ -3213,7 +3214,18 @@ return (
                   style={styles.imageBox}
                 >
                   {s.image ? (
-                    <img src={s.image} alt={s.name} style={styles.imageThumb} />
+                    <img
+   src={s.image || s.imageDirect || ''}
+  data-direct={s.imageDirect || ''}
+  alt={s.name}
+  style={styles.imageThumb}
+   onError={(e) => {
+    const direct = e.currentTarget.getAttribute('data-direct');
+     if (direct && e.currentTarget.src !== direct) {
+       e.currentTarget.src = direct; // fallback: usa link diretto
+     }
+   }}
+/>
                   ) : (
                     <div style={styles.imagePlaceholder}>＋</div>
                   )}
