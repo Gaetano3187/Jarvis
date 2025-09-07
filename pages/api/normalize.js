@@ -5,46 +5,78 @@ const CSE_ID  = process.env.GOOGLE_CSE_ID || '';
 const CSE_KEY = process.env.GOOGLE_CSE_KEY || '';
 const USE_WEB = !!(CSE_ID && CSE_KEY);
 
-// ✅ Safe model resolution (fallback hard a gpt-4o-mini se env/export mancano)
+// ✅ modello sicuro (fallback a gpt-4o-mini se env/export mancano)
 const MODEL = (process.env.OPENAI_TEXT_MODEL?.trim?.() || EXPORTED_MODEL || 'gpt-4o-mini').trim();
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
-// cache in-mem 10min
+// cache in-mem 10 min
 const mem = new Map();
 const TTL = 10 * 60 * 1000;
 const now = () => Date.now();
 
+// Placeholder leggibile se non troviamo una foto reale
+const FALLBACK_IMG = (q) =>
+  `https://dummyimage.com/256x256/0b1220/ffffff&text=${encodeURIComponent(String(q || '').slice(0, 18))}`;
+
+// —— Google CSE (web results)
 async function googleSearch(q, num = 5) {
   if (!USE_WEB) return { items: [], mode: 'llm-only' };
-  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}&num=${num}`;
+  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}&num=${num}&hl=it&gl=it`;
   try {
     const r = await fetch(url);
     if (!r.ok) return { items: [], mode: 'web-failed' };
     const j = await r.json();
-    const items = Array.isArray(j.items) ? j.items.map(it => ({
-      title: it.title || '',
-      snippet: it.snippet || '',
-      link: it.link || '',
-      displayLink: it.displayLink || ''
-    })) : [];
+    const items = Array.isArray(j.items)
+      ? j.items.map(it => ({
+          title: it.title || '',
+          snippet: it.snippet || '',
+          link: it.link || '',
+          displayLink: it.displayLink || ''
+        }))
+      : [];
     return { items, mode: 'web' };
   } catch {
     return { items: [], mode: 'web-error' };
   }
 }
 
-// 🔎 1 immagine (se web attivo)
-async function googleImage(q) {
+// —— Google CSE Image (più tentativi + scelta link migliore)
+const IMG_EXT_OK = /\.(jpe?g|png|webp|gif)$/i;
+const DOMAIN_SKIP = /(^|\.)pinterest\.|(^|\.)alamy\.|(^|\.)istockphoto\.|(^|\.)dreamstime\./i;
+
+async function googleImageOnce(q, num = 6) {
+  const url =
+    `https://www.googleapis.com/customsearch/v1?searchType=image&imgType=photo&imgSize=large&safe=active&num=${num}` +
+    `&key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}&hl=it&gl=it`;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const j = await r.json();
+  const items = Array.isArray(j.items) ? j.items : [];
+  // 1) preferisci link diretto a immagine con estensione valida e dominio “pulito”
+  for (const it of items) {
+    const link = it?.link || '';
+    const dl = (it?.displayLink || '');
+    if (link && IMG_EXT_OK.test(link) && !DOMAIN_SKIP.test(dl)) return link;
+  }
+  // 2) altrimenti prendi il primo link “sensato”
+  for (const it of items) {
+    const link = it?.link || '';
+    if (link && !DOMAIN_SKIP.test(it?.displayLink || '')) return link;
+  }
+  return null;
+}
+
+async function googleImageMulti(queries) {
   if (!USE_WEB) return null;
-  const url = `https://www.googleapis.com/customsearch/v1?searchType=image&imgSize=medium&num=1&key=${encodeURIComponent(CSE_KEY)}&cx=${encodeURIComponent(CSE_ID)}&q=${encodeURIComponent(q)}`;
-  try {
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const j = await r.json();
-    const it = Array.isArray(j.items) ? j.items[0] : null;
-    return it?.link || null;
-  } catch { return null; }
+  for (const q of queries) {
+    if (!q || !q.trim()) continue;
+    try {
+      const link = await googleImageOnce(q, 6);
+      if (link) return link;
+    } catch {}
+  }
+  return null;
 }
 
 function promptFor(item, webLines, mode) {
@@ -79,7 +111,6 @@ export default async function handler(req, res) {
     const { items = [], locale = 'it-IT', trace = false } = req.body || {};
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ ok:false, error:'items[] richiesto' });
 
-    // 🔐 Controllo difensivo: se proprio MODEL fosse vuoto, fallback hard
     const activeModel = (typeof MODEL === 'string' && MODEL.length) ? MODEL : 'gpt-4o-mini';
 
     const out = [];
@@ -88,12 +119,18 @@ export default async function handler(req, res) {
       const hit = mem.get(key);
       if (hit && now() - hit.t < TTL) { out.push(hit.v); continue; }
 
-      const q = [raw?.brand, raw?.name].filter(Boolean).join(' ').trim() || (raw?.name || '');
-      const { items: webItems, mode } = await googleSearch(q, 5);
+      const baseQ = [raw?.brand, raw?.name].filter(Boolean).join(' ').trim() || (raw?.name || '');
+      const { items: webItems, mode } = await googleSearch(baseQ, 5);
       const webLines = (webItems || []).map(w => `- ${w.title} • ${w.snippet} • ${w.displayLink}`);
 
-      // immagine web (se disponibile)
-      const img = await googleImage(q);
+      // 🎯 più tentativi per immagine
+      const altQs = [];
+      if (raw?.brand && raw?.name) {
+        altQs.push(`${raw.brand} ${raw.name} prodotto`);
+        altQs.push(`${raw.name} ${raw.brand} confezione`);
+      }
+      altQs.push(String(raw?.name || '').trim());
+      const img = await googleImageMulti([baseQ, ...altQs]);
 
       let result = {
         in: { name: raw?.name || '', brand: raw?.brand || '' },
@@ -105,7 +142,7 @@ export default async function handler(req, res) {
           attributes: [],
           confidence: 0.2,
           reason: mode === 'web' ? 'Fallback senza LLM' : 'LLM-only fallback',
-          imageUrl: img || null
+          imageUrl: img || FALLBACK_IMG(baseQ)   // ✅ sempre un’immagine
         },
         mode
       };
@@ -113,7 +150,7 @@ export default async function handler(req, res) {
       try {
         const prompt = promptFor({ name: raw?.name || '', brand: raw?.brand || '', locale }, webLines, mode);
         const r = await openai.chat.completions.create({
-          model: activeModel,          // ✅ sempre presente
+          model: activeModel,
           temperature: 0.2,
           response_format: { type: 'json_object' },
           messages: [
@@ -132,12 +169,15 @@ export default async function handler(req, res) {
           attributes: Array.isArray(j?.attributes) ? j.attributes.slice(0, 8) : [],
           confidence: Number(j?.confidence || 0),
           reason: String(j?.reason || '').slice(0, 200),
-          imageUrl: img || j?.imageUrl || null
+          imageUrl: img || j?.imageUrl || result.out.imageUrl
         };
       } catch (e) {
-        // lascio fallback + eventuale img web
         result.error = e?.message || String(e);
-        result.out.imageUrl = img || result.out.imageUrl || null;
+        result.out.imageUrl = img || result.out.imageUrl;
+      }
+
+      if (trace) {
+        console.log('[normalize] q=', baseQ, 'img=', result.out.imageUrl, 'mode=', result.mode);
       }
 
       mem.set(key, { t: now(), v: result });
