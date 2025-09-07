@@ -1766,7 +1766,7 @@ function estimateCandidateLines(ocrText = '') {
   return count;
 }
 
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (robusto + normalizzazione web + immagini) ====================== */
+/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (no-merge righe + normalizzazione web + immagini) ====================== */
 async function handleOCR(files) {
   if (!files) return;
   if (busy) return; // evita doppie esecuzioni
@@ -1775,6 +1775,26 @@ async function handleOCR(files) {
   let purchases = [];
   let store = '';
   let purchaseDate = '';
+
+  // helper: raw key per riga PRIMA della normalizzazione
+  const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;
+  const rawKeyOf = (p) => `${keyNB(p?.name || '', p?.brand || '')}|${Number(p?.unitsPerPack || 1) || 1}`;
+
+  // match esatto in SCORTE con priorità al raw-key (evita accorpamenti non voluti)
+  const findStockIndexStrict = (arr = [], p = {}) => {
+    const rk = String(p?._keyRaw || '');
+    if (rk) {
+      const j = arr.findIndex(s => String(s?._keyRaw || '') === rk);
+      if (j >= 0) return j;
+    }
+    // fallback: name+brand+UPP esatti (per righe storiche senza _keyRaw)
+    const upp = Number(p?.unitsPerPack || 1);
+    const key = keyNB(p?.name || '', p?.brand || '');
+    return arr.findIndex(s =>
+      keyNB(s?.name || '', s?.brand || '') === key &&
+      Number(s?.unitsPerPack || 1) === upp
+    );
+  };
 
   try {
     // 0) pick file valido
@@ -1913,6 +1933,9 @@ async function handleOCR(files) {
       return nm && !DISCARD_MSG.test(nm) && !NOT_PRODUCT_RE.test(nm);
     });
 
+    /* 6.bis) Assegna il RAW-KEY per ogni riga (prima della normalizzazione web) */
+    purchases = purchases.map(p => ({ ...p, _keyRaw: p._keyRaw || rawKeyOf(p) }));
+
     // 7) Normalizzazione Web/LLM (trace + immagini) — non blocca in caso di errore
     try {
       const resp = await timeoutFetch('/api/normalize', {
@@ -1942,14 +1965,19 @@ async function handleOCR(files) {
             const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
 
             const out = {
-              ...p,
+              ...p,                       // <-- conserva _keyRaw
               name:  normName   || p.name,
               brand: canonBrand || p.brand || ''
             };
 
-            // thumb via proxy (evita CORS, ridimensiona)
+            // thumb via proxy (evita CORS, ridimensiona) + persistenza in imagesIndex
             if (imageUrl) {
-              out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+              const proxied = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+              out.image = proxied;
+              try {
+                const key = productKey(out.name, out.brand || '');
+                setImagesIndex(prev => (prev && prev[key] === proxied) ? prev : { ...prev, [key]: proxied });
+              } catch {}
             }
             return out;
           });
@@ -1964,14 +1992,14 @@ async function handleOCR(files) {
     }
     showToast(`Righe riconosciute: ${purchases.length}`, 'ok');
 
-    // 8) Liste & Scorte (NO accorpamenti: match esatto)
+    // 8) Liste & Scorte (NO accorpamenti: usa _keyRaw per sommare SOLO la stessa riga)
     setLists(prev => decrementAcrossBothLists(prev, purchases));
 
     setStock(prev => {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
       for (const p of purchases) {
-        const idx = findStockIndexExact(arr, p);   // name+brand+UPP
+        const idx = findStockIndexStrict(arr, p);   // usa _keyRaw se presente
         const packs = coerceNum(p.packs), upp = coerceNum(p.unitsPerPack);
         const hasCounts = packs > 0 || upp > 0;
 
@@ -1990,7 +2018,8 @@ async function handleOCR(files) {
               expiresAt: p.expiresAt || old.expiresAt || '',
               packsOnly: false,
               needsUpdate: false,
-              ...( !old.image && p.image ? { image: p.image } : {} ), // setta thumb se mancante
+              _keyRaw: old._keyRaw || p._keyRaw || rawKeyOf(p),      // <-- conserva raw key
+              ...( !old.image && p.image ? { image: p.image } : {} ),
               ...restockTouch(newP, todayISO, newU)
             };
           } else {
@@ -2005,6 +2034,7 @@ async function handleOCR(files) {
               unitLabel: old.unitLabel || 'unità',
               packsOnly: false,
               needsUpdate: false,
+              _keyRaw: old._keyRaw || p._keyRaw || rawKeyOf(p),
               ...( !old.image && p.image ? { image: p.image } : {} ),
               ...restockTouch(np, todayISO, uo)
             };
@@ -2025,7 +2055,8 @@ async function handleOCR(files) {
             residueUnits: packsNew * uppNew,
             packsOnly: false,
             needsUpdate: false,
-            image: p.image || ''
+            image: p.image || '',
+            _keyRaw: p._keyRaw || rawKeyOf(p)                     // <-- salva raw key
           }, imagesIndex));
         }
       }
@@ -2076,6 +2107,7 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
+
 
 
   /* =================== Edit riga scorte =================== */
