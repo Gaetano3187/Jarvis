@@ -47,11 +47,6 @@ const DOMAIN_SKIP = /(^|\.)pinterest\.|(^|\.)alamy\.|(^|\.)istockphoto\.|(^|\.)d
 const isImgLink   = (u) => typeof u === 'string' && u.startsWith('http');
 const isGoodLink  = (u, dl) => isImgLink(u) && IMG_EXT_OK.test(u) && !DOMAIN_SKIP.test(dl || '');
 
-/**
- * Una chiamata a CSE Image per la query q.
- * Preferisce link diretti a immagini (estensione valida) e domini non "problematici".
- * Logga sempre query, num risultati e link scelto.
- */
 async function googleImageOnce(q, num = 6) {
   const url =
     `https://www.googleapis.com/customsearch/v1?searchType=image&imgType=photo&imgSize=large&safe=active&num=${num}` +
@@ -77,8 +72,7 @@ async function googleImageOnce(q, num = 6) {
         return link;
       }
     }
-
-    // 2) Altrimenti prendi il primo link HTTP “sensato” (domain non bloccato)
+    // 2) Altrimenti primo link HTTP “sensato” (domain non bloccato)
     for (const it of items) {
       const link = it?.link || '';
       const dl   = it?.displayLink || '';
@@ -87,8 +81,6 @@ async function googleImageOnce(q, num = 6) {
         return link;
       }
     }
-
-    // 3) Nessun candidato valido
     console.log('[normalize:image] no candidate for', q);
     return null;
   } catch (e) {
@@ -97,10 +89,7 @@ async function googleImageOnce(q, num = 6) {
   }
 }
 
-/**
- * Prova più query in sequenza (base + varianti),
- * restituisce il primo link valido trovato.
- */
+/** Prova più query in sequenza; restituisce il primo link valido */
 async function googleImageMulti(queries) {
   if (!USE_WEB) return null;
   for (const q of queries) {
@@ -116,6 +105,7 @@ async function googleImageMulti(queries) {
   console.log('[normalize:image] no image for any query:', queries);
   return null;
 }
+
 
 
 function promptFor(item, webLines, mode) {
