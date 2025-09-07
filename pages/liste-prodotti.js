@@ -1037,7 +1037,8 @@ try {
   setStock(prev => {
     const arr = [...prev]; const todayISO = new Date().toISOString().slice(0,10);
     for (const p of addItems) {
-      const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+     const idx = findStockIndexExact(arr, p);   // match ESATTO: name+brand+UPP
+
       const packs = Math.max(0, Number(p.packs || 0));
       const upp   = Math.max(1, Number(p.unitsPerPack || 1));
       const hasCounts = packs > 0 || upp > 0;
@@ -1607,6 +1608,27 @@ async function collectImageBlobs(input){
   return out;
   
 }
+// ——— Matchers esatti (no accorpamenti per nome/brand simili) ———
+function keyOfNameBrand(name = '', brand = '') {
+  return `${normKey(name)}|${normKey(brand)}`;
+}
+function findStockIndexExact(arr = [], p) {
+  const key = keyOfNameBrand(p?.name, p?.brand || '');
+  const upp = Number(p?.unitsPerPack || 1);
+  return arr.findIndex(s =>
+    keyOfNameBrand(s?.name, s?.brand || '') === key &&
+    Number(s?.unitsPerPack || 1) === upp
+  );
+}
+function findListIndexExact(arr = [], p) {
+  const key = keyOfNameBrand(p?.name, p?.brand || '');
+  const upp = Number(p?.unitsPerPack || 1);
+  return arr.findIndex(i =>
+    keyOfNameBrand(i?.name, i?.brand || '') === key &&
+    Number(i?.unitsPerPack || 1) === upp
+  );
+}
+
 // === Ripulisce l'OCR da messaggi di rifiuto / policy ===
 function sanitizeOcrText(t) {
   const BAD = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
@@ -1688,31 +1710,33 @@ function buildUnifiedRowPrompt(ocrText, { name = '', brand = '' } = {}) {
   ].join('\n');
 }
 
-/* ====================== Decrementa liste da scontrino ====================== */
+/* ====================== Decrementa liste da scontrino (match ESATTO) ====================== */
 function decrementAcrossBothLists(prevLists, purchases) {
   const next = { ...prevLists };
 
+  // helper: chiave normalizzata name|brand
+  const keyNB = (name = '', brand = '') => `${normKey(name)}|${normKey(brand)}`;
+
+  // trova indice in lista SOLO se name+brand+UPP coincidono esattamente
+  const findListIndexExact = (arr = [], p = {}) => {
+    const key = keyNB(p?.name, p?.brand || '');
+    const upp = Number(p?.unitsPerPack ?? 1) || 1;
+    return arr.findIndex(i =>
+      keyNB(i?.name, i?.brand || '') === key &&
+      Number(i?.unitsPerPack || 1) === upp
+    );
+  };
+
   const decList = (listKey) => {
     const arr = [...(next[listKey] || [])];
-    for (const p of purchases) {
+    for (const p of (Array.isArray(purchases) ? purchases : [])) {
+      const idx = findListIndexExact(arr, p);        // ⬅️ match ESATTO
+      if (idx < 0) continue;
+
       const dec = Math.max(1, Number(p.packs ?? p.qty ?? 1));
-      const brand = (p.brand || '').trim();
-      const upp = Number(p.unitsPerPack ?? 1);
-
-      // match progressivo
-      let idx = arr.findIndex(i =>
-        isSimilar(i.name, p.name) &&
-        (!brand || isSimilar(i.brand || '', brand)) &&
-        Number(i.unitsPerPack || 1) === upp
-      );
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name) && (!brand || isSimilar(i.brand||'', brand)));
-      if (idx < 0) idx = arr.findIndex(i => isSimilar(i.name, p.name));
-
-      if (idx >= 0) {
-        const cur = arr[idx];
-        const newQty = Math.max(0, Number(cur.qty || 0) - dec);
-        arr[idx] = { ...cur, qty: newQty, purchased: true };
-      }
+      const cur = arr[idx];
+      const newQty = Math.max(0, Number(cur?.qty || 0) - dec);
+      arr[idx] = { ...cur, qty: newQty, purchased: true };
     }
     next[listKey] = arr.filter(i => Number(i.qty || 0) > 0 || !i.purchased);
   };
@@ -1721,15 +1745,15 @@ function decrementAcrossBothLists(prevLists, purchases) {
   decList(LIST_TYPES.ONLINE);
   return next;
 }
-function estimateCandidateLines(ocrText=''){
-  const lines = String(ocrText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+
+function estimateCandidateLines(ocrText = '') {
+  const lines = String(ocrText).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   const HEADER = /^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|iva|rt\b|cassa|cassiere|codice|tessera|\(off\.)/i;
   let count = 0;
-  for (const ln of lines){
+  for (const ln of lines) {
     if (HEADER.test(ln)) continue;
     if (ln.length < 4) continue;
-    // euristica: riga con parole e senza sembrare solo prezzo
-    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++;
+    if (/[A-Za-zÀ-ÖØ-öø-ÿ]{3,}/.test(ln)) count++; // riga “testuale”, non solo prezzo
   }
   return count;
 }
@@ -1926,7 +1950,7 @@ async function handleOCR(files) {
       const arr = [...prev];
       const todayISO = new Date().toISOString().slice(0,10);
       for (const p of purchases) {
-        const idx = arr.findIndex(s => isSimilar(s.name, p.name) && (!p.brand || isSimilar(s.brand||'', p.brand)));
+       const idx = findStockIndexExact(arr, p);   // match ESATTO: name+brand+UPP
         const packs = coerceNum(p.packs), upp = coerceNum(p.unitsPerPack);
         const hasCounts = packs > 0 || upp > 0;
 
