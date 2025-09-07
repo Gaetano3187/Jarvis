@@ -1158,6 +1158,14 @@ export default function ListeProdotti() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 1800);
   }
+  // lock per evitare reset di stock subito dopo l’OCR
+const stockLockRef = useRef(0);
+// debug: log ogni volta che cambia lo stato stock
+useEffect(() => {
+  console.log('[UI] stock state len =', stock.length, stock);
+}, [stock]);
+
+
 
   // Persistenza debounce
   const persistTimerRef = useRef(null);
