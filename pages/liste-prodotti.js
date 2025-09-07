@@ -1758,7 +1758,6 @@ function estimateCandidateLines(ocrText = '') {
   return count;
 }
 
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (robusto + normalizzazione web) ====================== */
 /* ====================== OCR Scontrino/Busta → Aggiornamento scorte (robusto + normalizzazione web + immagini) ====================== */
 async function handleOCR(files) {
   if (!files) return;
@@ -1906,15 +1905,24 @@ async function handleOCR(files) {
       return nm && !DISCARD_MSG.test(nm) && !NOT_PRODUCT_RE.test(nm);
     });
 
-    // 7) Normalizzazione Web/LLM (non blocca in caso di errore) + IMAGE
+    // 7) Normalizzazione Web/LLM (trace + immagini) — non blocca in caso di errore
     try {
       const resp = await timeoutFetch('/api/normalize', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ items: purchases.map(p => ({ name:p.name, brand:p.brand||'' })), locale:'it-IT' })
+        body: JSON.stringify({
+          items: purchases.map(p => ({ name:p.name, brand:p.brand||'' })),
+          locale:'it-IT',
+          trace: true
+        })
       }, 60000);
-      if (resp.ok) {
-        const j = await resp.json().catch(()=>null);
+
+      const raw = await resp.text();
+      let j = null; try { j = JSON.parse(raw); } catch {}
+      if (!resp.ok) {
+        console.warn('[normalize] HTTP', resp.status, raw);
+      } else {
+        console.log('[normalize] note:', j?.note, 'usedWeb:', j?.usedWeb, j?.results);
         const results = Array.isArray(j?.results) ? j.results : [];
         if (results.length) {
           purchases = purchases.map((p, i) => {
@@ -1974,7 +1982,7 @@ async function handleOCR(files) {
               expiresAt: p.expiresAt || old.expiresAt || '',
               packsOnly: false,
               needsUpdate: false,
-              ...( !old.image && p.image ? { image: p.image } : {} ),  // 👈 imposta thumb se mancante
+              ...( !old.image && p.image ? { image: p.image } : {} ), // setta thumb se mancante
               ...restockTouch(newP, todayISO, newU)
             };
           } else {
@@ -1989,7 +1997,7 @@ async function handleOCR(files) {
               unitLabel: old.unitLabel || 'unità',
               packsOnly: false,
               needsUpdate: false,
-              ...( !old.image && p.image ? { image: p.image } : {} ),  // 👈 imposta thumb se mancante
+              ...( !old.image && p.image ? { image: p.image } : {} ),
               ...restockTouch(np, todayISO, uo)
             };
           }
@@ -2009,7 +2017,7 @@ async function handleOCR(files) {
             residueUnits: packsNew * uppNew,
             packsOnly: false,
             needsUpdate: false,
-            image: p.image || ''                   // 👈 salva subito la thumb se presente
+            image: p.image || ''
           }, imagesIndex));
         }
       }
@@ -2017,7 +2025,7 @@ async function handleOCR(files) {
       return arr;
     });
 
-    // 9) Finanze — chiama SOLO se c’è qualcosa
+    // 9) Finanze — solo se ci sono righe
     if (!purchases.length) return;
     try {
       const meta = pendingOcrMeta || { store, purchaseDate };
@@ -2060,6 +2068,7 @@ async function handleOCR(files) {
     if (ocrInputRef.current) ocrInputRef.current.value = '';
   }
 }
+
 
   /* =================== Edit riga scorte =================== */
   function startRowEdit(index, row){
