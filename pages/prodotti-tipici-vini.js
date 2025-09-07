@@ -655,8 +655,8 @@ function ProdottiTipiciViniPage() {
         const txt = await r.text().catch(()=> '');
         throw new Error(`HTTP ${r.status} ${r.statusText}${txt ? ` - ${txt.slice(0,120)}` : ''}`);
       }
-      const j = await r.json();
-      const text = (j?.text || '').trim();
+    const j = await r.json();
+ const text = String(j?.text || j?.data?.text || j?.data || '').trim();
       if (!text) { alert('OCR: nessun testo letto.'); return; }
       setSommelierLists(prev => [...prev, text]);
       showToast(`${files.length} ${files.length === 1 ? 'pagina' : 'pagine'} aggiunte alla carta`);
@@ -749,7 +749,7 @@ function ProdottiTipiciViniPage() {
       const fd = new FormData(); fd.append('images', fileConv, fileConv.name || 'label.jpg');
       const r1 = await fetch('/api/ocr', { method:'POST', body: fd });
       const j1 = await r1.json();
-      const text = (j1?.text || '').trim();
+const text = String(j1?.text || j1?.data?.text || j1?.data || '').trim();
       if (!text) { alert('OCR: nessun testo letto.'); return; }
 
       // Normalizza → schema vino
