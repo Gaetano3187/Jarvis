@@ -1054,6 +1054,8 @@ function openValidation(discardedList, meta) {
 async function applyAdditionalPurchases(addItems, meta = {}) {
   if (!Array.isArray(addItems) || !addItems.length) return;
 
+
+
   // Copia locale mutabile
   let items = addItems.map(p => ({ ...p }));
 
@@ -1209,57 +1211,63 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
     return arr;
   });
 
-  // 3) Finanze
-  try {
-    const itemsSafe = items.map(p => ({
-      name: p.name,
-      brand: p.brand || '',
-      packs: Number(p.packs || 0),
-      unitsPerPack: Number(p.unitsPerPack || 0),
-      unitLabel: p.unitLabel || '',
-      priceEach: Number(p.priceEach || 0),
-      priceTotal: Number(p.priceTotal || 0),
-      currency: p.currency || 'EUR',
-      expiresAt: p.expiresAt || ''
-    }));
-
-    await fetchJSONStrict(API_FINANCES_INGEST, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(meta?.store ? { store: meta.store } : {}),
-        ...(meta?.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
-        payment_method: 'cash',
-        card_label: null,
-        items: itemsSafe
-      })
-    }, 30000);
-  } catch (e) {
-    if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e);
+ // 3) Finanze (forza user_id e notifica la UI)
+try {
+  // assicurati di avere l'uid (anche se l'effetto CLOUD_SYNC non ha ancora popolato userIdRef)
+  let uid = userIdRef.current || null;
+  if (!uid && __supabase?.auth?.getUser) {
+    try {
+      const { data: { user } } = await __supabase.auth.getUser();
+      uid = user?.id || null;
+      if (uid) userIdRef.current = uid;
+    } catch (_) {}
   }
 
+  // se ancora assente, prova ultimo fallback “soft”: non bloccare la UI, ma segnala
+  if (!uid) {
+    console.warn('[FINANCES_INGEST] missing user_id; la riga potrebbe non essere visibile per RLS');
+  }
 
-  // 3) Finanze
-  try {
-    const itemsSafe = addItems.map(p => ({
-      name:p.name, brand:p.brand||'', packs:Number(p.packs||0), unitsPerPack:Number(p.unitsPerPack||0),
-      unitLabel:p.unitLabel||'', priceEach:Number(p.priceEach||0), priceTotal:Number(p.priceTotal||0),
-      currency:p.currency||'EUR', expiresAt:p.expiresAt||''
+  const itemsSafe = items.map(p => ({
+    name: p.name,
+    brand: p.brand || '',
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: p.unitLabel || '',
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: p.currency || 'EUR',
+    expiresAt: p.expiresAt || ''
+  }));
+
+  // payload sempre con user_id quando disponibile
+  const payload = {
+    ...(uid ? { user_id: uid } : {}),
+    ...(meta?.store ? { store: meta.store } : {}),
+    ...(meta?.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
+    payment_method: 'cash',
+    card_label: null,
+    items: itemsSafe
+  };
+
+  await fetchJSONStrict(API_FINANCES_INGEST, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }, 30000);
+
+  // notifica la pagina Finanze di aggiornarsi (SWR / router refresh listener)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('finanze:ingest:done', {
+      detail: { count: itemsSafe.length, store: meta?.store || null, at: Date.now() }
     }));
-    await fetchJSONStrict(API_FINANCES_INGEST, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
-        ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
-        payment_method:'cash', card_label:null, items: itemsSafe
-      })
-    }, 30000);
-  } catch(e){ if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e); }
+  }
+} catch (e) {
+  if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e);
+}
 }
 
-// Conferma selezionati
+  // Conferma selezionati
 async function applyReviewSelection() {
   const selected = reviewItems.filter(it => reviewPick[productKey(it.name, it.brand || '')]);
   setReviewOpen(false); setReviewItems([]); setReviewPick({});
