@@ -1734,39 +1734,36 @@ function estimateCandidateLines(ocrText=''){
   return count;
 }
 
-/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (con normalizzazione web) ====================== */
+/* ====================== OCR Scontrino/Busta → Aggiornamento scorte (robusto + normalizzazione web) ====================== */
 async function handleOCR(files) {
   if (!files) return;
-  if (busy) return;
+  if (busy) return; // evita doppie esecuzioni
+  setBusy(true);
 
   let purchases = [];
   let store = '';
   let purchaseDate = '';
 
   try {
-    setBusy(true);
-
     // 0) pick file valido
-    const toArray = (x) => Array.from(x || []);
-    const isFileLike = (v) => {
-      try { return !!(v && typeof v==='object' && typeof v.type==='string' && typeof v.size==='number' && typeof v.arrayBuffer==='function' && typeof v.slice==='function'); }
-      catch { return false; }
-    };
-    const picked = toArray(files).filter(isFileLike);
+    const list = Array.from(files || []);
+    const isFileLike = (v) => !!(v && typeof v === 'object' && typeof v.type === 'string' && typeof v.size === 'number');
+    const picked = list.filter(isFileLike);
     if (!picked.length) throw new Error('Nessuna immagine valida selezionata');
 
     // 1) OCR
     const first = picked[0];
-    const aliases = ['images','files','file','image'];
+    const aliases = ['images', 'files', 'file', 'image'];
     const slim = await downscaleImageFile(first, { maxSide: 1600, quality: 0.78 });
 
     let fdOcr = new FormData();
     for (const k of aliases) fdOcr.append(k, slim, slim.name || 'receipt.jpg');
 
-    let ocrAns = await fetchJSONStrict(API_OCR, { method:'POST', body: fdOcr }, 90000);
+    let ocrAns = await fetchJSONStrict(API_OCR, { method: 'POST', body: fdOcr }, 90000);
     let ocrText = String(ocrAns?.text || ocrAns?.data?.text || ocrAns?.data || '').trim();
+    console.log('[OCR] textLen=', ocrText.length, 'items=', ocrAns?.items?.length || 0, 'purchases=', ocrAns?.purchases?.length || 0);
 
-    // Vision one-shot
+    // Vision one-shot (preferito)
     if (Array.isArray(ocrAns?.purchases) && ocrAns.purchases.length) {
       purchases = ocrAns.purchases.map(p => ({
         name: String(p.name||'').trim(),
@@ -1786,11 +1783,11 @@ async function handleOCR(files) {
         location: ocrAns.location || '',
         totalPaid: coerceNum(ocrAns.totalPaid),
         currency: ocrAns.currency || 'EUR',
-        paymentMethod: ocrAns.paymentMethod || 'cash'
+        paymentMethod: ocrAns.paymentMethod || 'cash',
       });
     }
 
-    // HEIC retry
+    // HEIC retry (Safari)
     if (!ocrText && /heic|heif/i.test(first?.type || '')) {
       fdOcr = new FormData();
       for (const k of aliases) fdOcr.append(k, first, first.name || 'receipt.heic');
@@ -1802,11 +1799,11 @@ async function handleOCR(files) {
     }
     if (typeof sanitizeOcrText === 'function') ocrText = sanitizeOcrText(ocrText || '');
 
-    // 2) items da Vision (etichette)
+    // 2) items “busta/etichette” (se non abbiamo già righe)
     if (!purchases.length && Array.isArray(ocrAns?.items) && ocrAns.items.length) {
       purchases = ocrAns.items.map(p => ({
-        name: String(p?.name||'').trim(),
-        brand: String(p?.brand||'').trim(),
+        name: String(p?.name || '').trim(),
+        brand: String(p?.brand || '').trim(),
         packs: coerceNum(p?.packs),
         unitsPerPack: coerceNum(p?.unitsPerPack),
         unitLabel: normalizeUnitLabel(p?.unitLabel || ''),
@@ -1815,21 +1812,21 @@ async function handleOCR(files) {
       })).filter(p => p.name);
     }
 
-    // 3) Parser testo (fallback)
+    // 3) Parser scontrino testo → JSON (fallback)
     let parsed = null;
     if (!purchases.length && ocrText) {
       const promptTicket = (typeof buildOcrAssistantPrompt === 'function') ? buildOcrAssistantPrompt(ocrText, GROCERY_LEXICON) : ocrText;
       try {
         const r = await timeoutFetch(API_ASSISTANT_TEXT, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: promptTicket })
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: promptTicket })
         }, 60000);
         const safe = await readJsonSafe(r);
         const answer = safe?.answer || safe?.data || safe;
-        parsed = typeof answer === 'string' ? (()=>{ try { return JSON.parse(answer); } catch { return null; } })() : answer;
-      } catch {}
+        parsed = typeof answer === 'string' ? (() => { try { return JSON.parse(answer); } catch { return null; } })() : answer;
+      } catch (e) { console.warn('[ASSISTANT parse] fallback KO', e); }
     }
 
-    // meta da OCR testo
+    // Meta da OCR testo se mancano
     if (!store || !purchaseDate) {
       const meta = parseReceiptMeta(ocrText || '');
       store        = (store || meta.store || '').trim();
@@ -1850,7 +1847,7 @@ async function handleOCR(files) {
       })).filter(p => p.name);
     }
 
-    // 4) Fallback locali
+    // 4) Fallback locale
     if (!purchases.length && ocrText) {
       purchases = parseReceiptPurchases(ocrText).map(p => ({
         name: p.name, brand: p.brand || '',
@@ -1876,7 +1873,7 @@ async function handleOCR(files) {
       if (typeof cleanupPurchasesQuantities === 'function') purchases = cleanupPurchasesQuantities(purchases);
     }
 
-    // 6) Filtri non-merce
+    // 6) Filtra non-merce
     const NOT_PRODUCT_RE = /\b(shopper|eco[- ]?contributo|ecocontributo|vuoto(?:\s*a\s*rendere)?|cauzione)\b/i;
     const DISCARD_MSG    = /(mi\s*dispiace|non\s*posso\s*aiut|cannot\s*assist|i\s*can't|policy|trascrizion)/i;
     purchases = purchases.filter(p => {
@@ -1884,11 +1881,10 @@ async function handleOCR(files) {
       return nm && !DISCARD_MSG.test(nm) && !NOT_PRODUCT_RE.test(nm);
     });
 
-    // 7) Normalizzazione web/LLM
+    // 7) Normalizzazione Web/LLM (non blocca in caso di errore)
     try {
       const resp = await timeoutFetch('/api/normalize', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+        method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ items: purchases.map(p => ({ name:p.name, brand:p.brand||'' })), locale:'it-IT' })
       }, 60000);
       if (resp.ok) {
@@ -1914,16 +1910,16 @@ async function handleOCR(files) {
           });
         }
       }
-    } catch {}
+    } catch (e) { console.warn('[normalize web] skip', e); }
 
-    // 8) Inserimento diretto
+    console.log('[OCR] purchases final:', purchases.length, purchases);
     if (!purchases.length) {
       showToast('Nessuna riga acquisto riconosciuta dallo scontrino', 'err');
       return;
     }
+    showToast(`Righe riconosciute: ${purchases.length}`, 'ok');
 
-    if (typeof rememberItems === 'function') rememberItems(purchases, { alsoLexicon: true });
-
+    // 8) Liste & Scorte
     setLists(prev => decrementAcrossBothLists(prev, purchases));
 
     setStock(prev => {
@@ -1948,7 +1944,6 @@ async function handleOCR(files) {
               ...restockTouch(newP, todayISO, newU)
             };
           } else {
-            // default 1 conf se non abbiamo conteggi
             const uo = Math.max(1, Number(old.unitsPerPack || 1));
             const np = Math.max(0, Number(old.packs||0) + 1);
             arr[idx] = { ...old,
@@ -1960,34 +1955,24 @@ async function handleOCR(files) {
             };
           }
         } else {
-          if (hasCounts) {
-            const u = Math.max(1, upp || 1);
-            arr.unshift(withRememberedImage({
-              name:p.name, brand:p.brand||'',
-              packs:Math.max(0, packs||1), unitsPerPack:u, unitLabel:p.unitLabel||'unità',
-              expiresAt:p.expiresAt||'',
-              baselinePacks:Math.max(0, packs||1), lastRestockAt:todayISO, avgDailyUnits:0,
-              residueUnits:Math.max(0,(packs||1)*u),
-              packsOnly:false, needsUpdate:false
-            }, imagesIndex));
-          } else {
-            arr.unshift(withRememberedImage({
-              name:p.name, brand:p.brand||'',
-              packs:1, unitsPerPack:1, unitLabel:'unità',
-              expiresAt:p.expiresAt||'',
-              baselinePacks:1, lastRestockAt:todayISO, avgDailyUnits:0,
-              residueUnits:1, packsOnly:false, needsUpdate:false
-            }, imagesIndex));
-          }
+          const upp = Math.max(1, coerceNum(p.unitsPerPack) || 1);
+          const packs = Math.max(0, coerceNum(p.packs) || 1);
+          arr.unshift(withRememberedImage({
+            name:p.name, brand:p.brand||'',
+            packs, unitsPerPack: upp, unitLabel: p.unitLabel || 'unità',
+            expiresAt: p.expiresAt || '',
+            baselinePacks: packs, lastRestockAt: todayISO, avgDailyUnits: 0,
+            residueUnits: packs * upp,
+            packsOnly:false, needsUpdate:false
+          }, imagesIndex));
         }
       }
+      console.log('[OCR] stock next len =', arr.length);
       return arr;
     });
 
     // 9) Finanze — chiama SOLO se c’è qualcosa
     if (!purchases.length) return;
-
-    let financesOk = true;
     try {
       const meta = pendingOcrMeta || { store, purchaseDate };
       const payload = {
@@ -2011,18 +1996,15 @@ async function handleOCR(files) {
           expiresAt: p.expiresAt || ''
         }))
       };
-
+      console.log('[FINANCE] items=', payload.items.length, payload);
       await fetchJSONStrict(API_FINANCES_INGEST, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
       }, 40000);
+      showToast('OCR scorte completato ✓', 'ok');
     } catch (e) {
-      financesOk = false;
       console.warn('[FINANCES_INGEST] fail', e);
       showToast(`Finanze: ${e.message}`, 'err');
     }
-    if (financesOk) showToast('OCR scorte completato ✓', 'ok');
 
   } catch (e) {
     console.error('[OCR scorte] error', e);
