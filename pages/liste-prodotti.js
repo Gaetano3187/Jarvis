@@ -984,41 +984,38 @@ function openValidation(discardedList, meta) {
 async function applyAdditionalPurchases(addItems, meta = {}) {
   if (!Array.isArray(addItems) || !addItems.length) return;
 
-  // ——— 6.bis) Normalizzazione via web ———
+// ——— Normalizzazione via web/LLM ———
 try {
   const resp = await fetch('/api/normalize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       items: purchases.map(p => ({ name: p.name, brand: p.brand || '' })),
-      locale: 'it-IT'
+      locale: 'it-IT',
+      trace: true
     })
   });
-  if (resp.ok) {
-    const { results } = await resp.json();
-    if (Array.isArray(results)) {
-      purchases = purchases.map((p, i) => {
-        const r = results[i]?.out;
-        if (!r) return p;
-
-        const normName  = r.normalizedName?.trim();
-        const canonBrand= r.canonicalBrand?.trim();
-
-        // aggiorna solo se abbiamo info utili
-        const name = normName || p.name;
-        const brand = canonBrand || p.brand || '';
-
-        // opzionale: memorizza categorie/attributi
-        p.meta = {
+  const j = await resp.json().catch(()=>null);
+  if (!resp.ok) { if (DEBUG) console.warn('[normalize] HTTP', resp.status, j); }
+  if (j?.ok && Array.isArray(j.results)) {
+    if (DEBUG) console.log('[normalize] mode:', j.note, j.results);
+    purchases = purchases.map((p, i) => {
+      const r = j.results[i]?.out;
+      if (!r) return p;
+      const normName   = String(r.normalizedName || '').trim();
+      const canonBrand = String(r.canonicalBrand || '').trim();
+      return {
+        ...p,
+        name: normName || p.name,
+        brand: canonBrand || p.brand || '',
+        meta: {
           category: r.category || '',
           subcategory: r.subcategory || '',
           attributes: Array.isArray(r.attributes) ? r.attributes : [],
           confidence: Number(r.confidence || 0)
-        };
-
-        return { ...p, name, brand };
-      });
-    }
+        }
+      };
+    });
   }
 } catch (e) {
   if (DEBUG) console.warn('[normalize web] skip', e);
