@@ -415,192 +415,311 @@ const Home = () => {
       window.speechSynthesis.speak(u);
     } catch {}
   }
+  // Normalizza la risposta di ocrHome in un formato unico
+function normFromOcrHome(j = {}) {
+  const kind = j?.kind || 'unknown';
+  const text = String(j?.text || '');
+  const meta = {
+    store: String(j?.store || ''),
+    purchaseDate: String(j?.purchaseDate || ''),
+    totalPaid: Number(j?.totalPaid || 0),
+    currency: String(j?.currency || 'EUR'),
+  };
+  const purchases = Array.isArray(j?.purchases) ? j.purchases.map(p => ({
+    name: String(p.name||'').trim(),
+    brand: String(p.brand||'').trim(),
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: String(p.unitLabel || ''),
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: String(p.currency || 'EUR'),
+    expiresAt: String(p.expiresAt || '')
+  })) : [];
+  return { kind, text, meta, purchases, wine: j?.wine || null, entries: j?.entries || null };
+}
 
-  // === OCR Smart (Carta | Etichetta | Scontrino) via /api/ocrHome ===
-  async function handleSmartOCR(files) {
-    const wantSommelier =
-      lastUserIntentRef.current.sommelier ||
-      looksLikeSommelierIntent(queryText);
+// Normalizza la risposta del vecchio /api/ocr
+function normFromLegacyOcr(j = {}) {
+  const text = String(j?.text || j?.data?.text || j?.data || '');
+  const meta = {
+    store: String(j?.store || ''),
+    purchaseDate: String(j?.purchaseDate || ''),
+    totalPaid: Number(j?.totalPaid || 0),
+    currency: String(j?.currency || 'EUR'),
+  };
+  // preferisci purchases; se non ci sono ma ci sono items (busta), usa items
+  const src = Array.isArray(j?.purchases) ? j.purchases
+            : Array.isArray(j?.items)     ? j.items
+            : [];
+  const purchases = src.map(p => ({
+    name: String(p.name||'').trim(),
+    brand: String(p.brand||'').trim(),
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: String(p.unitLabel || ''),
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: String(p.currency || 'EUR'),
+    expiresAt: String(p.expiresAt || '')
+  }));
+  return { kind: 'receipt', text, meta, purchases, wine: null, entries: null };
+}
 
-    setChatOpen(true);
+// Esegue OCR con fallback: prima /api/ocrHome, poi /api/ocr (legacy) se serve
+async function fetchOcrUnified(file) {
+  const fd = new FormData();
+  fd.append('images', file, file.name || 'upload.jpg');
 
-    try {
-      setBusy(true);
-
-      const texts = [];
-      const receipts = [];
-      const labels = [];
-      const lists = [];
-
-      for (const f of files) {
-        const fd = new FormData();
-        fd.append('images', f, f.name || 'upload.jpg');
-        const r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
-        const j = await r.json().catch(()=> ({}));
-
-        const text = String(j?.text || '').trim();
-        if (text) texts.push(text);
-
-        const kind = j?.kind || classifyOcrText(text || '');
-        if (kind === 'receipt') {
-          receipts.push(j);
-        } else if (kind === 'wine_label') {
-          labels.push(j);
-        } else if (kind === 'wine_list') {
-          lists.push(j);
-        }
-      }
-
-      // — Routing —
-      // Carta vini
-      if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
-        const joined = (lists.length ? lists.map(x=>x.text||'').join('\n---\n') : texts.join('\n---\n')).trim();
-        if (!joined) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'❌ OCR: nessun testo riconosciuto dalla carta.' }]);
-          return;
-        }
-        wineListsRef.current.push(joined);
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'📄 Carta vini acquisita. Avvio il Sommelier…' }]);
-        const q = lastUserIntentRef.current.text || queryText || '';
-        const result = await runSommelierFromHome(q);
-        const txt = renderSommelierInChat(result);
-        const msg = { role:'assistant', text: txt, mono: true };
-        setChatMsgs(arr => [...arr, msg]);
-        maybeSpeakMessage(msg);
-        return;
-      }
-
-      // Etichette vino
-      if (labels.length) {
-        if (!uid) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
-        } else {
-          for (const L of labels) {
-            try {
-              await postJSON('/api/vini/ingest', {
-                user_id: uid,
-                wine: L?.wine || null,
-                text: L?.text || ''
-              });
-            } catch(e) {
-              setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
-            }
-          }
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
-        }
-        return;
-      }
-
-      // Scontrino/i
-      if (receipts.length || texts.length) {
-        // Combina meta e righe (se più immagini, faccio un unico ingest)
-        const allPurchases = [];
-        const meta = {
-          store: '',
-          purchaseDate: '',
-          totalPaid: 0,
-          currency: 'EUR'
-        };
-
-        for (const R of receipts) {
-          const items = Array.isArray(R?.purchases) ? R.purchases : [];
-          allPurchases.push(...items);
-          if (!meta.store) meta.store = String(R?.store||'');
-          if (!meta.purchaseDate) meta.purchaseDate = String(R?.purchaseDate||'');
-          if (!meta.totalPaid) meta.totalPaid = Number(R?.totalPaid||0);
-          if (!meta.currency && R?.currency) meta.currency = String(R?.currency);
-        }
-
-        // Normalizzazione minima se non c'era estrazione strutturata
-        if (!allPurchases.length && texts.length) {
-          try {
-            const { runQueryFromTextLocal } = await getBrain();
-            const parsed = await runQueryFromTextLocal('estrai righe scontrino', { ocr: texts.join('\n---\n'), want:'receipt.lines' });
-            const tmp = Array.isArray(parsed?.result?.purchases) ? parsed.result.purchases : [];
-            allPurchases.push(...tmp);
-            if (!meta.store)        meta.store        = parsed?.result?.store || '';
-            if (!meta.purchaseDate) meta.purchaseDate = parsed?.result?.purchaseDate || '';
-            if (!meta.totalPaid)    meta.totalPaid    = Number(parsed?.result?.totalPaid || 0);
-          } catch {}
-        }
-
-        const itemsNorm = (allPurchases || []).map(p => ({
-          name: String(p.name||'').trim(),
-          brand: String(p.brand||'').trim(),
-          packs: Number(p.packs || 0),
-          unitsPerPack: Number(p.unitsPerPack || 0),
-          unitLabel: String(p.unitLabel || ''),
-          priceEach: Number(p.priceEach || 0),
-          priceTotal: Number(p.priceTotal || 0),
-          currency: String(p.currency || 'EUR'),
-          expiresAt: String(p.expiresAt || '')
-        })).filter(p => p.name);
-
-        // a) Finanze
-        if (!uid) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
-        } else {
-          try {
-            await postJSON('/api/finances/ingest', {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: meta.purchaseDate,
-              payment_method: 'cash',
-              card_label: null,
-              items: itemsNorm
-            });
-            // segnale refresh Finanze
-            if (typeof window !== 'undefined') {
-              const stamp = Date.now();
-              localStorage.setItem('__finanze_last_ingest', String(stamp));
-              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
-            }
-          } catch (e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
-          }
-
-          // b) Spese Casa / Cene & Aperitivi
-          const bucket = guessExpenseBucket(meta.store);
-          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-          try {
-            await postJSON(endpoint, {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: meta.purchaseDate,
-              totalPaid: meta.totalPaid,
-              items: itemsNorm
-            });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
-            }
-          } catch (e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
-          }
-        }
-
-        // c) (facoltativo) aggiorna scorte con il tuo flusso consolidato
-        try { await doOCR_Receipt({ files }); } catch {}
-
-        // d) messaggio riepilogo
-        const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
-        setChatMsgs(arr => [
-          ...arr,
-          msg,
-          { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
-        ]);
-        maybeSpeakMessage(msg);
-        return;
-      }
-
-      // Se arrivo qui, non ho riconosciuto il tipo
-      setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
-
-    } catch (err) {
-      setChatMsgs(arr => [...arr, { role:'assistant', text:`❌ Errore OCR: ${err?.message || err}` }]);
-    } finally {
-      setBusy(false);
-    }
+  // primo tentativo: ocrHome
+  let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
+  let j = null; try { j = await r.json(); } catch {}
+  if (r.ok && j && !j.error) {
+    const n = normFromOcrHome(j);
+    // se scontrino ma senza righe, fai fallback
+    if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
   }
+
+  // fallback: legacy
+  r = await fetch('/api/ocr', { method: 'POST', body: fd });
+  j = await r.json().catch(()=> ({}));
+  return normFromLegacyOcr(j);
+}
+// -------- Helpers OCR unificati (home) --------
+function normFromOcrHome(j = {}) {
+  const kind = j?.kind || 'unknown';
+  const text = String(j?.text || '');
+  const meta = {
+    store: String(j?.store || ''),
+    purchaseDate: String(j?.purchaseDate || ''),
+    totalPaid: Number(j?.totalPaid || 0),
+    currency: String(j?.currency || 'EUR'),
+  };
+  const purchases = Array.isArray(j?.purchases) ? j.purchases.map(p => ({
+    name: String(p.name||'').trim(),
+    brand: String(p.brand||'').trim(),
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: String(p.unitLabel || ''),
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: String(p.currency || 'EUR'),
+    expiresAt: String(p.expiresAt || '')
+  })) : [];
+  return { kind, text, meta, purchases, wine: j?.wine || null, entries: j?.entries || null };
+}
+
+function normFromLegacyOcr(j = {}) {
+  const text = String(j?.text || j?.data?.text || j?.data || '');
+  const meta = {
+    store: String(j?.store || ''),
+    purchaseDate: String(j?.purchaseDate || ''),
+    totalPaid: Number(j?.totalPaid || 0),
+    currency: String(j?.currency || 'EUR'),
+  };
+  const src = Array.isArray(j?.purchases) ? j.purchases
+            : Array.isArray(j?.items)     ? j.items
+            : [];
+  const purchases = src.map(p => ({
+    name: String(p.name||'').trim(),
+    brand: String(p.brand||'').trim(),
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: String(p.unitLabel || ''),
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: String(p.currency || 'EUR'),
+    expiresAt: String(p.expiresAt || '')
+  }));
+  return { kind: 'receipt', text, meta, purchases, wine: null, entries: null };
+}
+
+async function fetchOcrUnified(file) {
+  const fd = new FormData();
+  fd.append('images', file, file.name || 'upload.jpg');
+
+  // 1) nuovo endpoint
+  let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
+  let j = null; try { j = await r.json(); } catch {}
+  if (r.ok && j && !j.error) {
+    const n = normFromOcrHome(j);
+    // se NON è il caso “scontrino senza righe”, va bene così
+    if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
+  }
+
+  // 2) fallback legacy
+  r = await fetch('/api/ocr', { method: 'POST', body: fd });
+  j = await r.json().catch(()=> ({}));
+  return normFromLegacyOcr(j);
+}
+
+
+ // === OCR Smart (Carta | Etichetta | Scontrino) via ocrHome con fallback legacy ===
+async function handleSmartOCR(files) {
+  const wantSommelier =
+    lastUserIntentRef.current.sommelier ||
+    looksLikeSommelierIntent(queryText);
+
+  setChatOpen(true);
+
+  try {
+    setBusy(true);
+
+    const texts = [];
+    const receipts = [];
+    const labels = [];
+    const lists = [];
+
+    // 1) OCR ogni file con fallback automatico
+    for (const f of files) {
+      const n = await fetchOcrUnified(f);
+      if (n.text) texts.push(n.text);
+      const guess = n.kind || classifyOcrText(n.text || '');
+      if (guess === 'receipt') receipts.push(n);
+      else if (guess === 'wine_label') labels.push(n);
+      else if (guess === 'wine_list') lists.push(n);
+    }
+
+    // 2) Routing
+
+    // Carta vini (o intento Sommelier)
+    if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
+      const joined = (lists.length ? lists.map(x=>x.text||'').join('\n---\n') : texts.join('\n---\n')).trim();
+      if (!joined) {
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+        return;
+      }
+      wineListsRef.current.push(joined);
+      setChatMsgs(arr => [...arr, { role:'assistant', text:'📄 Carta vini acquisita. Avvio il Sommelier…' }]);
+      const q = lastUserIntentRef.current.text || queryText || '';
+      const result = await runSommelierFromHome(q);
+      const txt = renderSommelierInChat(result);
+      const msg = { role:'assistant', text: txt, mono: true };
+      setChatMsgs(arr => [...arr, msg]);
+      maybeSpeakMessage(msg);
+      return;
+    }
+
+    // Etichette vino
+    if (labels.length) {
+      if (!uid) {
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
+      } else {
+        for (const L of labels) {
+          try {
+            await postJSON('/api/vini/ingest', {
+              user_id: uid,
+              wine: L?.wine || null,
+              text: L?.text || ''
+            });
+          } catch(e) {
+            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
+          }
+        }
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
+      }
+      return;
+    }
+
+    // Scontrino/i
+    if (receipts.length || texts.length) {
+      // Combina meta + righe
+      const allPurchases = [];
+      const meta = { store:'', purchaseDate:'', totalPaid:0, currency:'EUR' };
+
+      for (const R of receipts) {
+        const items = Array.isArray(R?.purchases) ? R.purchases : [];
+        allPurchases.push(...items);
+        if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
+        if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
+        if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
+        if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
+      }
+
+      // Normalizzazione minima
+      const itemsNorm = (allPurchases || []).map(p => ({
+        name: String(p.name||'').trim(),
+        brand: String(p.brand||'').trim(),
+        packs: Number(p.packs || 0),
+        unitsPerPack: Number(p.unitsPerPack || 0),
+        unitLabel: String(p.unitLabel || ''),
+        priceEach: Number(p.priceEach || 0),
+        priceTotal: Number(p.priceTotal || 0),
+        currency: String(p.currency || 'EUR'),
+        expiresAt: String(p.expiresAt || '')
+      })).filter(p => p.name);
+
+      // 👉 GUARD: se non ho righe, NON chiamare ingest (evita 400)
+      if (!itemsNorm.length) {
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese. Riprova con una foto più nitida o inquadra gli articoli.' }]);
+        return;
+      }
+
+      // a) Finanze
+      if (!uid) {
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
+      } else {
+        try {
+          await postJSON('/api/finances/ingest', {
+            user_id: uid,
+            store: meta.store,
+            purchaseDate: meta.purchaseDate,
+            payment_method: 'cash',
+            card_label: null,
+            items: itemsNorm
+          });
+          if (typeof window !== 'undefined') {
+            const stamp = Date.now();
+            localStorage.setItem('__finanze_last_ingest', String(stamp));
+            window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+          }
+        } catch (e) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
+        }
+
+        // b) Spese Casa / Cene & Aperitivi
+        const bucket = guessExpenseBucket(meta.store);
+        const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+        try {
+          await postJSON(endpoint, {
+            user_id: uid,
+            store: meta.store,
+            purchaseDate: meta.purchaseDate,
+            totalPaid: meta.totalPaid,
+            items: itemsNorm
+          });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
+          }
+        } catch (e) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
+        }
+      }
+
+      // c) (opzionale) aggiorna scorte con il flusso consolidato
+      try { await doOCR_Receipt({ files }); } catch {}
+
+      // d) riepilogo in chat
+      const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
+      setChatMsgs(arr => [
+        ...arr,
+        msg,
+        { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
+      ]);
+      maybeSpeakMessage(msg);
+      return;
+    }
+
+    // Tipo non riconosciuto
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
+
+  } catch (err) {
+    setChatMsgs(arr => [...arr, { role:'assistant', text:`❌ Errore OCR: ${err?.message || err}` }]);
+  } finally {
+    setBusy(false);
+  }
+}
+
 
   // === Invio query testo (supporta input dal MODALE) ===
   async function submitQuery(textParam) {
