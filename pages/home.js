@@ -696,15 +696,18 @@ const Home = () => {
           }
         }
 
-        // c) Aggiorna scorte per supermercati
-        if (storeIsSuper) {
-          try {
-            await doOCR_Receipt({ files, from: 'home', mode: 'stock-only', purchases: itemsNorm });
-            setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
-          } catch (e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
-          }
-        }
+       // === Aggiorna SCORTE dal “cervello” (OCR locale) ===
+// Usa brainHub.ingestOCRLocal se disponibile; altrimenti solleva un errore chiaro.
+async function updateStockFromReceipt({ files = [], purchases = [], from = 'home' } = {}) {
+  const mod = await getBrain().catch(() => null);
+  const ingestOCRLocal = mod && mod.ingestOCRLocal;
+  if (typeof ingestOCRLocal !== 'function') {
+    throw new Error('ingestOCRLocal non disponibile (brainHub)');
+  }
+  // mode: 'stock-only' per evitare doppi insert Finanze nella pipeline scorte
+  return ingestOCRLocal({ files, purchases, from, mode: 'stock-only' });
+}
+
 
         // d) riepilogo
         const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
