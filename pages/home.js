@@ -118,6 +118,54 @@ function guessExpenseBucket(store='') {
   if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
   return 'spese-casa';
 }
+
+// ---- Date helpers (fallback data scontrino) ----
+function toISODate(any) {
+  const s = String(any || '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m1 = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (m1) {
+    const d = String(m1[1]).padStart(2,'0');
+    const M = String(m1[2]).padStart(2,'0');
+    let y = String(m1[3]);
+    if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
+    return `${y}-${M}-${d}`;
+  }
+  // es. "12 set 2025", "7 ottobre 24"
+  const mesi = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+  const m2 = s.toLowerCase().match(/(\d{1,2})\s+([a-zà-ú]+)\s+(\d{2,4})/i);
+  if (m2) {
+    const d = String(m2[1]).padStart(2,'0');
+    const mon = m2[2].slice(0,3);
+    const idx = mesi.indexOf(mon);
+    if (idx >= 0) {
+      let y = String(m2[3]);
+      if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
+      const M = String(idx+1).padStart(2,'0');
+      return `${y}-${M}-${d}`;
+    }
+  }
+  return '';
+}
+function pickDateFromTexts(texts = []) {
+  // prova a scansionare tutte le righe OCR
+  const joined = String((texts||[]).join('\n') || '');
+  // 1) dd/mm/yyyy o dd-mm-yy
+  const m1 = joined.match(/(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})/);
+  if (m1) {
+    const iso = toISODate(m1[1]);
+    if (iso) return iso;
+  }
+  // 2) 12 set 2025
+  const m2 = joined.match(/(\d{1,2}\s+[a-zà-ú]+\s+\d{2,4})/i);
+  if (m2) {
+    const iso = toISODate(m2[1]);
+    if (iso) return iso;
+  }
+  return '';
+}
+
 // Riconoscimento supermercati
 function isSupermarketStore(store = '') {
   const s = String(store).toLowerCase();
@@ -388,21 +436,20 @@ useEffect(() => {
   })();
 }, []);
 // === Brain calls ===
-/**
- * Esegue una query naturale sul “cervello” (brainHub).
- * Usa sia export nominato che default, per evitare undefined dopo build.
- */
 async function runBrainQuery(text, opts = {}) {
   const mod = await getBrain().catch(() => null);
-  const fn =
-    mod?.runQueryFromTextLocal ||
-    mod?.default?.runQueryFromTextLocal;
-
-  if (typeof fn !== 'function') {
-    throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
-  }
+  const fn = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
+  if (typeof fn !== 'function') throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
   return await fn(text, opts);
 }
+async function updateStockFromReceipt({ files = [], purchases = [], from = 'home' } = {}) {
+  const mod = await getBrain().catch(() => null);
+  const ingest = mod?.ingestOCRLocal || mod?.default?.ingestOCRLocal;
+  if (typeof ingest !== 'function') throw new Error('ingestOCRLocal non disponibile (brainHub)');
+  return await ingest({ files, purchases, from, mode: 'stock-only' });
+}
+// Alias compat: se altrove c'è ancora doOCR_Receipt
+async function doOCR_Receipt(payload) { return updateStockFromReceipt(payload); }
 
 /**
  * Aggiorna le SCORTE a partire dallo scontrino/righe riconosciute.
@@ -654,107 +701,118 @@ async function doOCR_Receipt(payload) {
         return;
       }
 
-      // Scontrino/i
-      if (receipts.length || texts.length) {
-        // Combina meta + righe
-        const allPurchases = [];
-        const meta = { store:'', purchaseDate:'', totalPaid:0, currency:'EUR' };
+// Scontrino/i
+if (receipts.length || texts.length) {
+  // --- Combina meta + righe ---
+  const allPurchases = [];
+  const meta = { store:'', purchaseDate:'', totalPaid:0, currency:'EUR' };
 
-        for (const R of receipts) {
-          const items = Array.isArray(R?.purchases) ? R.purchases : [];
-          allPurchases.push(...items);
-          if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
-          if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
-          if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
-          if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
-        }
-
-        // Normalizzazione minima
-        const itemsNorm = (allPurchases || []).map(p => ({
-          name: String(p.name||'').trim(),
-          brand: String(p.brand||'').trim(),
-          packs: Number(p.packs || 0),
-          unitsPerPack: Number(p.unitsPerPack || 0),
-          unitLabel: String(p.unitLabel || ''),
-          priceEach: Number(p.priceEach || 0),
-          priceTotal: Number(p.priceTotal || 0),
-          currency: String(p.currency || 'EUR'),
-          expiresAt: String(p.expiresAt || '')
-        })).filter(p => p.name);
-
-        // Se non ho righe, non invio ingest
-        if (!itemsNorm.length) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese. Riprova con una foto più nitida o inquadra gli articoli.' }]);
-          return;
-        }
-
-        // Categoria esercizio + supermercato?
-        const bucket = guessExpenseBucket(meta.store);
-        const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
-
-        // a) Finanze
-        if (!uid) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
-        } else {
-          try {
-            await postJSON('/api/finances/ingest', {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: meta.purchaseDate,
-              payment_method: 'cash',
-              card_label: null,
-              items: itemsNorm
-            });
-            if (typeof window !== 'undefined') {
-              const stamp = Date.now();
-              localStorage.setItem('__finanze_last_ingest', String(stamp));
-              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
-            }
-          } catch (e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
-          }
-
-          // b) Spese Casa / Cene & Aperitivi
-          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-          try {
-            await postJSON(endpoint, {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: meta.purchaseDate,
-              totalPaid: meta.totalPaid,
-              items: itemsNorm
-            });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
-            }
-          } catch (e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
-          }
-        }
-
-       // === Aggiorna SCORTE dal “cervello” (OCR locale) ===
-// Usa brainHub.ingestOCRLocal se disponibile; altrimenti solleva un errore chiaro.
-async function updateStockFromReceipt({ files = [], purchases = [], from = 'home' } = {}) {
-  const mod = await getBrain().catch(() => null);
-  const ingestOCRLocal = mod && mod.ingestOCRLocal;
-  if (typeof ingestOCRLocal !== 'function') {
-    throw new Error('ingestOCRLocal non disponibile (brainHub)');
+  for (const R of receipts) {
+    const items = Array.isArray(R?.purchases) ? R.purchases : [];
+    allPurchases.push(...items);
+    if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
+    if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
+    if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
+    if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
   }
-  // mode: 'stock-only' per evitare doppi insert Finanze nella pipeline scorte
-  return ingestOCRLocal({ files, purchases, from, mode: 'stock-only' });
+
+  // --- Fallback DATA (se meta vuota) ---
+  const isoFromMeta  = toISODate(meta.purchaseDate);
+  const isoFromOCR   = pickDateFromTexts(texts);
+  const isoToday     = new Date().toISOString().slice(0,10);
+  meta.purchaseDate  = isoFromMeta || isoFromOCR || isoToday;
+
+  // --- Normalizza righe ---
+  const itemsNorm = (allPurchases || []).map(p => ({
+    name: String(p.name||'').trim(),
+    brand: String(p.brand||'').trim(),
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: String(p.unitLabel || ''),
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: String(p.currency || 'EUR'),
+    expiresAt: String(p.expiresAt || '')
+  })).filter(p => p.name);
+
+  // Se niente righe → esci pulito
+  if (!itemsNorm.length) {
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
+    return;
+  }
+
+  // Bucket + supermercato?
+  const bucket = guessExpenseBucket(meta.store);
+  const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+
+  // --- a) FINANZE ---
+  if (!uid) {
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
+  } else {
+    try {
+      const payloadFin = {
+        user_id: uid,
+        store: meta.store,
+        purchaseDate: meta.purchaseDate,       // ISO garantito
+        payment_method: 'cash',
+        card_label: null,
+        items: itemsNorm
+      };
+      console.log('[FINANCES payload]', payloadFin);
+      await postJSON('/api/finances/ingest', payloadFin);
+      // refresh Finanze
+      if (typeof window !== 'undefined') {
+        const stamp = Date.now();
+        localStorage.setItem('__finanze_last_ingest', String(stamp));
+        window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+      }
+      setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
+    } catch (e) {
+      setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
+    }
+
+    // --- b) SPESE CASA / CENE & APERITIVI ---
+    try {
+      const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+      const payloadSpese = {
+        user_id: uid,
+        store: meta.store,
+        purchaseDate: meta.purchaseDate,
+        totalPaid: meta.totalPaid,
+        items: itemsNorm
+      };
+      console.log('[SPESE payload]', endpoint, payloadSpese);
+      await postJSON(endpoint, payloadSpese);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
+      }
+      setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
+    } catch (e) {
+      setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
+    }
+  }
+
+  // --- c) SCORTE (solo supermercato) ---
+  if (storeIsSuper) {
+    try {
+      await updateStockFromReceipt({ files, purchases: itemsNorm, from: 'home' });
+      setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
+    } catch (e) {
+      setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
+    }
+  }
+
+  // --- d) riepilogo + voce ---
+  const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
+  setChatMsgs(arr => [
+    ...arr,
+    msg,
+    { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
+  ]);
+  maybeSpeakMessage(msg);
+  return;
 }
 
-
-        // d) riepilogo
-        const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
-        setChatMsgs(arr => [
-          ...arr,
-          msg,
-          { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
-        ]);
-        maybeSpeakMessage(msg);
-        return;
-      }
 
       // Tipo non riconosciuto
       setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
