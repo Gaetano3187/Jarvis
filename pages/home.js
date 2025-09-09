@@ -376,19 +376,55 @@ const Home = () => {
   const deepLinkHandledRef = useRef(false);
   const speakModeRef = useRef(false);
 
-  // UID per service role
-  const [uid, setUid] = useState(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        const mod = await import('@/lib/supabaseClient').catch(()=>null);
-        const supabase = mod?.supabase;
-        if (!supabase) return;
-        const { data:{ user } } = await supabase.auth.getUser();
-        setUid(user?.id || null);
-      } catch {}
-    })();
-  }, []);
+// UID per service role
+const [uid, setUid] = useState(null);
+useEffect(() => {
+  (async () => {
+    const mod = await import('@/lib/supabaseClient').catch(()=>null);
+    const supabase = mod?.supabase;
+    if (!supabase) return;
+    const { data:{ user } } = await supabase.auth.getUser();
+    setUid(user?.id || null);
+  })();
+}, []);
+// === Brain calls ===
+/**
+ * Esegue una query naturale sul “cervello” (brainHub).
+ * Usa sia export nominato che default, per evitare undefined dopo build.
+ */
+async function runBrainQuery(text, opts = {}) {
+  const mod = await getBrain().catch(() => null);
+  const fn =
+    mod?.runQueryFromTextLocal ||
+    mod?.default?.runQueryFromTextLocal;
+
+  if (typeof fn !== 'function') {
+    throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
+  }
+  return await fn(text, opts);
+}
+
+/**
+ * Aggiorna le SCORTE a partire dallo scontrino/righe riconosciute.
+ * Usa la pipeline locale (ingestOCRLocal) in modalità “stock-only”
+ * per evitare doppi insert in Finanze.
+ */
+async function updateStockFromReceipt({ files = [], purchases = [], from = 'home' } = {}) {
+  const mod = await getBrain().catch(() => null);
+  const ingest =
+    mod?.ingestOCRLocal ||
+    mod?.default?.ingestOCRLocal;
+
+  if (typeof ingest !== 'function') {
+    throw new Error('ingestOCRLocal non disponibile (brainHub)');
+  }
+  return await ingest({ files, purchases, from, mode: 'stock-only' });
+}
+
+/* Compat: se da qualche parte richiami ancora doOCR_Receipt, manteniamo l’alias */
+async function doOCR_Receipt(payload) {
+  return updateStockFromReceipt(payload);
+}
 
   /* ===== TTS: stato, voci, persistenza ===== */
   const [ttsEnabled, setTtsEnabled] = useState(false);
