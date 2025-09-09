@@ -419,17 +419,28 @@ const Home = () => {
     return j;
   }
 
-  // === TTS ===
-  function maybeSpeakMessage(msg) {
-    try {
-      if (!speakModeRef.current) return;
-      const text = (msg?.text || '').replace(/<[^>]+>/g,'').trim();
-      if (!text) return;
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'it-IT';
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-    } catch {}
+  // === TTS (parla la risposta se mode=voice) — versione sicura ===
+function maybeSpeakMessage(msg) {
+  try {
+    if (!speakModeRef.current) return;
+
+    const text = String(msg?.text || '').replace(/<[^>]+>/g, '').trim();
+    if (!text) return;
+
+    // evitiamo collisioni con nomi minificati ('u')
+    const synth = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis : null;
+    const Utter = (typeof window !== 'undefined') ? window.SpeechSynthesisUtterance : null;
+    if (!synth || typeof Utter !== 'function') return;
+
+    const utt = new Utter(text);
+    utt.lang = 'it-IT';
+    synth.cancel();
+    synth.speak(utt);
+  } catch (e) {
+    // silenzioso: non deve mai rompere il flusso OCR/chat
+    console.warn('[TTS] skip', e);
+  }
+
   }
   // Normalizza la risposta di ocrHome in un formato unico
 function normFromOcrHome(j = {}) {
