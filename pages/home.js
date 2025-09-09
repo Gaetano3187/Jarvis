@@ -363,6 +363,29 @@ const Home = () => {
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // === Lettura vocale (TTS) — stato + persistenza ===
+const [ttsEnabled, setTtsEnabled] = useState(false);   // per mostrare ON/OFF nel bottone
+const ttsEnabledRef = useRef(false);                   // usato dentro maybeSpeakMessage senza re-render
+
+// carica preferenza da localStorage
+useEffect(() => {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('__tts_enabled') : null;
+    const on = saved === '1';
+    setTtsEnabled(on);
+    ttsEnabledRef.current = on;
+  } catch {}
+}, []);
+
+// salva preferenza quando cambia
+useEffect(() => {
+  try {
+    if (typeof window !== 'undefined') localStorage.setItem('__tts_enabled', ttsEnabled ? '1' : '0');
+    ttsEnabledRef.current = ttsEnabled;
+  } catch {}
+}, [ttsEnabled]);
+
+
   // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
@@ -392,6 +415,8 @@ const Home = () => {
     })();
   }, []);
 
+
+
   // === Brain calls ===
   async function doOCR_Receipt(payload) {
     const { ingestOCRLocal } = await getBrain();
@@ -419,26 +444,25 @@ const Home = () => {
     return j;
   }
 
-  // === TTS (parla la risposta se mode=voice) — versione sicura ===
+  // === TTS (parla la risposta se abilitato) — versione sicura ===
 function maybeSpeakMessage(msg) {
   try {
-    if (!speakModeRef.current) return;
+    // parla solo se: toggle ON oppure modalità voice attiva (Siri ecc.)
+    if (!(ttsEnabledRef.current || speakModeRef.current)) return;
 
     const text = String(msg?.text || '').replace(/<[^>]+>/g, '').trim();
     if (!text) return;
 
-    // evitiamo collisioni con nomi minificati ('u')
     const synth = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis : null;
     const Utter = (typeof window !== 'undefined') ? window.SpeechSynthesisUtterance : null;
     if (!synth || typeof Utter !== 'function') return;
 
-    const utt = new Utter(text);
+    const utt = new Utter(text);   // nome esplicito (evita collisioni 'u' minificate)
     utt.lang = 'it-IT';
     synth.cancel();
     synth.speak(utt);
   } catch (e) {
-    // silenzioso: non deve mai rompere il flusso OCR/chat
-    console.warn('[TTS] skip', e);
+    console.warn('[TTS] skip', e); // non deve mai rompere il flusso
   }
 
   }
@@ -918,6 +942,16 @@ if (storeIsSuper) {
               {busy ? '⏳' : '📷 OCR'}
             </button>
 
+            <button
+  className="btn-manuale"
+  onClick={() => setTtsEnabled(v => !v)}
+  title="Abilita o disabilita la lettura vocale delle risposte"
+  aria-pressed={ttsEnabled}
+>
+  {ttsEnabled ? '🔊 Lettura vocale: ON' : '🔇 Lettura vocale: OFF'}
+</button>
+
+          
             <VoiceRecorder
               buttonClass="btn-vocale"
               idleLabel="🎤 Comando vocale"
