@@ -651,6 +651,15 @@ async function handleSmartOCR(files) {
         if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
         if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
       }
+      if (!itemsNorm.length) {
+  setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese. Riprova con una foto più nitida o inquadra gli articoli.' }]);
+  return;
+}
+
+      // Determina categoria esercizio e se è un supermercato
+const bucket = guessExpenseBucket(meta.store);
+const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+
 
       // Normalizzazione minima
       const itemsNorm = (allPurchases || []).map(p => ({
@@ -712,17 +721,16 @@ async function handleSmartOCR(files) {
         }
       }
 
-     // c) Aggiorna SCORTE solo per supermercati (no bar/ristoranti)
-if (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store)) {
+    // c) Aggiorna SCORTE solo per supermercati (no bar/ristoranti)
+if (storeIsSuper) {
   try {
-    // Usa lo stesso OCR file-based (aggiorna le scorte con la tua pipeline esistente).
-    // Passo anche un hint per evitare doppio ingest finanze (se lo supporti in brainHub).
     await doOCR_Receipt({ files, from: 'home', mode: 'stock-only', purchases: itemsNorm });
     setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
   } catch (e) {
     setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
   }
 }
+
 
       // d) riepilogo in chat
       const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
