@@ -87,7 +87,7 @@ function clampPct(n) {
 }
 
 /* ============ Unified AI helpers (Home brain/arm) ============ */
-// Classificazione OCR (ricevuto da /api/ocrHome)
+// Classificazione OCR (testo)
 function classifyOcrText(raw='') {
   const s = String(raw || '').toLowerCase();
   const score = (keys) => keys.reduce((n,k)=> n + (s.includes(k) ? 1 : 0), 0);
@@ -118,7 +118,7 @@ function guessExpenseBucket(store='') {
   if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
   return 'spese-casa';
 }
-// Riconoscimento esplicito dei supermercati (Decò, Conad, Coop, Lidl, MD, ecc.)
+// Riconoscimento supermercati
 function isSupermarketStore(store = '') {
   const s = String(store).toLowerCase();
   const re = new RegExp(
@@ -357,46 +357,21 @@ function renderSommelierInChat(result) {
   return output;
 }
 
-/* ======================= Home: “cervello” ======================= */
+/* ======================= Home: “cervello & braccio” ======================= */
 const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // === Lettura vocale (TTS) — stato + persistenza ===
-const [ttsEnabled, setTtsEnabled] = useState(false);   // per mostrare ON/OFF nel bottone
-const ttsEnabledRef = useRef(false);                   // usato dentro maybeSpeakMessage senza re-render
-
-// carica preferenza da localStorage
-useEffect(() => {
-  try {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('__tts_enabled') : null;
-    const on = saved === '1';
-    setTtsEnabled(on);
-    ttsEnabledRef.current = on;
-  } catch {}
-}, []);
-
-// salva preferenza quando cambia
-useEffect(() => {
-  try {
-    if (typeof window !== 'undefined') localStorage.setItem('__tts_enabled', ttsEnabled ? '1' : '0');
-    ttsEnabledRef.current = ttsEnabled;
-  } catch {}
-}, [ttsEnabled]);
-
-
   // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
-  // Stato intento (per OCR carta)
+  // Intenti
   const lastUserIntentRef = useRef({ text: '', sommelier: false });
-
-  // Buffer “carta dei vini”
   const wineListsRef = useRef([]);
 
-  // Deep-link Siri / TTS
+  // Router / Siri
   const router = useRouter();
   const deepLinkHandledRef = useRef(false);
   const speakModeRef = useRef(false);
@@ -415,392 +390,354 @@ useEffect(() => {
     })();
   }, []);
 
+  /* ===== TTS: stato, voci, persistenza ===== */
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const ttsEnabledRef = useRef(false);
 
+  const [voices, setVoices] = useState([]);
+  const [voiceId, setVoiceId] = useState(null);
+  const voicesRef = useRef([]);
+  const selectedVoiceRef = useRef(null);
 
-  // === Brain calls ===
-  async function doOCR_Receipt(payload) {
-    const { ingestOCRLocal } = await getBrain();
-    return ingestOCRLocal(payload);
+  function loadVoices() {
+    try {
+      if (typeof window === 'undefined' || !window.speechSynthesis) return;
+      const synth = window.speechSynthesis;
+      const list = synth.getVoices() || [];
+      if (!list.length) return; // arriveranno su voiceschanged
+      const it = list.filter(v => String(v.lang || '').toLowerCase().startsWith('it'));
+      const ordered = [...it, ...list.filter(v => !String(v.lang || '').toLowerCase().startsWith('it'))];
+      voicesRef.current = ordered;
+      setVoices(ordered);
+      const saved = (typeof window !== 'undefined') ? localStorage.getItem('__tts_voice') : null;
+      const chosen = ordered.find(v => v.name === saved) || it[0] || ordered[0] || null;
+      setVoiceId(chosen ? chosen.name : null);
+      selectedVoiceRef.current = chosen;
+    } catch {}
   }
-  async function runBrainQuery(text, opts = {}) {
-    const { runQueryFromTextLocal } = await getBrain();
-    return runQueryFromTextLocal(text, opts);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+    const onVoices = () => loadVoices();
+    synth.addEventListener('voiceschanged', onVoices);
+    loadVoices();
+    return () => synth.removeEventListener('voiceschanged', onVoices);
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (!voiceId) return;
+      if (typeof window !== 'undefined') localStorage.setItem('__tts_voice', voiceId);
+      const v = voicesRef.current.find(v => v.name === voiceId) || null;
+      selectedVoiceRef.current = v;
+    } catch {}
+  }, [voiceId]);
+
+  useEffect(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('__tts_enabled') : null;
+      const on = saved === '1';
+      setTtsEnabled(on);
+      ttsEnabledRef.current = on;
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') localStorage.setItem('__tts_enabled', ttsEnabled ? '1' : '0');
+      ttsEnabledRef.current = ttsEnabled;
+    } catch {}
+  }, [ttsEnabled]);
+
+  // === TTS sicuro ===
+  function maybeSpeakMessage(msg) {
+    try {
+      if (!(ttsEnabledRef.current || speakModeRef.current)) return;
+      const text = String(msg?.text || '').replace(/<[^>]+>/g, '').trim();
+      if (!text) return;
+      const synth = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis : null;
+      const Utter = (typeof window !== 'undefined') ? window.SpeechSynthesisUtterance : null;
+      if (!synth || typeof Utter !== 'function') return;
+      const utt = new Utter(text);
+      utt.lang = selectedVoiceRef.current?.lang || 'it-IT';
+      if (selectedVoiceRef.current) utt.voice = selectedVoiceRef.current;
+      // utt.rate = 1.0; utt.pitch = 1.0; // opzionali
+      synth.cancel();
+      synth.speak(utt);
+    } catch (e) {
+      console.warn('[TTS] skip', e);
+    }
   }
 
-  // === Sommelier dalla Home ===
-  async function runSommelierFromHome(userQuery, extra = {}) {
-    const payload = {
-      query: normalizeQueryForUI(userQuery),
-      wineLists: wineListsRef.current.slice(),
-      wineList: wineListsRef.current.join('\n'),
-      qrLinks: extra.qrLinks || []
+  /* ========== OCR helpers unificati (ocrHome + fallback legacy) ========== */
+  function normFromOcrHome(j = {}) {
+    const kind = j?.kind || 'unknown';
+    const text = String(j?.text || '');
+    const meta = {
+      store: String(j?.store || ''),
+      purchaseDate: String(j?.purchaseDate || ''),
+      totalPaid: Number(j?.totalPaid || 0),
+      currency: String(j?.currency || 'EUR'),
     };
-    const r = await fetch('/api/sommelier', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const j = await r.json();
-    return j;
+    const purchases = Array.isArray(j?.purchases) ? j.purchases.map(p => ({
+      name: String(p.name||'').trim(),
+      brand: String(p.brand||'').trim(),
+      packs: Number(p.packs || 0),
+      unitsPerPack: Number(p.unitsPerPack || 0),
+      unitLabel: String(p.unitLabel || ''),
+      priceEach: Number(p.priceEach || 0),
+      priceTotal: Number(p.priceTotal || 0),
+      currency: String(p.currency || 'EUR'),
+      expiresAt: String(p.expiresAt || '')
+    })) : [];
+    return { kind, text, meta, purchases, wine: j?.wine || null, entries: j?.entries || null };
   }
-
-  // === TTS (parla la risposta se abilitato) — versione sicura ===
-function maybeSpeakMessage(msg) {
-  try {
-    // parla solo se: toggle ON oppure modalità voice attiva (Siri ecc.)
-    if (!(ttsEnabledRef.current || speakModeRef.current)) return;
-
-    const text = String(msg?.text || '').replace(/<[^>]+>/g, '').trim();
-    if (!text) return;
-
-    const synth = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis : null;
-    const Utter = (typeof window !== 'undefined') ? window.SpeechSynthesisUtterance : null;
-    if (!synth || typeof Utter !== 'function') return;
-
-    const utt = new Utter(text);   // nome esplicito (evita collisioni 'u' minificate)
-    utt.lang = 'it-IT';
-    synth.cancel();
-    synth.speak(utt);
-  } catch (e) {
-    console.warn('[TTS] skip', e); // non deve mai rompere il flusso
+  function normFromLegacyOcr(j = {}) {
+    const text = String(j?.text || j?.data?.text || j?.data || '');
+    const meta = {
+      store: String(j?.store || ''),
+      purchaseDate: String(j?.purchaseDate || ''),
+      totalPaid: Number(j?.totalPaid || 0),
+      currency: String(j?.currency || 'EUR'),
+    };
+    const src = Array.isArray(j?.purchases) ? j.purchases
+              : Array.isArray(j?.items)     ? j.items
+              : [];
+    const purchases = src.map(p => ({
+      name: String(p.name||'').trim(),
+      brand: String(p.brand||'').trim(),
+      packs: Number(p.packs || 0),
+      unitsPerPack: Number(p.unitsPerPack || 0),
+      unitLabel: String(p.unitLabel || ''),
+      priceEach: Number(p.priceEach || 0),
+      priceTotal: Number(p.priceTotal || 0),
+      currency: String(p.currency || 'EUR'),
+      expiresAt: String(p.expiresAt || '')
+    }));
+    return { kind: 'receipt', text, meta, purchases, wine: null, entries: null };
   }
-
-  }
-  // Normalizza la risposta di ocrHome in un formato unico
-function normFromOcrHome(j = {}) {
-  const kind = j?.kind || 'unknown';
-  const text = String(j?.text || '');
-  const meta = {
-    store: String(j?.store || ''),
-    purchaseDate: String(j?.purchaseDate || ''),
-    totalPaid: Number(j?.totalPaid || 0),
-    currency: String(j?.currency || 'EUR'),
-  };
-  const purchases = Array.isArray(j?.purchases) ? j.purchases.map(p => ({
-    name: String(p.name||'').trim(),
-    brand: String(p.brand||'').trim(),
-    packs: Number(p.packs || 0),
-    unitsPerPack: Number(p.unitsPerPack || 0),
-    unitLabel: String(p.unitLabel || ''),
-    priceEach: Number(p.priceEach || 0),
-    priceTotal: Number(p.priceTotal || 0),
-    currency: String(p.currency || 'EUR'),
-    expiresAt: String(p.expiresAt || '')
-  })) : [];
-  return { kind, text, meta, purchases, wine: j?.wine || null, entries: j?.entries || null };
-}
-
-// Normalizza la risposta del vecchio /api/ocr
-function normFromLegacyOcr(j = {}) {
-  const text = String(j?.text || j?.data?.text || j?.data || '');
-  const meta = {
-    store: String(j?.store || ''),
-    purchaseDate: String(j?.purchaseDate || ''),
-    totalPaid: Number(j?.totalPaid || 0),
-    currency: String(j?.currency || 'EUR'),
-  };
-  // preferisci purchases; se non ci sono ma ci sono items (busta), usa items
-  const src = Array.isArray(j?.purchases) ? j.purchases
-            : Array.isArray(j?.items)     ? j.items
-            : [];
-  const purchases = src.map(p => ({
-    name: String(p.name||'').trim(),
-    brand: String(p.brand||'').trim(),
-    packs: Number(p.packs || 0),
-    unitsPerPack: Number(p.unitsPerPack || 0),
-    unitLabel: String(p.unitLabel || ''),
-    priceEach: Number(p.priceEach || 0),
-    priceTotal: Number(p.priceTotal || 0),
-    currency: String(p.currency || 'EUR'),
-    expiresAt: String(p.expiresAt || '')
-  }));
-  return { kind: 'receipt', text, meta, purchases, wine: null, entries: null };
-}
-
-// Esegue OCR con fallback: prima /api/ocrHome, poi /api/ocr (legacy) se serve
-async function fetchOcrUnified(file) {
-  const fd = new FormData();
-  fd.append('images', file, file.name || 'upload.jpg');
-
-  // primo tentativo: ocrHome
-  let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
-  let j = null; try { j = await r.json(); } catch {}
-  if (r.ok && j && !j.error) {
-    const n = normFromOcrHome(j);
-    // se scontrino ma senza righe, fai fallback
-    if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
-  }
-
-  // fallback: legacy
-  r = await fetch('/api/ocr', { method: 'POST', body: fd });
-  j = await r.json().catch(()=> ({}));
-  return normFromLegacyOcr(j);
-}
-// -------- Helpers OCR unificati (home) --------
-function normFromOcrHome(j = {}) {
-  const kind = j?.kind || 'unknown';
-  const text = String(j?.text || '');
-  const meta = {
-    store: String(j?.store || ''),
-    purchaseDate: String(j?.purchaseDate || ''),
-    totalPaid: Number(j?.totalPaid || 0),
-    currency: String(j?.currency || 'EUR'),
-  };
-  const purchases = Array.isArray(j?.purchases) ? j.purchases.map(p => ({
-    name: String(p.name||'').trim(),
-    brand: String(p.brand||'').trim(),
-    packs: Number(p.packs || 0),
-    unitsPerPack: Number(p.unitsPerPack || 0),
-    unitLabel: String(p.unitLabel || ''),
-    priceEach: Number(p.priceEach || 0),
-    priceTotal: Number(p.priceTotal || 0),
-    currency: String(p.currency || 'EUR'),
-    expiresAt: String(p.expiresAt || '')
-  })) : [];
-  return { kind, text, meta, purchases, wine: j?.wine || null, entries: j?.entries || null };
-}
-
-function normFromLegacyOcr(j = {}) {
-  const text = String(j?.text || j?.data?.text || j?.data || '');
-  const meta = {
-    store: String(j?.store || ''),
-    purchaseDate: String(j?.purchaseDate || ''),
-    totalPaid: Number(j?.totalPaid || 0),
-    currency: String(j?.currency || 'EUR'),
-  };
-  const src = Array.isArray(j?.purchases) ? j.purchases
-            : Array.isArray(j?.items)     ? j.items
-            : [];
-  const purchases = src.map(p => ({
-    name: String(p.name||'').trim(),
-    brand: String(p.brand||'').trim(),
-    packs: Number(p.packs || 0),
-    unitsPerPack: Number(p.unitsPerPack || 0),
-    unitLabel: String(p.unitLabel || ''),
-    priceEach: Number(p.priceEach || 0),
-    priceTotal: Number(p.priceTotal || 0),
-    currency: String(p.currency || 'EUR'),
-    expiresAt: String(p.expiresAt || '')
-  }));
-  return { kind: 'receipt', text, meta, purchases, wine: null, entries: null };
-}
-
-async function fetchOcrUnified(file) {
-  const fd = new FormData();
-  fd.append('images', file, file.name || 'upload.jpg');
-
-  // 1) nuovo endpoint
-  let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
-  let j = null; try { j = await r.json(); } catch {}
-  if (r.ok && j && !j.error) {
-    const n = normFromOcrHome(j);
-    // se NON è il caso “scontrino senza righe”, va bene così
-    if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
-  }
-
-  // 2) fallback legacy
-  r = await fetch('/api/ocr', { method: 'POST', body: fd });
-  j = await r.json().catch(()=> ({}));
-  return normFromLegacyOcr(j);
-}
-
-
- // === OCR Smart (Carta | Etichetta | Scontrino) via ocrHome con fallback legacy ===
-async function handleSmartOCR(files) {
-  const wantSommelier =
-    lastUserIntentRef.current.sommelier ||
-    looksLikeSommelierIntent(queryText);
-
-  setChatOpen(true);
-
-  try {
-    setBusy(true);
-
-    const texts = [];
-    const receipts = [];
-    const labels = [];
-    const lists = [];
-
-    // 1) OCR ogni file con fallback automatico
-    for (const f of files) {
-      const n = await fetchOcrUnified(f);
-      if (n.text) texts.push(n.text);
-      const guess = n.kind || classifyOcrText(n.text || '');
-      if (guess === 'receipt') receipts.push(n);
-      else if (guess === 'wine_label') labels.push(n);
-      else if (guess === 'wine_list') lists.push(n);
+  async function fetchOcrUnified(file) {
+    const fd = new FormData();
+    fd.append('images', file, file.name || 'upload.jpg');
+    // ocrHome
+    let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
+    let j = null; try { j = await r.json(); } catch {}
+    if (r.ok && j && !j.error) {
+      const n = normFromOcrHome(j);
+      if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
     }
+    // fallback legacy
+    r = await fetch('/api/ocr', { method: 'POST', body: fd });
+    j = await r.json().catch(()=> ({}));
+    return normFromLegacyOcr(j);
+  }
 
-    // 2) Routing
-
-    // Carta vini (o intento Sommelier)
-    if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
-      const joined = (lists.length ? lists.map(x=>x.text||'').join('\n---\n') : texts.join('\n---\n')).trim();
-      if (!joined) {
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'❌ OCR: nessun testo riconosciuto dalla carta.' }]);
-        return;
+  // Utility per Siri: URL/DataURL -> File
+  async function urlOrDataUrlToFile(src, name='siri.jpg') {
+    try {
+      if (!src) return null;
+      if (src.startsWith('data:')) {
+        const [head, b64] = src.split(',');
+        const mime = (head.match(/data:(.*?);base64/i)?.[1]) || 'image/jpeg';
+        const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        return new File([buf], name, { type: mime });
       }
-      wineListsRef.current.push(joined);
-      setChatMsgs(arr => [...arr, { role:'assistant', text:'📄 Carta vini acquisita. Avvio il Sommelier…' }]);
-      const q = lastUserIntentRef.current.text || queryText || '';
-      const result = await runSommelierFromHome(q);
-      const txt = renderSommelierInChat(result);
-      const msg = { role:'assistant', text: txt, mono: true };
-      setChatMsgs(arr => [...arr, msg]);
-      maybeSpeakMessage(msg);
-      return;
-    }
+      const resp = await fetch(src, { mode: 'cors' });
+      const blob = await resp.blob();
+      const ext = (blob.type && blob.type.includes('png')) ? 'png'
+                : (blob.type && (blob.type.includes('jpeg') || blob.type.includes('jpg'))) ? 'jpg'
+                : 'bin';
+      return new File([blob], name.endsWith(ext) ? name : `${name}.${ext}`, { type: blob.type || 'application/octet-stream' });
+    } catch { return null; }
+  }
 
-    // Etichette vino
-    if (labels.length) {
-      if (!uid) {
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
-      } else {
-        for (const L of labels) {
-          try {
-            await postJSON('/api/vini/ingest', {
-              user_id: uid,
-              wine: L?.wine || null,
-              text: L?.text || ''
-            });
-          } catch(e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
-          }
+  /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
+  async function handleSmartOCR(files) {
+    const wantSommelier =
+      lastUserIntentRef.current.sommelier ||
+      looksLikeSommelierIntent(queryText);
+
+    setChatOpen(true);
+
+    try {
+      setBusy(true);
+
+      const texts = [];
+      const receipts = [];
+      const labels = [];
+      const lists = [];
+
+      // 1) OCR ogni file con fallback automatico
+      for (const f of files) {
+        const n = await fetchOcrUnified(f);
+        if (n.text) texts.push(n.text);
+        const guess = n.kind || classifyOcrText(n.text || '');
+        if (guess === 'receipt') receipts.push(n);
+        else if (guess === 'wine_label') labels.push(n);
+        else if (guess === 'wine_list') lists.push(n);
+      }
+
+      // 2) Routing
+
+      // Carta vini / intento Sommelier
+      if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
+        const joined = (lists.length ? lists.map(x=>x.text||'').join('\n---\n') : texts.join('\n---\n')).trim();
+        if (!joined) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text:'❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+          return;
         }
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
-      }
-      return;
-    }
-
-    // Scontrino/i
-    if (receipts.length || texts.length) {
-      // Combina meta + righe
-      const allPurchases = [];
-      const meta = { store:'', purchaseDate:'', totalPaid:0, currency:'EUR' };
-
-      for (const R of receipts) {
-        const items = Array.isArray(R?.purchases) ? R.purchases : [];
-        allPurchases.push(...items);
-        if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
-        if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
-        if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
-        if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
-      }
-      if (!itemsNorm.length) {
-  setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese. Riprova con una foto più nitida o inquadra gli articoli.' }]);
-  return;
-}
-
-      // Determina categoria esercizio e se è un supermercato
-const bucket = guessExpenseBucket(meta.store);
-const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
-
-
-      // Normalizzazione minima
-      const itemsNorm = (allPurchases || []).map(p => ({
-        name: String(p.name||'').trim(),
-        brand: String(p.brand||'').trim(),
-        packs: Number(p.packs || 0),
-        unitsPerPack: Number(p.unitsPerPack || 0),
-        unitLabel: String(p.unitLabel || ''),
-        priceEach: Number(p.priceEach || 0),
-        priceTotal: Number(p.priceTotal || 0),
-        currency: String(p.currency || 'EUR'),
-        expiresAt: String(p.expiresAt || '')
-      })).filter(p => p.name);
-
-      // 👉 GUARD: se non ho righe, NON chiamare ingest (evita 400)
-      if (!itemsNorm.length) {
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese. Riprova con una foto più nitida o inquadra gli articoli.' }]);
+        wineListsRef.current.push(joined);
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'📄 Carta vini acquisita. Avvio il Sommelier…' }]);
+        const q = lastUserIntentRef.current.text || queryText || '';
+        const result = await runSommelierFromHome(q);
+        const txt = renderSommelierInChat(result);
+        const msg = { role:'assistant', text: txt, mono: true };
+        setChatMsgs(arr => [...arr, msg]);
+        maybeSpeakMessage(msg);
         return;
       }
 
-      // a) Finanze
-      if (!uid) {
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
-      } else {
-        try {
-          await postJSON('/api/finances/ingest', {
-            user_id: uid,
-            store: meta.store,
-            purchaseDate: meta.purchaseDate,
-            payment_method: 'cash',
-            card_label: null,
-            items: itemsNorm
-          });
-          if (typeof window !== 'undefined') {
-            const stamp = Date.now();
-            localStorage.setItem('__finanze_last_ingest', String(stamp));
-            window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+      // Etichette vino
+      if (labels.length) {
+        if (!uid) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
+        } else {
+          for (const L of labels) {
+            try {
+              await postJSON('/api/vini/ingest', {
+                user_id: uid,
+                wine: L?.wine || null,
+                text: L?.text || ''
+              });
+            } catch(e) {
+              setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
+            }
           }
-        } catch (e) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
+          setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
+        }
+        return;
+      }
+
+      // Scontrino/i
+      if (receipts.length || texts.length) {
+        // Combina meta + righe
+        const allPurchases = [];
+        const meta = { store:'', purchaseDate:'', totalPaid:0, currency:'EUR' };
+
+        for (const R of receipts) {
+          const items = Array.isArray(R?.purchases) ? R.purchases : [];
+          allPurchases.push(...items);
+          if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
+          if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
+          if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
+          if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
         }
 
-        // b) Spese Casa / Cene & Aperitivi
+        // Normalizzazione minima
+        const itemsNorm = (allPurchases || []).map(p => ({
+          name: String(p.name||'').trim(),
+          brand: String(p.brand||'').trim(),
+          packs: Number(p.packs || 0),
+          unitsPerPack: Number(p.unitsPerPack || 0),
+          unitLabel: String(p.unitLabel || ''),
+          priceEach: Number(p.priceEach || 0),
+          priceTotal: Number(p.priceTotal || 0),
+          currency: String(p.currency || 'EUR'),
+          expiresAt: String(p.expiresAt || '')
+        })).filter(p => p.name);
+
+        // Se non ho righe, non invio ingest
+        if (!itemsNorm.length) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese. Riprova con una foto più nitida o inquadra gli articoli.' }]);
+          return;
+        }
+
+        // Categoria esercizio + supermercato?
         const bucket = guessExpenseBucket(meta.store);
-        const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-        try {
-          await postJSON(endpoint, {
-            user_id: uid,
-            store: meta.store,
-            purchaseDate: meta.purchaseDate,
-            totalPaid: meta.totalPaid,
-            items: itemsNorm
-          });
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
+        const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+
+        // a) Finanze
+        if (!uid) {
+          setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
+        } else {
+          try {
+            await postJSON('/api/finances/ingest', {
+              user_id: uid,
+              store: meta.store,
+              purchaseDate: meta.purchaseDate,
+              payment_method: 'cash',
+              card_label: null,
+              items: itemsNorm
+            });
+            if (typeof window !== 'undefined') {
+              const stamp = Date.now();
+              localStorage.setItem('__finanze_last_ingest', String(stamp));
+              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+            }
+          } catch (e) {
+            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
           }
-        } catch (e) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
+
+          // b) Spese Casa / Cene & Aperitivi
+          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+          try {
+            await postJSON(endpoint, {
+              user_id: uid,
+              store: meta.store,
+              purchaseDate: meta.purchaseDate,
+              totalPaid: meta.totalPaid,
+              items: itemsNorm
+            });
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
+            }
+          } catch (e) {
+            setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
+          }
         }
+
+        // c) Aggiorna scorte per supermercati
+        if (storeIsSuper) {
+          try {
+            await doOCR_Receipt({ files, from: 'home', mode: 'stock-only', purchases: itemsNorm });
+            setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
+          } catch (e) {
+            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
+          }
+        }
+
+        // d) riepilogo
+        const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
+        setChatMsgs(arr => [
+          ...arr,
+          msg,
+          { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
+        ]);
+        maybeSpeakMessage(msg);
+        return;
       }
 
-    // c) Aggiorna SCORTE solo per supermercati (no bar/ristoranti)
-if (storeIsSuper) {
-  try {
-    await doOCR_Receipt({ files, from: 'home', mode: 'stock-only', purchases: itemsNorm });
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
-  } catch (e) {
-    setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
-  }
-}
+      // Tipo non riconosciuto
+      setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
 
-
-      // d) riepilogo in chat
-      const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
-      setChatMsgs(arr => [
-        ...arr,
-        msg,
-        { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
-      ]);
-      maybeSpeakMessage(msg);
-      return;
+    } catch (err) {
+      console.error('[OCR flow] error', err, err?.stack);
+      setChatMsgs(arr => [...arr, { role:'assistant', text:`❌ Errore OCR: ${err?.message || err}` }]);
+    } finally {
+      setBusy(false);
+      // opzionale: disattiva auto-voice dopo OCR
+      // speakModeRef.current = false;
     }
-
-    // Tipo non riconosciuto
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
-
-  } catch (err) {
-    setChatMsgs(arr => [...arr, { role:'assistant', text:`❌ Errore OCR: ${err?.message || err}` }]);
-  } finally {
-    setBusy(false);
   }
-}
 
-
-  // === Invio query testo (supporta input dal MODALE) ===
+  /* =================== Query testo (anche da Siri) =================== */
   async function submitQuery(textParam) {
     const raw = (textParam != null ? String(textParam) : queryText).trim();
     if (!raw || busy) return;
-
     if (textParam == null) setQueryText('');
-
     setChatOpen(true);
     setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
-
     lastUserIntentRef.current = { text: raw, sommelier: looksLikeSommelierIntent(raw) };
-
     if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
       setChatMsgs(prev => [
         ...prev,
@@ -808,7 +745,6 @@ if (storeIsSuper) {
       ]);
       return;
     }
-
     try {
       setBusy(true);
       const out = await runBrainQuery(raw, { first: chatMsgs.length === 0 });
@@ -822,7 +758,7 @@ if (storeIsSuper) {
     }
   }
 
-  // === OCR: onChange (multi) ===
+  /* =================== OCR handlers =================== */
   const handleFileChange = (ev) => {
     const files = Array.from(ev.target.files || []);
     if (!files.length || busy) return;
@@ -838,7 +774,7 @@ if (storeIsSuper) {
   };
   const handleSelectOCR = () => { if (!busy) fileInputRef.current?.click(); };
 
-  // === VOCE → testo ===
+  /* =================== VOCE → testo =================== */
   const handleVoiceText = async (spoken) => {
     const text = String(spoken||'').trim();
     if (!text || busy) return;
@@ -855,26 +791,62 @@ if (storeIsSuper) {
     await submitQuery(text);
   };
 
-  // === Deep-link da Siri (?q=...&src=siri&mode=voice) ===
+  /* =================== Deep-link Siri =================== */
   useEffect(() => {
     if (!router.isReady || deepLinkHandledRef.current) return;
-    const qParam = typeof router.query.q === 'string' ? router.query.q.trim() : '';
-    const src    = typeof router.query.src === 'string' ? router.query.src : '';
-    const mode   = typeof router.query.mode === 'string' ? router.query.mode : '';
+
+    const sp = new URLSearchParams(window.location.search);
+    const src  = sp.get('src')  || '';
+    const mode = sp.get('mode') || '';           // 'voice' abilita TTS per la prossima risposta
+    const q    = sp.get('q')    || '';           // domanda testuale
+    const tts  = sp.get('tts');                  // '1' o '0'
+    const voiceParam = sp.get('voice') || '';    // nome voce
+    const imgParams = sp.getAll('img');          // uno o più 'img='
+
+    if (tts === '1') setTtsEnabled(true);
+    if (tts === '0') setTtsEnabled(false);
     if (mode === 'voice') speakModeRef.current = true;
-    if (qParam) {
-      deepLinkHandledRef.current = true;
-      if (src === 'siri') {
-        setChatOpen(true);
-        setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]);
+
+    // selezione voce richiesta (se esiste)
+    if (voiceParam) {
+      // se le voci non sono ancora pronte, verrà applicata quando loadVoices finisce
+      const attempt = () => {
+        const found = voicesRef.current.find(v => v.name === voiceParam);
+        if (found) setVoiceId(found.name);
+      };
+      // prova subito e poi riprova fra poco (alcuni browser ritardano getVoices)
+      attempt();
+      setTimeout(attempt, 700);
+    }
+
+    deepLinkHandledRef.current = true;
+
+    // Notifica Siri
+    if (src === 'siri') {
+      setChatOpen(true);
+      setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]);
+    }
+
+    // Se ci sono immagini passate da Siri (URL o dataURL), avvia OCR
+    (async () => {
+      const files = [];
+      for (let i=0; i<imgParams.length; i++) {
+        const f = await urlOrDataUrlToFile(imgParams[i], `siri_${i+1}.jpg`);
+        if (f) files.push(f);
       }
-      submitQuery(qParam);
+      if (files.length) {
+        await handleSmartOCR(files);
+      } else if (q) {
+        await submitQuery(q);
+      }
+      // Pulizia URL
       try {
         const url = new URL(window.location.href);
-        ['q','src','mode'].forEach(p => url.searchParams.delete(p));
+        ['q','src','mode','tts','voice','img'].forEach(p => url.searchParams.delete(p));
         window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''));
       } catch {}
-    }
+    })();
+
   }, [router.isReady]);
 
   const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
@@ -942,16 +914,37 @@ if (storeIsSuper) {
               {busy ? '⏳' : '📷 OCR'}
             </button>
 
+            {/* Toggle TTS */}
             <button
-  className="btn-manuale"
-  onClick={() => setTtsEnabled(v => !v)}
-  title="Abilita o disabilita la lettura vocale delle risposte"
-  aria-pressed={ttsEnabled}
->
-  {ttsEnabled ? '🔊 Lettura vocale: ON' : '🔇 Lettura vocale: OFF'}
-</button>
+              className="btn-manuale"
+              onClick={() => setTtsEnabled(v => !v)}
+              title="Abilita o disabilita la lettura vocale delle risposte"
+              aria-pressed={ttsEnabled}
+            >
+              {ttsEnabled ? '🔊 Lettura vocale: ON' : '🔇 Lettura vocale: OFF'}
+            </button>
 
-          
+            {/* Selettore voce */}
+            <select
+              value={voiceId || ''}
+              onChange={(e) => setVoiceId(e.target.value || null)}
+              className="btn-manuale"
+              title="Seleziona la voce per la lettura"
+              style={{ minWidth: 220 }}
+              disabled={!voices.length}
+            >
+              {voices.length === 0 ? (
+                <option value="">(Caricamento voci…)</option>
+              ) : (
+                voices.map(v => (
+                  <option key={v.name} value={v.name}>
+                    {`${v.name} — ${v.lang}`}
+                  </option>
+                ))
+              )}
+            </select>
+
+            {/* Comando vocale (speech-to-text) */}
             <VoiceRecorder
               buttonClass="btn-vocale"
               idleLabel="🎤 Comando vocale"
@@ -1022,118 +1015,38 @@ if (storeIsSuper) {
           gap: 1rem;
           width: min(1100px, 96vw);
         }
-        @media (max-width: 760px) {
-          .primary-grid { grid-template-columns: 1fr; }
-        }
+        @media (max-width: 760px) { .primary-grid { grid-template-columns: 1fr; } }
         .card-cta {
-          display: grid;
-          align-content: center;
-          justify-items: center;
-          gap: 0.25rem;
-          text-decoration: none;
-          color: #fff;
-          border-radius: 18px;
+          display: grid; align-content: center; justify-items: center; gap: 0.25rem;
+          text-decoration: none; color: #fff; border-radius: 18px;
           padding: clamp(1.1rem, 3vw, 1.7rem);
           min-height: clamp(130px, 22vw, 220px);
           transition: transform 120ms ease, box-shadow 200ms ease, border-color 200ms ease;
-          position: relative;
-          overflow: hidden;
-          isolation: isolate;
+          position: relative; overflow: hidden; isolation: isolate;
         }
         .card-cta .emoji { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1; }
         .card-cta .title { font-weight: 800; font-size: clamp(1.1rem, 2.8vw, 1.6rem); }
         .card-cta .hint  { opacity: .85; font-size: clamp(.85rem, 2vw, .95rem); }
         .card-cta:hover { transform: translateY(-2px) scale(1.02); }
-
-        .card-prodotti {
-          --tint: 236,72,153;
-          background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85));
-          border: 1px solid rgba(236,72,153,0.35);
-        }
-        .card-finanze {
-          --tint: 59,130,246;
-          background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85));
-          border: 1px solid rgba(59,130,246,0.35);
-        }
+        .card-prodotti { --tint: 236,72,153; background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85)); border: 1px solid rgba(236,72,153,0.35); }
+        .card-finanze { --tint: 59,130,246; background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85)); border: 1px solid rgba(59,130,246,0.35); }
         .animate-card { animation: cardGlow 3.2s ease-in-out infinite; }
         .pulse-prodotti { --glowA: 236,72,153;  --glowB: 99,102,241; }
         .pulse-finanze  { --glowA: 59,130,246;  --glowB: 6,182,212; }
         @keyframes cardGlow {
-          0%   { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
-          50%  { box-shadow: 0 0 35px rgba(var(--glowB), 0.85); }
+          0% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
+          50% { box-shadow: 0 0 35px rgba(var(--glowB), 0.85); }
           100% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
         }
-        .sheen::before {
-          content: "";
-          position: absolute;
-          inset: -22%;
-          border-radius: inherit;
-          background:
-            linear-gradient(
-              75deg,
-              rgba(var(--tint), 0.00) 0%,
-              rgba(var(--tint), 0.10) 28%,
-              rgba(255,255,255, 0.45) 50%,
-              rgba(var(--tint), 0.16) 72%,
-              rgba(0,0,0, 0.00) 100%
-            );
-          transform: translateX(-130%) skewX(-12deg);
-          filter: blur(0.6px);
-          mix-blend-mode: screen;
-          pointer-events: none;
-          animation: sweepShine 2.8s ease-in-out infinite;
-        }
-        .card-finanze.sheen::before { animation-delay: .6s; }
-        @keyframes sweepShine {
-          0%   { transform: translateX(-130%) skewX(-12deg); opacity: .65; }
-          60%  { transform: translateX(0%)    skewX(-12deg); opacity: 1; }
-          100% { transform: translateX(130%)  skewX(-12deg); opacity: 0; }
-        }
-        .advanced-box {
-          width: min(1100px, 96vw);
-          margin-top: .5rem;
-          background: rgba(0, 0, 0, 0.55);
-          border-radius: 16px;
-          padding: 1rem;
-        }
-        .advanced-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: .5rem;
-        }
-        .ask-row {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: .5rem;
-          margin-bottom: .6rem;
-        }
-        .query-input {
-          width: 100%;
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.2);
-          border-radius: .55rem;
-          padding: .52rem .7rem;
-          color: #fff;
-          outline: none;
-        }
+        .advanced-box { width: min(1100px, 96vw); margin-top: .5rem; background: rgba(0, 0, 0, 0.55); border-radius: 16px; padding: 1rem; }
+        .advanced-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+        .ask-row { display: grid; grid-template-columns: 1fr auto; gap: .5rem; margin-bottom: .6rem; }
+        .query-input { width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: .55rem; padding: .52rem .7rem; color: #fff; outline: none; }
         .query-input::placeholder { color: rgba(255,255,255,0.65); }
-        .btn-ask {
-          background: linear-gradient(135deg, #6366f1, #06b6d4);
-          border: 1px solid rgba(255,255,255,0.2);
-          border-radius: .55rem;
-          padding: .45rem .7rem;
-          color: #fff;
-          cursor: pointer;
-        }
+        .btn-ask { background: linear-gradient(135deg, #6366f1, #06b6d4); border: 1px solid rgba(255,255,255,0.2); border-radius: .55rem; padding: .45rem .7rem; color: #fff; cursor: pointer; }
         .btn-vocale, .btn-ocr, .btn-manuale {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: .45rem .7rem;
-          border-radius: .55rem;
-          cursor: pointer;
-          color: #fff;
-          text-decoration: none;
+          display: inline-flex; align-items: center; justify-content: center;
+          padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; text-decoration: none;
         }
         .btn-vocale { background: #6366f1; }
         .btn-ocr { background: #06b6d4; }
