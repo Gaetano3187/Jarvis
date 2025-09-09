@@ -118,6 +118,22 @@ function guessExpenseBucket(store='') {
   if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
   return 'spese-casa';
 }
+// Riconoscimento esplicito dei supermercati (Decò, Conad, Coop, Lidl, MD, ecc.)
+function isSupermarketStore(store = '') {
+  const s = String(store).toLowerCase();
+  const re = new RegExp(
+    [
+      'supermercat', 'ipermercat', 'market', 'discount',
+      'conad', 'coop', 'esselunga', 'carrefour', 'auchan', 'pam', 'despar', 'a&o', 'iper',
+      'lidl', 'md', 'eurospin', 'todis', 'alter discount', 'tigros', 'gs', 'famila',
+      'deco', 'decò', 'tigre', 'simply', 'sidis', 'ipercoop', 'iper la grande i',
+      'dok', 'cra\\s?i', 'penny'
+    ].join('|'),
+    'i'
+  );
+  return re.test(s);
+}
+
 async function postJSON(url, body, timeoutMs=30000) {
   const ctrl = new AbortController();
   const t = setTimeout(()=>ctrl.abort(), timeoutMs);
@@ -696,8 +712,17 @@ async function handleSmartOCR(files) {
         }
       }
 
-      // c) (opzionale) aggiorna scorte con il flusso consolidato
-      try { await doOCR_Receipt({ files }); } catch {}
+     // c) Aggiorna SCORTE solo per supermercati (no bar/ristoranti)
+if (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store)) {
+  try {
+    // Usa lo stesso OCR file-based (aggiorna le scorte con la tua pipeline esistente).
+    // Passo anche un hint per evitare doppio ingest finanze (se lo supporti in brainHub).
+    await doOCR_Receipt({ files, from: 'home', mode: 'stock-only', purchases: itemsNorm });
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
+  } catch (e) {
+    setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
+  }
+}
 
       // d) riepilogo in chat
       const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
