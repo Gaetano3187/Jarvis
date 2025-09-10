@@ -5,8 +5,6 @@ import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
-const CATEGORY_ID_CASA = '4cfaac74-aab4-4d96-b335-6cc64de59afc'
-
 /** YYYY-MM-DD in fuso locale (no UTC shift) */
 function isoLocal(date = new Date()) {
   const y = date.getFullYear()
@@ -19,15 +17,12 @@ function isoLocal(date = new Date()) {
 function smartDate(input) {
   const s = String(input || '').trim().toLowerCase()
 
-  // parole chiave (match anche con punteggiatura, es. "oggi," "ieri.")
   if (/\boggi\b/.test(s))    return isoLocal(new Date())
   if (/\bieri\b/.test(s))   { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
   if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
 
-  // ISO YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
 
-  // italiano DD/MM/YYYY o DD-MM-YYYY o DD.MM.YYYY
   let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/)
   if (m) {
     const dd = String(parseInt(m[1],10)).padStart(2,'0')
@@ -35,8 +30,6 @@ function smartDate(input) {
     const yyyy = m[3]
     return `${yyyy}-${mm}-${dd}`
   }
-
-  // YYYY/MM/DD o YYYY.MM.DD
   m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/)
   if (m) {
     const yyyy = m[1]
@@ -44,8 +37,6 @@ function smartDate(input) {
     const dd = String(parseInt(m[3],10)).padStart(2,'0')
     return `${yyyy}-${mm}-${dd}`
   }
-
-  // fallback: parser JS → normalizza a locale
   const d = new Date(s)
   return isNaN(d) ? isoLocal(new Date()) : isoLocal(d)
 }
@@ -62,13 +53,18 @@ function fmtDateIT(v) {
   return new Date(s).toLocaleDateString('it-IT')
 }
 
+/* somma prezzo totale lista */
+function sumEuro(rows=[]) {
+  return rows.reduce((t, r) => t + (Number(r.price_total) || 0), 0)
+}
+
 function SpeseCasa() {
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const [recBusy, setRecBusy] = useState(false)      // true = sta registrando
-  const [stopping, setStopping] = useState(false)    // true = fermo in corso (attendi)
+  const [recBusy, setRecBusy] = useState(false)
+  const [stopping, setStopping] = useState(false)
 
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
@@ -76,7 +72,7 @@ function SpeseCasa() {
     prezzoTotale: '',
     quantita: '1',
     spentAt: '',
-    paymentMethod: 'cash',
+    paymentMethod: 'cash',   // per coerenza UI; non è salvato in jarvis_spese_casa
     cardLabel: '',
   })
 
@@ -87,20 +83,35 @@ function SpeseCasa() {
   const streamRef = useRef(null)
   const recordedChunks = useRef([])
   const mimeRef = useRef('')
-  const stopWaitRef = useRef(null) // promise di attesa stop
+  const stopWaitRef = useRef(null)
 
-  // ----------------------------- API
+  // periodo corrente (mese)
+  const now = new Date()
+  const periodStart = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1))
+  const periodEnd   = isoLocal(new Date(now.getFullYear(), now.getMonth()+1, 0))
+
+  // ----------------------------- API: carica righe da jarvis_spese_casa
   const fetchSpese = useCallback(async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('finances')
-      .select('id, description, amount, qty, spent_at, payment_method, card_label')
-      .eq('category_id', CATEGORY_ID_CASA)
-      .order('created_at', { ascending: false })
-    if (error) setError(error.message)
-    else setSpese(data || [])
-    setLoading(false)
-  }, [])
+    setLoading(true); setError(null)
+    try {
+      const { data:{ user }, error:userErr } = await supabase.auth.getUser()
+      if (userErr) throw userErr
+      if (!user) throw new Error('Sessione scaduta')
+
+      const { data, error } = await supabase
+        .from('jarvis_spese_casa')
+        .select('id, store, item_name, price_total, qty_packs, units_per_pack, unit_label, purchase_date, created_at')
+        .eq('user_id', user.id)
+        .gte('purchase_date', periodStart)
+        .lte('purchase_date', periodEnd)
+        .order('created_at', { ascending:false })
+
+      if (error) throw error
+      setSpese(data || [])
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally { setLoading(false) }
+  }, [periodStart, periodEnd])
 
   // ----------------------------- Media helpers
   const stopTracks = useCallback(() => {
@@ -110,63 +121,32 @@ function SpeseCasa() {
 
   const processVoice = useCallback(async () => {
     try {
-      if (!recordedChunks.current.length) {
-        setError('Registrazione vuota, riprova.')
-        return
-      }
+      if (!recordedChunks.current.length) { setError('Registrazione vuota, riprova.'); return }
       const mime = mimeRef.current || (recordedChunks.current[0]?.type || 'audio/webm')
-      const ext = mime.includes('mp4') ? 'm4a'
-        : mime.includes('ogg') ? 'ogg'
-        : 'webm'
-
+      const ext = mime.includes('mp4') ? 'm4a' : mime.includes('ogg') ? 'ogg' : 'webm'
       const blob = new Blob(recordedChunks.current, { type: mime })
       const fd = new FormData()
       fd.append('audio', blob, `voice.${ext}`)
 
-      const resp = await fetch('/api/stt', { method: 'POST', body: fd })
-      const json = await resp.json().catch(() => ({}))
+      const resp = await fetch('/api/stt', { method:'POST', body:fd })
+      const json = await resp.json().catch(()=> ({}))
       if (!resp.ok || !json?.text) throw new Error('STT fallito')
 
-      // PASSO anche il testo grezzo per forzare oggi/ieri/domani
       await parseAssistantPrompt(buildSystemPrompt('voice', json.text), json.text)
     } catch (err) {
-      console.error(err)
-      setError('STT fallito')
+      console.error(err); setError('STT fallito')
     } finally {
       recordedChunks.current = []
     }
   }, [])
 
   const stopRecording = useCallback(async (sync = false) => {
-    if (!mediaRecRef.current) {
-      stopTracks()
-      setRecBusy(false)
-      return
-    }
-    if (mediaRecRef.current.state !== 'recording') {
-      stopTracks()
-      setRecBusy(false)
-      return
-    }
-
+    if (!mediaRecRef.current) { stopTracks(); setRecBusy(false); return }
+    if (mediaRecRef.current.state !== 'recording') { stopTracks(); setRecBusy(false); return }
     setStopping(true)
-
-    // promise che si risolve su onstop o timeout
-    const p = new Promise(resolve => {
-      stopWaitRef.current = { resolve }
-      setTimeout(() => resolve('timeout'), 2000) // sicurezza
-    })
-
-    try {
-      mediaRecRef.current.stop()
-    } catch {
-      stopWaitRef.current?.resolve?.()
-    }
-
-    if (!sync) {
-      await p
-    }
-
+    const p = new Promise(resolve => { stopWaitRef.current = { resolve }; setTimeout(()=>resolve('timeout'), 2000) })
+    try { mediaRecRef.current.stop() } catch { stopWaitRef.current?.resolve?.() }
+    if (!sync) await p
     mediaRecRef.current = null
     stopTracks()
     setStopping(false)
@@ -186,37 +166,36 @@ function SpeseCasa() {
     }
   }, [fetchSpese, stopRecording])
 
-  // ----------------------------- Aggiungi manuale
+  // ----------------------------- Aggiungi manuale (jarvis_spese_casa)
   const handleAdd = async e => {
-    e.preventDefault()
-    setError(null)
+    e.preventDefault(); setError(null)
+    try {
+      const { data:{ user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessione scaduta')
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return setError('Sessione scaduta')
+      const spentISO = nuovaSpesa.spentAt ? smartDate(nuovaSpesa.spentAt) : isoLocal(new Date())
+      const qty = parseFloat(nuovaSpesa.quantita) || 1
+      const priceTotal = Number(nuovaSpesa.prezzoTotale) || 0
+      const priceEach = qty ? priceTotal / qty : priceTotal
 
-    const methodRaw = (nuovaSpesa.paymentMethod || 'cash')
-    const method = methodRaw === 'transfer' ? 'bank' : methodRaw
+      const row = {
+        user_id: user.id,
+        store: (nuovaSpesa.puntoVendita || '').trim() || null,
+        purchase_date: spentISO,
+        doc_total: priceTotal,              // opzionale/indicativo
+        item_name: (nuovaSpesa.dettaglio || '').trim(),
+        brand: null,
+        qty_packs: qty,
+        units_per_pack: 1,
+        unit_label: 'unità',
+        price_each: priceEach,
+        price_total: priceTotal,
+        currency: 'EUR'
+      }
 
-    // data locale stabile (accetta anche DD/MM/YYYY)
-    const spentISO = nuovaSpesa.spentAt ? smartDate(nuovaSpesa.spentAt) : isoLocal(new Date())
+      const { error: insertErr } = await supabase.from('jarvis_spese_casa').insert(row)
+      if (insertErr) throw insertErr
 
-    const row = {
-      user_id: user.id,
-      category_id: CATEGORY_ID_CASA,
-      description: `[${(nuovaSpesa.puntoVendita || '').trim()}] ${(nuovaSpesa.dettaglio || '').trim()}`,
-      amount: Number(nuovaSpesa.prezzoTotale) || 0,
-      // salva a mezzogiorno UTC per evitare slittamenti (se la colonna è timestamp)
-      spent_at: `${spentISO}T12:00:00Z`,
-      qty: parseFloat(nuovaSpesa.quantita) || 1,
-      payment_method: method, // cash | card | bank
-      card_label: (method === 'card'
-        ? (nuovaSpesa.cardLabel?.trim() || null)
-        : null),
-    }
-
-    const { error: insertError } = await supabase.from('finances').insert(row)
-    if (insertError) setError(insertError.message)
-    else {
       setNuovaSpesa({
         puntoVendita: '',
         dettaglio: '',
@@ -226,68 +205,56 @@ function SpeseCasa() {
         paymentMethod: 'cash',
         cardLabel: '',
       })
-      fetchSpese()
+      await fetchSpese()
+    } catch (e) {
+      setError(e?.message || String(e))
     }
   }
 
   // ----------------------------- Elimina
   const handleDelete = async id => {
     setError(null)
-    const { error: deleteError } = await supabase
-      .from('finances')
-      .delete()
-      .eq('id', id)
-    if (deleteError) setError(deleteError.message)
-    else setSpese(spese.filter(r => r.id !== id))
+    try {
+      const { error: delErr } = await supabase.from('jarvis_spese_casa').delete().eq('id', id)
+      if (delErr) throw delErr
+      setSpese(spese.filter(r => r.id !== id))
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
   }
 
   // ----------------------------- OCR
   const handleOCR = async files => {
     setError(null)
-    if (!files || files.length === 0) return
+    if (!files || !files.length) return
     try {
       const fd = new FormData()
       files.forEach(f => fd.append('images', f))
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
+      const res = await fetch('/api/ocr', { method:'POST', body:fd })
       const { text, error: ocrErr } = await res.json()
       if (!res.ok || ocrErr) throw new Error(ocrErr || 'OCR fallito')
-      // passo anche il testo OCR grezzo
       await parseAssistantPrompt(buildSystemPrompt('ocr', text, files.map(f => f.name).join(', ')), text)
     } catch (err) {
-      console.error(err)
-      setError('OCR fallito')
+      console.error(err); setError('OCR fallito')
     }
   }
 
   // ----------------------------- START/STOP REC
   const toggleRec = async () => {
     setError(null)
-    if (stopping) return // evita rimbalzi durante lo stop
+    if (stopping) return
+    if (recBusy) { await stopRecording(); return }
 
-    if (recBusy) {
-      await stopRecording()
-      return
-    }
-
-    // già attivo?
     if (mediaRecRef.current && mediaRecRef.current.state === 'recording') return
-
     if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
-      setError('Questo browser non supporta la registrazione audio.')
-      return
+      setError('Questo browser non supporta la registrazione audio.'); return
     }
 
     const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/ogg;codecs=opus',
-      'audio/ogg'
+      'audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus','audio/ogg'
     ]
     let chosen = ''
-    for (const c of candidates) {
-      if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break }
-    }
+    for (const c of candidates) { if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break } }
     mimeRef.current = chosen
 
     try {
@@ -295,185 +262,112 @@ function SpeseCasa() {
       recordedChunks.current = []
       const mr = new MediaRecorder(streamRef.current, chosen ? { mimeType: chosen } : undefined)
       mediaRecRef.current = mr
-
-      mr.addEventListener('dataavailable', e => {
-        if (e.data && e.data.size) recordedChunks.current.push(e.data)
-      })
-
-      // onstop → processVoice
-      mr.addEventListener('stop', () => {
-        // risolve la promise di stop (se in attesa)
-        stopWaitRef.current?.resolve?.()
-        processVoice().finally(() => {
-          setRecBusy(false)
-        })
-      }, { once: true })
-
+      mr.addEventListener('dataavailable', e => { if (e.data && e.data.size) recordedChunks.current.push(e.data) })
+      mr.addEventListener('stop', () => { stopWaitRef.current?.resolve?.(); processVoice().finally(()=> setRecBusy(false)) }, { once:true })
       mr.start()
       setRecBusy(true)
     } catch (err) {
-      console.error(err)
-      setError('Microfono non disponibile')
-      stopTracks()
-      setRecBusy(false)
+      console.error(err); setError('Microfono non disponibile'); stopTracks(); setRecBusy(false)
     }
   }
 
   // ----------------------------- PROMPT BUILDER
   function buildSystemPrompt(source, userText, fileName) {
     const fn = fileName || 'scontrino';
-
     const header = [
-      'Sei Jarvis. Puoi restituire uno dei seguenti JSON:',
-      '',
-      '1) Spese (type: "expense")',
+      'Sei Jarvis. Estrai SPESI DETTAGLIATE per "Spese Casa".',
+      'Rispondi SOLO JSON nel formato:',
       '{ "type":"expense", "items":[{',
-      '  "puntoVendita": "string",',
-      '  "dettaglio": "string",',
-      '  "prezzoUnitario": number|null,',
+      '  "puntoVendita":"string",',
+      '  "dettaglio":"string",',
       '  "quantita": number,',
-      '  "uom": "string opzionale (es: kg, L, pz)",',
+      '  "uom":"string opzionale",',
       '  "prezzoTotale": number,',
-      '  "data":"YYYY-MM-DD|oggi|ieri|domani",',
-      '  "paymentMethod":"cash|card|transfer",',
-      '  "cardLabel": "string|optional"',
+      '  "data":"YYYY-MM-DD|oggi|ieri|domani"',
       '}]}',
-      '',
-      '2) Movimento cassa (type: "cash_move")',
-      '{ "type":"cash_move", "items":[{',
-      '  "importo": number,',
-      '  "direzione": "in|out",',
-      '  "data":"YYYY-MM-DD|oggi|ieri|domani",',
-      '  "nota": "string opzionale"',
-      '}]}',
-      '',
-      'Esempi cassa:',
-      '- "ho preso 200 euro e li ho messi in tasca" => type=cash_move, importo=200, direzione="in"',
-      '- "ho tirato fuori 15€ dalla tasca per pagare il bar" => type=cash_move, importo=15, direzione="out"',
       '',
     ].join('\n');
-
     if (source === 'ocr') {
-      return [
-        header,
-        'Testo OCR (' + fn + '):',
-        String(userText || '')
-      ].join('\n');
+      return [header, 'Testo OCR (' + fn + '):', String(userText || '')].join('\n');
     }
-
-    // STT / testo libero
-    return [
-      header,
-      'Trascrizione:',
-      String(userText || '')
-    ].join('\n');
+    return [header, 'Trascrizione:', String(userText || '')].join('\n');
   }
 
-  // ----------------------------- PARSING & DB INSERT
+  // ----------------------------- PARSING & DB INSERT (jarvis_spese_casa)
   async function parseAssistantPrompt(prompt, rawSourceText = '') {
     const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ prompt }),
     })
     const { answer, error: apiErr } = await res.json()
     if (!res.ok || apiErr) throw new Error(apiErr || res.status)
-
     const data = JSON.parse(answer)
 
-    // In questa pagina gestiamo SOLO le spese
     if (data.type !== 'expense' || !Array.isArray(data.items) || !data.items.length)
       throw new Error('Assistant response invalid')
 
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data:{ user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
-    // segnali dal parlato/OCR
     const raw = String(rawSourceText || '').toLowerCase()
     const saidOggi   = /\boggi\b/.test(raw)
     const saidIeri   = /\bieri\b/.test(raw)
     const saidDomani = /\bdomani\b/.test(raw)
 
     for (const it of data.items) {
-      // prendo la data da più possibili chiavi; poi la normalizzo
       const rawDate =
-        it.data ??
-        it.date ??
-        it.giorno ??
-        it.when ??
-        it.day ??
-        it.data_acquisto ??
-        ''
-
+        it.data ?? it.date ?? it.giorno ?? it.when ?? it.day ?? it.data_acquisto ?? ''
       let spentDate = smartDate(rawDate)
-
-      // Se nel parlato/ocr c'è "oggi/ieri/domani", forzo la data locale
       if (saidOggi)   spentDate = isoLocal(new Date())
       if (saidIeri)  { const d = new Date(); d.setDate(d.getDate() - 1); spentDate = isoLocal(d) }
       if (saidDomani){ const d = new Date(); d.setDate(d.getDate() + 1); spentDate = isoLocal(d) }
 
-      const totalPrice = Number(it.prezzoTotale) || 0
       const qty = parseFloat(it.quantita) || 1
+      const priceTotal = Number(it.prezzoTotale) || 0
+      const priceEach = qty ? priceTotal / qty : priceTotal
       const uom = (it.uom || '').trim()
-      const unitPrice = it.prezzoUnitario != null
-        ? Number(it.prezzoUnitario) || 0
-        : (qty ? totalPrice / qty : totalPrice)
-
-      const parts = []
-      parts.push(`[${it.puntoVendita}] ${it.dettaglio}`)
-      parts.push(`• €${unitPrice.toFixed(2)} × ${qty}${uom ? ' ' + uom : ''} = €${totalPrice.toFixed(2)}`)
-
-      // normalizza payment method (transfer -> bank per coerenza UI)
-      const methodRaw = (it.paymentMethod || 'cash')
-      const method = methodRaw === 'transfer' ? 'bank' : methodRaw
-      const label  = method === 'card' ? (it.cardLabel || null) : null
 
       const row = {
         user_id: user.id,
-        category_id: CATEGORY_ID_CASA,
-        description: parts.join(' '),
-        amount: totalPrice,
-        // mezzogiorno UTC → nessuno slittamento (se timestamp in DB)
-        spent_at: `${spentDate}T12:00:00Z`,
-        qty,
-        payment_method: method,
-        card_label: label,
+        store: (it.puntoVendita || '').trim() || null,
+        purchase_date: spentDate,
+        doc_total: priceTotal,
+        item_name: (it.dettaglio || '').trim(),
+        brand: null,
+        qty_packs: qty,
+        units_per_pack: 1,
+        unit_label: uom || 'unità',
+        price_each: priceEach,
+        price_total: priceTotal,
+        currency: 'EUR'
       }
 
-      const { error: dbErr } = await supabase.from('finances').insert(row)
+      const { error: dbErr } = await supabase.from('jarvis_spese_casa').insert(row)
       if (dbErr) throw new Error(dbErr.message || 'Insert fallito')
     }
 
     await fetchSpese()
 
-    // Precompila il form con l’ultima spesa (usiamo la data forzata se serviva)
+    // precompila il form con l’ultima voce
     const last = data.items[0]
-    let lastDate = smartDate(
-      last.data ?? last.date ?? last.giorno ?? last.when ?? last.day ?? last.data_acquisto ?? ''
-    )
+    let lastDate = smartDate(last.data ?? last.date ?? last.giorno ?? last.when ?? last.day ?? last.data_acquisto ?? '')
     if (saidOggi)   lastDate = isoLocal(new Date())
     if (saidIeri)  { const d = new Date(); d.setDate(d.getDate() - 1); lastDate = isoLocal(d) }
     if (saidDomani){ const d = new Date(); d.setDate(d.getDate() + 1); lastDate = isoLocal(d) }
 
     setNuovaSpesa({
       puntoVendita: String(last.puntoVendita || ''),
-      dettaglio:    String(last.dettaglio || ''),
+      dettaglio: String(last.dettaglio || ''),
       prezzoTotale: String(last.prezzoTotale ?? ''),
-      quantita:     String(last.quantita ?? '1'),
-      spentAt:      lastDate,
-      paymentMethod: (last.paymentMethod === 'transfer' ? 'bank' : (last.paymentMethod || 'cash')),
-      cardLabel: String(last.cardLabel || ''),
+      quantita: String(last.quantita ?? '1'),
+      spentAt: lastDate,
+      paymentMethod: 'cash',
+      cardLabel: ''
     })
   }
 
-  // ----------------------------- UI
-  const totale = (spese || []).reduce((t, r) => t + (Number(r.amount) || 0), 0)
-
-  const renderPayBadge = (r) => {
-    if (r.payment_method === 'card') return `💳 ${r.card_label || 'Carta'}`
-    if (r.payment_method === 'bank') return '🏦 Bonifico'
-    return '💶 Contante'
-  }
+  // ------------------------------ UI
+  const totale = sumEuro(spese)
 
   return (
     <>
@@ -579,27 +473,20 @@ function SpeseCasa() {
                     <th>Data</th>
                     <th>Qtà</th>
                     <th>Prezzo €</th>
-                    <th>Pag.</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(spese || []).map(r => {
-                    const m = r.description?.match?.(/^\[(.*?)\]\s*(.*)$/) || []
-                    return (
-                      <tr key={r.id}>
-                        <td>{m[1] || '-'}</td>
-                        <td>{m[2] || r.description}</td>
-                        <td>{fmtDateIT(r.spent_at)}</td>
-                        <td>{r.qty}</td>
-                        <td>{Number(r.amount).toFixed(2)}</td>
-                        <td>{renderPayBadge(r)}</td>
-                        <td>
-                          <button onClick={() => handleDelete(r.id)}>🗑</button>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {(spese || []).map(r => (
+                    <tr key={r.id}>
+                      <td>{r.store || '-'}</td>
+                      <td>{r.item_name || '-'}</td>
+                      <td>{fmtDateIT(r.purchase_date || r.created_at)}</td>
+                      <td>{r.qty_packs ?? 1}</td>
+                      <td>{Number(r.price_total || 0).toFixed(2)}</td>
+                      <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}

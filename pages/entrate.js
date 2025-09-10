@@ -6,7 +6,7 @@ import withAuth from '../hoc/withAuth';
 import { supabase } from '@/lib/supabaseClient';
 
 const PAYDAY_DAY = 10;
-/** Categoria "Spese Varie" */
+/** Categoria "Spese Varie" (resta per la logica di filtro della pagina) */
 const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';
 
 /* --------------------------- helpers --------------------------- */
@@ -30,35 +30,70 @@ function computeCurrentPayPeriod(today, paydayDay) {
   const monthKey = isoLocal(end).slice(0, 7);
   return { startDate, endDate, monthKey };
 }
+
+/**
+ * Assicura il carryover del mese corrente calcolando saldo mese precedente.
+ * Usa:
+ *  - incomes (amount, received_[date|at])
+ *  - jarvis_finances (price_total, purchase_date)  ← nuovo ingest
+ *  - carryovers (month_key)
+ */
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
-  const { data: existing } = await supabase.from('carryovers').select('id')
-    .eq('user_id', userId).eq('month_key', monthKeyCurrent).maybeSingle();
+  const { data: existing } = await supabase
+    .from('carryovers')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('month_key', monthKeyCurrent)
+    .maybeSingle();
   if (existing) return;
 
+  // mese precedente
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
-  const prevEnd = new Date(yy, mm - 1, 0);
+  const prevEnd = new Date(yy, mm - 1, 0);              // ultimo giorno mese precedente
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
   const prevStartISO = isoLocal(prevStart);
   const prevEndISO = isoLocal(prevEnd);
   const prevKey = prevEndISO.slice(0, 7);
 
-  const { data: incPrev } = await supabase.from('incomes').select('amount')
-    .eq('user_id', userId).gte('received_date', prevStartISO).lte('received_date', prevEndISO);
-  const { data: expPrev } = await supabase.from('finances').select('amount')
-    .eq('user_id', userId).gte('spent_date', prevStartISO).lte('spent_date', prevEndISO);
-  const { data: coPrev } = await supabase.from('carryovers').select('amount')
-    .eq('user_id', userId).eq('month_key', prevKey).maybeSingle();
+  // Entrate mese precedente
+  const { data: incPrev } = await supabase
+    .from('incomes')
+    .select('amount, received_date, received_at')
+    .eq('user_id', userId)
+    .or(
+      `and(received_date.gte.${prevStartISO},received_date.lte.${prevEndISO}),` +
+      `and(received_at.gte.${prevStartISO}T00:00:00,received_at.lte.${prevEndISO}T23:59:59)`
+    );
+
+  // Spese mese precedente (nuova tabella jarvis_finances)
+  const { data: expPrevRows } = await supabase
+    .from('jarvis_finances')
+    .select('price_total, purchase_date')
+    .eq('user_id', userId)
+    .gte('purchase_date', prevStartISO)
+    .lte('purchase_date', prevEndISO);
+
+  // Carryover mese precedente, se esiste
+  const { data: coPrev } = await supabase
+    .from('carryovers')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('month_key', prevKey)
+    .maybeSingle();
 
   const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-  const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+  const totalExpPrev = (expPrevRows || []).reduce((t, r) => t + Number(r.price_total || 0), 0);
   const prevCarry = Number(coPrev?.amount || 0);
-  const saldoPrevBase = totalInc + prevCarry - totalExp;
+  const saldoPrevBase = totalInc + prevCarry - totalExpPrev;
 
   await supabase.from('carryovers').insert({
-    user_id: userId, month_key: monthKeyCurrent,
-    amount: Number(saldoPrevBase.toFixed(2)), note: 'Auto-carryover da mese precedente',
+    user_id: userId,
+    month_key: monthKeyCurrent,
+    amount: Number(saldoPrevBase.toFixed(2)),
+    note: 'Auto-carryover da mese precedente',
   });
 }
+
 function parseAmountLoose(v) {
   if (typeof v === 'number') return v;
   const s = String(v ?? '').trim().replace(/\s/g, '')
@@ -170,17 +205,22 @@ function Entrate() {
       setIncomes(inc || []);
 
       // Carryover mese
-      const { data: co } = await supabase.from('carryovers')
+      const { data: co } = await supabase
+        .from('carryovers')
         .select('id, month_key, amount, note')
-        .eq('user_id', user.id).eq('month_key', monthKey).maybeSingle();
+        .eq('user_id', user.id)
+        .eq('month_key', monthKey)
+        .maybeSingle();
       setCarryover(co || null);
 
       // Movimenti contanti manuali
-      const { data: pc } = await supabase.from('pocket_cash')
+      const { data: pc } = await supabase
+        .from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
         .gte('moved_date', startDate).lte('moved_date', endDate)
-        .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
+        .order('moved_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
       const manualRows = (pc || []).map((row) => {
         const eff = (row.delta != null)
@@ -196,60 +236,56 @@ function Entrate() {
         };
       });
 
-// Spese cash dalle altre sezioni — cash di default salvo parole “elettronico” in descrizione
-const ELECTRONIC_TOKENS = [
-  'carta', 'carta di credito', 'credito', 'debito', 'pos',
-  'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-  'satispay', 'apple pay', 'google pay'
-];
+      // Spese (jarvis_finances) — mappo nei campi legacy della pagina
+      const { data: finAll, error: finAllErr } = await supabase
+        .from('jarvis_finances')
+        .select('id, store, name, price_total, purchase_date, payment_method, created_at')
+        .eq('user_id', user.id)
+        .gte('purchase_date', startDate)
+        .lte('purchase_date', endDate)
+        .order('created_at', { ascending: false });
 
-const { data: finAll, error: finAllErr } = await supabase
-  .from('finances')
-  .select('id, description, amount, spent_at, spent_date, category_id, payment_method')
-  .eq('user_id', user.id)
-  .or(
-    `and(spent_date.gte.${startDate},spent_date.lte.${endDate}),` +
-    `and(spent_at.gte.${dateStartTS},spent_at.lte.${dateEndTS})`
-  )
-  .order('spent_at', { ascending: false, nullsFirst: false })
-  .order('spent_date', { ascending: false, nullsFirst: false });
+      if (finAllErr) throw finAllErr;
 
-if (finAllErr) throw finAllErr;
+      // Regole contanti/elettronico
+      function isElectronicByText(desc) {
+        const ELECTRONIC_TOKENS = [
+          'carta', 'carta di credito', 'credito', 'debito', 'pos',
+          'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
+          'satispay', 'apple pay', 'google pay'
+        ];
+        const t = String(desc || '').toLowerCase();
+        return ELECTRONIC_TOKENS.some(k => t.includes(k));
+      }
+      function isCashByFields(row) {
+        const pm = String(row.payment_method || '').toLowerCase();
+        if (pm === 'cash' || pm === 'contanti') return true;        // esplicitamente contanti
+        if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
+        const desc = `[${row.store || 'Punto vendita'}] ${row.name || ''}`;
+        return !isElectronicByText(desc);
+      }
 
-function isElectronicByText(desc) {
-  const t = String(desc || '').toLowerCase();
-  return ELECTRONIC_TOKENS.some(k => t.includes(k));
-}
-function isCashByFields(row) {
-  const pm = String(row.payment_method || '').toLowerCase();
-  if (pm === 'cash' || pm === 'contanti') return true;       // esplicitamente contanti
-  if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
-  // default: contanti se la descrizione NON contiene parole di pagamento elettronico
-  return !isElectronicByText(row.description);
-}
+      let finCash = (finAll || []).filter(isCashByFields);
 
-let finCash = (finAll || []).filter(isCashByFields);
+      // Mapping righe legacy per tabella pagina
+      let cashRows = (finCash || []).map((f) => {
+        const dateISO = f.purchase_date || (f.created_at || '').slice(0, 10);
+        const store = f.store || 'Punto vendita';
+        const dett  = f.name || '';
+        return {
+          id: `jfin-${f.id}`,
+          dateISO,
+          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
+          amount: -Math.abs(Number(f.price_total) || 0),
+          category_id: null, // jarvis_finances non ha category_id
+          kind: 'cash-expense',
+        };
+      });
 
-let cashRows = (finCash || []).map((f) => {
-  const dateISO = f.spent_date || (f.spent_at || '').slice(0, 10);
-  const m = (f.description || '').match(/^\[(.*?)\]\s*(.*)$/);
-  const store = m ? m[1] : 'Punto vendita';
-  const dett  = m ? m[2] : (f.description || '');
-  return {
-    id: `fin-${f.id}`,
-    dateISO,
-    label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-    amount: -Math.abs(Number(f.amount) || 0),
-    category_id: f.category_id,
-    kind: 'cash-expense',
-  };
-});
-
-// Dopo "Ripulisci": nascondi le spese cash della categoria VARIE nella pagina Entrate
-if (hideVarieCashAfterClear) {
-  cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-}
-
+      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE in questa pagina
+      if (hideVarieCashAfterClear) {
+        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+      }
 
       const rows = [...manualRows, ...cashRows]
         .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
@@ -257,12 +293,17 @@ if (hideVarieCashAfterClear) {
 
       setPocketRows(rows);
 
-      // Totale spese del periodo (facoltativo)
-      const { data: exp } = await supabase.from('finances')
-        .select('amount, spent_date').eq('user_id', user.id)
-        .gte('spent_date', startDate).lte('spent_date', endDate);
-      const totalExp = (exp || []).reduce((t, r) => t + Number(r.amount || 0), 0);
+      // Totale spese del periodo (jarvis_finances)
+      const { data: exp } = await supabase
+        .from('jarvis_finances')
+        .select('price_total, purchase_date')
+        .eq('user_id', user.id)
+        .gte('purchase_date', startDate)
+        .lte('purchase_date', endDate);
+
+      const totalExp = (exp || []).reduce((t, r) => t + Number(r.price_total || 0), 0);
       setMonthExpenses(totalExp);
+
     } catch (err) {
       showError(setError, err);
     } finally {
@@ -537,7 +578,7 @@ if (hideVarieCashAfterClear) {
                   <tr key={i.id}>
                     <td>{i.source || '-'}</td>
                     <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
+                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : (i.received_date ? formatIT(i.received_date) : '-')}</td>
                     <td>{Number(i.amount).toFixed(2)}</td>
                     <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
                   </tr>
