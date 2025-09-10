@@ -750,6 +750,7 @@ async function doOCR_Receipt(payload) {
 
   setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
   maybeSpeakMessage({ text: txt });
+
 }
 // === Normalizzazione via web (uguale a Liste Prodotti) ===
 async function normalizeViaWeb(items) {
@@ -793,68 +794,9 @@ async function normalizeViaWeb(items) {
   } catch {
     return items; // fallback: se salta la normalizzazione, continua senza bloccare la pipeline
   }
-}
-// === Normalizzazione via web (stessa /api/normalize usata da Liste Prodotti) ===
-async function normalizeViaWeb(items) {
-  // items: [{ name, brand, packs, unitsPerPack, unitLabel, ... }]
-  const arr = Array.isArray(items) ? items : [];
-  if (!arr.length) return arr;
-
-  // timeout sicuro (senza dipendere da altre util)
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort('timeout'), 30000);
-
-  try {
-    const resp = await fetch('/api/normalize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-        locale: 'it-IT',
-        trace: true
-      }),
-      signal: ctrl.signal
-    });
-
-    const raw = await resp.text();
-    let j = null; try { j = JSON.parse(raw); } catch {}
-
-    // se l’endpoint non risponde come atteso → torna gli items originali
-    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
-
-    // merge risultati (nome/marca + eventuale imageUrl)
-    return arr.map((p, i) => {
-      const r = j.results[i]?.out || {};
-      const normName   = String(r.normalizedName || '').trim();
-      const canonBrand = String(r.canonicalBrand || '').trim();
-      const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
-
-      const out = {
-        ...p,
-        name:  normName   || p.name,
-        brand: canonBrand || p.brand || ''
-      };
-
-      // opzionale: thumb come fa Liste Prodotti (via proxy per CORS)
-      if (imageUrl) {
-        const proxied = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-        out.image = proxied;
-        out.imageDirect = imageUrl;
-      }
-      return out;
-    });
-
-  } catch (e) {
-    console.warn('[normalizeViaWeb] skip', e);
-    return arr; // fallback: non bloccare la pipeline
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-
-  }
-
+ }
+ }
+ 
   /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
   async function handleSmartOCR(files) {
   const wantSommelier =
