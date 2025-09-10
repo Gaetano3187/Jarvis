@@ -208,17 +208,34 @@ function SpeseCasa() {
     }
   }
 
-  // ----------------------------- Elimina
-  const handleDelete = async id => {
-    setError(null)
-    try {
-      const { error: delErr } = await supabase.from('jarvis_spese_casa').delete().eq('id', id)
-      if (delErr) throw delErr
-      setSpese(spese.filter(r => r.id !== id))
-    } catch (e) {
-      setError(e?.message || String(e))
+  // ----------------------------- Elimina (robusto)
+const handleDelete = async (id) => {
+  setError(null);
+  try {
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!user) throw new Error('Sessione scaduta');
+
+    // Esegui la DELETE vincolando anche l'owner + chiedi il conteggio
+    const { error: delErr, count } = await supabase
+      .from('jarvis_spese_casa')
+      .delete({ count: 'exact' })
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (delErr) throw delErr;
+    if (!count) {
+      // se count=0 è probabile un vincolo RLS mancante
+      throw new Error('Nessuna riga cancellata (controlla le policy RLS)');
     }
+
+    // Ricarica dal DB per evitare ricomparse
+    await fetchSpese();
+  } catch (e) {
+    setError(e?.message || String(e));
   }
+};
+
 
   // ----------------------------- OCR
   const handleOCR = async files => {
