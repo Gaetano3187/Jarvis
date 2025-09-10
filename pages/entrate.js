@@ -458,6 +458,7 @@ return (
 
     <div className="spese-casa-container1">
       <div className="spese-casa-container2">
+
         {/* Titolo + Voce/OCR */}
         <div className="title-row">
           <h2 className="title">Entrate &amp; Saldi</h2>
@@ -482,15 +483,23 @@ return (
         </div>
 
         {/* Box metriche */}
-        <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
+        <div className="total-box">
           <h3>Disponibilità</h3>
-          <div className="flex-line metric-sub"><span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b></div>
-          <div className="flex-line metric-sub"><span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b></div>
-          <div className="flex-line"><span>Saldo disponibile:</span><b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b></div>
-          <div className="flex-line"><span>Soldi in tasca (restanti):</span><b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b></div>
+          <div className="metric-sub block">
+            Entrate periodo corrente: <b>€ {entratePeriodo.toFixed(2)}</b> •&nbsp;
+            Carryover mese precedente: <b>€ {carryAmount.toFixed(2)}</b>
+          </div>
+          <div className="flex-line">
+            <span>Saldo disponibile:</span>
+            <b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b>
+          </div>
+          <div className="flex-line">
+            <span>Soldi in tasca (restanti):</span>
+            <b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b>
+          </div>
         </div>
 
-        {/* Entrate */}
+        {/* 1) Entrate del periodo */}
         <h3>1) Entrate del periodo</h3>
         <details className="toggle-add">
           <summary className="btn-manuale">➕ Aggiungi manuale</summary>
@@ -504,23 +513,25 @@ return (
         </details>
 
         {loading ? <p>Caricamento…</p> : (
-          <table className="custom-table">
-            <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
-            <tbody>
-              {incomes.map((i) => (
-                <tr key={i.id}>
-                  <td>{i.source || '-'}</td>
-                  <td>{i.description}</td>
-                  <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
-                  <td>{Number(i.amount).toFixed(2)}</td>
-                  <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table className="custom-table">
+              <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
+              <tbody>
+                {incomes.map((i) => (
+                  <tr key={i.id}>
+                    <td>{i.source || '-'}</td>
+                    <td>{i.description}</td>
+                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
+                    <td>{Number(i.amount).toFixed(2)}</td>
+                    <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        {/* Carryover */}
+        {/* 2) Carryover */}
         <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
         <details className="toggle-add">
           <summary className="btn-manuale">➕ Aggiungi manuale</summary>
@@ -530,20 +541,31 @@ return (
               onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
               placeholder={`Importo € per ${monthKey}`} required
             />
-            <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
+            <input
+              value={newCarry.note}
+              onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })}
+              placeholder="Nota (opzionale)"
+            />
             <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
           </form>
         </details>
 
         {carryover && (
-          <table className="custom-table">
-            <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
-            <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
-          </table>
+          <div className="table-wrap">
+            <table className="custom-table">
+              <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
+              <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
+            </table>
+          </div>
         )}
 
-        {/* Soldi in tasca */}
-        <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
+        {/* 3) Soldi in tasca */}
+        <div className="row-head">
+          <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
+          <button type="button" className="btn-danger" onClick={handleClearPocket} title="Elimina movimenti manuali e nascondi le spese cash di Varie in questa vista">
+            Ripulisci
+          </button>
+        </div>
         <details className="toggle-add">
           <summary className="btn-manuale">➕ Aggiungi manuale</summary>
           <form className="input-section" onSubmit={handleTopUpPocket}>
@@ -552,7 +574,6 @@ return (
               onChange={(e) => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required
             />
             <button className="btn-manuale">+ Aggiungi</button>
-            <button type="button" className="btn-danger" onClick={handleClearPocket}>Ripulisci</button>
             {hideVarieCashAfterClear && (
               <p style={{ opacity: 0.85, marginTop: '.5rem', flexBasis: '100%' }}>
                 Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
@@ -562,18 +583,24 @@ return (
         </details>
 
         {loading ? <p>Caricamento…</p> : (
-          <table className="custom-table">
-            <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
-            <tbody>
-              {pocketRows.map((m) => (
-                <tr key={m.id}>
-                  <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
-                  <td>{m.label}</td>
-                  <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table className="custom-table">
+              <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
+              <tbody>
+                {pocketRows.map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                    <td>
+                      {m.route
+                        ? <Link href={m.route} className="row-link">{m.label}</Link>
+                        : <span>{m.label}</span>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {error && <p className="error">{error}</p>}
@@ -583,8 +610,34 @@ return (
     </div>
 
     <style jsx global>{`
-      /* stile del toggle "Aggiungi manuale" basato su <details> */
-      .toggle-add { margin: .4rem 0 1rem; }
+      /* pagina più larga */
+      .spese-casa-container1 { width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; min-height: 100vh; padding: 2rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+      .spese-casa-container2 { background: rgba(0, 0, 0, 0.6); padding: 2rem; border-radius: 1rem; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.3); max-width: 1280px; width: min(1280px, 96vw); }
+      .title-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .25rem; }
+      .title { margin: 0; font-size: 1.5rem; }
+      .title-actions { display: flex; gap: .5rem; }
+      .periodo-row { display:flex; gap:.4rem; align-items:center; margin: .25rem 0 .6rem; font-size: .95rem; opacity:.9; }
+
+      .btn-vocale, .btn-ocr, .btn-manuale { background: #6366f1; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; transition: transform .06s ease, opacity .12s ease; }
+      .btn-ocr { background: #06b6d4; }
+      .btn-manuale:hover, .btn-vocale:hover, .btn-ocr:hover, .btn-danger:hover, .btn-danger-outline:hover { transform: translateY(-1px); opacity: .95; }
+      .btn-danger { background: #ef4444; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color:#fff; }
+      .btn-danger-outline { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: .35rem .55rem; border-radius: .45rem; cursor: pointer; }
+
+      .input-section { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
+      .input-section input { padding: .45rem; border-radius: .55rem; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06); color: #fff; }
+
+      .custom-table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
+      .custom-table th, .custom-table td { border-bottom: 1px solid rgba(255,255,255,.12); padding: .55rem; text-align: left; }
+      .flex-line { display: flex; justify-content: space-between; margin: .35rem 0; gap: 1rem; }
+      .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; margin-bottom: 1rem; }
+      .metric { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+      .metric-sub { font-size: 1rem; opacity: .85; }
+      .metric--saldo { color: #22c55e; }
+      .metric--pocket { color: #06b6d4; }
+
+      /* toggle <details> come bottone grande */
+      .toggle-add { margin: .35rem 0 0.5rem; }
       .toggle-add > summary {
         list-style: none;
         display: inline-block;
@@ -597,6 +650,12 @@ return (
         user-select: none;
       }
       .toggle-add > summary::-webkit-details-marker { display: none; }
+
+      .row-head { display:flex; justify-content:space-between; align-items:center; gap:.75rem; }
+      .row-link { color:#c7d2fe; text-decoration:underline; }
+      .row-link:hover { opacity:.9; }
+
+      .error { color:#f87171; margin-top: 1rem; }
     `}</style>
   </>
 );
