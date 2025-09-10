@@ -47,7 +47,6 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .maybeSingle();
   if (existing) return;
 
-  // mese precedente
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
   const prevEnd = new Date(yy, mm - 1, 0);
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
@@ -55,7 +54,6 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
   const prevEndISO = isoLocal(prevEnd);
   const prevKey = prevEndISO.slice(0, 7);
 
-  // Entrate mese precedente
   const { data: incPrev } = await supabase
     .from('incomes')
     .select('amount, received_date, received_at')
@@ -65,7 +63,6 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
       `and(received_at.gte.${prevStartISO}T00:00:00,received_at.lte.${prevEndISO}T23:59:59)`
     );
 
-  // Spese mese precedente (nuova tabella jarvis_finances)
   const { data: expPrevRows } = await supabase
     .from('jarvis_finances')
     .select('price_total, purchase_date')
@@ -73,7 +70,6 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .gte('purchase_date', prevStartISO)
     .lte('purchase_date', prevEndISO);
 
-  // Carryover mese precedente, se esiste
   const { data: coPrev } = await supabase
     .from('carryovers')
     .select('amount')
@@ -224,7 +220,7 @@ function Entrate() {
         };
       });
 
-      // Spese (jarvis_finances) — con luogo + link routing
+      // Spese (jarvis_finances) ⇒ raggruppa per store+location+data e crea UNA riga cliccabile
       const { data: finAll, error: finAllErr } = await supabase
         .from('jarvis_finances')
         .select('id, store, location, name, price_total, purchase_date, payment_method, created_at')
@@ -232,7 +228,6 @@ function Entrate() {
         .gte('purchase_date', startDate)
         .lte('purchase_date', endDate)
         .order('created_at', { ascending: false });
-
       if (finAllErr) throw finAllErr;
 
       function isElectronicByText(desc) {
@@ -252,35 +247,46 @@ function Entrate() {
         return !isElectronicByText(desc);
       }
 
-      let finCash = (finAll || []).filter(isCashByFields);
+      const finCash = (finAll || []).filter(isCashByFields);
 
-      // Mapping + label leggibile + luogo + route
-      let cashRows = (finCash || []).map((f) => {
+      // GROUP BY: store + location + purchase_date
+      const groups = new Map();
+      for (const f of finCash) {
         const dateISO = f.purchase_date || (f.created_at || '').slice(0, 10);
-        const storeRaw = f.store || '';
-        const locRaw   = f.location || '';                       // <-- luogo (se presente)
-        const store = storeRaw ? titleize(storeRaw) : 'Articoli vari';
-        const loc   = locRaw ? ` (${titleize(locRaw)})` : '';
-        const dett  = f.name || '';
-        const total = Number(f.price_total) || 0;
+        const k = `${(f.store||'').toLowerCase().trim()}|${(f.location||'').toLowerCase().trim()}|${dateISO}`;
+        if (!groups.has(k)) {
+          groups.set(k, {
+            key: k,
+            storeRaw: f.store || '',
+            locationRaw: f.location || '',
+            dateISO,
+            total: 0,
+          });
+        }
+        const g = groups.get(k);
+        g.total += Number(f.price_total || 0);
+      }
 
-        const isRest = isRestaurantBar(storeRaw);
+      // Mappa gruppi → righe cliccabili
+      let cashRows = Array.from(groups.values()).map(g => {
+        const store = g.storeRaw ? titleize(g.storeRaw) : 'Articoli vari';
+        const loc   = g.locationRaw ? ` (${titleize(g.locationRaw)})` : '';
+        const isRest = isRestaurantBar(g.storeRaw);
         const kind = isRest ? 'Cena/Aperitivo' : 'Spesa';
         const route = isRest ? '/cene-aperitivi' : '/spese-casa';
-
-        const label = `${kind} ${store}${loc}${dett ? ` • ${dett}` : ''} — € ${total.toFixed(2)}`;
-
+        const label = `${kind} ${store}${loc} — € ${g.total.toFixed(2)}`;
         return {
-          id: `jfin-${f.id}`,
-          dateISO,
+          id: `grp-${g.key}`,
+          dateISO: g.dateISO,
           label,
           route,
-          amount: -Math.abs(total),
+          amount: -Math.abs(g.total),
           category_id: null,
           kind: 'cash-expense',
         };
       });
 
+      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE (qui non si applica: category_id=null)
       if (hideVarieCashAfterClear) {
         cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
       }
@@ -382,6 +388,7 @@ function Entrate() {
         const ok = await insertIncomeAssistant(text);
         if (ok) { await loadAll(); return; }
       }
+      // fallback: prova income comunque
       const ok2 = await insertIncomeAssistant(text);
       if (ok2) { await loadAll(); return; }
 
@@ -567,42 +574,7 @@ function Entrate() {
             <button className="btn-manuale">Aggiungi</button>
           </form>
 
-          {loading ? <p>Caricamento…</p> : (
-            <table className="custom-table">
-              <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
-              <tbody>
-                {incomes.map((i) => (
-                  <tr key={i.id}>
-                    <td>{i.source || '-'}</td>
-                    <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : (i.received_date ? formatIT(i.received_date) : '-')}</td>
-                    <td>{Number(i.amount).toFixed(2)}</td>
-                    <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {/* Carryover */}
-          <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
-          <form className="input-section" onSubmit={handleSaveCarryover}>
-            <input type="number" step="0.01" value={newCarry.amount}
-                   onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-                   placeholder={`Importo € per ${monthKey}`} required />
-            <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
-            <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
-          </form>
-
-          {carryover && (
-            <table className="custom-table">
-              <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
-              <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
-            </table>
-          )}
-
-          {/* Soldi in tasca */}
-          <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
+          {/* Soldi in tasca (raggruppato + link) */}
           <div className="table-container">
             {loading ? (
               <p>Caricamento…</p>
@@ -648,19 +620,14 @@ function Entrate() {
         .btn-manuale:hover, .btn-vocale:hover, .btn-ocr:hover, .btn-danger:hover, .btn-danger-outline:hover { transform: translateY(-1px); opacity: .95; }
         .btn-danger { background: #ef4444; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color:#fff; }
         .btn-danger-outline { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: .35rem .55rem; border-radius: .45rem; cursor: pointer; }
-        .input-section { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
-        .input-section input { padding: .45rem; border-radius: .55rem; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06); color: #fff; }
-        .custom-table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
+        .custom-table { width: 100%; border-collapse: collapse; margin-top: .75rem; }
         .custom-table th, .custom-table td { border-bottom: 1px solid rgba(255,255,255,.12); padding: .55rem; text-align: left; }
-        .flex-line { display: flex; justify-content: space-between; margin: .35rem 0; gap: 1rem; }
+        .row-link { color: #c7d2fe; text-decoration: underline; }
+        .row-link:hover { opacity: .9; }
         .total-box { background: rgba(255,255,255,.06); padding: 1rem; border-radius: .75rem; }
         .metric { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
         .metric-sub { font-size: 1rem; opacity: .85; }
-        .metric--saldo { color: #22c55e; }
-        .metric--pocket { color: #06b6d4; }
         .error { color: #f87171; margin-top: 1rem; }
-        .row-link { color: #c7d2fe; text-decoration: underline; }
-        .row-link:hover { opacity: .9; }
       `}</style>
     </>
   );
