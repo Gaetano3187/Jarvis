@@ -208,7 +208,7 @@ function SpeseCasa() {
     }
   }
 
-  // ----------------------------- Elimina (robusto)
+  // ----------------------------- Elimina (robusto, compatibile Supabase v2)
 const handleDelete = async (id) => {
   setError(null);
   try {
@@ -216,20 +216,18 @@ const handleDelete = async (id) => {
     if (userErr) throw userErr;
     if (!user) throw new Error('Sessione scaduta');
 
-    // Esegui la DELETE vincolando anche l'owner + chiedi il conteggio
+    // NB: per ottenere 'count' su DELETE serve .select('*', { count:'exact' })
     const { error: delErr, count } = await supabase
       .from('jarvis_spese_casa')
-      .delete({ count: 'exact' })
+      .delete()
       .eq('id', id)
-      .eq('user_id', user.id);
+      .eq('user_id', user.id)
+      .select('id', { count: 'exact' });      // <<< questa riga è la chiave
 
     if (delErr) throw delErr;
-    if (!count) {
-      // se count=0 è probabile un vincolo RLS mancante
-      throw new Error('Nessuna riga cancellata (controlla le policy RLS)');
-    }
+    if (!count) throw new Error('Nessuna riga cancellata (verifica le policy RLS)');
 
-    // Ricarica dal DB per evitare ricomparse
+    // ricarica dal DB (evita ricomparse)
     await fetchSpese();
   } catch (e) {
     setError(e?.message || String(e));
