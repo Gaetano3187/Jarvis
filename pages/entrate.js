@@ -35,7 +35,7 @@ function computeCurrentPayPeriod(today, paydayDay) {
  * Assicura il carryover del mese corrente calcolando saldo mese precedente.
  * Usa:
  *  - incomes (amount, received_[date|at])
- *  - jarvis_finances (price_total, purchase_date)  ← nuovo ingest
+ *  - jarvis_finances (price_total, purchase_date)
  *  - carryovers (month_key)
  */
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
@@ -49,7 +49,7 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
 
   // mese precedente
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
-  const prevEnd = new Date(yy, mm - 1, 0);              // ultimo giorno mese precedente
+  const prevEnd = new Date(yy, mm - 1, 0);
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
   const prevStartISO = isoLocal(prevStart);
   const prevEndISO = isoLocal(prevEnd);
@@ -111,34 +111,27 @@ function showError(setter, err) {
   setter(msg); console.error('[SUPABASE ERROR]', err);
 }
 
-/* ----------- intent detection + quick parsing senza assistant ----------- */
-function isCashIntent(text) {
-  const t = (text || '').toLowerCase();
-  return /(prelev|ritirat|bancomat|atm|in tasca|contanti|cash)/.test(t)
-      || /ho preso\s*\d+([.,]\d{1,2})?\s*€.*(tasca|contanti)/.test(t);
+/* ----------- classificazione negozio per routing/copy ----------- */
+function isSupermarketStore(store = '') {
+  const s = String(store).toLowerCase();
+  return new RegExp(
+    [
+      'supermercat','ipermercat','market','discount',
+      'conad','coop','esselunga','carrefour','auchan','pam','despar','a&o','iper',
+      'lidl','md','eurospin','todis','alter discount','tigros','gs','famila',
+      'deco','decò','tigre','simply','sidis','ipercoop','iper la grande i',
+      'dok','cra\\s?i','penny','maxi\\s*store'
+    ].join('|'),'i'
+  ).test(s);
 }
-function isIncomeIntent(text) {
-  const t = (text || '').toLowerCase();
-  return /(stipendio|busta paga|accredito|bonifico|fattura|pagamento|mi hanno pagato|compenso|rimborso)/.test(t);
+function isRestaurantBar(store = '') {
+  const s = String(store).toLowerCase();
+  return /\b(ristorante|trattoria|pizzeria|bar|pub|bistrot|osteria|sushi|braceria|enoteca)\b/i.test(s);
 }
-/** Estrae importo e data (“oggi/ieri/…”) per frasi contante */
-function quickParseCash(text) {
-  const t = (text || '').toLowerCase();
-  const m = t.match(/(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)/);
-  if (!m) return null;
-  const raw = m[1];
-  const amount = parseAmountLoose(raw);
-  let date = isoLocal(new Date());
-  if (/\bieri\b/.test(t)) {
-    const d = new Date(); d.setDate(d.getDate() - 1); date = isoLocal(d);
-  }
-  const isOut = /(uscita|spes|pagat.*contanti)/.test(t);
-  const isIn  = /(prelev|messo in tasca|ritirat|bancomat|atm)/.test(t);
-  const delta = isOut ? -Math.abs(amount) : Math.abs(amount); // default in (+)
-  const note =
-    isOut ? 'Uscita contanti'
-         : (/prelev/.test(t) ? 'Prelievo/ricarica contanti' : 'Ricarica contanti');
-  return { amount, date, delta, note };
+function titleize(s='') {
+  return String(s)
+    .toLowerCase()
+    .replace(/(^|\s|-)\p{L}/gu, m => m.toUpperCase());
 }
 
 /* --------------------------- component --------------------------- */
@@ -205,22 +198,17 @@ function Entrate() {
       setIncomes(inc || []);
 
       // Carryover mese
-      const { data: co } = await supabase
-        .from('carryovers')
+      const { data: co } = await supabase.from('carryovers')
         .select('id, month_key, amount, note')
-        .eq('user_id', user.id)
-        .eq('month_key', monthKey)
-        .maybeSingle();
+        .eq('user_id', user.id).eq('month_key', monthKey).maybeSingle();
       setCarryover(co || null);
 
       // Movimenti contanti manuali
-      const { data: pc } = await supabase
-        .from('pocket_cash')
+      const { data: pc } = await supabase.from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
         .eq('user_id', user.id)
         .gte('moved_date', startDate).lte('moved_date', endDate)
-        .order('moved_at', { ascending: false })
-        .order('created_at', { ascending: false });
+        .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
 
       const manualRows = (pc || []).map((row) => {
         const eff = (row.delta != null)
@@ -236,10 +224,10 @@ function Entrate() {
         };
       });
 
-      // Spese (jarvis_finances) — mappo nei campi legacy della pagina
+      // Spese (jarvis_finances) — con luogo + link routing
       const { data: finAll, error: finAllErr } = await supabase
         .from('jarvis_finances')
-        .select('id, store, name, price_total, purchase_date, payment_method, created_at')
+        .select('id, store, location, name, price_total, purchase_date, payment_method, created_at')
         .eq('user_id', user.id)
         .gte('purchase_date', startDate)
         .lte('purchase_date', endDate)
@@ -247,42 +235,52 @@ function Entrate() {
 
       if (finAllErr) throw finAllErr;
 
-      // Regole contanti/elettronico
       function isElectronicByText(desc) {
         const ELECTRONIC_TOKENS = [
-          'carta', 'carta di credito', 'credito', 'debito', 'pos',
-          'visa', 'mastercard', 'amex', 'paypal', 'iban', 'bonifico',
-          'satispay', 'apple pay', 'google pay'
+          'carta','carta di credito','credito','debito','pos',
+          'visa','mastercard','amex','paypal','iban','bonifico',
+          'satispay','apple pay','google pay'
         ];
         const t = String(desc || '').toLowerCase();
         return ELECTRONIC_TOKENS.some(k => t.includes(k));
       }
       function isCashByFields(row) {
         const pm = String(row.payment_method || '').toLowerCase();
-        if (pm === 'cash' || pm === 'contanti') return true;        // esplicitamente contanti
-        if (pm && pm !== 'cash' && pm !== 'contanti') return false; // esplicitamente elettronico
+        if (pm === 'cash' || pm === 'contanti') return true;
+        if (pm && pm !== 'cash' && pm !== 'contanti') return false;
         const desc = `[${row.store || 'Punto vendita'}] ${row.name || ''}`;
         return !isElectronicByText(desc);
       }
 
       let finCash = (finAll || []).filter(isCashByFields);
 
-      // Mapping righe legacy per tabella pagina
+      // Mapping + label leggibile + luogo + route
       let cashRows = (finCash || []).map((f) => {
         const dateISO = f.purchase_date || (f.created_at || '').slice(0, 10);
-        const store = f.store || 'Punto vendita';
+        const storeRaw = f.store || '';
+        const locRaw   = f.location || '';                       // <-- luogo (se presente)
+        const store = storeRaw ? titleize(storeRaw) : 'Articoli vari';
+        const loc   = locRaw ? ` (${titleize(locRaw)})` : '';
         const dett  = f.name || '';
+        const total = Number(f.price_total) || 0;
+
+        const isRest = isRestaurantBar(storeRaw);
+        const kind = isRest ? 'Cena/Aperitivo' : 'Spesa';
+        const route = isRest ? '/cene-aperitivi' : '/spese-casa';
+
+        const label = `${kind} ${store}${loc}${dett ? ` • ${dett}` : ''} — € ${total.toFixed(2)}`;
+
         return {
           id: `jfin-${f.id}`,
           dateISO,
-          label: `Spesa in contante • ${store}${dett ? ` • ${dett}` : ''}`,
-          amount: -Math.abs(Number(f.price_total) || 0),
-          category_id: null, // jarvis_finances non ha category_id
+          label,
+          route,
+          amount: -Math.abs(total),
+          category_id: null,
           kind: 'cash-expense',
         };
       });
 
-      // Dopo "Ripulisci": nascondi le spese cash della categoria VARIE in questa pagina
       if (hideVarieCashAfterClear) {
         cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
       }
@@ -293,7 +291,7 @@ function Entrate() {
 
       setPocketRows(rows);
 
-      // Totale spese del periodo (jarvis_finances)
+      // Totale spese periodo (jarvis_finances)
       const { data: exp } = await supabase
         .from('jarvis_finances')
         .select('price_total, purchase_date')
@@ -384,7 +382,6 @@ function Entrate() {
         const ok = await insertIncomeAssistant(text);
         if (ok) { await loadAll(); return; }
       }
-      // fallback: prova income comunque
       const ok2 = await insertIncomeAssistant(text);
       if (ok2) { await loadAll(); return; }
 
@@ -606,32 +603,32 @@ function Entrate() {
 
           {/* Soldi in tasca */}
           <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
-          <form className="input-section" onSubmit={handleTopUpPocket}>
-            <input type="text" inputMode="decimal" value={pocketTopUp}
-                   onChange={(e) => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required />
-            <button className="btn-manuale">+ Aggiungi</button>
-            <button type="button" className="btn-danger" onClick={handleClearPocket}>Ripulisci</button>
-            {hideVarieCashAfterClear && (
-              <p style={{ opacity: 0.85, marginTop: '.5rem', flexBasis: '100%' }}>
-                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
-              </p>
+          <div className="table-container">
+            {loading ? (
+              <p>Caricamento…</p>
+            ) : (
+              <table className="custom-table">
+                <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
+                <tbody>
+                  {pocketRows.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                      <td>
+                        {m.route ? (
+                          <Link href={m.route} className="row-link">{m.label}</Link>
+                        ) : (
+                          <span>{m.label}</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
-          </form>
-
-          {loading ? <p>Caricamento…</p> : (
-            <table className="custom-table">
-              <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
-              <tbody>
-                {pocketRows.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
-                    <td>{m.label}</td>
-                    <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          </div>
 
           {error && <p className="error">{error}</p>}
 
@@ -662,6 +659,8 @@ function Entrate() {
         .metric--saldo { color: #22c55e; }
         .metric--pocket { color: #06b6d4; }
         .error { color: #f87171; margin-top: 1rem; }
+        .row-link { color: #c7d2fe; text-decoration: underline; }
+        .row-link:hover { opacity: .9; }
       `}</style>
     </>
   );
