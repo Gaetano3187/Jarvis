@@ -751,6 +751,50 @@ async function doOCR_Receipt(payload) {
   setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
   maybeSpeakMessage({ text: txt });
 }
+// === Normalizzazione via web (uguale a Liste Prodotti) ===
+async function normalizeViaWeb(items) {
+  try {
+    // chiama l’API interna /api/normalize come fa la pagina
+    const resp = await timeoutFetch('/api/normalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: (items || []).map(p => ({ name: p.name, brand: p.brand || '' })),
+        locale: 'it-IT',
+        trace: true
+      })
+    }, 60000);
+
+    const raw = await resp.text();
+    let j = null; try { j = JSON.parse(raw); } catch {}
+    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return items;
+
+    // merge: normalizedName, canonicalBrand, eventuale imageUrl
+    return items.map((p, i) => {
+      const r = j.results[i]?.out;
+      if (!r) return p;
+      const normName   = String(r.normalizedName || '').trim();
+      const canonBrand = String(r.canonicalBrand || '').trim();
+      const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+
+      const out = {
+        ...p,
+        name:  normName   || p.name,
+        brand: canonBrand || p.brand || ''
+      };
+
+      // opzionale: tieni una thumb come fa LP (proxy per evitare CORS)
+      if (imageUrl) {
+        out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+        out.imageDirect = imageUrl;
+      }
+      return out;
+    });
+  } catch {
+    return items; // fallback: se salta la normalizzazione, continua senza bloccare la pipeline
+  }
+}
+
 
   }
 
@@ -862,6 +906,9 @@ async function doOCR_Receipt(payload) {
         setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
         return;
       }
+      // 🔎 normalizzazione web (come Liste Prodotti)
+const itemsReady = await normalizeViaWeb(itemsNorm);
+
 
       // Bucket + supermercato?
       const bucket = guessExpenseBucket(meta.store);
@@ -875,14 +922,14 @@ async function doOCR_Receipt(payload) {
         notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
       } else {
         try {
-          const payloadFin = {
-            user_id: uid,
-            store: meta.store,
-            purchaseDate: meta.purchaseDate,
-            payment_method: 'cash',
-            card_label: null,
-            items: itemsNorm
-          };
+         const payloadFin = {
+  user_id: uid,
+  store: meta.store,
+  purchaseDate: meta.purchaseDate,
+  payment_method: 'cash',
+  card_label: null,
+  items: itemsReady
+};
           const finRes = await postJSON('/api/finances/ingest', payloadFin);
           if (finRes?.ok && (finRes?.inserted || 0) > 0) {
             // refresh Finanze
@@ -901,14 +948,14 @@ async function doOCR_Receipt(payload) {
 
         // --- b) SPESE CASA / CENE & APERITIVI ---
         try {
-          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-          const payloadSpese = {
-            user_id: uid,
-            store: meta.store,
-            purchaseDate: meta.purchaseDate,
-            totalPaid: meta.totalPaid,
-            items: itemsNorm
-          };
+      const payloadSpese = {
+  user_id: uid,
+  store: meta.store,
+  purchaseDate: meta.purchaseDate,
+  totalPaid: meta.totalPaid,
+  items: itemsReady
+};
+
           const spRes = await postJSON(endpoint, payloadSpese);
           if (spRes?.ok && (spRes?.inserted || 0) > 0) {
             if (typeof window !== 'undefined') {
@@ -926,7 +973,8 @@ async function doOCR_Receipt(payload) {
       // --- c) SCORTE (solo supermercato, via endpoint server) ---
       if (storeIsSuper && uid) {
         try {
-          const stRes = await postJSON('/api/stock/apply', { user_id: uid, items: itemsNorm });
+       const stRes = await postJSON('/api/stock/apply', { user_id: uid, items: itemsReady });
+
           if (stRes?.ok) {
             setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
             if (typeof window !== 'undefined') {
@@ -941,7 +989,8 @@ async function doOCR_Receipt(payload) {
       }
 
       // --- d) riepilogo + voce ---
-      const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
+    const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReady }), mono: true };
+
       setChatMsgs(arr => [
         ...arr,
         msg,
