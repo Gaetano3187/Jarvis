@@ -451,23 +451,19 @@ function Entrate() {
   const saldoDisponibile = Math.max(0, entratePeriodo + carryAmount - prelievi);
   const pocketBalance    = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
 
- /* ------------------------------ UI ------------------------------ */
+/* ------------------------------ UI ------------------------------ */
 return (
   <>
     <Head><title>Entrate & Saldi</title></Head>
 
-    <div className="shell">
-      <div className="card">
+    <div className="spese-casa-container1">
+      <div className="spese-casa-container2">
         {/* Titolo + Voce/OCR */}
         <div className="title-row">
           <h2 className="title">Entrate &amp; Saldi</h2>
           <div className="title-actions">
-            <button className="btn btn-voice" onClick={toggleRec}>
-              {recBusy ? 'Stop' : 'Voce'}
-            </button>
-            <button className="btn btn-ocr" onClick={() => ocrInputRef.current?.click()}>
-              OCR
-            </button>
+            <button className="btn-vocale" onClick={toggleRec}>{recBusy ? 'Stop' : 'Voce'}</button>
+            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>OCR</button>
             <input
               ref={ocrInputRef}
               type="file"
@@ -482,242 +478,128 @@ return (
 
         {/* Periodo */}
         <div className="periodo-row">
-          <span>Periodo corrente:</span>
-          <b>{startDateIT}</b>
-          <span>–</span>
-          <b>{endDateIT}</b>
+          <span>Periodo corrente:</span><b>{startDateIT}</b><span>–</span><b>{endDateIT}</b>
         </div>
 
-        {/* Box metriche con colori */}
-        <div className="total-box">
+        {/* Box metriche */}
+        <div className="total-box" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.1)' }}>
           <h3>Disponibilità</h3>
-          <div className="metric-sub block">
-            Entrate periodo corrente: <b>€ {entratePeriodo.toFixed(2)}</b> •
-            &nbsp;Carryover mese precedente: <b>€ {carryAmount.toFixed(2)}</b>
-          </div>
-          <div className="flex-line">
-            <span>Saldo disponibile:</span>
-            <b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b>
-          </div>
-          <div className="flex-line">
-            <span>Soldi in tasca (restanti):</span>
-            <b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b>
-          </div>
+          <div className="flex-line metric-sub"><span>Entrate periodo corrente:</span><b>€ {entratePeriodo.toFixed(2)}</b></div>
+          <div className="flex-line metric-sub"><span>Carryover mese precedente:</span><b>€ {carryAmount.toFixed(2)}</b></div>
+          <div className="flex-line"><span>Saldo disponibile:</span><b className="metric metric--saldo">€ {saldoDisponibile.toFixed(2)}</b></div>
+          <div className="flex-line"><span>Soldi in tasca (restanti):</span><b className="metric metric--pocket">€ {pocketBalance.toFixed(2)}</b></div>
         </div>
 
-        {/* 1) Entrate del periodo */}
-        <div className="section-head">
-          <h3>1) Entrate del periodo</h3>
-          <div className="btn-row">
-            <button
-              className="btn btn-ghost"
-              onClick={() => setShowAddIncome(v => !v)}
-              aria-expanded={showAddIncome}
-            >
-              {showAddIncome ? '✖ Chiudi' : '➕ Aggiungi manuale'}
-            </button>
-          </div>
-        </div>
-
-        {showAddIncome && (
+        {/* Entrate */}
+        <h3>1) Entrate del periodo</h3>
+        <details className="toggle-add">
+          <summary className="btn-manuale">➕ Aggiungi manuale</summary>
           <form className="input-section" onSubmit={handleAddIncome}>
-            <input
-              value={newIncome.source}
-              onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })}
-              placeholder="Fonte"
-              required
-            />
-            <input
-              value={newIncome.description}
-              onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
-              placeholder="Descrizione"
-              required
-            />
-            <input
-              type="date"
-              value={newIncome.receivedAt}
-              onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })}
-              required
-            />
-            <input
-              type="text"
-              inputMode="decimal"
-              value={newIncome.amount}
-              onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
-              placeholder="Importo €"
-              required
-            />
-            <button className="btn">Aggiungi</button>
+            <input value={newIncome.source} onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })} placeholder="Fonte" required />
+            <input value={newIncome.description} onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })} placeholder="Descrizione" required />
+            <input type="date" value={newIncome.receivedAt} onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })} required />
+            <input type="text" inputMode="decimal" value={newIncome.amount} onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })} placeholder="Importo €" required />
+            <button className="btn-manuale">Aggiungi</button>
           </form>
+        </details>
+
+        {loading ? <p>Caricamento…</p> : (
+          <table className="custom-table">
+            <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
+            <tbody>
+              {incomes.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.source || '-'}</td>
+                  <td>{i.description}</td>
+                  <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</td>
+                  <td>{Number(i.amount).toFixed(2)}</td>
+                  <td><button className="btn-danger-outline" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
 
-        {/* 2) Carryover */}
-        <div className="section-head">
-          <h3>2) Rimanenze / Perdite mesi precedenti</h3>
-          <div className="btn-row">
-            <button
-              className="btn btn-ghost"
-              onClick={() => setShowAddCarry(v => !v)}
-              aria-expanded={showAddCarry}
-            >
-              {showAddCarry ? '✖ Chiudi' : '➕ Aggiungi manuale'}
-            </button>
-          </div>
-        </div>
-
-        {showAddCarry && (
+        {/* Carryover */}
+        <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
+        <details className="toggle-add">
+          <summary className="btn-manuale">➕ Aggiungi manuale</summary>
           <form className="input-section" onSubmit={handleSaveCarryover}>
             <input
-              type="number"
-              step="0.01"
-              value={newCarry.amount}
+              type="number" step="0.01" value={newCarry.amount}
               onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-              placeholder={`Importo € per ${monthKey}`}
-              required
+              placeholder={`Importo € per ${monthKey}`} required
             />
-            <input
-              value={newCarry.note}
-              onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })}
-              placeholder="Nota (opzionale)"
-            />
-            <button className="btn">{carryover ? 'Aggiorna' : 'Salva'}</button>
+            <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
+            <button className="btn-manuale">{carryover ? 'Aggiorna' : 'Salva'}</button>
           </form>
-        )}
+        </details>
 
         {carryover && (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{carryover.month_key}</td>
-                  <td>{Number(carryover.amount).toFixed(2)}</td>
-                  <td>{carryover.note || '-'}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <table className="custom-table">
+            <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
+            <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
+          </table>
         )}
 
-        {/* 3) Soldi in tasca — TOPUP / CLEAR */}
-        <div className="section-head">
-          <h3>3) Soldi in tasca</h3>
-          <div className="btn-row">
-            <button
-              className="btn btn-ghost"
-              onClick={() => setShowAddPocket(v => !v)}
-              aria-expanded={showAddPocket}
-            >
-              {showAddPocket ? '✖ Chiudi' : '➕ Aggiungi manuale'}
-            </button>
-          </div>
-        </div>
-
-        {showAddPocket && (
+        {/* Soldi in tasca */}
+        <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
+        <details className="toggle-add">
+          <summary className="btn-manuale">➕ Aggiungi manuale</summary>
           <form className="input-section" onSubmit={handleTopUpPocket}>
             <input
-              type="text"
-              inputMode="decimal"
-              value={pocketTopUp}
-              onChange={(e) => setPocketTopUp(e.target.value)}
-              placeholder="Ricarica (+) / Uscita (-) €"
-              required
+              type="text" inputMode="decimal" value={pocketTopUp}
+              onChange={(e) => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required
             />
-            <div className="btn-row">
-              <button className="btn">+ Aggiungi</button>
-              <button type="button" className="btn btn-danger" onClick={handleClearPocket}>
-                Ripulisci
-              </button>
-            </div>
+            <button className="btn-manuale">+ Aggiungi</button>
+            <button type="button" className="btn-danger" onClick={handleClearPocket}>Ripulisci</button>
             {hideVarieCashAfterClear && (
-              <p className="note">
-                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina
-                (restano nelle rispettive sezioni).
+              <p style={{ opacity: 0.85, marginTop: '.5rem', flexBasis: '100%' }}>
+                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
               </p>
             )}
           </form>
-        )}
+        </details>
 
-        {/* Lista manuale + spese cash raggruppate con link */}
-        <div className="table-wrap">
-          {loading ? (
-            <p>Caricamento…</p>
-          ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Descrizione</th>
-                  <th style={{ textAlign:'right' }}>Importo €</th>
+        {loading ? <p>Caricamento…</p> : (
+          <table className="custom-table">
+            <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
+            <tbody>
+              {pocketRows.map((m) => (
+                <tr key={m.id}>
+                  <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                  <td>{m.label}</td>
+                  <td style={{ textAlign: 'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {pocketRows.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
-                    <td>{m.route ? <Link href={m.route} className="row-link">{m.label}</Link> : <span>{m.label}</span>}</td>
-                    <td style={{ textAlign:'right' }}>
-                      {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+              ))}
+            </tbody>
+          </table>
+        )}
 
         {error && <p className="error">{error}</p>}
 
-        <Link href="/home"><button className="btn" style={{ marginTop: '1rem' }}>Home</button></Link>
+        <Link href="/home"><button className="btn-vocale" style={{ marginTop: '1rem' }}>Home</button></Link>
       </div>
     </div>
 
     <style jsx global>{`
-      /* layout full width senza tagli */
-      .shell { min-height:100vh; display:grid; place-items:start center; background:#0f172a; padding:2rem 1rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-      .card  { width:min(1100px, 96vw); background:rgba(0,0,0,.65); border-radius:16px; color:#fff; padding:1.25rem 1.25rem 1.5rem; box-shadow:0 8px 22px rgba(0,0,0,.35); }
-
-      .title-row { display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin-bottom:.25rem; }
-      .title { margin:0; font-size:1.5rem; }
-      .title-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
-
-      .btn { background:#6366f1; border:0; padding:.48rem .72rem; border-radius:.6rem; cursor:pointer; color:#fff; }
-      .btn-voice { background:#6366f1; } .btn-ocr { background:#06b6d4; } .btn-danger { background:#ef4444; }
-      .btn-ghost { background:transparent; border:1px solid rgba(255,255,255,.25); color:#e5e7eb; }
-
-      .periodo-row { display:flex; gap:.4rem; align-items:center; margin:.25rem 0 .9rem; font-size:.95rem; opacity:.9; }
-
-      .total-box { background:rgba(255,255,255,.06); padding:1rem; border-radius:.9rem; margin-bottom:1rem; }
-      .metric { font-size:1.6rem; font-weight:800; line-height:1.1; }
-      .metric-sub { font-size:1rem; opacity:.85; }
-      .metric--saldo { color:#22c55e; }
-      .metric--pocket { color:#06b6d4; }
-      .flex-line { display:flex; justify-content:space-between; gap:1rem; margin:.35rem 0; }
-
-      /* Sezioni a colonna */
-      .section-head { display:flex; flex-direction:column; align-items:flex-start; gap:.4rem; margin-top:1.1rem; }
-      .btn-row     { display:flex; gap:.5rem; flex-wrap:wrap; }
-
-      .input-section { display:grid; grid-template-columns:1fr; gap:.65rem; margin:.6rem 0 1.1rem; }
-      @media (min-width:820px){ .input-section{ grid-template-columns:repeat(2, minmax(220px,1fr)); } }
-
-      input, textarea { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); color:#fff; padding:.55rem .65rem; border-radius:.6rem; }
-      textarea{ width:100%; min-height:4rem; }
-
-      .table-wrap { overflow:auto; border-radius:10px; }
-      .table { width:100%; border-collapse:collapse; margin-top:.5rem; }
-      .table th, .table td { border-bottom:1px solid rgba(255,255,255,.12); padding:.6rem .7rem; text-align:left; }
-
-      .row-link { color:#c7d2fe; text-decoration:underline; }
-      .row-link:hover { opacity:.9; }
-
-      .error { color:#f87171; margin-top:1rem; }
-      .note  { opacity:.85; margin-top:.5rem; }
+      /* stile del toggle "Aggiungi manuale" basato su <details> */
+      .toggle-add { margin: .4rem 0 1rem; }
+      .toggle-add > summary {
+        list-style: none;
+        display: inline-block;
+        cursor: pointer;
+        background: #6366f1;
+        color: #fff;
+        border: 0;
+        padding: .45rem .7rem;
+        border-radius: .55rem;
+        user-select: none;
+      }
+      .toggle-add > summary::-webkit-details-marker { display: none; }
     `}</style>
   </>
 );
-}
+  }
 
 export default withAuth(Entrate);
