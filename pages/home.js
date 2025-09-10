@@ -807,16 +807,19 @@ async function doOCR_Receipt(payload) {
       } else {
         for (const L of labels) {
           try {
-            await postJSON('/api/vini/ingest', {
+            const res = await postJSON('/api/vini/ingest', {
               user_id: uid,
               wine: L?.wine || null,
               text: L?.text || ''
             });
-          } catch (e) {
-            setChatMsgs(arr => [...arr, { role: 'assistant', text: `⚠️ Vini: ${e.message}` }]);
+            if (!(res?.ok || res?.inserted === 1)) {
+              setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
+            }
+          } catch(e) {
+            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
           }
         }
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: '🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
+        setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
       }
       return;
     }
@@ -855,7 +858,6 @@ async function doOCR_Receipt(payload) {
         expiresAt: String(p.expiresAt || '')
       })).filter(p => p.name);
 
-      // Se niente righe → esci pulito
       if (!itemsNorm.length) {
         setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
         return;
@@ -865,29 +867,36 @@ async function doOCR_Receipt(payload) {
       const bucket = guessExpenseBucket(meta.store);
       const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
 
+      // Accumuliamo risultati veri dagli endpoint
+      const notes = [];
+
       // --- a) FINANZE ---
       if (!uid) {
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
+        notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
       } else {
         try {
           const payloadFin = {
             user_id: uid,
             store: meta.store,
-            purchaseDate: meta.purchaseDate, // ISO garantito
+            purchaseDate: meta.purchaseDate,
             payment_method: 'cash',
             card_label: null,
             items: itemsNorm
           };
-          console.log('[FINANCES payload]', payloadFin);
-          await postJSON('/api/finances/ingest', payloadFin);
-          if (typeof window !== 'undefined') {
-            const stamp = Date.now();
-            localStorage.setItem('__finanze_last_ingest', String(stamp));
-            window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+          const finRes = await postJSON('/api/finances/ingest', payloadFin);
+          if (finRes?.ok && (finRes?.inserted || 0) > 0) {
+            // refresh Finanze
+            if (typeof window !== 'undefined') {
+              const stamp = Date.now();
+              localStorage.setItem('__finanze_last_ingest', String(stamp));
+              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+            }
+            setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
+          } else {
+            notes.push('Finanze: nessuna riga inserita');
           }
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: '💾 Finanze: inserimento completato ✓' }]);
         } catch (e) {
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: `⚠️ Finanze: ${e.message}` }]);
+          notes.push(`Finanze: ${e.message}`);
         }
 
         // --- b) SPESE CASA / CENE & APERITIVI ---
@@ -900,24 +909,34 @@ async function doOCR_Receipt(payload) {
             totalPaid: meta.totalPaid,
             items: itemsNorm
           };
-          console.log('[SPESE payload]', endpoint, payloadSpese);
-          await postJSON(endpoint, payloadSpese);
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail: { bucket, count: itemsNorm.length } }));
+          const spRes = await postJSON(endpoint, payloadSpese);
+          if (spRes?.ok && (spRes?.inserted || 0) > 0) {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
+            }
+            setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
+          } else {
+            notes.push(`${bucket}: nessuna riga inserita`);
           }
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: `💾 ${bucket}: inserimento completato ✓` }]);
         } catch (e) {
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: `ℹ️ ${bucket}: ${e.message}` }]);
+          notes.push(`${bucket}: ${e.message}`);
         }
       }
 
-      // --- c) SCORTE (solo supermercato) ---
-      if (storeIsSuper) {
+      // --- c) SCORTE (solo supermercato, via endpoint server) ---
+      if (storeIsSuper && uid) {
         try {
-          await updateStockFromReceipt({ files, purchases: itemsNorm, from: 'home' });
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: '📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
+          const stRes = await postJSON('/api/stock/apply', { user_id: uid, items: itemsNorm });
+          if (stRes?.ok) {
+            setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsNorm.length, at: Date.now() } }));
+            }
+          } else {
+            notes.push('Scorte: nessun aggiornamento');
+          }
         } catch (e) {
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: `⚠️ Scorte: ${e?.message || e}` }]);
+          notes.push(`Scorte: ${e.message}`);
         }
       }
 
@@ -926,6 +945,7 @@ async function doOCR_Receipt(payload) {
       setChatMsgs(arr => [
         ...arr,
         msg,
+        ...(notes.length ? [{ role:'assistant', text: 'Note:\n' + notes.map(n => `• ${n}`).join('\n'), mono: true }] : []),
         { role: 'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
       ]);
       maybeSpeakMessage(msg);
@@ -940,10 +960,8 @@ async function doOCR_Receipt(payload) {
     setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
   } finally {
     setBusy(false);
-    // speakModeRef.current = false; // opzionale: disattiva auto-voice dopo OCR
   }
 }
-
 
   /* =================== Query testo (anche da Siri) =================== */
   async function submitQuery(textParam) {
