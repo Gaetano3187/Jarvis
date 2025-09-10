@@ -750,7 +750,6 @@ async function doOCR_Receipt(payload) {
 
   setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
   maybeSpeakMessage({ text: txt });
-
 }
 // === Normalizzazione via web (uguale a Liste Prodotti) ===
 async function normalizeViaWeb(items) {
@@ -858,7 +857,7 @@ async function normalizeViaWeb(items) {
             if (!(res?.ok || res?.inserted === 1)) {
               setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
             }
-          } catch(e) {
+          } catch (e) {
             setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
           }
         }
@@ -888,7 +887,7 @@ async function normalizeViaWeb(items) {
       const isoToday    = new Date().toISOString().slice(0, 10);
       meta.purchaseDate = isoFromMeta || isoFromOCR || isoToday;
 
-      // --- Normalizza righe ---
+      // --- Normalizza righe (base) ---
       const itemsNorm = (allPurchases || []).map(p => ({
         name: String(p.name || '').trim(),
         brand: String(p.brand || '').trim(),
@@ -905,15 +904,61 @@ async function normalizeViaWeb(items) {
         setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
         return;
       }
-      // 🔎 normalizzazione web (come Liste Prodotti)
-const itemsReady = await normalizeViaWeb(itemsNorm);
 
+      // --- Normalizzazione via web (identica a Liste Prodotti) — inline helper ---
+      async function normalizeViaWebLocal(items) {
+        const arr = Array.isArray(items) ? items : [];
+        if (!arr.length) return arr;
+
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort('timeout'), 30000);
+        try {
+          const resp = await fetch('/api/normalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
+              locale: 'it-IT',
+              trace: true
+            }),
+            signal: ctrl.signal
+          });
+          const raw = await resp.text();
+          let j = null; try { j = JSON.parse(raw); } catch {}
+          if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
+
+          return arr.map((p, i) => {
+            const r = j.results[i]?.out || {};
+            const normName   = String(r.normalizedName || '').trim();
+            const canonBrand = String(r.canonicalBrand || '').trim();
+            const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+
+            const out = {
+              ...p,
+              name:  normName   || p.name,
+              brand: canonBrand || p.brand || ''
+            };
+            if (imageUrl) {
+              out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+              out.imageDirect = imageUrl;
+            }
+            return out;
+          });
+        } catch (e) {
+          console.warn('[normalizeViaWeb] skip', e);
+          return arr;
+        } finally {
+          clearTimeout(t);
+        }
+      }
+
+      const itemsReady = await normalizeViaWebLocal(itemsNorm);
 
       // Bucket + supermercato?
       const bucket = guessExpenseBucket(meta.store);
       const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
 
-      // Accumuliamo risultati veri dagli endpoint
+      // Accumuliamo note reali dagli endpoint
       const notes = [];
 
       // --- a) FINANZE ---
@@ -921,21 +966,20 @@ const itemsReady = await normalizeViaWeb(itemsNorm);
         notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
       } else {
         try {
-         const payloadFin = {
-  user_id: uid,
-  store: meta.store,
-  purchaseDate: meta.purchaseDate,
-  payment_method: 'cash',
-  card_label: null,
-  items: itemsReady
-};
+          const payloadFin = {
+            user_id: uid,
+            store: meta.store,
+            purchaseDate: meta.purchaseDate,
+            payment_method: 'cash',
+            card_label: null,
+            items: itemsReady
+          };
           const finRes = await postJSON('/api/finances/ingest', payloadFin);
           if (finRes?.ok && (finRes?.inserted || 0) > 0) {
-            // refresh Finanze
             if (typeof window !== 'undefined') {
               const stamp = Date.now();
               localStorage.setItem('__finanze_last_ingest', String(stamp));
-              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsReady.length, store: meta.store, stamp } }));
             }
             setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
           } else {
@@ -947,18 +991,18 @@ const itemsReady = await normalizeViaWeb(itemsNorm);
 
         // --- b) SPESE CASA / CENE & APERITIVI ---
         try {
-      const payloadSpese = {
-  user_id: uid,
-  store: meta.store,
-  purchaseDate: meta.purchaseDate,
-  totalPaid: meta.totalPaid,
-  items: itemsReady
-};
-
+          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+          const payloadSpese = {
+            user_id: uid,
+            store: meta.store,
+            purchaseDate: meta.purchaseDate,
+            totalPaid: meta.totalPaid,
+            items: itemsReady
+          };
           const spRes = await postJSON(endpoint, payloadSpese);
           if (spRes?.ok && (spRes?.inserted || 0) > 0) {
             if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
+              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsReady.length } }));
             }
             setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
           } else {
@@ -972,12 +1016,11 @@ const itemsReady = await normalizeViaWeb(itemsNorm);
       // --- c) SCORTE (solo supermercato, via endpoint server) ---
       if (storeIsSuper && uid) {
         try {
-       const stRes = await postJSON('/api/stock/apply', { user_id: uid, items: itemsReady });
-
+          const stRes = await postJSON('/api/stock/apply', { user_id: uid, items: itemsReady });
           if (stRes?.ok) {
             setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
             if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsNorm.length, at: Date.now() } }));
+              window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsReady.length, at: Date.now() } }));
             }
           } else {
             notes.push('Scorte: nessun aggiornamento');
@@ -988,8 +1031,7 @@ const itemsReady = await normalizeViaWeb(itemsNorm);
       }
 
       // --- d) riepilogo + voce ---
-    const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReady }), mono: true };
-
+      const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReady }), mono: true };
       setChatMsgs(arr => [
         ...arr,
         msg,
