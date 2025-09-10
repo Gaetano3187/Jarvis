@@ -16,13 +16,10 @@ function isoLocal(date = new Date()) {
 /** oggi / ieri / domani / YYYY-MM-DD / DD/MM/YYYY / DD-MM-YYYY (anche con .) */
 function smartDate(input) {
   const s = String(input || '').trim().toLowerCase()
-
   if (/\boggi\b/.test(s))    return isoLocal(new Date())
   if (/\bieri\b/.test(s))   { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d) }
   if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d) }
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-
   let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/)
   if (m) {
     const dd = String(parseInt(m[1],10)).padStart(2,'0')
@@ -72,7 +69,7 @@ function SpeseCasa() {
     prezzoTotale: '',
     quantita: '1',
     spentAt: '',
-    paymentMethod: 'cash',   // per coerenza UI; non è salvato in jarvis_spese_casa
+    paymentMethod: 'cash',   // solo UI
     cardLabel: '',
   })
 
@@ -100,7 +97,7 @@ function SpeseCasa() {
 
       const { data, error } = await supabase
         .from('jarvis_spese_casa')
-        .select('id, store, item_name, price_total, qty_packs, units_per_pack, unit_label, purchase_date, created_at')
+        .select('id, store, name, price_total, packs, units_per_pack, unit_label, purchase_date, created_at')
         .eq('user_id', user.id)
         .gte('purchase_date', periodStart)
         .lte('purchase_date', periodEnd)
@@ -183,9 +180,9 @@ function SpeseCasa() {
         store: (nuovaSpesa.puntoVendita || '').trim() || null,
         purchase_date: spentISO,
         doc_total: priceTotal,              // opzionale/indicativo
-        item_name: (nuovaSpesa.dettaglio || '').trim(),
+        name: (nuovaSpesa.dettaglio || '').trim(),
         brand: null,
-        qty_packs: qty,
+        packs: qty,
         units_per_pack: 1,
         unit_label: 'unità',
         price_each: priceEach,
@@ -250,9 +247,7 @@ function SpeseCasa() {
       setError('Questo browser non supporta la registrazione audio.'); return
     }
 
-    const candidates = [
-      'audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus','audio/ogg'
-    ]
+    const candidates = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus','audio/ogg']
     let chosen = ''
     for (const c of candidates) { if (window.MediaRecorder.isTypeSupported?.(c)) { chosen = c; break } }
     mimeRef.current = chosen
@@ -332,9 +327,9 @@ function SpeseCasa() {
         store: (it.puntoVendita || '').trim() || null,
         purchase_date: spentDate,
         doc_total: priceTotal,
-        item_name: (it.dettaglio || '').trim(),
+        name: (it.dettaglio || '').trim(),
         brand: null,
-        qty_packs: qty,
+        packs: qty,
         units_per_pack: 1,
         unit_label: uom || 'unità',
         price_each: priceEach,
@@ -437,27 +432,6 @@ function SpeseCasa() {
               required
             />
 
-            <label>Metodo di pagamento</label>
-            <select
-              value={nuovaSpesa.paymentMethod}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, paymentMethod: e.target.value })}
-            >
-              <option value="cash">Contante (tasca)</option>
-              <option value="card">Carta</option>
-              <option value="bank">Bonifico/Altro</option>
-            </select>
-
-            {nuovaSpesa.paymentMethod === 'card' && (
-              <>
-                <label>Nome carta (opz.)</label>
-                <input
-                  value={nuovaSpesa.cardLabel}
-                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, cardLabel: e.target.value })}
-                  placeholder="Visa, Revolut…"
-                />
-              </>
-            )}
-
             <button className="btn-manuale">Aggiungi</button>
           </form>
 
@@ -480,9 +454,9 @@ function SpeseCasa() {
                   {(spese || []).map(r => (
                     <tr key={r.id}>
                       <td>{r.store || '-'}</td>
-                      <td>{r.item_name || '-'}</td>
+                      <td>{r.name || '-'}</td>
                       <td>{fmtDateIT(r.purchase_date || r.created_at)}</td>
-                      <td>{r.qty_packs ?? 1}</td>
+                      <td>{r.packs ?? 1}</td>
                       <td>{Number(r.price_total || 0).toFixed(2)}</td>
                       <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
                     </tr>
@@ -495,7 +469,7 @@ function SpeseCasa() {
 
           {error && <p className="error">{error}</p>}
 
-          <Link href="/home" className="btn-vocale">🏠 Home</Link>
+          <Link href="/home" className="btn-manuale">🏠 Home</Link>
         </div>
       </div>
 
@@ -521,7 +495,7 @@ function SpeseCasa() {
         }
         .title { margin-bottom: 1rem; font-size: 1.5rem; }
         .table-buttons { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-        .btn-vocale, .btn-ocr, .btn-manuale {
+        .btn-ocr, .btn-manuale, .btn-vocale {
           display: inline-block;
           text-align: center;
           background: #10b981;
@@ -533,7 +507,6 @@ function SpeseCasa() {
           text-decoration: none;
         }
         .btn-ocr { background: #f43f5e; }
-        .btn-vocale[disabled] { opacity: 0.6; cursor: not-allowed; }
         .input-section {
           display: flex;
           flex-direction: column;
