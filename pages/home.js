@@ -223,6 +223,29 @@ function looksLikeSommelierIntent(text='') {
 function normalizeQueryForUI(q) {
   return q?.trim() || 'Consigliami il migliore in base al mio gusto';
 }
+function LoadingOverlay({ open, message }) {
+  if (!open) return null;
+  return (
+    <div style={LO.overlay} aria-live="polite" aria-busy="true">
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        style={LO.video}
+      >
+        {/* usa un tuo video; fallback a quello che già hai in repo */}
+        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
+      </video>
+      <div style={LO.scrim} />
+      <div style={LO.box}>
+        <div style={LO.caption}>{message || 'Elaborazione in corso…'}</div>
+      </div>
+    </div>
+  );
+}
+
 
 /* ================= Chat Modal ================= */
 function ChatModal({ open, onClose, onSend, messages, busy }) {
@@ -410,6 +433,11 @@ const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Loader video a schermo intero
+const [loading, setLoading] = useState(false);
+const [loadingMsg, setLoadingMsg] = useState('Elaboro lo scontrino…');
+
 
   // Chat
   const [chatOpen, setChatOpen] = useState(false);
@@ -632,200 +660,290 @@ async function doOCR_Receipt(payload) {
                 : 'bin';
       return new File([blob], name.endsWith(ext) ? name : `${name}.${ext}`, { type: blob.type || 'application/octet-stream' });
     } catch { return null; }
-  }
+    async function runFullIngestOnHome(itemsNorm, meta) {
+  const results = { finanze:null, spese:null, scorte:null, errors:[] };
 
-  /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
-  async function handleSmartOCR(files) {
-    const wantSommelier =
-      lastUserIntentRef.current.sommelier ||
-      looksLikeSommelierIntent(queryText);
-
-    setChatOpen(true);
-
+  // assicura user id
+  let uidLocal = uid;
+  if (!uidLocal) {
     try {
-      setBusy(true);
-
-      const texts = [];
-      const receipts = [];
-      const labels = [];
-      const lists = [];
-
-      // 1) OCR ogni file con fallback automatico
-      for (const f of files) {
-        const n = await fetchOcrUnified(f);
-        if (n.text) texts.push(n.text);
-        const guess = n.kind || classifyOcrText(n.text || '');
-        if (guess === 'receipt') receipts.push(n);
-        else if (guess === 'wine_label') labels.push(n);
-        else if (guess === 'wine_list') lists.push(n);
-      }
-
-      // 2) Routing
-
-      // Carta vini / intento Sommelier
-      if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
-        const joined = (lists.length ? lists.map(x=>x.text||'').join('\n---\n') : texts.join('\n---\n')).trim();
-        if (!joined) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'❌ OCR: nessun testo riconosciuto dalla carta.' }]);
-          return;
-        }
-        wineListsRef.current.push(joined);
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'📄 Carta vini acquisita. Avvio il Sommelier…' }]);
-        const q = lastUserIntentRef.current.text || queryText || '';
-        const result = await runSommelierFromHome(q);
-        const txt = renderSommelierInChat(result);
-        const msg = { role:'assistant', text: txt, mono: true };
-        setChatMsgs(arr => [...arr, msg]);
-        maybeSpeakMessage(msg);
-        return;
-      }
-
-      // Etichette vino
-      if (labels.length) {
-        if (!uid) {
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
-        } else {
-          for (const L of labels) {
-            try {
-              await postJSON('/api/vini/ingest', {
-                user_id: uid,
-                wine: L?.wine || null,
-                text: L?.text || ''
-              });
-            } catch(e) {
-              setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
-            }
-          }
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
-        }
-        return;
-      }
-
-// Scontrino/i
-if (receipts.length || texts.length) {
-  // --- Combina meta + righe ---
-  const allPurchases = [];
-  const meta = { store:'', purchaseDate:'', totalPaid:0, currency:'EUR' };
-
-  for (const R of receipts) {
-    const items = Array.isArray(R?.purchases) ? R.purchases : [];
-    allPurchases.push(...items);
-    if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
-    if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
-    if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
-    if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
+      const mod = await import('@/lib/supabaseClient').catch(()=>null);
+      const supabase = mod?.supabase;
+      const { data:{ user } } = await supabase.auth.getUser();
+      uidLocal = user?.id || null;
+    } catch {}
   }
-
-  // --- Fallback DATA (se meta vuota) ---
-  const isoFromMeta  = toISODate(meta.purchaseDate);
-  const isoFromOCR   = pickDateFromTexts(texts);
-  const isoToday     = new Date().toISOString().slice(0,10);
-  meta.purchaseDate  = isoFromMeta || isoFromOCR || isoToday;
-
-  // --- Normalizza righe ---
-  const itemsNorm = (allPurchases || []).map(p => ({
-    name: String(p.name||'').trim(),
-    brand: String(p.brand||'').trim(),
-    packs: Number(p.packs || 0),
-    unitsPerPack: Number(p.unitsPerPack || 0),
-    unitLabel: String(p.unitLabel || ''),
-    priceEach: Number(p.priceEach || 0),
-    priceTotal: Number(p.priceTotal || 0),
-    currency: String(p.currency || 'EUR'),
-    expiresAt: String(p.expiresAt || '')
-  })).filter(p => p.name);
-
-  // Se niente righe → esci pulito
-  if (!itemsNorm.length) {
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
+  if (!uidLocal) {
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese/Scorte.' }]);
     return;
   }
 
-  // Bucket + supermercato?
-  const bucket = guessExpenseBucket(meta.store);
-  const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+  try {
+    setLoadingMsg('Inserisco in Finanze…');
+    setLoading(true);
 
-  // --- a) FINANZE ---
-  if (!uid) {
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
-  } else {
+    // Finanze
     try {
-      const payloadFin = {
-        user_id: uid,
+      await postJSON('/api/finances/ingest', {
+        user_id: uidLocal,
         store: meta.store,
-        purchaseDate: meta.purchaseDate,       // ISO garantito
-        payment_method: 'cash',
-        card_label: null,
+        purchaseDate: meta.purchaseDate,
+        payment_method:'cash',
+        card_label:null,
         items: itemsNorm
-      };
-      console.log('[FINANCES payload]', payloadFin);
-      await postJSON('/api/finances/ingest', payloadFin);
-      // refresh Finanze
+      });
+      results.finanze = itemsNorm.length;
+      // opzionale: notifica le viste Finanze
       if (typeof window !== 'undefined') {
         const stamp = Date.now();
         localStorage.setItem('__finanze_last_ingest', String(stamp));
-        window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+        window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail:{ count: itemsNorm.length, store: meta.store, stamp } }));
       }
-      setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
-    } catch (e) {
-      setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Finanze: ${e.message}` }]);
-    }
+    } catch (e) { results.errors.push(`Finanze: ${e.message}`); }
 
-    // --- b) SPESE CASA / CENE & APERITIVI ---
+    // Spese Casa / Cene & Aperitivi
+    const bucket = guessExpenseBucket(meta.store);
+    setLoadingMsg(bucket === 'cene-aperitivi' ? 'Inserisco Cene & Aperitivi…' : 'Inserisco Spese Casa…');
     try {
       const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-      const payloadSpese = {
-        user_id: uid,
+      await postJSON(endpoint, {
+        user_id: uidLocal,
         store: meta.store,
         purchaseDate: meta.purchaseDate,
         totalPaid: meta.totalPaid,
         items: itemsNorm
-      };
-      console.log('[SPESE payload]', endpoint, payloadSpese);
-      await postJSON(endpoint, payloadSpese);
+      });
+      results.spese = itemsNorm.length;
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
       }
-      setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
-    } catch (e) {
-      setChatMsgs(arr => [...arr, { role:'assistant', text:`ℹ️ ${bucket}: ${e.message}` }]);
+    } catch (e) { results.errors.push(`${bucket}: ${e.message}`); }
+
+    // Scorte (solo supermercati)
+    if (isSupermarketStore(meta.store)) {
+      setLoadingMsg('Aggiorno le scorte…');
+      try {
+        await postJSON('/api/stock/apply', { user_id: uidLocal, items: itemsNorm });
+        results.scorte = itemsNorm.length;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsNorm.length, at: Date.now() } }));
+        }
+      } catch (e) { results.errors.push(`Scorte: ${e.message}`); }
     }
+
+  } finally {
+    setLoading(false);
   }
 
-  // --- c) SCORTE (solo supermercato) ---
-  if (storeIsSuper) {
-    try {
-      await updateStockFromReceipt({ files, purchases: itemsNorm, from: 'home' });
-      setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
-    } catch (e) {
-      setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Scorte: ${e?.message || e}` }]);
-    }
+  // Log unico in chat (+ voce)
+  const lines = [];
+  lines.push(`Negozio: ${meta.store || '—'}`);
+  lines.push(`Data: ${meta.purchaseDate || '—'}`);
+  lines.push(results.finanze != null ? `✓ Finanze: ${results.finanze} righe` : `✗ Finanze: non inserite`);
+  const lbl = guessExpenseBucket(meta.store) === 'cene-aperitivi' ? 'Cene & Aperitivi' : 'Spese Casa';
+  lines.push(results.spese != null ? `✓ ${lbl}: ${results.spese} righe` : `✗ ${lbl}: non inserite`);
+  if (isSupermarketStore(meta.store)) {
+    lines.push(results.scorte != null ? `✓ Scorte aggiornate: ${results.scorte} articoli` : `✗ Scorte: non aggiornate`);
   }
+  if (results.errors.length) lines.push('\nNote:\n' + results.errors.map(e => `• ${e}`).join('\n'));
+  const txt = `📋 Operazioni completate\n${lines.join('\n')}`;
 
-  // --- d) riepilogo + voce ---
-  const msg = { role:'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
-  setChatMsgs(arr => [
-    ...arr,
-    msg,
-    { role:'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
-  ]);
-  maybeSpeakMessage(msg);
-  return;
+  setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
+  maybeSpeakMessage({ text: txt });
 }
 
-
-      // Tipo non riconosciuto
-      setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
-
-    } catch (err) {
-      console.error('[OCR flow] error', err, err?.stack);
-      setChatMsgs(arr => [...arr, { role:'assistant', text:`❌ Errore OCR: ${err?.message || err}` }]);
-    } finally {
-      setBusy(false);
-      // opzionale: disattiva auto-voice dopo OCR
-      // speakModeRef.current = false;
-    }
   }
+
+  /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
+  async function handleSmartOCR(files) {
+  const wantSommelier =
+    lastUserIntentRef.current.sommelier ||
+    looksLikeSommelierIntent(queryText);
+
+  setChatOpen(true);
+
+  try {
+    setBusy(true);
+
+    const texts = [];
+    const receipts = [];
+    const labels = [];
+    const lists = [];
+
+    // 1) OCR ogni file con fallback automatico
+    for (const f of files) {
+      const n = await fetchOcrUnified(f);
+      if (n?.text) texts.push(n.text);
+      const guess = n?.kind || classifyOcrText(n?.text || '');
+      if (guess === 'receipt') receipts.push(n);
+      else if (guess === 'wine_label') labels.push(n);
+      else if (guess === 'wine_list') lists.push(n);
+    }
+
+    // 2) Routing
+
+    // Carta vini / intento Sommelier
+    if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
+      const joined = (lists.length ? lists.map(x => x.text || '').join('\n---\n') : texts.join('\n---\n')).trim();
+      if (!joined) {
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+        return;
+      }
+      wineListsRef.current.push(joined);
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta vini acquisita. Avvio il Sommelier…' }]);
+      const q = lastUserIntentRef.current.text || queryText || '';
+      const result = await runSommelierFromHome(q);
+      const txt = renderSommelierInChat(result);
+      const msg = { role: 'assistant', text: txt, mono: true };
+      setChatMsgs(arr => [...arr, msg]);
+      maybeSpeakMessage(msg);
+      return;
+    }
+
+    // Etichette vino
+    if (labels.length) {
+      if (!uid) {
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
+      } else {
+        for (const L of labels) {
+          try {
+            await postJSON('/api/vini/ingest', {
+              user_id: uid,
+              wine: L?.wine || null,
+              text: L?.text || ''
+            });
+          } catch (e) {
+            setChatMsgs(arr => [...arr, { role: 'assistant', text: `⚠️ Vini: ${e.message}` }]);
+          }
+        }
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: '🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
+      }
+      return;
+    }
+
+    // Scontrino/i
+    if (receipts.length || texts.length) {
+      // --- Combina meta + righe ---
+      const allPurchases = [];
+      const meta = { store: '', purchaseDate: '', totalPaid: 0, currency: 'EUR' };
+
+      for (const R of receipts) {
+        const items = Array.isArray(R?.purchases) ? R.purchases : [];
+        allPurchases.push(...items);
+        if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
+        if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
+        if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
+        if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
+      }
+
+      // --- Fallback DATA (se meta vuota) ---
+      const isoFromMeta = toISODate(meta.purchaseDate);
+      const isoFromOCR  = pickDateFromTexts(texts);
+      const isoToday    = new Date().toISOString().slice(0, 10);
+      meta.purchaseDate = isoFromMeta || isoFromOCR || isoToday;
+
+      // --- Normalizza righe ---
+      const itemsNorm = (allPurchases || []).map(p => ({
+        name: String(p.name || '').trim(),
+        brand: String(p.brand || '').trim(),
+        packs: Number(p.packs || 0),
+        unitsPerPack: Number(p.unitsPerPack || 0),
+        unitLabel: String(p.unitLabel || ''),
+        priceEach: Number(p.priceEach || 0),
+        priceTotal: Number(p.priceTotal || 0),
+        currency: String(p.currency || 'EUR'),
+        expiresAt: String(p.expiresAt || '')
+      })).filter(p => p.name);
+
+      // Se niente righe → esci pulito
+      if (!itemsNorm.length) {
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
+        return;
+      }
+
+      // Bucket + supermercato?
+      const bucket = guessExpenseBucket(meta.store);
+      const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+
+      // --- a) FINANZE ---
+      if (!uid) {
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Finanze/Spese.' }]);
+      } else {
+        try {
+          const payloadFin = {
+            user_id: uid,
+            store: meta.store,
+            purchaseDate: meta.purchaseDate, // ISO garantito
+            payment_method: 'cash',
+            card_label: null,
+            items: itemsNorm
+          };
+          console.log('[FINANCES payload]', payloadFin);
+          await postJSON('/api/finances/ingest', payloadFin);
+          if (typeof window !== 'undefined') {
+            const stamp = Date.now();
+            localStorage.setItem('__finanze_last_ingest', String(stamp));
+            window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsNorm.length, store: meta.store, stamp } }));
+          }
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: '💾 Finanze: inserimento completato ✓' }]);
+        } catch (e) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: `⚠️ Finanze: ${e.message}` }]);
+        }
+
+        // --- b) SPESE CASA / CENE & APERITIVI ---
+        try {
+          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+          const payloadSpese = {
+            user_id: uid,
+            store: meta.store,
+            purchaseDate: meta.purchaseDate,
+            totalPaid: meta.totalPaid,
+            items: itemsNorm
+          };
+          console.log('[SPESE payload]', endpoint, payloadSpese);
+          await postJSON(endpoint, payloadSpese);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail: { bucket, count: itemsNorm.length } }));
+          }
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: `💾 ${bucket}: inserimento completato ✓` }]);
+        } catch (e) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: `ℹ️ ${bucket}: ${e.message}` }]);
+        }
+      }
+
+      // --- c) SCORTE (solo supermercato) ---
+      if (storeIsSuper) {
+        try {
+          await updateStockFromReceipt({ files, purchases: itemsNorm, from: 'home' });
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: '📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
+        } catch (e) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: `⚠️ Scorte: ${e?.message || e}` }]);
+        }
+      }
+
+      // --- d) riepilogo + voce ---
+      const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsNorm }), mono: true };
+      setChatMsgs(arr => [
+        ...arr,
+        msg,
+        { role: 'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
+      ]);
+      maybeSpeakMessage(msg);
+      return;
+    }
+
+    // Tipo non riconosciuto
+    setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
+
+  } catch (err) {
+    console.error('[OCR flow] error', err, err?.stack);
+    setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
+  } finally {
+    setBusy(false);
+    // speakModeRef.current = false; // opzionale: disattiva auto-voice dopo OCR
+  }
+}
+
 
   /* =================== Query testo (anche da Siri) =================== */
   async function submitQuery(textParam) {
@@ -1076,6 +1194,9 @@ if (receipts.length || texts.length) {
         busy={busy}
       />
 
+      <LoadingOverlay open={loading} message={loadingMsg} />
+
+
       {/* CSS globale */}
       <style jsx global>{`
         .bg-video {
@@ -1166,6 +1287,13 @@ const S = {
   inputRow:{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,.16)', background:'rgba(0,0,0,.35)' },
   input:{ width:'100%', background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.2)', borderRadius:10, padding:'10px 12px', color:'#fff', outline:'none' },
   btnPrimary:{ background:'#6366f1', border:0, borderRadius:10, padding:'10px 12px', color:'#fff', cursor:'pointer' },
+};
+const LO = {
+  overlay:{ position:'fixed', inset:0, zIndex:10000, display:'grid', placeItems:'center' },
+  video:{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' },
+  scrim:{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.65))' },
+  box:{ position:'relative', zIndex:2, padding:'12px 16px', borderRadius:14, background:'rgba(0,0,0,.45)', border:'1px solid rgba(255,255,255,.15)', boxShadow:'0 12px 30px rgba(0,0,0,.45)' },
+  caption:{ color:'#fff', fontWeight:800, letterSpacing:.2, textShadow:'0 2px 6px rgba(0,0,0,.45)' }
 };
 
 export default withAuth(Home);
