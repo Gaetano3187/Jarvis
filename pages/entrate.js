@@ -10,17 +10,23 @@ const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';
 
 /* --------------------------- helpers --------------------------- */
 function isoLocal(date) {
-  const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate();
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
   const pad = (n) => String(n).padStart(2, '0');
   return `${y}-${pad(m)}-${pad(d)}`;
 }
 function computeCurrentPayPeriod(today, paydayDay) {
-  const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  const d = today.getDate();
   const thisPayday = new Date(y, m, paydayDay);
   let start, end;
   if (d >= paydayDay) { start = thisPayday; end = new Date(y, m + 1, paydayDay - 1); }
   else { start = new Date(y, m - 1, paydayDay); end = new Date(y, m, paydayDay - 1); }
-  const startDate = isoLocal(start), endDate = isoLocal(end), monthKey = endDate.slice(0,7);
+  const startDate = isoLocal(start);
+  const endDate = isoLocal(end);
+  const monthKey = isoLocal(end).slice(0, 7);
   return { startDate, endDate, monthKey };
 }
 function parseAmountLoose(v) {
@@ -114,6 +120,11 @@ function Entrate() {
   const [pocketTopUp, setPocketTopUp] = useState('');
   const [monthExpenses, setMonthExpenses] = useState(0);
 
+  // toggle “Aggiungi manuale” per ogni sezione
+  const [showAddIncome, setShowAddIncome] = useState(false);
+  const [showAddCarry, setShowAddCarry] = useState(false);
+  const [showAddPocket, setShowAddPocket] = useState(false);
+
   // OCR / VOCE
   const ocrInputRef = useRef(null);
   const mediaRecRef = useRef(null);
@@ -121,7 +132,6 @@ function Entrate() {
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
-  // “Ripulisci” → nascondi in questa pagina le spese cash di VARIE
   const [hideVarieCashAfterClear, setHideVarieCashAfterClear] = useState(false);
 
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
@@ -189,7 +199,7 @@ function Entrate() {
         };
       });
 
-      // Spese (jarvis_finances) — raggruppa per store+location+data
+      // Spese (jarvis_finances) ⇒ raggruppa per store+location+data e crea UNA riga cliccabile
       const { data: finAll, error: finAllErr } = await supabase
         .from('jarvis_finances')
         .select('id, store, location, name, price_total, purchase_date, payment_method, created_at')
@@ -218,6 +228,7 @@ function Entrate() {
 
       const finCash = (finAll || []).filter(isCashByFields);
 
+      // grouping
       const groups = new Map(); // key: store|location|date
       for (const f of finCash) {
         const dateISO = f.purchase_date || (f.created_at || '').slice(0,10);
@@ -283,6 +294,7 @@ function Entrate() {
     return JSON.parse(answer);
   }
 
+  // — pocket quick
   async function insertPocketQuick({ amount, date, delta, note }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
@@ -472,82 +484,97 @@ function Entrate() {
           </div>
 
           {/* 1) Entrate del periodo */}
-          <h3>1) Entrate del periodo</h3>
-          <form className="input-section" onSubmit={handleAddIncome}>
-            <input value={newIncome.source} onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })} placeholder="Fonte" required />
-            <input value={newIncome.description} onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })} placeholder="Descrizione" required />
-            <input type="date" value={newIncome.receivedAt} onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })} required />
-            <input type="text" inputMode="decimal" value={newIncome.amount} onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })} placeholder="Importo €" required />
-            <button className="btn">Aggiungi</button>
-          </form>
+          <div className="section-head">
+            <h3>1) Entrate del periodo</h3>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowAddIncome(v => !v)}
+              aria-expanded={showAddIncome}
+            >{showAddIncome ? '✖ Chiudi' : '➕ Aggiungi manuale'}</button>
+          </div>
 
-          {loading ? <p>Caricamento…</p> : (
-            <table className="table">
-              <thead><tr><th>Fonte</th><th>Descrizione</th><th>Data</th><th>Importo €</th><th></th></tr></thead>
-              <tbody>
-                {incomes.map((i) => (
-                  <tr key={i.id}>
-                    <td>{i.source || '-'}</td>
-                    <td>{i.description}</td>
-                    <td>{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : (i.received_date ? formatIT(i.received_date) : '-')}</td>
-                    <td>{Number(i.amount).toFixed(2)}</td>
-                    <td><button className="btn btn-outline-danger" onClick={() => handleDeleteIncome(i.id)}>Elimina</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {showAddIncome && (
+            <form className="input-section" onSubmit={handleAddIncome}>
+              <input value={newIncome.source} onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })} placeholder="Fonte" required />
+              <input value={newIncome.description} onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })} placeholder="Descrizione" required />
+              <input type="date" value={newIncome.receivedAt} onChange={(e) => setNewIncome({ ...newIncome, receivedAt: e.target.value })} required />
+              <input type="text" inputMode="decimal" value={newIncome.amount} onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })} placeholder="Importo €" required />
+              <button className="btn">Aggiungi</button>
+            </form>
           )}
 
           {/* 2) Carryover */}
-          <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
-          <form className="input-section" onSubmit={handleSaveCarryover}>
-            <input type="number" step="0.01" value={newCarry.amount}
-                   onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
-                   placeholder={`Importo € per ${monthKey}`} required />
-            <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
-            <button className="btn">{carryover ? 'Aggiorna' : 'Salva'}</button>
-          </form>
+          <div className="section-head">
+            <h3>2) Rimanenze / Perdite mesi precedenti</h3>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowAddCarry(v => !v)}
+              aria-expanded={showAddCarry}
+            >{showAddCarry ? '✖ Chiudi' : '➕ Aggiungi manuale'}</button>
+          </div>
+
+          {showAddCarry && (
+            <form className="input-section" onSubmit={handleSaveCarryover}>
+              <input type="number" step="0.01" value={newCarry.amount}
+                     onChange={(e) => setNewCarry({ ...newCarry, amount: e.target.value })}
+                     placeholder={`Importo € per ${monthKey}`} required />
+              <input value={newCarry.note} onChange={(e) => setNewCarry({ ...newCarry, note: e.target.value })} placeholder="Nota (opzionale)" />
+              <button className="btn">{carryover ? 'Aggiorna' : 'Salva'}</button>
+            </form>
+          )}
 
           {carryover && (
-            <table className="table">
-              <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
-              <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
-            </table>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Mese</th><th>Importo €</th><th>Nota</th></tr></thead>
+                <tbody><tr><td>{carryover.month_key}</td><td>{Number(carryover.amount).toFixed(2)}</td><td>{carryover.note || '-'}</td></tr></tbody>
+              </table>
+            </div>
           )}
 
           {/* 3) Soldi in tasca — TOPUP / CLEAR */}
-          <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
-          <form className="input-section" onSubmit={handleTopUpPocket}>
-            <input type="text" inputMode="decimal" value={pocketTopUp}
-                   onChange={(e) => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required />
-            <div style={{ display:'flex', gap:8 }}>
-              <button className="btn">+ Aggiungi</button>
-              <button type="button" className="btn btn-danger" onClick={handleClearPocket}>Ripulisci</button>
-            </div>
-            {hideVarieCashAfterClear && (
-              <p style={{ opacity: 0.85, marginTop: '.5rem' }}>
-                Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
-              </p>
-            )}
-          </form>
+          <div className="section-head">
+            <h3>3) Soldi in tasca</h3>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowAddPocket(v => !v)}
+              aria-expanded={showAddPocket}
+            >{showAddPocket ? '✖ Chiudi' : '➕ Aggiungi manuale'}</button>
+          </div>
+
+          {showAddPocket && (
+            <form className="input-section" onSubmit={handleTopUpPocket}>
+              <input type="text" inputMode="decimal" value={pocketTopUp}
+                     onChange={(e) => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required />
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn">+ Aggiungi</button>
+                <button type="button" className="btn btn-danger" onClick={handleClearPocket}>Ripulisci</button>
+              </div>
+              {hideVarieCashAfterClear && (
+                <p className="note">
+                  Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
+                </p>
+              )}
+            </form>
+          )}
 
           {/* Lista manuale + spese cash raggruppate con link */}
-          {loading ? <p>Caricamento…</p> : (
-            <table className="table">
-              <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign:'right' }}>Importo €</th></tr></thead>
-              <tbody>
-                {pocketRows.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
-                    <td>
-                      {m.route ? <Link href={m.route} className="row-link">{m.label}</Link> : <span>{m.label}</span>}
-                    </td>
-                    <td style={{ textAlign:'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <div className="table-wrap">
+            {loading ? <p>Caricamento…</p> : (
+              <table className="table">
+                <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign:'right' }}>Importo €</th></tr></thead>
+                <tbody>
+                  {pocketRows.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                      <td>{m.route ? <Link href={m.route} className="row-link">{m.label}</Link> : <span>{m.label}</span>}</td>
+                      <td style={{ textAlign:'right' }}>{m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
 
           {error && <p className="error">{error}</p>}
 
@@ -556,26 +583,31 @@ function Entrate() {
       </div>
 
       <style jsx global>{`
-        .shell { min-height:100vh; display:grid; place-items:center; background:#0f172a; padding:2rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-        .card { width:min(1100px,96vw); background:rgba(0,0,0,.6); border-radius:1rem; color:#fff; padding:1.25rem 1.25rem 1.5rem; box-shadow:0 6px 16px rgba(0,0,0,.3); }
+        /* layout full width senza tagli */
+        .shell { min-height:100vh; display:grid; place-items:start center; background:#0f172a; padding:2rem 1rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+        .card { width:min(1400px, 98vw); background:rgba(0,0,0,.65); border-radius:16px; color:#fff; padding:1.25rem 1.25rem 1.5rem; box-shadow:0 8px 22px rgba(0,0,0,.35); }
+        .table-wrap { overflow:auto; border-radius:10px; }
         .title-row { display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin-bottom:.25rem; }
         .title { margin:0; font-size:1.5rem; }
-        .title-actions { display:flex; gap:.5rem; }
-        .btn { background:#6366f1; border:0; padding:.45rem .7rem; border-radius:.55rem; cursor:pointer; color:#fff; }
-        .btn-voice { background:#6366f1; } .btn-ocr { background:#06b6d4; } .btn-danger { background:#ef4444; } .btn-outline-danger{ background:transparent; color:#ef4444; border:1px solid #ef4444; padding:.35rem .55rem; border-radius:.45rem; cursor:pointer; }
-        .periodo-row { display:flex; gap:.4rem; align-items:center; margin:.25rem 0 .6rem; font-size:.95rem; opacity:.9; }
-        .total-box { background:rgba(255,255,255,.06); padding:1rem; border-radius:.75rem; margin-bottom:.8rem; }
+        .title-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+        .btn { background:#6366f1; border:0; padding:.48rem .72rem; border-radius:.6rem; cursor:pointer; color:#fff; }
+        .btn-voice { background:#6366f1; } .btn-ocr { background:#06b6d4; } .btn-danger { background:#ef4444; }
+        .btn-ghost { background:transparent; border:1px solid rgba(255,255,255,.25); color:#e5e7eb; }
+        .periodo-row { display:flex; gap:.4rem; align-items:center; margin:.25rem 0 .8rem; font-size:.95rem; opacity:.9; }
+        .total-box { background:rgba(255,255,255,.06); padding:1rem; border-radius:.9rem; margin-bottom:.9rem; }
         .metric { font-size:1.6rem; font-weight:800; line-height:1.1; }
         .metric-sub { font-size:1rem; opacity:.85; }
         .metric--saldo { color:#22c55e; } .metric--pocket { color:#06b6d4; }
-        .input-section { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin:.5rem 0; }
-        input, textarea { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.15); color:#fff; padding:.45rem; border-radius:.55rem; }
+        .section-head { display:flex; justify-content:space-between; align-items:center; margin-top:.6rem; }
+        .input-section { display:flex; flex-wrap:wrap; gap:.6rem; margin:.55rem 0 1rem; align-items:center; }
+        input, textarea { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); color:#fff; padding:.55rem .65rem; border-radius:.6rem; flex:1; min-width:180px; }
         textarea { width:100%; min-height:4rem; }
         .table { width:100%; border-collapse:collapse; margin-top:.5rem; }
-        .table th, .table td { border-bottom:1px solid rgba(255,255,255,.12); padding:.55rem; text-align:left; }
+        .table th, .table td { border-bottom:1px solid rgba(255,255,255,.12); padding:.6rem .7rem; text-align:left; }
         .row-link { color:#c7d2fe; text-decoration:underline; }
         .row-link:hover { opacity:.9; }
         .error { color:#f87171; margin-top:1rem; }
+        .note { opacity:.85; margin-top:.5rem; }
       `}</style>
     </>
   );
