@@ -21,27 +21,20 @@ export default async function handler(req, res) {
   }
 
   const id = body?.id;
-  const user_id = String(body?.user_id || '').trim();
-  if (!id || !user_id) {
-    return res.status(400).json({ error: 'id and user_id are required' });
-  }
+  // user_id facoltativo con SRK; lo uso solo se lo fornisci
+  const user_id = body?.user_id ? String(body.user_id).trim() : null;
+  if (!id) return res.status(400).json({ error: 'id is required' });
 
   const supabase = createClient(SURL, SKEY, { auth: { persistSession: false } });
 
-  // DELETE con count reale (v2: serve .select(..., { count:'exact' }))
-  const { error: delErr, count } = await supabase
-    .from('jarvis_spese_casa')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user_id)
-    .select('id', { count: 'exact' });
+  let q = supabase.from('jarvis_spese_casa').delete().eq('id', id);
+  if (user_id) q = q.eq('user_id', user_id);
+
+  // v2: per avere il count devi fare .select(..., { count: 'exact' })
+  const { error: delErr, count } = await q.select('id', { count: 'exact' });
 
   if (delErr) {
-    return res.status(500).json({ error: 'DELETE_FAILED', message: delErr.message });
+    return res.status(500).json({ ok: false, error: 'DELETE_FAILED', message: delErr.message });
   }
-  if (!count) {
-    return res.status(200).json({ ok: true, deleted: 0, note: 'No rows matched (check RLS or ID)' });
-  }
-
-  return res.status(200).json({ ok: true, deleted: count });
+  return res.status(200).json({ ok: true, deleted: count || 0 });
 }
