@@ -10,31 +10,58 @@ export default async function handler(req, res) {
   const SURL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SKEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SURL || !SKEY) {
-    return res.status(500).json({ error: 'SERVICE_ROLE_KEY missing' });
+    return res.status(500).json({ ok: false, error: 'SERVICE_ROLE_MISSING', message: 'Configure SUPABASE_SERVICE_ROLE_KEY & NEXT_PUBLIC_SUPABASE_URL' });
   }
 
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
   } catch {
-    return res.status(400).json({ error: 'Invalid JSON body' });
+    return res.status(400).json({ ok: false, error: 'BAD_JSON', message: 'Invalid JSON body' });
   }
 
-  const id = body?.id;
-  // user_id facoltativo con SRK; lo uso solo se lo fornisci
-  const user_id = body?.user_id ? String(body.user_id).trim() : null;
-  if (!id) return res.status(400).json({ error: 'id is required' });
+  const idRaw = body?.id;
+  if (!idRaw) return res.status(400).json({ ok: false, error: 'MISSING_ID', message: 'id is required' });
 
   const supabase = createClient(SURL, SKEY, { auth: { persistSession: false } });
 
-  let q = supabase.from('jarvis_spese_casa').delete().eq('id', id);
-  if (user_id) q = q.eq('user_id', user_id);
+  // 1) Trova la riga (gestione tipo id string/number)
+  let row = null;
+  let sel = await supabase
+    .from('jarvis_spese_casa')
+    .select('id')
+    .eq('id', idRaw)
+    .maybeSingle();
 
-  // v2: per avere il count devi fare .select(..., { count: 'exact' })
-  const { error: delErr, count } = await q.select('id', { count: 'exact' });
+  if (!sel.error && sel.data) row = sel.data;
 
-  if (delErr) {
-    return res.status(500).json({ ok: false, error: 'DELETE_FAILED', message: delErr.message });
+  if (!row && /^[0-9]+$/.test(String(idRaw))) {
+    // prova come numero (es. bigserial)
+    sel = await supabase
+      .from('jarvis_spese_casa')
+      .select('id')
+      .eq('id', Number(idRaw))
+      .maybeSingle();
+    if (!sel.error && sel.data) row = sel.data;
   }
-  return res.status(200).json({ ok: true, deleted: count || 0 });
+
+  if (sel.error) {
+    return res.status(500).json({ ok: false, error: 'SELECT_FAILED', message: sel.error.message });
+  }
+  if (!row) {
+    return res.status(404).json({ ok: false, error: 'NOT_FOUND', message: 'Row not found for given id' });
+  }
+
+  // 2) Cancella (v2: per avere count usa .select(..., { count:'exact' }))
+  const del = await supabase
+    .from('jarvis_spese_casa')
+    .delete()
+    .eq('id', row.id)
+    .select('id', { count: 'exact' });
+
+  if (del.error) {
+    return res.status(500).json({ ok: false, error: 'DELETE_FAILED', message: del.error.message });
+  }
+
+  return res.status(200).json({ ok: true, deleted: del.count || 0 });
 }

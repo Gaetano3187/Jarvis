@@ -155,37 +155,37 @@ function SpeseCasa() {
     } catch (e) { setError(e?.message || String(e)) }
   }
 
-  // DELETE via endpoint service-role (bypassa RLS lato client)
-  const handleDelete = async (id) => {
-    setError(null)
-    setDeletingId(id)
+  // DELETE via endpoint service-role (bypassa RLS)
+const handleDelete = async (id) => {
+  setError(null);
+  setDeletingId(id);
 
-    // 1) rimuovi SUBITO dalla UI (ottimistico)
-    setSpese(prev => prev.filter(r => r.id !== id))
+  // 1) Rimozione ottimistica dalla UI
+  setSpese(prev => prev.filter(r => r.id !== id));
 
-    try {
-      const { data:{ user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Sessione scaduta')
+  try {
+    const { data:{ user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
 
-      const r = await fetch('/api/spese-casa/delete', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ id, user_id: user.id })
-      })
-      const j = await r.json().catch(()=> ({}))
+    const r = await fetch('/api/spese-casa/delete', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id })   // non serve più user_id
+    });
+    const j = await r.json().catch(()=> ({}));
 
-      if (!r.ok || !j?.ok || !(j.deleted > 0)) {
-        // ripristina UI e mostra errore reale
-        await fetchSpese()
-        throw new Error(j?.message || j?.error || 'Delete failed')
-      }
-      // ok: niente altro, la UI è già aggiornata
-    } catch (e) {
-      setError(e?.message || String(e))
-    } finally {
-      setDeletingId(null)
+    if (!r.ok || !j?.ok || !(j.deleted > 0)) {
+      // fallback: ripristina dal DB e mostra messaggio vero
+      await fetchSpese();
+      throw new Error(j?.message || j?.error || 'Delete failed');
     }
+    // ok: non serve altro, la UI è già aggiornata
+  } catch (e) {
+    setError(e?.message || String(e));
+  } finally {
+    setDeletingId(null);
   }
+};
 
   const handleOCR = async files => {
     setError(null)
