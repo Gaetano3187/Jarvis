@@ -80,16 +80,8 @@ const CLOUD_SYNC = true;                       // lascia true: prova a sincroniz
 const CLOUD_TABLE = 'jarvis_liste_state';      // { user_id text, state jsonb, updated_at timestamptz default now() }
 let __supabase = null;
 
-async function saveCloudNow(state) {
-  try {
-    if (!CLOUD_SYNC || !__supabase || !userIdRef.current) return;
-    const payload = { user_id: userIdRef.current, state: stripForCloud(state) };
-    await __supabase
-      .from(CLOUD_TABLE)
-      .upsert(payload, { onConflict: 'user_id' }); // write-through immediato
-  } catch (e) {
-    console.warn('[cloud upsert now] fail', e);
-  }
+
+
   // === Refresh scorte dal cloud quando arriva l’evento "scorte:updated"
 useEffect(() => {
   const refetchCloudState = async () => {
@@ -124,10 +116,6 @@ useEffect(() => {
   window.addEventListener('scorte:updated', onUpdated);
   return () => window.removeEventListener('scorte:updated', onUpdated);
 }, []);
-
-}
-
-
 
 
 /* ====================== Endpoints esistenti ====================== */
