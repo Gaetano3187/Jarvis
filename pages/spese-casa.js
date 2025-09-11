@@ -82,11 +82,13 @@ function SpeseCasa() {
   const mimeRef = useRef('')
   const stopWaitRef = useRef(null)
 
+  // id riga in cancellazione (UI feedback)
+  const [deletingId, setDeletingId] = useState(null)
+
   // periodo corrente (mese)
   const now = new Date()
   const periodStart = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1))
   const periodEnd   = isoLocal(new Date(now.getFullYear(), now.getMonth()+1, 0))
-const [deletingId, setDeletingId] = useState(null);  // id riga che sto cancellando
 
   // ----------------------------- API: carica righe da jarvis_spese_casa
   const fetchSpese = useCallback(async () => {
@@ -210,34 +212,32 @@ const [deletingId, setDeletingId] = useState(null);  // id riga che sto cancella
   }
 
   // ----------------------------- Elimina (robusto, Supabase v2 compat)
-const handleDelete = async (id) => {
-  setError(null);
-  setDeletingId(id);
-  try {
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!user) throw new Error('Sessione scaduta');
+  const handleDelete = async (id) => {
+    setError(null);
+    setDeletingId(id);
+    try {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
 
-    // NB: in v2 per ottenere 'count' su DELETE serve .select(..., { count:'exact' })
-    const { error: delErr, count } = await supabase
-      .from('jarvis_spese_casa')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .select('id', { count: 'exact' });   // <-- chiave: ritorna conteggio reale
+      // NB: in v2 per ottenere 'count' su DELETE serve .select(..., { count:'exact' })
+      const { error: delErr, count } = await supabase
+        .from('jarvis_spese_casa')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select('id', { count: 'exact' });   // <-- chiave: ritorna conteggio reale
 
-    if (delErr) throw delErr;
-    if (!count) throw new Error('Nessuna riga cancellata (verifica policy RLS)');
+      if (delErr) throw delErr;
+      if (!count) throw new Error('Nessuna riga cancellata (verifica policy RLS)');
 
-    await fetchSpese();                     // ricarica dal DB (evita ricomparse)
-  } catch (e) {
-    setError(e?.message || String(e));
-  } finally {
-    setDeletingId(null);
-  }
-};
-
-
+      await fetchSpese();                     // ricarica dal DB (evita ricomparse)
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // ----------------------------- OCR
   const handleOCR = async files => {
@@ -477,7 +477,21 @@ const handleDelete = async (id) => {
                       <td>{fmtDateIT(r.purchase_date || r.created_at)}</td>
                       <td>{r.packs ?? 1}</td>
                       <td>{Number(r.price_total || 0).toFixed(2)}</td>
-                      <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
+                      <td>
+                        <button
+                          type="button"
+                          className="icon-trash"
+                          title="Elimina"
+                          disabled={deletingId === r.id || loading}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDelete(r.id);
+                          }}
+                        >
+                          {deletingId === r.id ? '…' : '🗑'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -556,6 +570,18 @@ const handleDelete = async (id) => {
           font-weight: 600;
         }
         .error { color: #f87171; margin-top: 1rem; }
+
+        /* cestino */
+        .icon-trash {
+          background: transparent;
+          border: 1px solid rgba(239, 68, 68, .55);
+          color: #f87171;
+          padding: .35rem .55rem;
+          border-radius: .5rem;
+          cursor: pointer;
+        }
+        .icon-trash:hover { background: rgba(239, 68, 68, .12); }
+        .icon-trash:disabled { opacity: .55; cursor: not-allowed; }
       `}</style>
     </>
   )
