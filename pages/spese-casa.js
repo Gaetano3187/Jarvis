@@ -153,6 +153,14 @@ function SpeseCasa() {
       setNuovaSpesa({ puntoVendita:'', dettaglio:'', prezzoTotale:'', quantita:'1', spentAt:'', paymentMethod:'cash', cardLabel:'' })
       await fetchSpese()
     } catch (e) { setError(e?.message || String(e)) }
+    useEffect(() => {
+  try {
+    localStorage.removeItem('__ingest_payload');
+    localStorage.removeItem('__ingest_log_draft');
+    localStorage.removeItem('__ingest_log_final');
+  } catch {}
+}, []);
+
   }
 
   // DELETE via endpoint service-role (bypassa RLS)
