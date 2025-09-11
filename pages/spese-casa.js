@@ -86,6 +86,7 @@ function SpeseCasa() {
   const now = new Date()
   const periodStart = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1))
   const periodEnd   = isoLocal(new Date(now.getFullYear(), now.getMonth()+1, 0))
+const [deletingId, setDeletingId] = useState(null);  // id riga che sto cancellando
 
   // ----------------------------- API: carica righe da jarvis_spese_casa
   const fetchSpese = useCallback(async () => {
@@ -208,31 +209,34 @@ function SpeseCasa() {
     }
   }
 
-  // ----------------------------- Elimina (robusto, compatibile Supabase v2)
+  // ----------------------------- Elimina (robusto, Supabase v2 compat)
 const handleDelete = async (id) => {
   setError(null);
+  setDeletingId(id);
   try {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr) throw userErr;
     if (!user) throw new Error('Sessione scaduta');
 
-    // NB: per ottenere 'count' su DELETE serve .select('*', { count:'exact' })
+    // NB: in v2 per ottenere 'count' su DELETE serve .select(..., { count:'exact' })
     const { error: delErr, count } = await supabase
       .from('jarvis_spese_casa')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id)
-      .select('id', { count: 'exact' });      // <<< questa riga è la chiave
+      .select('id', { count: 'exact' });   // <-- chiave: ritorna conteggio reale
 
     if (delErr) throw delErr;
-    if (!count) throw new Error('Nessuna riga cancellata (verifica le policy RLS)');
+    if (!count) throw new Error('Nessuna riga cancellata (verifica policy RLS)');
 
-    // ricarica dal DB (evita ricomparse)
-    await fetchSpese();
+    await fetchSpese();                     // ricarica dal DB (evita ricomparse)
   } catch (e) {
     setError(e?.message || String(e));
+  } finally {
+    setDeletingId(null);
   }
 };
+
 
 
   // ----------------------------- OCR
