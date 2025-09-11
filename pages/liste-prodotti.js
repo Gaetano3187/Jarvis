@@ -90,9 +90,7 @@ async function saveCloudNow(state) {
   } catch (e) {
     console.warn('[cloud upsert now] fail', e);
   }
-}
-
-// === Refresh scorte dal cloud quando arriva l’evento "scorte:updated"
+  // === Refresh scorte dal cloud quando arriva l’evento "scorte:updated"
 useEffect(() => {
   const refetchCloudState = async () => {
     try {
@@ -126,6 +124,11 @@ useEffect(() => {
   window.addEventListener('scorte:updated', onUpdated);
   return () => window.removeEventListener('scorte:updated', onUpdated);
 }, []);
+
+}
+
+
+
 
 /* ====================== Endpoints esistenti ====================== */
 const API_ASSISTANT_TEXT = '/api/assistant';
