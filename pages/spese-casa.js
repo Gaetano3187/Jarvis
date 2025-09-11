@@ -165,31 +165,49 @@ function SpeseCasa() {
 }, []);
 
 
-  // DELETE via endpoint service-role (bypassa RLS)
 const handleDelete = async (id) => {
   setError(null);
   setDeletingId(id);
 
-  // 1) Rimozione ottimistica dalla UI
+  // prendi la riga per ottenere chiave gruppo (prima di rimuoverla)
+  const row = spese.find(r => r.id === id) || null;
+
+  // rimozione ottimistica
   setSpese(prev => prev.filter(r => r.id !== id));
 
   try {
-    const { data:{ user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-
     const r = await fetch('/api/spese-casa/delete', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ id })   // non serve più user_id
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ id })
     });
     const j = await r.json().catch(()=> ({}));
-
     if (!r.ok || !j?.ok || !(j.deleted > 0)) {
-      // fallback: ripristina dal DB e mostra messaggio vero
-      await fetchSpese();
+      await fetchSpese(); // ripristina
       throw new Error(j?.message || j?.error || 'Delete failed');
     }
-    // ok: non serve altro, la UI è già aggiornata
+
+    // ricarica per vedere se era l'ultima riga del gruppo
+    await fetchSpese();
+
+    // se dopo il reload NON esiste più nessuna riga per lo stesso store+data → avvisa “Entrate”
+    if (row) {
+      const stillExists = spese.some(s =>
+        s.id !== id &&
+        String(s.store||'').toLowerCase().trim() === String(row.store||'').toLowerCase().trim() &&
+        String(s.purchase_date||s.created_at||'').slice(0,10) === String(row.purchase_date||row.created_at||'').slice(0,10)
+      );
+      if (!stillExists) {
+        try {
+          window.dispatchEvent(new CustomEvent('spese:casa:changed', {
+            detail: {
+              store: row.store || '',
+              date:  String(row.purchase_date || row.created_at || '').slice(0,10)
+            }
+          }));
+        } catch {}
+      }
+    }
   } catch (e) {
     setError(e?.message || String(e));
   } finally {

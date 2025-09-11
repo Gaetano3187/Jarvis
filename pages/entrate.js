@@ -150,130 +150,166 @@ function Entrate() {
   }, [monthKey, hideVarieCashAfterClear]);
 
   async function loadAll() {
-    setLoading(true); setError(null);
-    try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      if (!user) throw new Error('Sessione scaduta');
+  setLoading(true); setError(null);
+  try {
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!user) throw new Error('Sessione scaduta');
 
-      await ensureCarryoverAuto(user.id, monthKey);
+    await ensureCarryoverAuto(user.id, monthKey);
 
-      // Entrate periodo
-      const { data: inc, error: incErr } = await supabase
-        .from('incomes')
-        .select('id, source, description, amount, received_at, received_date')
-        .eq('user_id', user.id)
-        .or(
-          `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
-          `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
-        )
-        .order('received_at', { ascending: false, nullsFirst: false })
-        .order('received_date', { ascending: false, nullsFirst: false });
-      if (incErr) throw incErr;
-      setIncomes(inc || []);
+    // Entrate periodo
+    const { data: inc, error: incErr } = await supabase
+      .from('incomes')
+      .select('id, source, description, amount, received_at, received_date')
+      .eq('user_id', user.id)
+      .or(
+        `and(received_date.gte.${startDate},received_date.lte.${endDate}),` +
+        `and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`
+      )
+      .order('received_at', { ascending: false, nullsFirst: false })
+      .order('received_date', { ascending: false, nullsFirst: false });
+    if (incErr) throw incErr;
+    setIncomes(inc || []);
 
-      // Carryover mese
-      const { data: co } = await supabase.from('carryovers')
-        .select('id, month_key, amount, note')
-        .eq('user_id', user.id).eq('month_key', monthKey).maybeSingle();
-      setCarryover(co || null);
+    // Carryover mese
+    const { data: co } = await supabase
+      .from('carryovers')
+      .select('id, month_key, amount, note')
+      .eq('user_id', user.id)
+      .eq('month_key', monthKey)
+      .maybeSingle();
+    setCarryover(co || null);
 
-      // Movimenti contanti manuali
-      const { data: pc } = await supabase.from('pocket_cash')
-        .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
-        .eq('user_id', user.id)
-        .gte('moved_date', startDate).lte('moved_date', endDate)
-        .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
+    // Movimenti contanti manuali
+    const { data: pc } = await supabase
+      .from('pocket_cash')
+      .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
+      .eq('user_id', user.id)
+      .gte('moved_date', startDate).lte('moved_date', endDate)
+      .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
 
-      const manualRows = (pc || []).map((row) => {
-        const eff = (row.delta != null)
-          ? Number(row.delta || 0)
-          : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
-        const dateISO = (row.moved_date || (row.moved_at || row.created_at || '').slice(0,10));
-        return {
-          id: `pc-${row.id}`,
-          dateISO,
-          label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-          amount: Number(eff || 0),
-          kind: 'manual',
-        };
-      });
+    const manualRows = (pc || []).map((row) => {
+      const eff = (row.delta != null)
+        ? Number(row.delta || 0)
+        : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
+      const dateISO = (row.moved_date || (row.moved_at || row.created_at || '').slice(0,10));
+      return {
+        id: `pc-${row.id}`,
+        dateISO,
+        label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
+        amount: Number(eff || 0),
+        kind: 'manual',
+      };
+    });
 
-      // Spese (jarvis_finances) ⇒ raggruppa per store+location+data e crea UNA riga cliccabile
-      const { data: finAll, error: finAllErr } = await supabase
-        .from('jarvis_finances')
-        .select('id, store, location, name, price_total, purchase_date, payment_method, created_at')
-        .eq('user_id', user.id)
-        .gte('purchase_date', startDate)
-        .lte('purchase_date', endDate)
-        .order('created_at', { ascending: false });
-      if (finAllErr) throw finAllErr;
+    // --- RIEPILOGO SCONTRINI (jarvis_finances) ---
+    const { data: finAll, error: finAllErr } = await supabase
+      .from('jarvis_finances')
+      .select('id, store, location, name, price_total, purchase_date, payment_method, created_at')
+      .eq('user_id', user.id)
+      .gte('purchase_date', startDate)
+      .lte('purchase_date', endDate)
+      .order('created_at', { ascending: false });
+    if (finAllErr) throw finAllErr;
 
-      function isElectronicByText(desc) {
-        const ELECTRONIC_TOKENS = [
-          'carta','carta di credito','credito','debito','pos',
-          'visa','mastercard','amex','paypal','iban','bonifico',
-          'satispay','apple pay','google pay'
-        ];
-        const t = String(desc || '').toLowerCase();
-        return ELECTRONIC_TOKENS.some(k => t.includes(k));
-      }
-      function isCashByFields(row) {
-        const pm = String(row.payment_method || '').toLowerCase();
-        if (pm === 'cash' || pm === 'contanti') return true;
-        if (pm && pm !== 'cash' && pm !== 'contanti') return false;
-        const desc = `[${row.store || 'Punto vendita'}] ${row.name || ''}`;
-        return !isElectronicByText(desc);
-      }
+    // --- DETTAGLIO PRESENTE? (jarvis_spese_casa) ---
+    const { data: casaHeads, error: casaErr } = await supabase
+      .from('jarvis_spese_casa')
+      .select('store, purchase_date')
+      .eq('user_id', user.id)
+      .gte('purchase_date', startDate)
+      .lte('purchase_date', endDate);
+    if (casaErr) throw casaErr;
 
-      const finCash = (finAll || []).filter(isCashByFields);
+    const existKeys = new Set(
+      (casaHeads || []).map(h =>
+        `${String(h.store||'').toLowerCase().trim()}|${String(h.purchase_date||'')}`
+      )
+    );
 
-      // grouping
-      const groups = new Map(); // key: store|location|date
-      for (const f of finCash) {
-        const dateISO = f.purchase_date || (f.created_at || '').slice(0,10);
-        const k = `${(f.store||'').toLowerCase().trim()}|${(f.location||'').toLowerCase().trim()}|${dateISO}`;
-        if (!groups.has(k)) groups.set(k, { k, storeRaw:f.store||'', locationRaw:f.location||'', dateISO, total:0 });
-        groups.get(k).total += Number(f.price_total||0);
-      }
-
-      let cashRows = Array.from(groups.values()).map(g => {
-        const store = g.storeRaw ? titleize(g.storeRaw) : 'Articoli vari';
-        const loc   = g.locationRaw ? ` (${titleize(g.locationRaw)})` : '';
-        const isRest = isRestaurantBar(g.storeRaw);
-        const kind  = isRest ? 'Cena/Aperitivo' : 'Spesa';
-        const route = isRest ? '/cene-aperitivi' : '/spese-casa';
-        const label = `${kind} ${store}${loc} — € ${g.total.toFixed(2)}`;
-        return {
-          id:`grp-${g.k}`, dateISO:g.dateISO, label, route,
-          amount: -Math.abs(g.total), category_id:null, kind:'cash-expense'
-        };
-      });
-
-      if (hideVarieCashAfterClear) {
-        cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
-      }
-
-      const rows = [...manualRows, ...cashRows]
-        .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
-        .sort((a,b)=> (b.dateISO||'').localeCompare(a.dateISO||''));
-      setPocketRows(rows);
-
-      // Totale spese periodo
-      const { data: exp } = await supabase.from('jarvis_finances')
-        .select('price_total, purchase_date')
-        .eq('user_id', user.id)
-        .gte('purchase_date', startDate)
-        .lte('purchase_date', endDate);
-      const totalExp = (exp||[]).reduce((t,r)=>t+Number(r.price_total||0),0);
-      setMonthExpenses(totalExp);
-
-    } catch (err) {
-      showError(setError, err);
-    } finally {
-      setLoading(false);
+    // cash vs elettronico
+    function isElectronicByText(desc) {
+      const ELECTRONIC_TOKENS = [
+        'carta','carta di credito','credito','debito','pos',
+        'visa','mastercard','amex','paypal','iban','bonifico',
+        'satispay','apple pay','google pay'
+      ];
+      const t = String(desc || '').toLowerCase();
+      return ELECTRONIC_TOKENS.some(k => t.includes(k));
     }
+    function isCashByFields(row) {
+      const pm = String(row.payment_method || '').toLowerCase();
+      if (pm === 'cash' || pm === 'contanti') return true;
+      if (pm && pm !== 'cash' && pm !== 'contanti') return false;
+      const desc = `[${row.store || 'Punto vendita'}] ${row.name || ''}`;
+      return !isElectronicByText(desc);
+    }
+
+    const finCash = (finAll || []).filter(isCashByFields);
+
+    // GROUP BY store + location + date, ma link solo se esiste dettaglio store|date
+    const groups = new Map();
+    for (const f of finCash) {
+      const dateISO  = f.purchase_date || (f.created_at || '').slice(0, 10);
+      const storeRaw = String(f.store || '');
+      const locRaw   = String(f.location || '');
+
+      const existKey = `${storeRaw.toLowerCase().trim()}|${dateISO}`;
+      if (!existKeys.has(existKey)) continue;  // niente dettaglio → niente link
+
+      const groupKey = `${storeRaw.toLowerCase().trim()}|${locRaw.toLowerCase().trim()}|${dateISO}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, { storeRaw, locRaw, dateISO, total: 0 });
+      groups.get(groupKey).total += Number(f.price_total || 0);
+    }
+
+    let cashRows = Array.from(groups.values()).map(g => {
+      const store = g.storeRaw ? titleize(g.storeRaw) : 'Articoli vari';
+      const loc   = g.locRaw ? ` (${titleize(g.locRaw)})` : '';
+      const isRest = isRestaurantBar(g.storeRaw);
+      const kind  = isRest ? 'Cena/Aperitivo' : 'Spesa';
+      const route = isRest ? '/cene-aperitivi' : '/spese-casa';
+      const label = `${kind} ${store}${loc} — € ${g.total.toFixed(2)}`;
+      return {
+        id: `grp-${g.storeRaw}|${g.locRaw}|${g.dateISO}`,
+        dateISO: g.dateISO,
+        label,
+        route,
+        amount: -Math.abs(g.total),
+        category_id: null,
+        kind: 'cash-expense',
+      };
+    });
+
+    // filtro opzionale (se usi hideVarieCashAfterClear)
+    if (hideVarieCashAfterClear) {
+      cashRows = cashRows.filter(r => r.category_id !== CATEGORY_ID_VARIE);
+    }
+
+    // unisci righe manuali + gruppi scontrini
+    const rows = [...manualRows, ...cashRows]
+      .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
+      .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+
+    setPocketRows(rows);
+
+    // totale spese periodo
+    const { data: exp } = await supabase
+      .from('jarvis_finances')
+      .select('price_total, purchase_date')
+      .eq('user_id', user.id)
+      .gte('purchase_date', startDate)
+      .lte('purchase_date', endDate);
+    const totalExp = (exp || []).reduce((t, r) => t + Number(r.price_total || 0), 0);
+    setMonthExpenses(totalExp);
+
+  } catch (err) {
+    showError(setError, err);
+  } finally {
+    setLoading(false);
   }
+}
+
 
   /* ---------------------- Assistant (OCR/voce) ---------------------- */
   function buildIncomePrompt(userText) {
@@ -378,6 +414,8 @@ function Entrate() {
       mediaRecRef.current.start(); setRecBusy(true);
     } catch { setError('Microfono non disponibile'); }
   };
+  
+  
 
   /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
@@ -660,5 +698,7 @@ return (
   </>
 );
   }
+
+  
 
 export default withAuth(Entrate);
