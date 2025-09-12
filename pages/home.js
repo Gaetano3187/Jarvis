@@ -795,6 +795,38 @@ async function normalizeViaWeb(items) {
   }
  }
  }
+ // --- Pasta shape helpers: impedisci che Penne/Rigatoni & co. collassino ---
+const PASTA_SHAPES = [
+  'mezze penne rigate','penne rigate','mezze maniche','rigatoni','tortiglioni','fusilli',
+  'farfalle','paccheri','calamarata','casarecce','conchiglie','conchigliette','ditalini',
+  'maccheroni','maccheroncini','ziti','cavatappi','gramigna','chifferi','pipe rigate',
+  'spaghetti','bucatini','linguine','tagliatelle','fettuccine','pappardelle','orecchiette','trofie'
+].sort((a,b) => b.length - a.length); // match prima le più specifiche
+
+function detectPastaShape(s) {
+  const t = ` ${String(s||'').toLowerCase().replace(/\s+/g,' ')} `;
+  for (const form of PASTA_SHAPES) {
+    if (t.includes(` ${form} `)) return form;      // match se è parola intera
+  }
+  return null;
+}
+
+/** Mantiene la forma di pasta dell'originale anche dopo la normalizzazione web */
+function protectPastaShape(originalName, normalizedName) {
+  const so = detectPastaShape(originalName);
+  if (!so) return normalizedName;                  // non è pasta -> niente da fare
+  const sn = detectPastaShape(normalizedName);
+  if (!sn) {
+    // la normalizzazione ha “perso” la forma: la reiniettiamo
+    return `${so} ${normalizedName}`.replace(/\s+/g,' ').trim();
+  }
+  if (sn !== so) {
+    // la normalizzazione ha cambiato forma: la ripristiniamo
+    return normalizedName.replace(sn, so);
+  }
+  return normalizedName;
+}
+
  
   /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
   async function handleSmartOCR(files) {
@@ -905,52 +937,63 @@ async function normalizeViaWeb(items) {
         return;
       }
 
-      // --- Normalizzazione via web (identica a Liste Prodotti) — inline helper ---
-      async function normalizeViaWebLocal(items) {
-        const arr = Array.isArray(items) ? items : [];
-        if (!arr.length) return arr;
+   // --- SOSTITUISCI l'intera normalizeViaWebLocal con questa ---
+async function normalizeViaWebLocal(items) {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return arr;
 
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort('timeout'), 30000);
-        try {
-          const resp = await fetch('/api/normalize', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-              locale: 'it-IT',
-              trace: true
-            }),
-            signal: ctrl.signal
-          });
-          const raw = await resp.text();
-          let j = null; try { j = JSON.parse(raw); } catch {}
-          if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort('timeout'), 30000);
+  try {
+    const resp = await fetch('/api/normalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
+        locale: 'it-IT',
+        trace: true,
+        // (facoltativo) suggerisci al tuo endpoint di non collassare forme:
+        policy: 'grocery.shape-strict'
+      }),
+      signal: ctrl.signal
+    });
+    const raw = await resp.text();
+    let j = null; try { j = JSON.parse(raw); } catch {}
 
-          return arr.map((p, i) => {
-            const r = j.results[i]?.out || {};
-            const normName   = String(r.normalizedName || '').trim();
-            const canonBrand = String(r.canonicalBrand || '').trim();
-            const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) {
+      // fallback: niente normalizzazione, ma preserva le forme
+      return arr.map(p => ({ ...p, name: protectPastaShape(p.name, p.name) }));
+    }
 
-            const out = {
-              ...p,
-              name:  normName   || p.name,
-              brand: canonBrand || p.brand || ''
-            };
-            if (imageUrl) {
-              out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-              out.imageDirect = imageUrl;
-            }
-            return out;
-          });
-        } catch (e) {
-          console.warn('[normalizeViaWeb] skip', e);
-          return arr;
-        } finally {
-          clearTimeout(t);
-        }
+    return arr.map((p, i) => {
+      const r = j.results[i]?.out || {};
+      const normName   = String(r.normalizedName || '').trim() || p.name;
+      const canonBrand = String(r.canonicalBrand || '').trim() || (p.brand || '');
+      const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+
+      // <<< GUARDIA: preserva la forma di pasta dell'originale >>>
+      const safeName = protectPastaShape(p.name, normName);
+
+      const out = {
+        ...p,
+        name:  safeName,
+        brand: canonBrand
+      };
+
+      if (imageUrl) {
+        out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+        out.imageDirect = imageUrl;
       }
+      return out;
+    });
+  } catch (e) {
+    console.warn('[normalizeViaWebLocal] skip', e);
+    // fallback: preserva forme anche senza risposta
+    return arr.map(p => ({ ...p, name: protectPastaShape(p.name, p.name) }));
+  } finally {
+    clearTimeout(t);
+  }
+}
 
       const itemsReady = await normalizeViaWebLocal(itemsNorm);
 
