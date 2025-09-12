@@ -826,58 +826,6 @@ function protectPastaShape(originalName, normalizedName) {
   }
   return normalizedName;
 }
-// === Prezzi e quantità: regola ibrida ===
-function toNum(n) { const v = Number(n); return Number.isFinite(v) ? v : 0; }
-
-function computeUnits(p) {
-  // packs: confezioni; unitsPerPack: unità per confezione; qty: alias legacy
-  const packs = toNum(p.packs ?? p.qty ?? 1);
-  const upp   = toNum(p.unitsPerPack ?? 1);
-  const safePacks = packs > 0 ? packs : 1;
-  const safeUPP   = upp   > 0 ? upp   : 1;
-  return { packs: safePacks, unitsPerPack: safeUPP, totalUnits: safePacks * safeUPP };
-}
-
-/**
- * Regola:
- * - se totalUnits <= 1: prezzo letto = unitario = totale
- * - se totalUnits > 1:  prezzo letto = unitario; totale = unitario * totalUnits
- *   (se abbiamo solo priceTotal, ricaviamo l'unitario dividendo)
- */
-function enforceHybridUnitPrice(p) {
-  const { packs, unitsPerPack, totalUnits } = computeUnits(p);
-  const rawUnit  = toNum(p.priceEach ?? p.price);  // preferito come "prezzo letto"
-  const rawTotal = toNum(p.priceTotal);
-
-  let priceEach = 0, priceTotal = 0;
-
-  if (totalUnits <= 1) {
-    // riga singola: prezzo = unitario = totale
-    priceEach  = rawUnit || rawTotal || 0;
-    priceTotal = priceEach;
-  } else {
-    // più unità: prezzo letto è unitario
-    if (rawUnit) {
-      priceEach  = rawUnit;
-      priceTotal = rawUnit * totalUnits;
-    } else if (rawTotal) {
-      // se l'OCR ha solo il totale, ricava l'unitario
-      priceEach  = totalUnits ? (rawTotal / totalUnits) : 0;
-      priceTotal = rawTotal;
-    } else {
-      priceEach = 0; priceTotal = 0;
-    }
-  }
-
-  return {
-    ...p,
-    packs,
-    unitsPerPack,
-    priceEach,
-    priceTotal,
-    currency: p.currency || 'EUR'
-  };
-}
 
  
   /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
@@ -1046,9 +994,8 @@ async function normalizeViaWebLocal(items) {
     clearTimeout(t);
   }
 }
-// Normalizza nomi/marchi e poi applica la regola ibrida dei prezzi
-const itemsReady = (await normalizeViaWebLocal(itemsNorm)).map(enforceHybridUnitPrice);
 
+      const itemsReady = await normalizeViaWebLocal(itemsNorm);
 
       // Bucket + supermercato?
       const bucket = guessExpenseBucket(meta.store);
