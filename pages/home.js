@@ -629,6 +629,132 @@ const Home = () => {
       return new File([blob], name.endsWith(ext) ? name : `${name}.${ext}`, { type: blob.type || 'application/octet-stream' });
     } catch { return null; }
   }
+  // ====== Brand aliases & unit sanitizer ======
+const BRAND_ALIASES = {
+  'm. bianco':'Mulino Bianco','m.bianco':'Mulino Bianco','mulino bianco':'Mulino Bianco',
+  'sanwa':'Saiwa','saiwa':'Saiwa','san carlo':'San Carlo',
+  'dash':'Dash','lenor':'Lenor','ferrero':'Ferrero','motta':'Motta',
+  'arborea':'Arborea','parmalat':'Parmalat','galbani':'Galbani',
+  'garofalo':'Garofalo','lavazza':'Lavazza','eridania':'Eridania','chiquita':'Chiquita','deco':'Decò','decò':'Decò'
+};
+function canonBrand(b='') {
+  const k = String(b).toLowerCase().replace(/\./g,'').trim();
+  return BRAND_ALIASES[k] || (b ? b.trim() : '');
+}
+// “grammi/ml/cl/kg” NON sono unità discrete → riportiamo a 1 unità
+function sanitizeUnits(item) {
+  const bad = /^(g|gr|gramm|kg|ml|cl|l|litri?|grammi?)$/i;
+  const ulabel = String(item.unitLabel || '').trim();
+  if (bad.test(ulabel)) return { ...item, unitsPerPack: 1, unitLabel: 'unità' };
+  return item;
+}
+
+// ====== Chiave canonica + merge ======
+function stripAccents(s=''){ return s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function tokenClean(s=''){
+  return stripAccents(String(s).toLowerCase())
+    .replace(/[^a-z0-9\s]/g,' ')
+    .replace(/\b(\d+)\s*(g|gr|kg|ml|cl|l)\b/g,' ')  // via pesi/volumi
+    .replace(/\b(\d+)\s*(pz|pezzi|x|×)\b/g,' ')     // via indicatori ripetuti
+    .replace(/\s+/g,' ').trim();
+}
+// Attributi latte per evitare merge “intero” vs “PS/SL”
+function milkAttrs(name=''){
+  const s = tokenClean(name);
+  const fat = /\bintero\b/.test(s) ? 'fat:i'
+            : /\b(ps|parzialmente|semi|parz)\b/.test(s) ? 'fat:ps'
+            : /\bscrem\b/.test(s) ? 'fat:s'
+            : 'fat:?';
+  const lf  = /\b(zymil|zl|senza lattosio|s\/la|senzalattosio|delact)\b/.test(s) ? 'lf:1' : 'lf:0';
+  return `${fat}|${lf}`;
+}
+// Alcuni prodotti “tipici” (Fiesta, Yo-Yo, Pods, Pancarrè…)
+function productFamily(name=''){
+  const s = tokenClean(name);
+  if (/\bfiesta\b/.test(s)) return 'fam:fiesta';
+  if (/\byo[-\s]?yo\b/.test(s)) return 'fam:yoyo';
+  if (/\bpods?\b/.test(s)) return 'fam:pods';
+  if (/\bpancarr[ei]\b/.test(s)) return 'fam:pancarre';
+  if (/\bcipster\b/.test(s)) return 'fam:cipster';
+  if (/\bgalletti\b/.test(s)) return 'fam:galletti';
+  if (/\bcornetti\b/.test(s)) return 'fam:cornetti';
+  if (/\bzucchero\b/.test(s)) return 'fam:zucchero';
+  if (/\buova\b/.test(s)) return 'fam:uova';
+  if (/\bmozzarella\b/.test(s)) return 'fam:mozzarella';
+  return 'fam:?';
+}
+function canonicalKey(p) {
+  const brand = canonBrand(p.brand || '');
+  // base name “povero” ma stabile
+  let base = tokenClean(p.name || '');
+  // togli parole molto generiche
+  base = base.replace(/\b(doc|uht|buono|classica|regular|regolare|shop|biodegr|bio|ps|s\/la)\b/g,' ')
+             .replace(/\s+/g,' ').trim();
+  const fam  = productFamily(p.name || '');
+  const milk = milkAttrs(p.name || '');
+  // Latte: separiamo intero/ps/sl; per altri famiglie basta brand+base+fam
+  const key = /fam:\?/.test(fam)
+    ? `${brand}|${base}`
+    : `${brand}|${base}|${fam}${fam==='fam:fiesta'||fam==='fam:yoyo'||fam==='fam:uova'||/latte/.test(base)?'|'+milk:''}`;
+  return key;
+}
+
+// Correzioni post-normalizzazione su alcuni prodotti noti
+function fixKnownProducts(p) {
+  let out = { ...p, brand: canonBrand(p.brand||'') };
+  const s = tokenClean(out.name);
+  // Dash Pods → brand Dash, 30 pod di default
+  if (/pods?\b/.test(s)) {
+    out.brand = 'Dash';
+    if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = /30\b/.test(s) ? 30 : out.unitsPerPack || 30; out.unitLabel = 'pod'; }
+  }
+  // Ferrero Fiesta → 10 pezzi
+  if (/\bfiesta\b/.test(s)) { out.brand = 'Ferrero'; out.unitsPerPack = out.unitsPerPack || 10; out.unitLabel = 'pezzi'; }
+  // Motta Yo-Yo → 10 pezzi
+  if (/\byo[-\s]?yo\b/.test(s)) { out.brand = 'Motta'; out.unitsPerPack = out.unitsPerPack || 10; out.unitLabel = 'pezzi'; }
+  // Pancarrè 16F
+  if (/\bpancarr[ei]\b/.test(s) && /16/.test(s) && (!out.unitsPerPack || out.unitLabel==='unità')) {
+    out.unitsPerPack = 16; out.unitLabel = 'fette';
+  }
+  // Latte UHT → cartone (1)
+  if (/\blatte\b/.test(s) && /\buht\b/.test(s)) {
+    if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = 1; out.unitLabel = 'cartone'; }
+  }
+  // Uova → 6 uova default
+  if (/\buova\b/.test(s) && (!out.unitsPerPack || out.unitsPerPack===1) && out.unitLabel==='unità') {
+    out.unitsPerPack = 6; out.unitLabel = 'uova';
+  }
+  return sanitizeUnits(out);
+}
+
+// Merge con somma packs, mantieni expiry più vicina
+function dedupeAndFix(items=[]) {
+  const map = new Map();
+  for (const raw of items) {
+    const p = fixKnownProducts(sanitizeUnits(raw));
+    const key = canonicalKey(p);
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, { ...p });
+    } else {
+      cur.packs = Math.max(1, Number(cur.packs||1)) + Math.max(1, Number(p.packs||1));
+      // unitsPerPack: preferisci valore noto/non unità; se conflitto, tieni il più alto (es. 10 pod vs 1 unità)
+      if (!cur.unitsPerPack || cur.unitLabel==='unità') { cur.unitsPerPack = p.unitsPerPack || cur.unitsPerPack || 1; cur.unitLabel = p.unitLabel || cur.unitLabel || 'unità'; }
+      else if (p.unitsPerPack && p.unitsPerPack > cur.unitsPerPack && p.unitLabel && p.unitLabel !== 'unità') {
+        cur.unitsPerPack = p.unitsPerPack; cur.unitLabel = p.unitLabel;
+      }
+      // expiry: prendi la più vicina (min)
+      const a = cur.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(cur.expiresAt) ? cur.expiresAt : null;
+      const b = p.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(p.expiresAt) ? p.expiresAt : null;
+      if (!a && b) cur.expiresAt = b;
+      if (a && b && b < a) cur.expiresAt = b;
+      // somma eventuali priceTotal informativi (non usati per doc_total)
+      cur.priceTotal = (Number(cur.priceTotal)||0) + (Number(p.priceTotal)||0);
+    }
+  }
+  return Array.from(map.values());
+}
+
 
   /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
   async function handleSmartOCR(files) {
@@ -820,6 +946,8 @@ const Home = () => {
 .map(normalizeItemForPipelines)
 .map(enforceHybridUnitPrice);
 
+// >>> ACCORPA duplicati e correggi unità/brand tipici
+const itemsReadyDedup = dedupeAndFix(itemsReady);
 
         // Etichetta umana per link/tabelle: "Store Luogo Indirizzo"
         const storeLabel = buildStoreLabel({
@@ -850,7 +978,7 @@ const Home = () => {
               purchaseDate: meta.purchaseDate,
               payment_method: 'cash',
               card_label: null,
-              items: itemsReady,
+              items: itemsReadyDedup,
               totalPaid: meta.totalPaid,
               receiptTotalAuthoritative: true
             };
@@ -877,7 +1005,7 @@ const Home = () => {
               store: meta.store,                    // "Decò Maxistore Castel di Sangro Via Abruzzi"
               purchaseDate: meta.purchaseDate,
               totalPaid: meta.totalPaid,            // totale scontrino
-              items: itemsReady,                    // dettaglio completo: unitario, q.tà, pagato, scadenze
+          items: itemsReadyDedup,                  // dettaglio completo: unitario, q.tà, pagato, scadenze
               receiptTotalAuthoritative: true
             };
             const spRes = await postJSON(endpoint, payloadSpese);
@@ -906,7 +1034,7 @@ const Home = () => {
         }
 
         // --- d) riepilogo + voce ---
-        const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReady }), mono: true };
+        const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReadyDedup }), mono: true };
         setChatMsgs(arr => [
           ...arr,
           msg,

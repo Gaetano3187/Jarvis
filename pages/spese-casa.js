@@ -86,7 +86,7 @@ function SpeseCasa() {
 
       const { data, error } = await supabase
         .from('jarvis_spese_casa')
-       .select('id, store, name, brand, price_each, price_total, packs, units_per_pack, unit_label, doc_total, purchase_date, created_at')
+      .select('id, store, name, brand, price_each, price_total, packs, units_per_pack, unit_label, doc_total, purchase_date, created_at')
 
         .eq('user_id', user.id)
         .gte('purchase_date', periodStart)
