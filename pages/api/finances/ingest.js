@@ -1,73 +1,62 @@
 // pages/api/finances/ingest.js
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabaseClient';
+
+const TBL_FIN = 'jarvis_finanze'; // cambia se usi un nome diverso (es. jarvis_finance_movimenti)
+
+function toNum(n){ const v = Number(n); return Number.isFinite(v) ? v : 0; }
+function isoDate(s){
+  if (!s) return new Date().toISOString().slice(0,10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return isNaN(d) ? new Date().toISOString().slice(0,10) : d.toISOString().slice(0,10);
+}
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Method not allowed' }); }
-
-  // Helpers
-  const toStr = (v, d='') => String(v ?? d).trim();
-  const toNum = (v, d=0) => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : d; };
-  const toInt = (v, d=0) => Math.trunc(toNum(v, d));
-  const toISO = (s) => {
-    const v = toStr(s,''); if (!v) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-    const m = v.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
-    if (!m) return v;
-    const d = String(m[1]).padStart(2,'0');
-    const M = String(m[2]).padStart(2,'0');
-    let y = String(m[3]); if (y.length===2) y = (Number(y)>=70?'19':'20')+y;
-    return `${y}-${M}-${d}`;
-  };
-
-  // Parse
-  let raw; try { raw = typeof req.body==='string' ? JSON.parse(req.body) : (req.body||{}); }
-  catch { return res.status(400).json({ error: 'Body non valido (JSON)' }); }
-
-  const items = Array.isArray(raw.items) ? raw.items : [];
-  if (!items.length) return res.status(400).json({ error: 'items deve essere un array non vuoto' });
-
-  const user_id = toStr(raw.user_id,'');
-  if (!user_id) return res.status(400).json({ error: 'user_id richiesto (service role)' });
-
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Supabase service role non configurata' });
-
-  const TABLE = process.env.JARVIS_FINANCES_TABLE || 'jarvis_finances';
-
-  const rows = items.map(it => ({
-    user_id,
-    store: toStr(raw.store) || null,
-    purchase_date: toISO(raw.purchaseDate) || null,
-    payment_method: raw.payment_method === 'card' ? 'card' : 'cash',
-    card_label: raw.card_label ?? null,
-
-    name: toStr(it.name),
-    brand: toStr(it.brand) || null,
-    packs: toInt(it.packs, 0),
-    units_per_pack: toInt(it.unitsPerPack, 0),
-    unit_label: toStr(it.unitLabel) || null,
-    price_each: toNum(it.priceEach, 0),
-    price_total: toNum(it.priceTotal, 0),
-    currency: toStr(it.currency, 'EUR') || 'EUR',
-    expires_at: toISO(it.expiresAt) || null,
-
-    created_at: new Date().toISOString(),
-  }));
+  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
   try {
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth:{ persistSession:false } });
-    const { error } = await supabase.from(TABLE).insert(rows, { returning:'minimal' });
-    if (error) {
-      console.error('[FINANCES_INGEST] insert error', { code:error.code, message:error.message, details:error.details, hint:error.hint });
-      return res.status(500).json({
-        error: 'SUPABASE_INSERT_FAILED',
-        code: error.code, message: error.message, details: error.details, hint: error.hint,
-        sampleRow: rows[0],
-      });
-    }
-    return res.status(200).json({ ok:true, inserted: rows.length });
+    const {
+      user_id,
+      store = '',
+      purchaseDate,
+      payment_method = 'cash',
+      card_label = null,
+      items = [],
+      totalPaid = 0,
+      receiptTotalAuthoritative = false
+    } = req.body || {};
+
+    if (!user_id) return res.status(400).json({ ok:false, error:'Missing user_id' });
+
+    const day = isoDate(purchaseDate);
+
+    // Calcola il totale “affidabile”
+    const sumFromLines = (Array.isArray(items) ? items : []).reduce((s, it) => s + (toNum(it.priceTotal)), 0);
+    let grand = (receiptTotalAuthoritative && toNum(totalPaid) > 0)
+      ? toNum(totalPaid)
+      : toNum(sumFromLines);
+    grand = Number(grand.toFixed(2));
+
+    // Movimento negativo (spesa)
+    const amount = -Math.abs(grand);
+    const descr = `Spesa ${String(store||'').trim()}`;
+
+    // (Schema minimale: user_id, date, amount, description, method, card_label)
+    const row = {
+      user_id,
+      date: day,
+      amount,
+      description: descr,
+      method: payment_method,
+      card_label
+    };
+
+    const { error: insErr } = await supabase.from(TBL_FIN).insert(row);
+    if (insErr) throw insErr;
+
+    return res.status(200).json({ ok:true, inserted: 1, usedTotal: grand });
   } catch (e) {
-    return res.status(500).json({ error: `Supabase error: ${e?.message || e}` });
+    console.error('[finances/ingest]', e);
+    return res.status(500).json({ ok:false, error: e?.message || String(e) });
   }
 }

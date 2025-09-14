@@ -1,58 +1,110 @@
 // pages/api/spese-casa/ingest.js
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabaseClient';
+
+const TBL_SPESA = 'jarvis_spese_casa';
+
+function toNum(n) { const v = Number(n); return Number.isFinite(v) ? v : 0; }
+function isoDate(s) {
+  if (!s) return new Date().toISOString().slice(0,10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return isNaN(d) ? new Date().toISOString().slice(0,10) : d.toISOString().slice(0,10);
+}
+
+function normalizeLine(it) {
+  const packs = Math.max(1, toNum(it.packs ?? it.qty ?? 1));
+  const upp   = Math.max(1, toNum(it.unitsPerPack ?? 1));
+  const totalUnits = packs * upp;
+
+  let priceEach  = toNum(it.priceEach);
+  let priceTotal = toNum(it.priceTotal);
+
+  if (totalUnits <= 1) {
+    // singola unità: il letto vale sia unitario che totale
+    const val = priceEach || priceTotal;
+    priceEach = val;
+    priceTotal = val;
+  } else {
+    if (priceEach) {
+      priceTotal = Number((priceEach * totalUnits).toFixed(2));
+    } else {
+      // ho solo il totale: ricavo l'unitario
+      priceEach = totalUnits ? Number((priceTotal / totalUnits).toFixed(4)) : 0;
+    }
+  }
+
+  return {
+    name: (it.name || '').trim(),
+    brand: (it.brand || '').trim() || null,
+    packs,
+    units_per_pack: upp,
+    unit_label: (it.unitLabel || it.uom || 'unità'),
+    price_each: priceEach,
+    price_total: priceTotal,
+    currency: it.currency || 'EUR',
+  };
+}
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') { res.setHeader('Allow','POST'); return res.status(405).json({ error:'Method not allowed' }); }
-
-  const str = (v,d='') => String(v ?? d).trim();
-  const num = (v,d=0) => { const n=Number(String(v ?? '').replace(',','.')); return Number.isFinite(n)?n:d; };
-  const int = (v,d=0) => Math.trunc(num(v,d));
-  const toISO = (s) => { const v=str(s,''); if(!v) return null; if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-    const m=v.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/); if(!m) return v;
-    const d=String(m[1]).padStart(2,'0'), M=String(m[2]).padStart(2,'0'); let y=String(m[3]); if(y.length===2)y=(Number(y)>=70?'19':'20')+y; return `${y}-${M}-${d}`; };
-
-  let raw; try { raw = typeof req.body==='string' ? JSON.parse(req.body) : (req.body||{}); }
-  catch { return res.status(400).json({ error:'Body non valido (JSON)' }); }
-
-  const items = Array.isArray(raw.items) ? raw.items : [];
-  if (!items.length) return res.status(400).json({ error:'items deve essere un array non vuoto' });
-
-  const user_id = str(raw.user_id,''); if (!user_id) return res.status(400).json({ error:'user_id richiesto (service role)' });
-
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error:'Supabase service role non configurata' });
-
-  const TABLE = process.env.JARVIS_SPESE_CASA_TABLE || 'jarvis_spese_casa';
-
-  const rows = items.map(it => ({
-    user_id,
-    store: str(raw.store) || null,
-    purchase_date: toISO(raw.purchaseDate) || null,
-    doc_total: num(raw.totalPaid, 0),
-
-    name: str(it.name),
-    brand: str(it.brand) || null,
-    packs: int(it.packs, 0),
-    units_per_pack: int(it.unitsPerPack, 0),
-    unit_label: str(it.unitLabel) || null,
-    price_each: num(it.priceEach, 0),
-    price_total: num(it.priceTotal, 0),
-    currency: str(it.currency, 'EUR') || 'EUR',
-    expires_at: toISO(it.expiresAt) || null,
-
-    created_at: new Date().toISOString(),
-  }));
+  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
   try {
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth:{ persistSession:false } });
-    const { error } = await supabase.from(TABLE).insert(rows, { returning:'minimal' });
-    if (error) {
-      console.error('[SPESE_CASA_INGEST] insert error', error);
-      return res.status(500).json({ error:'SUPABASE_INSERT_FAILED', message:error.message });
-    }
-    return res.status(200).json({ ok:true, inserted: rows.length });
+    const {
+      user_id,
+      store = '',
+      purchaseDate,
+      totalPaid = 0,
+      items = [],
+      receiptTotalAuthoritative = false,
+    } = req.body || {};
+
+    if (!user_id) return res.status(400).json({ ok:false, error:'Missing user_id' });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ ok:false, error:'No items' });
+
+    const storeLabel = String(store || '').trim();
+    const day = isoDate(purchaseDate);
+
+    // Normalizza tutte le righe
+    const lines = items
+      .map(normalizeLine)
+      .filter(r => r.name); // scarta nomi vuoti
+
+    // Controlla se per lo stesso gruppo (user+store+data) esiste già un doc_total
+    const { data: existing, error: selErr } = await supabase
+      .from(TBL_SPESA)
+      .select('id, doc_total')
+      .eq('user_id', user_id)
+      .eq('store', storeLabel)
+      .eq('purchase_date', day)
+      .limit(1000);
+
+    if (selErr) throw selErr;
+
+    const groupHasDoc = (existing || []).some(r => toNum(r.doc_total) > 0);
+    const docForFirst = (!groupHasDoc && (receiptTotalAuthoritative && toNum(totalPaid) > 0))
+      ? Number(toNum(totalPaid).toFixed(2))
+      : 0;
+
+    // Prepara batch insert: prima riga con doc_total (se dovuto), le altre 0
+    const rows = lines.map((r, idx) => ({
+      user_id,
+      store: storeLabel || null,
+      purchase_date: day,
+      doc_total: idx === 0 ? docForFirst : 0,
+      ...r,
+    }));
+
+    const { error: insErr } = await supabase.from(TBL_SPESA).insert(rows);
+    if (insErr) throw insErr;
+
+    return res.status(200).json({
+      ok: true,
+      inserted: rows.length,
+      doc_total_applied: docForFirst,
+      group: { store: storeLabel, date: day }
+    });
   } catch (e) {
-    return res.status(500).json({ error:`Supabase error: ${e?.message || e}` });
+    console.error('[spese-casa/ingest]', e);
+    return res.status(500).json({ ok:false, error: e?.message || String(e) });
   }
 }
