@@ -132,7 +132,6 @@ function toISODate(any) {
     if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
     return `${y}-${M}-${d}`;
   }
-  // es. "12 set 2025", "7 ottobre 24"
   const mesi = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
   const m2 = s.toLowerCase().match(/(\d{1,2})\s+([a-zà-ú]+)\s+(\d{2,4})/i);
   if (m2) {
@@ -149,20 +148,11 @@ function toISODate(any) {
   return '';
 }
 function pickDateFromTexts(texts = []) {
-  // prova a scansionare tutte le righe OCR
   const joined = String((texts||[]).join('\n') || '');
-  // 1) dd/mm/yyyy o dd-mm-yy
   const m1 = joined.match(/(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})/);
-  if (m1) {
-    const iso = toISODate(m1[1]);
-    if (iso) return iso;
-  }
-  // 2) 12 set 2025
+  if (m1) { const iso = toISODate(m1[1]); if (iso) return iso; }
   const m2 = joined.match(/(\d{1,2}\s+[a-zà-ú]+\s+\d{2,4})/i);
-  if (m2) {
-    const iso = toISODate(m2[1]);
-    if (iso) return iso;
-  }
+  if (m2) { const iso = toISODate(m2[1]); if (iso) return iso; }
   return '';
 }
 
@@ -193,24 +183,6 @@ async function postJSON(url, body, timeoutMs=30000) {
     return json ?? { data: text };
   } finally { clearTimeout(t); }
 }
-function summarizeReceiptForChat({ store, purchaseDate, totalPaid, currency='EUR', purchases=[] }) {
-  const tot = (Number(totalPaid)||0).toLocaleString('it-IT',{style:'currency',currency});
-  const lines = purchases.slice(0,8).map(p => {
-    const q = Math.max(1, Number(p.packs||p.qty||1));
-    const up = Math.max(1, Number(p.unitsPerPack||1));
-    const label = p.unitLabel || 'unità';
-    return `• ${p.name}${p.brand ? ` (${p.brand})` : ''} — ${q} conf. × ${up} ${label}${p.priceTotal?` = ${(Number(p.priceTotal)||0).toLocaleString('it-IT',{style:'currency',currency})}`:''}`;
-  }).join('\n');
-  return (
-`🧾 Scontrino rilevato
-Negozio: ${store || '—'}
-Data: ${purchaseDate || '—'}
-Totale: ${tot}
-
-Righe principali:
-${lines}${purchases.length>8?`\n…(+${purchases.length-8})`:''}`
-  );
-}
 
 /* ================= Intent / Sommelier helpers ================= */
 function looksLikeSommelierIntent(text='') {
@@ -227,15 +199,7 @@ function LoadingOverlay({ open, message }) {
   if (!open) return null;
   return (
     <div style={LO.overlay} aria-live="polite" aria-busy="true">
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        style={LO.video}
-      >
-        {/* usa un tuo video; fallback a quello che già hai in repo */}
+      <video autoPlay loop muted playsInline preload="auto" style={LO.video}>
         <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
       </video>
       <div style={LO.scrim} />
@@ -245,7 +209,6 @@ function LoadingOverlay({ open, message }) {
     </div>
   );
 }
-
 
 /* ================= Chat Modal ================= */
 function ChatModal({ open, onClose, onSend, messages, busy }) {
@@ -290,10 +253,7 @@ function ChatModal({ open, onClose, onSend, messages, busy }) {
                 {m.mono ? <pre style={S.pre}>{m.text}</pre> : <span dangerouslySetInnerHTML={{ __html: m.text }} />}
                 {Array.isArray(m.blocks) && m.blocks.map((b, idx) => (
                   <figure key={idx} style={{ margin:'10px 0 0', padding:0 }}>
-                    <div
-                      style={{ borderRadius:12, overflow:'hidden' }}
-                      dangerouslySetInnerHTML={{ __html: b.svg }}
-                    />
+                    <div style={{ borderRadius:12, overflow:'hidden' }} dangerouslySetInnerHTML={{ __html: b.svg }} />
                     {b.caption && <figcaption style={{ color:'#cdeafe', fontSize:12, opacity:.9, marginTop:4 }}>{b.caption}</figcaption>}
                   </figure>
                 ))}
@@ -428,6 +388,49 @@ function renderSommelierInChat(result) {
   return output;
 }
 
+/* ============ Nuovi helper per negozio / scadenze / prezzi ============ */
+function buildStoreLabel(meta = {}) {
+  // Etichetta: "Store Luogo Indirizzo" (senza doppie spaziature)
+  const store = String(meta.store || '').trim();
+  const place = String(meta.place || meta.city || meta.locality || '').trim();
+  const addr  = String(meta.address || meta.addr || meta.addressLine || '').trim();
+  return [store, place, addr].filter(Boolean).join(' ');
+}
+function normExpiry(s='') {
+  const iso = toISODate(String(s||'').trim());
+  return iso || '';
+}
+function normalizeItemForPipelines(p) {
+  const packs = Math.max(1, Number(p.packs || p.qty || 1));
+  const upp   = Math.max(1, Number(p.unitsPerPack || 1));
+  const unit  = (p.unitLabel || p.uom || '').trim() || 'unità';
+  return {
+    ...p,
+    packs,
+    unitsPerPack: upp,
+    unitLabel: unit,
+    expiresAt: normExpiry(p.expiresAt || p.expiry || p.scadenza || ''),
+  };
+}
+// Prezzo ibrido: se 1 unità => letto = unitario = totale; se >1 => letto = unitario, totale = unitario * qty
+function enforceHybridUnitPrice(p) {
+  const packs = Math.max(1, Number(p.packs || p.qty || 1));
+  const upp   = Math.max(1, Number(p.unitsPerPack || 1));
+  const totalUnits = packs * upp;
+  const rawUnit  = Number(p.priceEach ?? p.price) || 0;
+  const rawTotal = Number(p.priceTotal) || 0;
+
+  let priceEach = 0, priceTotal = 0;
+  if (totalUnits <= 1) {
+    priceEach = rawUnit || rawTotal || 0;
+    priceTotal = priceEach;
+  } else {
+    if (rawUnit) { priceEach = rawUnit; priceTotal = rawUnit * totalUnits; }
+    else { priceEach = totalUnits ? (rawTotal / totalUnits) : 0; priceTotal = rawTotal; }
+  }
+  return { ...p, packs, unitsPerPack: upp, priceEach, priceTotal, currency: p.currency || 'EUR' };
+}
+
 /* ======================= Home: “cervello & braccio” ======================= */
 const Home = () => {
   const fileInputRef = useRef(null);
@@ -435,9 +438,8 @@ const Home = () => {
   const [busy, setBusy] = useState(false);
 
   // Loader video a schermo intero
-const [loading, setLoading] = useState(false);
-const [loadingMsg, setLoadingMsg] = useState('Elaboro lo scontrino…');
-
+  const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('Elaboro lo scontrino…');
 
   // Chat
   const [chatOpen, setChatOpen] = useState(false);
@@ -452,59 +454,29 @@ const [loadingMsg, setLoadingMsg] = useState('Elaboro lo scontrino…');
   const deepLinkHandledRef = useRef(false);
   const speakModeRef = useRef(false);
 
-// UID per service role
-const [uid, setUid] = useState(null);
-useEffect(() => {
-  (async () => {
-    const mod = await import('@/lib/supabaseClient').catch(()=>null);
-    const supabase = mod?.supabase;
-    if (!supabase) return;
-    const { data:{ user } } = await supabase.auth.getUser();
-    setUid(user?.id || null);
-  })();
-}, []);
-// === Brain calls ===
-async function runBrainQuery(text, opts = {}) {
-  const mod = await getBrain().catch(() => null);
-  const fn = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
-  if (typeof fn !== 'function') throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
-  return await fn(text, opts);
-}
-async function updateStockFromReceipt({ files = [], purchases = [], from = 'home' } = {}) {
-  const mod = await getBrain().catch(() => null);
-  const ingest = mod?.ingestOCRLocal || mod?.default?.ingestOCRLocal;
-  if (typeof ingest !== 'function') throw new Error('ingestOCRLocal non disponibile (brainHub)');
-  return await ingest({ files, purchases, from, mode: 'stock-only' });
-}
-// Alias compat: se altrove c'è ancora doOCR_Receipt
-async function doOCR_Receipt(payload) { return updateStockFromReceipt(payload); }
+  // UID per service role
+  const [uid, setUid] = useState(null);
+  useEffect(() => {
+    (async () => {
+      const mod = await import('@/lib/supabaseClient').catch(()=>null);
+      const supabase = mod?.supabase;
+      if (!supabase) return;
+      const { data:{ user } } = await supabase.auth.getUser();
+      setUid(user?.id || null);
+    })();
+  }, []);
 
-/**
- * Aggiorna le SCORTE a partire dallo scontrino/righe riconosciute.
- * Usa la pipeline locale (ingestOCRLocal) in modalità “stock-only”
- * per evitare doppi insert in Finanze.
- */
-async function updateStockFromReceipt({ files = [], purchases = [], from = 'home' } = {}) {
-  const mod = await getBrain().catch(() => null);
-  const ingest =
-    mod?.ingestOCRLocal ||
-    mod?.default?.ingestOCRLocal;
-
-  if (typeof ingest !== 'function') {
-    throw new Error('ingestOCRLocal non disponibile (brainHub)');
+  // === Brain calls ===
+  async function runBrainQuery(text, opts = {}) {
+    const mod = await getBrain().catch(() => null);
+    const fn = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
+    if (typeof fn !== 'function') throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
+    return await fn(text, opts);
   }
-  return await ingest({ files, purchases, from, mode: 'stock-only' });
-}
-
-/* Compat: se da qualche parte richiami ancora doOCR_Receipt, manteniamo l’alias */
-async function doOCR_Receipt(payload) {
-  return updateStockFromReceipt(payload);
-}
 
   /* ===== TTS: stato, voci, persistenza ===== */
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const ttsEnabledRef = useRef(false);
-
   const [voices, setVoices] = useState([]);
   const [voiceId, setVoiceId] = useState(null);
   const voicesRef = useRef([]);
@@ -515,7 +487,7 @@ async function doOCR_Receipt(payload) {
       if (typeof window === 'undefined' || !window.speechSynthesis) return;
       const synth = window.speechSynthesis;
       const list = synth.getVoices() || [];
-      if (!list.length) return; // arriveranno su voiceschanged
+      if (!list.length) return;
       const it = list.filter(v => String(v.lang || '').toLowerCase().startsWith('it'));
       const ordered = [...it, ...list.filter(v => !String(v.lang || '').toLowerCase().startsWith('it'))];
       voicesRef.current = ordered;
@@ -526,7 +498,6 @@ async function doOCR_Receipt(payload) {
       selectedVoiceRef.current = chosen;
     } catch {}
   }
-
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
     const synth = window.speechSynthesis;
@@ -535,7 +506,6 @@ async function doOCR_Receipt(payload) {
     loadVoices();
     return () => synth.removeEventListener('voiceschanged', onVoices);
   }, []);
-
   useEffect(() => {
     try {
       if (!voiceId) return;
@@ -544,7 +514,6 @@ async function doOCR_Receipt(payload) {
       selectedVoiceRef.current = v;
     } catch {}
   }, [voiceId]);
-
   useEffect(() => {
     try {
       const saved = typeof window !== 'undefined' ? localStorage.getItem('__tts_enabled') : null;
@@ -559,8 +528,6 @@ async function doOCR_Receipt(payload) {
       ttsEnabledRef.current = ttsEnabled;
     } catch {}
   }, [ttsEnabled]);
-
-  // === TTS sicuro ===
   function maybeSpeakMessage(msg) {
     try {
       if (!(ttsEnabledRef.current || speakModeRef.current)) return;
@@ -572,12 +539,9 @@ async function doOCR_Receipt(payload) {
       const utt = new Utter(text);
       utt.lang = selectedVoiceRef.current?.lang || 'it-IT';
       if (selectedVoiceRef.current) utt.voice = selectedVoiceRef.current;
-      // utt.rate = 1.0; utt.pitch = 1.0; // opzionali
       synth.cancel();
       synth.speak(utt);
-    } catch (e) {
-      console.warn('[TTS] skip', e);
-    }
+    } catch (e) { console.warn('[TTS] skip', e); }
   }
 
   /* ========== OCR helpers unificati (ocrHome + fallback legacy) ========== */
@@ -585,28 +549,32 @@ async function doOCR_Receipt(payload) {
     const kind = j?.kind || 'unknown';
     const text = String(j?.text || '');
     const meta = {
-      store: String(j?.store || ''),
-      purchaseDate: String(j?.purchaseDate || ''),
-      totalPaid: Number(j?.totalPaid || 0),
-      currency: String(j?.currency || 'EUR'),
+      store:   String(j?.meta?.store || j?.store || ''),
+      address: String(j?.meta?.address || j?.address || ''),
+      place:   String(j?.meta?.place   || j?.meta?.city || j?.place || j?.city || ''),
+      purchaseDate: String(j?.meta?.purchaseDate || j?.purchaseDate || ''),
+      totalPaid: Number(j?.meta?.totalPaid || j?.totalPaid || 0),
+      currency: String(j?.meta?.currency || j?.currency || 'EUR'),
     };
     const purchases = Array.isArray(j?.purchases) ? j.purchases.map(p => ({
       name: String(p.name||'').trim(),
       brand: String(p.brand||'').trim(),
-      packs: Number(p.packs || 0),
+      packs: Number(p.packs || p.qty || 0),
       unitsPerPack: Number(p.unitsPerPack || 0),
-      unitLabel: String(p.unitLabel || ''),
+      unitLabel: String(p.unitLabel || p.uom || ''),
       priceEach: Number(p.priceEach || 0),
       priceTotal: Number(p.priceTotal || 0),
       currency: String(p.currency || 'EUR'),
-      expiresAt: String(p.expiresAt || '')
+      expiresAt: String(p.expiresAt || p.expiry || p.scadenza || '')
     })) : [];
-    return { kind, text, meta, purchases, wine: j?.wine || null, entries: j?.entries || null };
+    return { kind, text, meta, purchases: purchases.map(normalizeItemForPipelines), wine: j?.wine || null, entries: j?.entries || null };
   }
   function normFromLegacyOcr(j = {}) {
     const text = String(j?.text || j?.data?.text || j?.data || '');
     const meta = {
       store: String(j?.store || ''),
+      address: String(j?.address || ''),
+      place: String(j?.place || j?.city || ''),
       purchaseDate: String(j?.purchaseDate || ''),
       totalPaid: Number(j?.totalPaid || 0),
       currency: String(j?.currency || 'EUR'),
@@ -617,15 +585,15 @@ async function doOCR_Receipt(payload) {
     const purchases = src.map(p => ({
       name: String(p.name||'').trim(),
       brand: String(p.brand||'').trim(),
-      packs: Number(p.packs || 0),
+      packs: Number(p.packs || p.qty || 0),
       unitsPerPack: Number(p.unitsPerPack || 0),
-      unitLabel: String(p.unitLabel || ''),
+      unitLabel: String(p.unitLabel || p.uom || ''),
       priceEach: Number(p.priceEach || 0),
       priceTotal: Number(p.priceTotal || 0),
       currency: String(p.currency || 'EUR'),
-      expiresAt: String(p.expiresAt || '')
+      expiresAt: String(p.expiresAt || p.expiry || p.scadenza || '')
     }));
-    return { kind: 'receipt', text, meta, purchases, wine: null, entries: null };
+    return { kind: 'receipt', text, meta, purchases: purchases.map(normalizeItemForPipelines), wine: null, entries: null };
   }
   async function fetchOcrUnified(file) {
     const fd = new FormData();
@@ -660,441 +628,271 @@ async function doOCR_Receipt(payload) {
                 : 'bin';
       return new File([blob], name.endsWith(ext) ? name : `${name}.${ext}`, { type: blob.type || 'application/octet-stream' });
     } catch { return null; }
-    async function runFullIngestOnHome(itemsNorm, meta) {
-  const results = { finanze:null, spese:null, scorte:null, errors:[] };
-
-  // assicura user id
-  let uidLocal = uid;
-  if (!uidLocal) {
-    try {
-      const mod = await import('@/lib/supabaseClient').catch(()=>null);
-      const supabase = mod?.supabase;
-      const { data:{ user } } = await supabase.auth.getUser();
-      uidLocal = user?.id || null;
-    } catch {}
-  }
-  if (!uidLocal) {
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'⚠️ Non autenticato: impossibile salvare in Finanze/Spese/Scorte.' }]);
-    return;
   }
 
-  try {
-    setLoadingMsg('Inserisco in Finanze…');
-    setLoading(true);
-
-    // Finanze
-    try {
-      await postJSON('/api/finances/ingest', {
-        user_id: uidLocal,
-        store: meta.store,
-        purchaseDate: meta.purchaseDate,
-        payment_method:'cash',
-        card_label:null,
-        items: itemsNorm
-      });
-      results.finanze = itemsNorm.length;
-      // opzionale: notifica le viste Finanze
-      if (typeof window !== 'undefined') {
-        const stamp = Date.now();
-        localStorage.setItem('__finanze_last_ingest', String(stamp));
-        window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail:{ count: itemsNorm.length, store: meta.store, stamp } }));
-      }
-    } catch (e) { results.errors.push(`Finanze: ${e.message}`); }
-
-    // Spese Casa / Cene & Aperitivi
-    const bucket = guessExpenseBucket(meta.store);
-    setLoadingMsg(bucket === 'cene-aperitivi' ? 'Inserisco Cene & Aperitivi…' : 'Inserisco Spese Casa…');
-    try {
-      const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-      await postJSON(endpoint, {
-        user_id: uidLocal,
-        store: meta.store,
-        purchaseDate: meta.purchaseDate,
-        totalPaid: meta.totalPaid,
-        items: itemsNorm
-      });
-      results.spese = itemsNorm.length;
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsNorm.length } }));
-      }
-    } catch (e) { results.errors.push(`${bucket}: ${e.message}`); }
-
-    // Scorte (solo supermercati)
-    if (isSupermarketStore(meta.store)) {
-      setLoadingMsg('Aggiorno le scorte…');
-      try {
-        await postJSON('/api/stock/apply', { user_id: uidLocal, items: itemsNorm });
-        results.scorte = itemsNorm.length;
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsNorm.length, at: Date.now() } }));
-        }
-      } catch (e) { results.errors.push(`Scorte: ${e.message}`); }
-    }
-
-  } finally {
-    setLoading(false);
-  }
-
-  // Log unico in chat (+ voce)
-  const lines = [];
-  lines.push(`Negozio: ${meta.store || '—'}`);
-  lines.push(`Data: ${meta.purchaseDate || '—'}`);
-  lines.push(results.finanze != null ? `✓ Finanze: ${results.finanze} righe` : `✗ Finanze: non inserite`);
-  const lbl = guessExpenseBucket(meta.store) === 'cene-aperitivi' ? 'Cene & Aperitivi' : 'Spese Casa';
-  lines.push(results.spese != null ? `✓ ${lbl}: ${results.spese} righe` : `✗ ${lbl}: non inserite`);
-  if (isSupermarketStore(meta.store)) {
-    lines.push(results.scorte != null ? `✓ Scorte aggiornate: ${results.scorte} articoli` : `✗ Scorte: non aggiornate`);
-  }
-  if (results.errors.length) lines.push('\nNote:\n' + results.errors.map(e => `• ${e}`).join('\n'));
-  const txt = `📋 Operazioni completate\n${lines.join('\n')}`;
-
-  setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
-  maybeSpeakMessage({ text: txt });
-}
-// === Normalizzazione via web (uguale a Liste Prodotti) ===
-async function normalizeViaWeb(items) {
-  try {
-    // chiama l’API interna /api/normalize come fa la pagina
-    const resp = await timeoutFetch('/api/normalize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: (items || []).map(p => ({ name: p.name, brand: p.brand || '' })),
-        locale: 'it-IT',
-        trace: true
-      })
-    }, 60000);
-
-    const raw = await resp.text();
-    let j = null; try { j = JSON.parse(raw); } catch {}
-    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return items;
-
-    // merge: normalizedName, canonicalBrand, eventuale imageUrl
-    return items.map((p, i) => {
-      const r = j.results[i]?.out;
-      if (!r) return p;
-      const normName   = String(r.normalizedName || '').trim();
-      const canonBrand = String(r.canonicalBrand || '').trim();
-      const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
-
-      const out = {
-        ...p,
-        name:  normName   || p.name,
-        brand: canonBrand || p.brand || ''
-      };
-
-      // opzionale: tieni una thumb come fa LP (proxy per evitare CORS)
-      if (imageUrl) {
-        out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-        out.imageDirect = imageUrl;
-      }
-      return out;
-    });
-  } catch {
-    return items; // fallback: se salta la normalizzazione, continua senza bloccare la pipeline
-  }
- }
- }
- // --- Pasta shape helpers: impedisci che Penne/Rigatoni & co. collassino ---
-const PASTA_SHAPES = [
-  'mezze penne rigate','penne rigate','mezze maniche','rigatoni','tortiglioni','fusilli',
-  'farfalle','paccheri','calamarata','casarecce','conchiglie','conchigliette','ditalini',
-  'maccheroni','maccheroncini','ziti','cavatappi','gramigna','chifferi','pipe rigate',
-  'spaghetti','bucatini','linguine','tagliatelle','fettuccine','pappardelle','orecchiette','trofie'
-].sort((a,b) => b.length - a.length); // match prima le più specifiche
-
-function detectPastaShape(s) {
-  const t = ` ${String(s||'').toLowerCase().replace(/\s+/g,' ')} `;
-  for (const form of PASTA_SHAPES) {
-    if (t.includes(` ${form} `)) return form;      // match se è parola intera
-  }
-  return null;
-}
-
-/** Mantiene la forma di pasta dell'originale anche dopo la normalizzazione web */
-function protectPastaShape(originalName, normalizedName) {
-  const so = detectPastaShape(originalName);
-  if (!so) return normalizedName;                  // non è pasta -> niente da fare
-  const sn = detectPastaShape(normalizedName);
-  if (!sn) {
-    // la normalizzazione ha “perso” la forma: la reiniettiamo
-    return `${so} ${normalizedName}`.replace(/\s+/g,' ').trim();
-  }
-  if (sn !== so) {
-    // la normalizzazione ha cambiato forma: la ripristiniamo
-    return normalizedName.replace(sn, so);
-  }
-  return normalizedName;
-}
-
- 
   /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
   async function handleSmartOCR(files) {
-  const wantSommelier =
-    lastUserIntentRef.current.sommelier ||
-    looksLikeSommelierIntent(queryText);
+    const wantSommelier =
+      lastUserIntentRef.current.sommelier ||
+      looksLikeSommelierIntent(queryText);
 
-  setChatOpen(true);
+    setChatOpen(true);
 
-  try {
-    setBusy(true);
+    try {
+      setBusy(true);
 
-    const texts = [];
-    const receipts = [];
-    const labels = [];
-    const lists = [];
+      const texts = [];
+      const receipts = [];
+      const labels = [];
+      const lists = [];
 
-    // 1) OCR ogni file con fallback automatico
-    for (const f of files) {
-      const n = await fetchOcrUnified(f);
-      if (n?.text) texts.push(n.text);
-      const guess = n?.kind || classifyOcrText(n?.text || '');
-      if (guess === 'receipt') receipts.push(n);
-      else if (guess === 'wine_label') labels.push(n);
-      else if (guess === 'wine_list') lists.push(n);
-    }
+      // 1) OCR ogni file con fallback automatico
+      for (const f of files) {
+        const n = await fetchOcrUnified(f);
+        if (n?.text) texts.push(n.text);
+        const guess = n?.kind || classifyOcrText(n?.text || '');
+        if (guess === 'receipt') receipts.push(n);
+        else if (guess === 'wine_label') labels.push(n);
+        else if (guess === 'wine_list') lists.push(n);
+      }
 
-    // 2) Routing
-
-    // Carta vini / intento Sommelier
-    if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
-      const joined = (lists.length ? lists.map(x => x.text || '').join('\n---\n') : texts.join('\n---\n')).trim();
-      if (!joined) {
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+      // 2) Routing — Carta vini / intento Sommelier
+      if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
+        const joined = (lists.length ? lists.map(x => x.text || '').join('\n---\n') : texts.join('\n---\n')).trim();
+        if (!joined) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
+          return;
+        }
+        wineListsRef.current.push(joined);
+        setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta vini acquisita. Avvio il Sommelier…' }]);
+        // se usi un sommelier locale, richiamalo qui
         return;
       }
-      wineListsRef.current.push(joined);
-      setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta vini acquisita. Avvio il Sommelier…' }]);
-      const q = lastUserIntentRef.current.text || queryText || '';
-      const result = await runSommelierFromHome(q);
-      const txt = renderSommelierInChat(result);
-      const msg = { role: 'assistant', text: txt, mono: true };
-      setChatMsgs(arr => [...arr, msg]);
-      maybeSpeakMessage(msg);
-      return;
-    }
 
-    // Etichette vino
-    if (labels.length) {
-      if (!uid) {
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
-      } else {
-        for (const L of labels) {
+      // 3) Etichette vino
+      if (labels.length) {
+        if (!uid) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
+        } else {
+          for (const L of labels) {
+            try {
+              const res = await postJSON('/api/vini/ingest', {
+                user_id: uid,
+                wine: L?.wine || null,
+                text: L?.text || ''
+              });
+              if (!(res?.ok || res?.inserted === 1)) {
+                setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
+              }
+            } catch (e) {
+              setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
+            }
+          }
+          setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
+        }
+        return;
+      }
+
+      // 4) Scontrino/i
+      if (receipts.length || texts.length) {
+        // --- Combina meta + righe ---
+        const allPurchases = [];
+        const meta = { store: '', address:'', place:'', purchaseDate: '', totalPaid: 0, currency: 'EUR' };
+
+        for (const R of receipts) {
+          const items = Array.isArray(R?.purchases) ? R.purchases : [];
+          allPurchases.push(...items);
+
+          if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
+          if (!meta.address)      meta.address      = String(R?.meta?.address || R?.address || '');
+          if (!meta.place)        meta.place        = String(R?.meta?.place || R?.meta?.city || R?.place || R?.city || '');
+          if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
+          if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
+          if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
+        }
+
+        // --- Fallback DATA (se meta vuota) ---
+        const isoFromMeta = toISODate(meta.purchaseDate);
+        const isoFromOCR  = pickDateFromTexts(texts);
+        const isoToday    = new Date().toISOString().slice(0, 10);
+        meta.purchaseDate = isoFromMeta || isoFromOCR || isoToday;
+
+        // --- Normalizza righe (base) ---
+        const itemsNorm = (allPurchases || []).map(p => ({
+          name: String(p.name || '').trim(),
+          brand: String(p.brand || '').trim(),
+          packs: Number(p.packs || 0),
+          unitsPerPack: Number(p.unitsPerPack || 0),
+          unitLabel: String(p.unitLabel || ''),
+          priceEach: Number(p.priceEach || 0),
+          priceTotal: Number(p.priceTotal || 0),
+          currency: String(p.currency || 'EUR'),
+          expiresAt: String(p.expiresAt || p.expiry || p.scadenza || '')
+        })).filter(p => p.name);
+
+        if (!itemsNorm.length) {
+          setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
+          return;
+        }
+
+        // --- Normalizzazione via web (identica a Liste Prodotti) — inline helper ---
+        async function normalizeViaWebLocal(items) {
+          const arr = Array.isArray(items) ? items : [];
+          if (!arr.length) return arr;
+
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort('timeout'), 30000);
           try {
-            const res = await postJSON('/api/vini/ingest', {
-              user_id: uid,
-              wine: L?.wine || null,
-              text: L?.text || ''
+            const resp = await fetch('/api/normalize', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
+                locale: 'it-IT',
+                trace: true
+              }),
+              signal: ctrl.signal
             });
-            if (!(res?.ok || res?.inserted === 1)) {
-              setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
+            const raw = await resp.text();
+            let j = null; try { j = JSON.parse(raw); } catch {}
+            if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
+
+            return arr.map((p, i) => {
+              const r = j.results[i]?.out || {};
+              const normName   = String(r.normalizedName || '').trim();
+              const canonBrand = String(r.canonicalBrand || '').trim();
+              const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+
+              const out = {
+                ...p,
+                name:  normName   || p.name,
+                brand: canonBrand || p.brand || ''
+              };
+              if (imageUrl) {
+                out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+                out.imageDirect = imageUrl;
+              }
+              return out;
+            });
+          } catch (e) {
+            console.warn('[normalizeViaWeb] skip', e);
+            return arr;
+          } finally {
+            clearTimeout(t);
+          }
+        }
+
+        // Normalizza + scadenze + prezzi ibridi
+        const itemsReady = (await normalizeViaWebLocal(itemsNorm))
+          .map(normalizeItemForPipelines)
+          .map(enforceHybridUnitPrice);
+
+        // Etichetta umana per link/tabelle: "Store Luogo Indirizzo"
+        const storeLabel = buildStoreLabel({
+          store: meta.store, address: meta.address, place: meta.place, city: meta.city, locality: meta.locality
+        });
+        if (storeLabel) meta.store = storeLabel;
+
+        // Totale: usa scontrino se presente, else somma righe
+        const totalFromLines = Number(itemsReady.reduce((s,p)=> s + (Number(p.priceTotal)||0), 0).toFixed(2));
+        const ocrTotal = Number(meta.totalPaid || 0);
+        meta.totalPaid = ocrTotal > 0 ? ocrTotal : totalFromLines;
+
+        // Bucket + supermercato?
+        const bucket = guessExpenseBucket(meta.store);
+        const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+
+        // Accumuliamo note reali dagli endpoint
+        const notes = [];
+
+        // --- a) FINANZE (link "Spesa [Store]") ---
+        if (!uid) {
+          notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
+        } else {
+          try {
+            const payloadFin = {
+              user_id: uid,
+              store: meta.store,
+              purchaseDate: meta.purchaseDate,
+              payment_method: 'cash',
+              card_label: null,
+              items: itemsReady,
+              totalPaid: meta.totalPaid,
+              receiptTotalAuthoritative: true
+            };
+            const finRes = await postJSON('/api/finances/ingest', payloadFin);
+            if (finRes?.ok && (finRes?.inserted || 0) > 0) {
+              if (typeof window !== 'undefined') {
+                const stamp = Date.now();
+                localStorage.setItem('__finanze_last_ingest', String(stamp));
+                window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsReady.length, store: meta.store, stamp } }));
+              }
+              setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
+            } else {
+              notes.push('Finanze: nessuna riga inserita');
             }
           } catch (e) {
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
+            notes.push(`Finanze: ${e.message}`);
           }
-        }
-        setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
-      }
-      return;
-    }
 
-    // Scontrino/i
-    if (receipts.length || texts.length) {
-      // --- Combina meta + righe ---
-      const allPurchases = [];
-      const meta = { store: '', purchaseDate: '', totalPaid: 0, currency: 'EUR' };
-
-      for (const R of receipts) {
-        const items = Array.isArray(R?.purchases) ? R.purchases : [];
-        allPurchases.push(...items);
-        if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
-        if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
-        if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
-        if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
-      }
-
-      // --- Fallback DATA (se meta vuota) ---
-      const isoFromMeta = toISODate(meta.purchaseDate);
-      const isoFromOCR  = pickDateFromTexts(texts);
-      const isoToday    = new Date().toISOString().slice(0, 10);
-      meta.purchaseDate = isoFromMeta || isoFromOCR || isoToday;
-
-      // --- Normalizza righe (base) ---
-      const itemsNorm = (allPurchases || []).map(p => ({
-        name: String(p.name || '').trim(),
-        brand: String(p.brand || '').trim(),
-        packs: Number(p.packs || 0),
-        unitsPerPack: Number(p.unitsPerPack || 0),
-        unitLabel: String(p.unitLabel || ''),
-        priceEach: Number(p.priceEach || 0),
-        priceTotal: Number(p.priceTotal || 0),
-        currency: String(p.currency || 'EUR'),
-        expiresAt: String(p.expiresAt || '')
-      })).filter(p => p.name);
-
-      if (!itemsNorm.length) {
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
-        return;
-      }
-
-   // --- SOSTITUISCI l'intera normalizeViaWebLocal con questa ---
-async function normalizeViaWebLocal(items) {
-  const arr = Array.isArray(items) ? items : [];
-  if (!arr.length) return arr;
-
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort('timeout'), 30000);
-  try {
-    const resp = await fetch('/api/normalize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-        locale: 'it-IT',
-        trace: true,
-        // (facoltativo) suggerisci al tuo endpoint di non collassare forme:
-        policy: 'grocery.shape-strict'
-      }),
-      signal: ctrl.signal
-    });
-    const raw = await resp.text();
-    let j = null; try { j = JSON.parse(raw); } catch {}
-
-    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) {
-      // fallback: niente normalizzazione, ma preserva le forme
-      return arr.map(p => ({ ...p, name: protectPastaShape(p.name, p.name) }));
-    }
-
-    return arr.map((p, i) => {
-      const r = j.results[i]?.out || {};
-      const normName   = String(r.normalizedName || '').trim() || p.name;
-      const canonBrand = String(r.canonicalBrand || '').trim() || (p.brand || '');
-      const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
-
-      // <<< GUARDIA: preserva la forma di pasta dell'originale >>>
-      const safeName = protectPastaShape(p.name, normName);
-
-      const out = {
-        ...p,
-        name:  safeName,
-        brand: canonBrand
-      };
-
-      if (imageUrl) {
-        out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-        out.imageDirect = imageUrl;
-      }
-      return out;
-    });
-  } catch (e) {
-    console.warn('[normalizeViaWebLocal] skip', e);
-    // fallback: preserva forme anche senza risposta
-    return arr.map(p => ({ ...p, name: protectPastaShape(p.name, p.name) }));
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-      const itemsReady = await normalizeViaWebLocal(itemsNorm);
-
-      // Bucket + supermercato?
-      const bucket = guessExpenseBucket(meta.store);
-      const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
-
-      // Accumuliamo note reali dagli endpoint
-      const notes = [];
-
-      // --- a) FINANZE ---
-      if (!uid) {
-        notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
-      } else {
-        try {
-          const payloadFin = {
-            user_id: uid,
-            store: meta.store,
-            purchaseDate: meta.purchaseDate,
-            payment_method: 'cash',
-            card_label: null,
-            items: itemsReady
-          };
-          const finRes = await postJSON('/api/finances/ingest', payloadFin);
-          if (finRes?.ok && (finRes?.inserted || 0) > 0) {
-            if (typeof window !== 'undefined') {
-              const stamp = Date.now();
-              localStorage.setItem('__finanze_last_ingest', String(stamp));
-              window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsReady.length, store: meta.store, stamp } }));
+          // --- b) SPESE CASA / CENE & APERITIVI ---
+          try {
+            const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+            const payloadSpese = {
+              user_id: uid,
+              store: meta.store,                    // "Decò Maxistore Castel di Sangro Via Abruzzi"
+              purchaseDate: meta.purchaseDate,
+              totalPaid: meta.totalPaid,            // totale scontrino
+              items: itemsReady,                    // dettaglio completo: unitario, q.tà, pagato, scadenze
+              receiptTotalAuthoritative: true
+            };
+            const spRes = await postJSON(endpoint, payloadSpese);
+            if (spRes?.ok && (spRes?.inserted || 0) > 0) {
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsReady.length } }));
+              }
+              setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
+            } else {
+              notes.push(`${bucket}: nessuna riga inserita`);
             }
-            setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
-          } else {
-            notes.push('Finanze: nessuna riga inserita');
+          } catch (e) {
+            notes.push(`${bucket}: ${e.message}`);
           }
-        } catch (e) {
-          notes.push(`Finanze: ${e.message}`);
         }
 
-        // --- b) SPESE CASA / CENE & APERITIVI ---
-        try {
-          const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-          const payloadSpese = {
-            user_id: uid,
-            store: meta.store,
-            purchaseDate: meta.purchaseDate,
-            totalPaid: meta.totalPaid,
-            items: itemsReady
-          };
-          const spRes = await postJSON(endpoint, payloadSpese);
-          if (spRes?.ok && (spRes?.inserted || 0) > 0) {
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsReady.length } }));
-            }
-            setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
-          } else {
-            notes.push(`${bucket}: nessuna riga inserita`);
-          }
-        } catch (e) {
-          notes.push(`${bucket}: ${e.message}`);
-        }
-      }
-
-      // --- c) SCORTE (solo supermercato, via endpoint server) ---
-      if (storeIsSuper && uid) {
-        try {
-          const stRes = await postJSON('/api/stock/apply', { user_id: uid, items: itemsReady });
-          if (stRes?.ok) {
+        // --- c) SCORTE (solo supermercato)
+        if (storeIsSuper && uid) {
+          try {
+            await postJSON('/api/stock/apply', { user_id: uid, items: itemsReady });
             setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsReady.length, at: Date.now() } }));
             }
-          } else {
-            notes.push('Scorte: nessun aggiornamento');
-          }
-        } catch (e) {
-          notes.push(`Scorte: ${e.message}`);
+          } catch (e) { notes.push(`Scorte: ${e.message}`); }
         }
+
+        // --- d) riepilogo + voce ---
+        const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReady }), mono: true };
+        setChatMsgs(arr => [
+          ...arr,
+          msg,
+          ...(notes.length ? [{ role:'assistant', text: 'Note:\n' + notes.map(n => `• ${n}`).join('\n'), mono: true }] : []),
+          { role: 'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
+        ]);
+        maybeSpeakMessage(msg);
+        return;
       }
 
-      // --- d) riepilogo + voce ---
-      const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReady }), mono: true };
-      setChatMsgs(arr => [
-        ...arr,
-        msg,
-        ...(notes.length ? [{ role:'assistant', text: 'Note:\n' + notes.map(n => `• ${n}`).join('\n'), mono: true }] : []),
-        { role: 'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
-      ]);
-      maybeSpeakMessage(msg);
-      return;
+      // Tipo non riconosciuto
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
+
+    } catch (err) {
+      console.error('[OCR flow] error', err, err?.stack);
+      setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
+    } finally {
+      setBusy(false);
     }
-
-    // Tipo non riconosciuto
-    setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
-
-  } catch (err) {
-    console.error('[OCR flow] error', err, err?.stack);
-    setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
-  } finally {
-    setBusy(false);
   }
-}
 
   /* =================== Query testo (anche da Siri) =================== */
   async function submitQuery(textParam) {
@@ -1163,37 +961,32 @@ async function normalizeViaWebLocal(items) {
 
     const sp = new URLSearchParams(window.location.search);
     const src  = sp.get('src')  || '';
-    const mode = sp.get('mode') || '';           // 'voice' abilita TTS per la prossima risposta
-    const q    = sp.get('q')    || '';           // domanda testuale
-    const tts  = sp.get('tts');                  // '1' o '0'
-    const voiceParam = sp.get('voice') || '';    // nome voce
-    const imgParams = sp.getAll('img');          // uno o più 'img='
+    const mode = sp.get('mode') || '';
+    const q    = sp.get('q')    || '';
+    const tts  = sp.get('tts');
+    const voiceParam = sp.get('voice') || '';
+    const imgParams = sp.getAll('img');
 
     if (tts === '1') setTtsEnabled(true);
     if (tts === '0') setTtsEnabled(false);
     if (mode === 'voice') speakModeRef.current = true;
 
-    // selezione voce richiesta (se esiste)
     if (voiceParam) {
-      // se le voci non sono ancora pronte, verrà applicata quando loadVoices finisce
       const attempt = () => {
         const found = voicesRef.current.find(v => v.name === voiceParam);
         if (found) setVoiceId(found.name);
       };
-      // prova subito e poi riprova fra poco (alcuni browser ritardano getVoices)
       attempt();
       setTimeout(attempt, 700);
     }
 
     deepLinkHandledRef.current = true;
 
-    // Notifica Siri
     if (src === 'siri') {
       setChatOpen(true);
       setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]);
     }
 
-    // Se ci sono immagini passate da Siri (URL o dataURL), avvia OCR
     (async () => {
       const files = [];
       for (let i=0; i<imgParams.length; i++) {
@@ -1205,7 +998,6 @@ async function normalizeViaWebLocal(items) {
       } else if (q) {
         await submitQuery(q);
       }
-      // Pulizia URL
       try {
         const url = new URL(window.location.href);
         ['q','src','mode','tts','voice','img'].forEach(p => url.searchParams.delete(p));
@@ -1216,6 +1008,31 @@ async function normalizeViaWebLocal(items) {
   }, [router.isReady]);
 
   const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
+
+  /* --------- Riepilogo scontrino (con scadenze e unitario) --------- */
+  function summarizeReceiptForChat({ store, purchaseDate, totalPaid, currency='EUR', purchases=[] }) {
+    const tot = (Number(totalPaid)||0).toLocaleString('it-IT',{style:'currency',currency});
+    const lines = purchases.slice(0,8).map(p => {
+      const q  = Math.max(1, Number(p.packs||p.qty||1));
+      const up = Math.max(1, Number(p.unitsPerPack||1));
+      const label = p.unitLabel || 'unità';
+      const unit = Number(p.priceEach||0);
+      const lineTot = Number(p.priceTotal||0);
+      const exp = p.expiresAt ? ` • scad: ${p.expiresAt}` : '';
+      const unitTxt = unit ? ` @ ${(unit).toLocaleString('it-IT',{style:'currency',currency})}` : '';
+      const lineTotTxt = lineTot ? ` = ${(lineTot).toLocaleString('it-IT',{style:'currency',currency})}` : '';
+      return `• ${p.name}${p.brand ? ` (${p.brand})` : ''} — ${q} conf. × ${up} ${label}${unitTxt}${lineTotTxt}${exp}`;
+    }).join('\n');
+    return (
+`🧾 Scontrino rilevato
+Punto vendita: ${store || '—'}
+Data: ${purchaseDate || '—'}
+Totale scontrino: ${tot}
+
+Righe principali:
+${lines}${purchases.length>8?`\n…(+${purchases.length-8})`:''}`
+    );
+  }
 
   return (
     <>
@@ -1346,7 +1163,6 @@ async function normalizeViaWebLocal(items) {
       />
 
       <LoadingOverlay open={loading} message={loadingMsg} />
-
 
       {/* CSS globale */}
       <style jsx global>{`
