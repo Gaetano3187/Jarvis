@@ -734,16 +734,13 @@ const Home = () => {
           setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
           return;
         }
-        // --- SOSTITUISCI l'intera normalizeViaWebLocal con questa ---
-async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
+    async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
   const arr = Array.isArray(items) ? items : [];
   if (!arr.length) return arr;
 
-  // helper merge
-  const mergeOne = (p, r) => {
-    if (!r || r.drop) return null; // drop righe non prodotto
+  const mergeVision = (p, r) => {
+    if (!r || r.drop) return null;
     const out = { ...p };
-
     const normName   = String(r.out?.normalizedName || '').trim();
     const canonBrand = String(r.out?.canonicalBrand || '').trim();
     const unitsPer   = Number(r.out?.unitsPerPack || 0);
@@ -752,43 +749,33 @@ async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}
 
     if (normName)   out.name  = normName;
     if (canonBrand) out.brand = canonBrand;
-    if (unitsPer && unitsPer > 0) out.unitsPerPack = unitsPer;
+    if (unitsPer > 0) out.unitsPerPack = unitsPer;
     if (unitLabel) out.unitLabel = unitLabel;
     if (packMult > 1) out.packs = Math.max(1, Number(out.packs || 1)) * packMult;
-
     return out;
   };
 
-  // 1) Tentativo Vision (come ChatGPT)
+  // 1) Vision first
   try {
-    const resp = await fetch('/api/normalize-vision', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
+    const r = await fetch('/api/normalize-vision', {
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-        receiptText,
-        store,
-        locale: 'it-IT',
-        trace: false
+        receiptText, store, locale:'it-IT', trace:false
       })
     });
-    const raw = await resp.text();
-    let j = null; try { j = JSON.parse(raw); } catch {}
-    if (resp.ok && j?.ok && Array.isArray(j.results)) {
+    const raw = await r.text(); let j=null; try{ j=JSON.parse(raw) }catch{}
+    if (r.ok && j?.ok && Array.isArray(j.results)) {
       const merged = [];
-      for (let i = 0; i < arr.length; i++) {
-        const p = arr[i];
-        const r = j.results[i];
-        const out = mergeOne(p, r);
+      for (let i=0;i<arr.length;i++){
+        const out = mergeVision(arr[i], j.results[i]);
         if (out) merged.push(out);
       }
       if (merged.length) return merged;
     }
-  } catch (e) {
-    console.warn('[normalizeViaWebLocal] vision failed, will fallback:', e?.message || e);
-  }
+  } catch (e) { console.warn('[normalizeViaWebLocal] vision fail', e?.message||e); }
 
-  // 2) Fallback al tuo /api/normalize (OFF/euristiche già esistente)
+  // 2) Fallback tuo /api/normalize
   try {
     const resp = await fetch('/api/normalize', {
       method: 'POST',
@@ -799,48 +786,39 @@ async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}
         trace: true
       })
     });
-
     const raw = await resp.text();
-    let j = null; try { j = JSON.parse(raw); } catch {}
+    let j=null; try{ j=JSON.parse(raw) }catch{}
     if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
 
     const merged = [];
-    for (let i = 0; i < arr.length; i++) {
-      const p = arr[i];
-      const r = j.results[i];
-
+    for (let i=0;i<arr.length;i++){
+      const p = arr[i], r = j.results[i];
       if (r?.drop) continue;
-
       const out = { ...p };
       const normName   = String(r?.out?.normalizedName || '').trim();
       const canonBrand = String(r?.out?.canonicalBrand || '').trim();
       const unitsPer   = Number(r?.out?.unitsPerPack || 0);
       const unitLabel  = String(r?.out?.unitLabel || '').trim();
-      const imageUrl   = r?.out?.imageUrl && String(r.out.imageUrl).trim();
-
       if (normName)   out.name  = normName;
       if (canonBrand) out.brand = canonBrand;
-      if (unitsPer && unitsPer > 0) out.unitsPerPack = unitsPer;
-      if (unitLabel) out.unitLabel = unitLabel;
-      if (imageUrl) {
-        out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-        out.imageDirect = imageUrl;
-      }
+      if (unitsPer>0) out.unitsPerPack = unitsPer;
+      if (unitLabel)  out.unitLabel = unitLabel;
       merged.push(out);
     }
     return merged;
   } catch (e) {
-    console.warn('[normalizeViaWebLocal] fallback OFF failed:', e?.message || e);
+    console.warn('[normalizeViaWebLocal] fallback fail', e?.message||e);
     return arr;
   }
 }
 
-        const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
+
+       const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
   receiptText: texts.join('\n'),
   store: meta.store
 }))
-  .map(normalizeItemForPipelines)
-  .map(enforceHybridUnitPrice);
+.map(normalizeItemForPipelines)
+.map(enforceHybridUnitPrice);
 
 
         // Etichetta umana per link/tabelle: "Store Luogo Indirizzo"
