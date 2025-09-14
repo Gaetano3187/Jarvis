@@ -754,6 +754,10 @@ function dedupeAndFix(items=[]) {
   }
   return Array.from(map.values());
 }
+// Solo le righe amministrative vanno droppate
+const NON_PRODUCT_RE = /\b(carta\s+\*{2,}|bancomat|pos|resto|sconto|arrotondamento|pagamento|totale|imponibile|ventilazione|iva)\b/i;
+function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
+
 
 
   /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
@@ -860,12 +864,23 @@ function dedupeAndFix(items=[]) {
           setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
           return;
         }
-    async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
+ // --- SOSTITUISCI l'intera normalizeViaWebLocal con questa versione "robusta" ---
+async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
   const arr = Array.isArray(items) ? items : [];
   if (!arr.length) return arr;
 
-  const mergeVision = (p, r) => {
-    if (!r || r.drop) return null;
+  // merge dei campi restituiti dal normalizzatore
+  const applyOne = (p, r) => {
+    // r può essere mancante o con drop:true
+    if (!r || (r.drop && !shouldDropName(p.name))) {
+      // tieni la riga ORIGINALE (non buttarla)
+      return { ...p };
+    }
+    if (r.drop && shouldDropName(p.name)) {
+      // è davvero una riga amministrativa → scarta
+      return null;
+    }
+
     const out = { ...p };
     const normName   = String(r.out?.normalizedName || '').trim();
     const canonBrand = String(r.out?.canonicalBrand || '').trim();
@@ -878,10 +893,11 @@ function dedupeAndFix(items=[]) {
     if (unitsPer > 0) out.unitsPerPack = unitsPer;
     if (unitLabel) out.unitLabel = unitLabel;
     if (packMult > 1) out.packs = Math.max(1, Number(out.packs || 1)) * packMult;
+
     return out;
   };
 
-  // 1) Vision first
+  // 1) Vision first (stile ChatGPT)
   try {
     const r = await fetch('/api/normalize-vision', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -890,18 +906,25 @@ function dedupeAndFix(items=[]) {
         receiptText, store, locale:'it-IT', trace:false
       })
     });
-    const raw = await r.text(); let j=null; try{ j=JSON.parse(raw) }catch{}
+    const raw = await r.text();
+    let j=null; try{ j=JSON.parse(raw) }catch{}
     if (r.ok && j?.ok && Array.isArray(j.results)) {
+      // Padding: se Vision torna meno risultati, completiamo con "undefined"
+      const padded = [...j.results];
+      while (padded.length < arr.length) padded.push(undefined);
+
       const merged = [];
       for (let i=0;i<arr.length;i++){
-        const out = mergeVision(arr[i], j.results[i]);
-        if (out) merged.push(out);
+        const out = applyOne(arr[i], padded[i]);
+        if (out) merged.push(out); // scarta solo se davvero NON-PRODOTTO
       }
       if (merged.length) return merged;
     }
-  } catch (e) { console.warn('[normalizeViaWebLocal] vision fail', e?.message||e); }
+  } catch (e) {
+    console.warn('[normalizeViaWebLocal] vision fail', e?.message || e);
+  }
 
-  // 2) Fallback tuo /api/normalize
+  // 2) Fallback al normalizzatore /api/normalize (OFF/euristiche)
   try {
     const resp = await fetch('/api/normalize', {
       method: 'POST',
@@ -912,28 +935,35 @@ function dedupeAndFix(items=[]) {
         trace: true
       })
     });
+
     const raw = await resp.text();
     let j=null; try{ j=JSON.parse(raw) }catch{}
     if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
 
+    const padded = [...j.results];
+    while (padded.length < arr.length) padded.push(undefined);
+
     const merged = [];
     for (let i=0;i<arr.length;i++){
-      const p = arr[i], r = j.results[i];
-      if (r?.drop) continue;
+      const p = arr[i];
+      const r = padded[i];
+      if (r?.drop && shouldDropName(p.name)) continue; // scarta solo amministrative
       const out = { ...p };
       const normName   = String(r?.out?.normalizedName || '').trim();
       const canonBrand = String(r?.out?.canonicalBrand || '').trim();
       const unitsPer   = Number(r?.out?.unitsPerPack || 0);
       const unitLabel  = String(r?.out?.unitLabel || '').trim();
+
       if (normName)   out.name  = normName;
       if (canonBrand) out.brand = canonBrand;
       if (unitsPer>0) out.unitsPerPack = unitsPer;
       if (unitLabel)  out.unitLabel = unitLabel;
+
       merged.push(out);
     }
     return merged;
   } catch (e) {
-    console.warn('[normalizeViaWebLocal] fallback fail', e?.message||e);
+    console.warn('[normalizeViaWebLocal] fallback OFF fail', e?.message || e);
     return arr;
   }
 }
