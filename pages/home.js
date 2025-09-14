@@ -734,58 +734,114 @@ const Home = () => {
           setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
           return;
         }
+        // --- SOSTITUISCI l'intera normalizeViaWebLocal con questa ---
+async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return arr;
 
-        // --- Normalizzazione via web (identica a Liste Prodotti) — inline helper ---
-        async function normalizeViaWebLocal(items) {
-          const arr = Array.isArray(items) ? items : [];
-          if (!arr.length) return arr;
+  // helper merge
+  const mergeOne = (p, r) => {
+    if (!r || r.drop) return null; // drop righe non prodotto
+    const out = { ...p };
 
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort('timeout'), 30000);
-          try {
-            const resp = await fetch('/api/normalize', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-                locale: 'it-IT',
-                trace: true
-              }),
-              signal: ctrl.signal
-            });
-            const raw = await resp.text();
-            let j = null; try { j = JSON.parse(raw); } catch {}
-            if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
+    const normName   = String(r.out?.normalizedName || '').trim();
+    const canonBrand = String(r.out?.canonicalBrand || '').trim();
+    const unitsPer   = Number(r.out?.unitsPerPack || 0);
+    const unitLabel  = String(r.out?.unitLabel || '').trim();
+    const packMult   = Number(r.out?.packMultiplier || 1);
 
-            return arr.map((p, i) => {
-              const r = j.results[i]?.out || {};
-              const normName   = String(r.normalizedName || '').trim();
-              const canonBrand = String(r.canonicalBrand || '').trim();
-              const imageUrl   = r.imageUrl && String(r.imageUrl).trim();
+    if (normName)   out.name  = normName;
+    if (canonBrand) out.brand = canonBrand;
+    if (unitsPer && unitsPer > 0) out.unitsPerPack = unitsPer;
+    if (unitLabel) out.unitLabel = unitLabel;
+    if (packMult > 1) out.packs = Math.max(1, Number(out.packs || 1)) * packMult;
 
-              const out = {
-                ...p,
-                name:  normName   || p.name,
-                brand: canonBrand || p.brand || ''
-              };
-              if (imageUrl) {
-                out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
-                out.imageDirect = imageUrl;
-              }
-              return out;
-            });
-          } catch (e) {
-            console.warn('[normalizeViaWeb] skip', e);
-            return arr;
-          } finally {
-            clearTimeout(t);
-          }
-        }
+    return out;
+  };
 
-        // Normalizza + scadenze + prezzi ibridi
-        const itemsReady = (await normalizeViaWebLocal(itemsNorm))
-          .map(normalizeItemForPipelines)
-          .map(enforceHybridUnitPrice);
+  // 1) Tentativo Vision (come ChatGPT)
+  try {
+    const resp = await fetch('/api/normalize-vision', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
+        receiptText,
+        store,
+        locale: 'it-IT',
+        trace: false
+      })
+    });
+    const raw = await resp.text();
+    let j = null; try { j = JSON.parse(raw); } catch {}
+    if (resp.ok && j?.ok && Array.isArray(j.results)) {
+      const merged = [];
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i];
+        const r = j.results[i];
+        const out = mergeOne(p, r);
+        if (out) merged.push(out);
+      }
+      if (merged.length) return merged;
+    }
+  } catch (e) {
+    console.warn('[normalizeViaWebLocal] vision failed, will fallback:', e?.message || e);
+  }
+
+  // 2) Fallback al tuo /api/normalize (OFF/euristiche già esistente)
+  try {
+    const resp = await fetch('/api/normalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
+        locale: 'it-IT',
+        trace: true
+      })
+    });
+
+    const raw = await resp.text();
+    let j = null; try { j = JSON.parse(raw); } catch {}
+    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
+
+    const merged = [];
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      const r = j.results[i];
+
+      if (r?.drop) continue;
+
+      const out = { ...p };
+      const normName   = String(r?.out?.normalizedName || '').trim();
+      const canonBrand = String(r?.out?.canonicalBrand || '').trim();
+      const unitsPer   = Number(r?.out?.unitsPerPack || 0);
+      const unitLabel  = String(r?.out?.unitLabel || '').trim();
+      const imageUrl   = r?.out?.imageUrl && String(r.out.imageUrl).trim();
+
+      if (normName)   out.name  = normName;
+      if (canonBrand) out.brand = canonBrand;
+      if (unitsPer && unitsPer > 0) out.unitsPerPack = unitsPer;
+      if (unitLabel) out.unitLabel = unitLabel;
+      if (imageUrl) {
+        out.image = `/api/img-proxy?url=${encodeURIComponent(imageUrl)}&w=256&h=256&fit=cover&format=jpg`;
+        out.imageDirect = imageUrl;
+      }
+      merged.push(out);
+    }
+    return merged;
+  } catch (e) {
+    console.warn('[normalizeViaWebLocal] fallback OFF failed:', e?.message || e);
+    return arr;
+  }
+}
+
+        const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
+  receiptText: texts.join('\n'),
+  store: meta.store
+}))
+  .map(normalizeItemForPipelines)
+  .map(enforceHybridUnitPrice);
+
 
         // Etichetta umana per link/tabelle: "Store Luogo Indirizzo"
         const storeLabel = buildStoreLabel({
