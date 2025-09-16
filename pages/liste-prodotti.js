@@ -258,30 +258,68 @@ function persistNow(snapshot) {
   [LEX_DELI,LEX_DAIRY,LEX_BAKERY,LEX_PASTA,LEX_PANTRY,LEX_BREAKFAST,LEX_SNACKS,LEX_BEVERAGES,LEX_FROZEN,LEX_VEG,LEX_FRUIT,LEX_BABY_PET,LEX_LAUNDRY,LEX_DISH,LEX_SURF,LEX_CONSUM,LEX_PERSONAL].forEach(__lexAdd);
 })();
 
-// ——— Sanitizzazione quantità: NON toccare “pezzi” (pz/capsule/pods ecc.), neutralizza pesi/volumi/dimensioni ———
-const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|m³|m3|mq|m²|cm|mm)\b/gi;
+// ——— Sanitizzazione quantità: neutralizza SEMPRE pesi/volumi/dimensioni ———
+const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl)\b/gi;
 const DIMENSION_RE     = /\b\d+\s*[x×]\s*\d+(?:\s*[x×]\s*\d+)?\s*(?:cm|mm|m)\b/gi;
-const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,450,454,500,700,720,733,750,800,900,910,930,950,1000,1250,1500,1750,2000]);
+
+// etichette che indicano peso/volume (mai pezzi)
+function isWeightOrVolumeLabel(lbl='') {
+  const s = String(lbl).toLowerCase().trim();
+  return /^(?:g|gr|kg|ml|cl|l|lt|grammi?|litri?)$/.test(s);
+}
+// numeri UPP sospetti (classici pesi/volumi che arrivano dagli LLM)
+const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,410,450,454,480,500,700,720,733,750,800,900,910,930,950,1000,1500,2000]);
 
 function cleanupPurchasesQuantities(list) {
   return (Array.isArray(list) ? list : []).map(p => {
     const out = { ...p };
-    const joined = `${String(out.name||'')} ${String(out.brand||'')}`.toLowerCase();
-    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 || (joined.match(DIMENSION_RE) || []).length > 0;
-    const u = Math.max(0, Number(out.unitsPerPack || 0));
-    const packs = Math.max(0, Number(out.packs || 0));
-    const piecesHit = /\b(pz|pezzi|bottigli|capsul|pods|bust|lattin|vasett|rotol|fogli|uova|brick)\b/i.test(
-      normKey(`${out.unitLabel||''} ${joined}`)
-    );
-    const looksWeightNumber = !piecesHit && (hasMeasure || SUSPECT_UPP.has(u));
-    if ((hasMeasure && u > 1) || looksWeightNumber) {
+
+    // 0) normalizza campi base
+    out.packs = Math.max(0, Number(out.packs || 0));
+    out.unitsPerPack = Math.max(0, Number(out.unitsPerPack || 0));
+    out.unitLabel = String(out.unitLabel || '').trim();
+
+    // 1) se l'etichetta è di peso/volume → mai pezzi
+    if (isWeightOrVolumeLabel(out.unitLabel)) {
       out.unitsPerPack = 1;
       out.unitLabel = 'unità';
-      if (!packs) out.packs = 1;
+      if (!out.packs) out.packs = 1;
     }
+
+    const joined = `${String(out.name||'')} ${String(out.brand||'')}`.toLowerCase();
+
+    // 2) pattern tipo "500/500 g", "2000/2000 g", "1/1 kg" nelle UI → resetta a unità
+    if (/\b(\d{2,5})\s*\/\s*\1\s*(?:g|gr|kg|ml|cl|l|lt)\b/i.test(joined)) {
+      out.unitsPerPack = 1;
+      out.unitLabel = 'unità';
+      if (!out.packs) out.packs = 1;
+    }
+
+    // 3) se la descrizione contiene misure/pesi o dimensioni → non sono pezzi discreti
+    const hasMeasure = (joined.match(MEASURE_TOKEN_RE) || []).length > 0 || (joined.match(DIMENSION_RE) || []).length > 0;
+
+    // “pezzi” veri (pz, capsule, pod, bottiglie, ecc.)
+    const piecesHit = /\b(pz|pezzi?|bottigli|capsul|pods?|bust|lattin|vasett|rotol|fogli|uova|brick|fette)\b/i
+      .test(`${out.unitLabel} ${joined}`);
+
+    // 4) UPP “sospetti” (500, 1000…) senza indicatori di pezzi → sono pesi
+    const looksWeightNumber = !piecesHit && (hasMeasure || SUSPECT_UPP.has(out.unitsPerPack));
+
+    if (looksWeightNumber) {
+      out.unitsPerPack = 1;
+      out.unitLabel = 'unità';
+      if (!out.packs) out.packs = 1;
+    }
+
+    // 5) fallback: se packs=0 ma abbiamo una riga valida → metti 1 conf.
+    if (!out.packs) out.packs = 1;
+    if (!out.unitsPerPack) out.unitsPerPack = 1;
+    if (!out.unitLabel) out.unitLabel = 'unità';
+
     return out;
   });
 }
+
 
 // ——— PROMPT per scontrino ———
 function buildOcrAssistantPrompt(ocrText, lexicon = []) {
