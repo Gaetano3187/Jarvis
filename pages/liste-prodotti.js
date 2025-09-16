@@ -910,146 +910,10 @@ function intOr(x, d=0){ const n = Number(String(x).replace(',','.')); return Num
 function posIntOr(x, d=0){ return Math.max(0, intOr(x, d)); }
 function nonEmpty(s){ return String(s||'').trim(); }
 
-/* ====================== Review helpers ====================== */
-// Modifica una riga nella modale (usa i setter globali se disponibili)
-function handleReviewChange(id, field, value){
-  try {
-    if (typeof __reviewSetters !== 'undefined' && __reviewSetters) {
-      const { setReviewItems /*, setReviewPick*/ } = __reviewSetters;
-      setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
-    } else {
-      // fallback: se in closure del componente
-      setReviewItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
-      try {
-        const it = reviewItems.find(i => i.id === id);
-        if (it) {
-          const key = productKey(it.name, it.brand || '');
-          setReviewPick(prev => ({ ...prev, [key]: true }));
-        }
-      } catch {}
-    }
-  } catch {}
-}
-function priceNum(x){ const n = Number(String(x).replace(',','.')); return Number.isFinite(n) ? n : 0; }
-function derivePriceFields({ packs, priceEach, priceTotal }) {
-  const p = Math.max(1, Number(packs || 1));
-  let pe = priceNum(priceEach);
-  let pt = priceNum(priceTotal);
-  if (!pe && pt) pe = pt / p;           // se ho il totale ma non il “cadauno”
-  if (!pt && pe) pt = pe * p;           // se ho il “cadauno” ma non il totale
-  // arrotonda gentile
-  pe = Math.round(pe * 100) / 100;
-  pt = Math.round(pt * 100) / 100;
-  return { priceEach: pe, priceTotal: pt };
-}
 
 
-// Normalizza le righe prima di aggiungerle
-function normalizeReviewedItems(items){
-  return (items||[]).map(p => {
-    let name = nonEmpty(p.name);
-    let brand = nonEmpty(p.brand);
-    let packs = posIntOr(p.packs, 1);
-    let upp   = posIntOr(p.unitsPerPack, 1);
-    let unitLabel = nonEmpty(p.unitLabel) || (upp>1 ? 'pezzi' : 'unità');
-    const expiresAt = toISODate(p.expiresAt || '');
-    return { name, brand, packs, unitsPerPack: upp, unitLabel, expiresAt,
-      priceEach: 0, priceTotal: 0, currency: 'EUR'
-    };
-  });
-}
 
-// Auto-normalizza le righe in modale in base ad alias/normalizzatori appresi
-function autoNormalizeReview(){
-  setReviewItems(prev => prev.map(it => {
-    const ab = (typeof applyLearnedAliases === 'function')
-      ? applyLearnedAliases({ name: it.name, brand: it.brand }, learned)
-      : { name: it.name, brand: it.brand };
-    const brand = (typeof normalizeBrandName === 'function') ? normalizeBrandName(ab.brand) : ab.brand;
-    const name  = (typeof normalizeProductName === 'function') ? normalizeProductName(ab.name, brand, `${ab.name} ${brand}`) : ab.name;
-    return { ...it, name: name || it.name, brand: brand || it.brand };
-  }));
-}
 
-// Raccoglie voci NON riconosciute dall'OCR per la modale di validazione
-function collectReviewCandidatesFromOCRText(ocrText, purchasesRecognized = []) {
-  const existed = new Set((purchasesRecognized || []).map(p => normKey(p.name)));
-  const out = [];
-  const lines = String(ocrText || '')
-    .split(/\r?\n/)
-    .map(s => s.replace(/\s{2,}/g, ' ').trim())
-    .filter(Boolean);
-
-  const KNOWN_BRANDS = ['Mulino Bianco','Ferrero','Motta','Lavazza','Parmalat','Zymil','Garofalo','Eridania',
-    'Lenor','Dash','Arborea','Bufalart','Decò','Deco','Saiva','Barilla','Galbani','Santa Lucia'];
-
-  for (let ln of lines) {
-    if (/^(documento|descrizione|prezzo|totale|subtotale|pagamento|resto|di\s*cui\s*iva|iva|rt\b|cassa|cassiere|codice|tessera)\b/i.test(ln)) continue;
-    if (/^\(off\.\b/i.test(ln)) continue;
-
-    ln = ln.replace(/\s+vi\*?\s*$/i,'')
-           .replace(/\s+(?:€|eur|euro)?\s*\d+(?:[.,]\d{2})\s*$/i,'')
-           .trim();
-    if (!ln) continue;
-
-    let brand = '';
-    for (const b of KNOWN_BRANDS) {
-      if (new RegExp(`\\b${b.replace(/\s+/g,'\\s+')}\\b`, 'i').test(ln)) { brand = b; break; }
-    }
-    let name = ln;
-    if (typeof normalizeBrandName === 'function') brand = normalizeBrandName(brand || ln);
-    if (typeof normalizeProductName === 'function') name  = normalizeProductName(name, brand, ln);
-
-    const key = normKey(name);
-    if (!key || existed.has(key)) continue;
-
-    const looksUpper  = /^[A-Z0-9À-ÖØ-Þ][A-Z0-9À-ÖØ-Þ .'-]{4,}$/.test(ln);
-    const tokenAlpha  = (ln.match(/[A-Za-zÀ-ÖØ-öø-ÿ]{2,}/g) || []).length >= 2;
-    if (!(looksUpper || tokenAlpha)) continue;
-
-    out.push({
-      id: 'rev-' + key,
-      name: name.trim(),
-      brand: brand && brand !== name ? brand : '',
-      packs: 1, unitsPerPack: 1, unitLabel: 'unità',
-      priceEach: 0, priceTotal: 0, currency: 'EUR',
-      expiresAt: ''
-    });
-  }
-  return out;
-}
-
-// Apri la modale con i candidati (usa i setter registrati)
-function openValidation(discardedList, meta) {
-  if (typeof __reviewSetters === 'undefined' || !__reviewSetters) return; // sicuro
-  const { setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen } = __reviewSetters;
-
-  const uniq = new Map(), items = [];
-  for (const p of discardedList || []) {
-    const nm = nonEmpty(p?.name); if (!nm) continue;
-    const br = nonEmpty(p?.brand);
-    const key = productKey(nm, br);
-    if (uniq.has(key)) continue;
-    uniq.set(key, true);
-    items.push({
-      ...p,
-      id: 'rev-' + key,
-      name: nm,
-      brand: br,
-      packs: posIntOr(p?.packs, 1),
-      unitsPerPack: posIntOr(p?.unitsPerPack, 1),
-      unitLabel: nonEmpty(p?.unitLabel) || 'unità',
-      expiresAt: toISODate(p?.expiresAt || '')
-    });
-  }
-  if (items.length) {
-    setReviewItems(items);
-    setReviewPick(items.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}));
-    setPendingOcrMeta(meta || null);
-    setReviewOpen(true);
-  }
-  
-}
 /* ====================== Applica aggiunte (liste+scorte+finanze) ====================== */
 async function applyAdditionalPurchases(addItems, meta = {}) {
   if (!Array.isArray(addItems) || !addItems.length) return;
@@ -1240,38 +1104,7 @@ async function applyAdditionalPurchases(addItems, meta = {}) {
   } catch (e) {
     if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e);
   }
-
-
-  // 3) Finanze
-  try {
-    const itemsSafe = addItems.map(p => ({
-      name:p.name, brand:p.brand||'', packs:Number(p.packs||0), unitsPerPack:Number(p.unitsPerPack||0),
-      unitLabel:p.unitLabel||'', priceEach:Number(p.priceEach||0), priceTotal:Number(p.priceTotal||0),
-      currency:p.currency||'EUR', expiresAt:p.expiresAt||''
-    }));
-    await fetchJSONStrict(API_FINANCES_INGEST, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
-        ...(pendingOcrMeta?.store ? { store: pendingOcrMeta.store } : {}),
-        ...(pendingOcrMeta?.purchaseDate ? { purchaseDate: pendingOcrMeta.purchaseDate } : {}),
-        payment_method:'cash', card_label:null, items: itemsSafe
-      })
-    }, 30000);
-  } catch(e){ if (DEBUG) console.warn('[FINANCES_INGEST] review add fail', e); }
 }
-
-// Conferma selezionati
-async function applyReviewSelection() {
-  const selected = reviewItems.filter(it => reviewPick[productKey(it.name, it.brand || '')]);
-  setReviewOpen(false); setReviewItems([]); setReviewPick({});
-  if (!selected.length) return;
-  const cleaned = normalizeReviewedItems(selected);
-  await applyAdditionalPurchases(cleaned, pendingOcrMeta || {});
-  setPendingOcrMeta(null);
-  showToast(`Aggiunti ${cleaned.length} articoli convalidati ✓`, 'ok');
-}
-
 
 /* ==== Toggle riconoscimento/agent (arricchimento attivo) ==== */
 const ENRICH_MODE = 'on';         // 'off' | 'auto' | 'on'
@@ -1335,12 +1168,6 @@ useEffect(() => {
   const recordedChunks = useRef([]);
   const streamRef = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
-
-  // Review (modale di convalida)
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewItems, setReviewItems] = useState([]);
-  const [reviewPick, setReviewPick] = useState({});
-  const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
 
   // registra i setter per gli helper globali
   useEffect(() => {
@@ -2051,26 +1878,37 @@ async function handleOCR(files) {
       } catch (e) { console.warn('[ASSISTANT parse] fallback KO', e); }
     }
 
-    // Meta da OCR testo se mancano
-    if (!store || !purchaseDate) {
-      const meta = parseReceiptMeta(ocrText || '');
-      store        = (store || meta.store || '').trim();
-      purchaseDate = toISODate(purchaseDate || meta.purchaseDate || '');
-    }
+  const meta = { 
+  store, 
+  purchaseDate, 
+  location: ocrAns?.location || '', 
+  totalPaid: coerceNum(ocrAns?.totalPaid), 
+  currency: ocrAns?.currency || 'EUR',
+  paymentMethod: ocrAns?.paymentMethod || 'cash'
+};
 
-    if (!purchases.length && parsed) {
-      purchases = ensureArray(parsed?.purchases).map(p => ({
-        name: String(p?.name||'').trim(),
-        brand: String(p?.brand||'').trim(),
-        packs: coerceNum(p?.packs),
-        unitsPerPack: coerceNum(p?.unitsPerPack),
-        unitLabel: normalizeUnitLabel(p?.unitLabel||''),
-        priceEach: coerceNum(p?.priceEach),
-        priceTotal: coerceNum(p?.priceTotal),
-        currency: String(p?.currency||'').trim() || 'EUR',
-        expiresAt: toISODate(p?.expiresAt || '')
-      })).filter(p => p.name);
-    }
+const payload = {
+  ...(userIdRef.current ? { user_id: userIdRef.current } : {}),
+  ...(meta.store ? { store: meta.store } : {}),
+  ...(meta.purchaseDate ? { purchaseDate: meta.purchaseDate } : {}),
+  ...(meta.location ? { location: meta.location } : {}),
+  ...(Number.isFinite(Number(meta.totalPaid)) ? { totalPaid: Number(meta.totalPaid) } : {}),
+  ...(meta.currency ? { currency: meta.currency } : {}),
+  payment_method: meta.paymentMethod || 'cash',
+  card_label: null,
+  items: purchases.map(p => ({
+    name: p.name,
+    brand: p.brand || '',
+    packs: Number(p.packs || 0),
+    unitsPerPack: Number(p.unitsPerPack || 0),
+    unitLabel: p.unitLabel || '',
+    priceEach: Number(p.priceEach || 0),
+    priceTotal: Number(p.priceTotal || 0),
+    currency: p.currency || 'EUR',
+    expiresAt: p.expiresAt || ''
+  }))
+};
+
 
     // 4) Fallback locale
     if (!purchases.length && ocrText) {
@@ -3505,124 +3343,8 @@ return (
         {toast.msg}
       </div>
     )}
-    {reviewOpen && (
-  <div style={{ position:'fixed', inset:0, zIndex:99999, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center' }}>
-    <div style={{
-      width:'min(920px, 94vw)', maxHeight:'82vh', overflow:'hidden',
-      background:'rgba(17,24,39,.97)', border:'1px solid rgba(255,255,255,.12)',
-      borderRadius:14, boxShadow:'0 20px 50px rgba(0,0,0,.6)', color:'#e5e7eb'
-    }}>
-      {/* Header */}
-      <div style={{ padding:'12px 14px', borderBottom:'1px solid rgba(255,255,255,.08)'}}>
-        <h3 style={{ margin:0, fontSize:'1.08rem', fontWeight:800 }}>Convalida & Modifica articoli</h3>
-        <p style={{ margin:'4px 0 0', opacity:.85, fontSize:'.9rem' }}>
-          Spunta gli articoli da aggiungere. Puoi modificare nome, marca e quantità prima di confermare.
-        </p>
-        <div style={{ marginTop:8, display:'flex', gap:8 }}>
-          <button onClick={autoNormalizeReview} style={styles.smallGhostBtn} title="Applica normalizzazioni note">
-            Auto-normalizza
-          </button>
-        </div>
-      </div>
+    
 
-      {/* Body */}
-      <div style={{ padding:'10px 14px', overflowY:'auto', maxHeight:'58vh', display:'flex', flexDirection:'column', gap:10 }}>
-        {reviewItems.map((it) => {
-          const key = productKey(it.name, it.brand || '');
-          const checked = !!reviewPick[key];
-
-          return (
-            <div key={it.id || key} style={{
-              display:'grid',
-              gridTemplateColumns:'24px 1.2fr 1fr 0.6fr 0.8fr 0.9fr 0.9fr auto',
-              gap:10, alignItems:'center',
-              padding:'10px 12px', borderRadius:10,
-              background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.10)'
-            }}>
-              {/* Check */}
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => setReviewPick(prev => ({ ...prev, [key]: !checked }))}
-                style={{ width:18, height:18 }}
-              />
-
-              {/* Nome */}
-              <input
-                value={it.name}
-                onChange={(e) => handleReviewChange(it.id, 'name', e.target.value)}
-                placeholder="Nome prodotto"
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              />
-
-              {/* Marca */}
-              <input
-                value={it.brand || ''}
-                onChange={(e) => handleReviewChange(it.id, 'brand', e.target.value)}
-                placeholder="Marca"
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              />
-
-              {/* Packs */}
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button type="button" onClick={() => handleReviewChange(it.id, 'packs', Math.max(0, (parseInt(it.packs||1,10)||1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="-1">−</button>
-                <input inputMode="numeric" value={String(it.packs ?? 1)} onChange={(e) => handleReviewChange(it.id, 'packs', Math.max(0, parseInt(e.target.value||'1',10)||1))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
-                <button type="button" onClick={() => handleReviewChange(it.id, 'packs', (parseInt(it.packs||1,10)||1)+1)} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="+1">+</button>
-              </div>
-
-              {/* UPP */}
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button type="button" onClick={() => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, (parseInt(it.unitsPerPack||1,10)||1)-1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="-1">−</button>
-                <input inputMode="numeric" value={String(it.unitsPerPack ?? 1)} onChange={(e) => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, parseInt(e.target.value||'1',10)||1))} style={{ width:60, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9', textAlign:'center' }} />
-                <button type="button" onClick={() => handleReviewChange(it.id, 'unitsPerPack', Math.max(1, (parseInt(it.unitsPerPack||1,10)||1)+1))} style={{ ...styles.iconSquareBase, width:32, height:32 }} title="+1">+</button>
-              </div>
-
-              {/* Etichetta unità */}
-              <select
-                value={it.unitLabel || 'unità'}
-                onChange={(e) => handleReviewChange(it.id, 'unitLabel', e.target.value)}
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              >
-                {['unità','pezzi','bottiglie','buste','lattine','vasetti','rotoli','capsule','brick','uova'].map(l => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
-
-              {/* Scadenza */}
-              <input
-                type="date"
-                value={it.expiresAt || ''}
-                onChange={(e) => handleReviewChange(it.id, 'expiresAt', e.target.value)}
-                style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' }}
-              />
-
-              {/* Scarta riga */}
-              <button
-                type="button"
-                onClick={() => setReviewPick(prev => ({ ...prev, [key]: false }))}
-                style={{ ...styles.iconSquareBase, ...styles.iconDanger, width:36, height:36 }}
-                title="Scarta"
-              >🗑</button>
-            </div>
-          );
-        })}
-        {reviewItems.length === 0 && <p style={{ opacity:.8 }}>Nessun candidato da convalidare.</p>}
-      </div>
-
-      {/* Footer */}
-      <div style={{ padding:'10px 14px', display:'flex', gap:8, borderTop:'1px solid rgba(255,255,255,.08)'}}>
-        <button
-          onClick={() => setReviewPick(reviewItems.reduce((acc, it) => { acc[productKey(it.name, it.brand || '')] = true; return acc; }, {}))}
-          style={styles.smallGhostBtn}
-        >Seleziona tutti</button>
-        <button onClick={() => setReviewPick({})} style={styles.smallGhostBtn}>Deseleziona</button>
-        <div style={{ flex:1 }} />
-        <button onClick={() => { setReviewOpen(false); setReviewItems([]); setReviewPick({}); setPendingOcrMeta(null); }} style={styles.smallGhostBtn}>Annulla</button>
-        <button onClick={applyReviewSelection} style={styles.smallOkBtn}>Aggiungi selezionati</button>
-      </div>
-    </div>
-  </div>
-)}
     {/* INPUT NASCOSTI */}
     <input
       ref={ocrInputRef}
