@@ -8,11 +8,12 @@ import { useRouter } from 'next/router';
 
 // Registratore (solo client)
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
-
 // Import dinamico del brain (solo quando serve)
 const getBrain = () => import('@/lib/brainHub');
 
-/* ================= Helpers generali ================= */
+/* ======================================================================================
+   Helpers generali
+====================================================================================== */
 function safeJSONStringify(obj) {
   try { return JSON.stringify(obj, null, 2); }
   catch {
@@ -31,36 +32,14 @@ function formatResult(res) {
   if (typeof res === 'string' || typeof res === 'number' || typeof res === 'boolean') return String(res);
   return safeJSONStringify(res);
 }
-function fmtEuro(n) {
-  if (n == null || isNaN(n)) return '—';
-  try { return Number(n).toLocaleString('it-IT', { style:'currency', currency:'EUR' }); }
-  catch { return `${n} €`; }
-}
-function fmtInt(n) {
-  if (n == null || isNaN(n)) return '—';
-  return Number(n).toLocaleString('it-IT');
-}
-function fmtPct(n) {
-  if (n == null || isNaN(n)) return '—';
-  return `${Math.round(Number(n))}%`;
-}
-function pad(s, len) {
-  const t = String(s ?? '');
-  return t.length >= len ? t.slice(0, len) : (t + ' '.repeat(len - t.length));
-}
-function smallTable(rows, columns) {
-  if (!Array.isArray(rows) || !rows.length) return '(nessun elemento)';
-  const colWidths = columns.map(c => Math.max(
-    c.label.length,
-    ...rows.map(r => String(r[c.key] ?? '').length)
-  ));
-  const header = columns.map((c,i)=>pad(c.label, colWidths[i])).join('  ');
-  const sep    = colWidths.map(w => '─'.repeat(w)).join('  ');
-  const body   = rows.map(r => columns.map((c,i)=>pad(String(r[c.key] ?? ''), colWidths[i])).join('  ')).join('\n');
-  return `${header}\n${sep}\n${body}`;
-}
+function fmtEuro(n) { if (n==null||isNaN(n)) return '—'; try { return Number(n).toLocaleString('it-IT',{style:'currency',currency:'EUR'}); } catch { return `${n} €`; } }
+function fmtInt(n) { if (n==null||isNaN(n)) return '—'; return Number(n).toLocaleString('it-IT'); }
+function fmtPct(n) { if (n==null||isNaN(n)) return '—'; return `${Math.round(Number(n))}%`; }
+function clampPct(n) { if (n==null||isNaN(n)) return null; return Math.max(0, Math.min(100, Number(n))); }
 
-/* ================= Mini-charts (SVG puri) ================= */
+/* ======================================================================================
+   Mini-charts (SVG puri)
+====================================================================================== */
 function svgBars(items, { max = 100, unit = '%', bg = '#0b0f14' } = {}) {
   const rows = items.slice(0, 10);
   const W = 420, H = 18 * rows.length + 24;
@@ -81,45 +60,13 @@ function svgBars(items, { max = 100, unit = '%', bg = '#0b0f14' } = {}) {
     ${svgRows}
   </svg>`;
 }
-function clampPct(n) {
-  if (n == null || isNaN(n)) return null;
-  return Math.max(0, Math.min(100, Number(n)));
-}
 
-/* ============ Unified AI helpers (Home brain/arm) ============ */
-// Classificazione OCR (testo)
-function classifyOcrText(raw='') {
-  const s = String(raw || '').toLowerCase();
-  const score = (keys) => keys.reduce((n,k)=> n + (s.includes(k) ? 1 : 0), 0);
+/* ======================================================================================
+   OCR & normalizzazione: utilità robuste (anti-pesi, dedupe)
+====================================================================================== */
+const NON_PRODUCT_RE = /\b(carta\s+\*{2,}|bancomat|pos|resto|sconto|arrotondamento|pagamento|totale|imponibile|ventilazione|iva)\b/i;
+function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name||'')); }
 
-  const receiptScore = score([
-    'documento commerciale','scontrino','totale','subtotale','iva','resto',
-    'contanti','pagamento','euro','€','cassa','rt','cassiere','p.iva','codice a barre'
-  ]);
-
-  const wineLabelScore = score([
-    'docg','doc','igt','denominazione','denom.','cantina','vinificazione','uvaggio',
-    '% vol','vol %','alc','gradazione','imbottigliato da','prodotto in','bottiglia n°'
-  ]);
-
-  const rows = s.split(/\r?\n/).filter(l => l.trim());
-  const yearRows = rows.filter(l => /\b(19|20)\d{2}\b/.test(l)).length;
-  const euroRows = rows.filter(l => /€\s?\d/.test(l)).length;
-  const wineWords = rows.filter(l => /\b(barolo|nebbiolo|chianti|amarone|etn(a|o)|franciacorta|vermentino|greco|fiano|sagrantino|montepulciano|nero d'avola)\b/.test(l)).length;
-  const wineListScore = (yearRows + euroRows + wineWords);
-
-  if (wineListScore >= 6) return 'wine_list';
-  if (wineLabelScore >= 3 && wineLabelScore > receiptScore) return 'wine_label';
-  if (receiptScore >= 3) return 'receipt';
-  return 'unknown';
-}
-function guessExpenseBucket(store='') {
-  const s = String(store).toLowerCase();
-  if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
-  return 'spese-casa';
-}
-
-// ---- Date helpers (fallback data scontrino) ----
 function toISODate(any) {
   const s = String(any || '').trim();
   if (!s) return '';
@@ -155,306 +102,212 @@ function pickDateFromTexts(texts = []) {
   if (m2) { const iso = toISODate(m2[1]); if (iso) return iso; }
   return '';
 }
+function normKey(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,410,450,454,480,500,700,720,733,750,800,900,910,930,950,1000,1500,2000]);
+const MEASURE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl)\b/gi;
+function isWeightOrVolumeLabel(lbl=''){ const s=String(lbl).toLowerCase().trim(); return /^(?:g|gr|kg|ml|cl|l|lt|grammi?|litri?)$/.test(s); }
 
-// Riconoscimento supermercati
-function isSupermarketStore(store = '') {
-  const s = String(store).toLowerCase();
-  const re = new RegExp(
-    [
-      'supermercat', 'ipermercat', 'market', 'discount',
-      'conad', 'coop', 'esselunga', 'carrefour', 'auchan', 'pam', 'despar', 'a&o', 'iper',
-      'lidl', 'md', 'eurospin', 'todis', 'alter discount', 'tigros', 'gs', 'famila',
-      'deco', 'decò', 'tigre', 'simply', 'sidis', 'ipercoop', 'iper la grande i',
-      'dok', 'cra\\s?i', 'penny'
-    ].join('|'),
-    'i'
-  );
-  return re.test(s);
+const BRAND_ALIASES = {
+  'm. bianco':'Mulino Bianco','mulino bianco':'Mulino Bianco',
+  'saiwa':'Saiwa','san carlo':'San Carlo',
+  'ferrero':'Ferrero','motta':'Motta','parmalat':'Parmalat','arborea':'Arborea',
+  'de cecco':'De Cecco','kimbo':'Kimbo','pantene':'Pantene','nivea':'Nivea','malizia':'Malizia','vileda':'Vileda'
+};
+function canonBrand(b=''){ const k = normKey(b); return BRAND_ALIASES[k] || (b ? b.trim() : ''); }
+
+function productFamily(name=''){
+  const s = normKey(name);
+  if (/\bfiesta\b/.test(s)) return 'fam:fiesta';
+  if (/\byo[-\s]?yo\b/.test(s)) return 'fam:yoyo';
+  if (/\bpods?\b/.test(s)) return 'fam:pods';
+  if (/\buova?\b/.test(s)) return 'fam:eggs';
+  if (/\bspaghett|rigaton|penne|bucatini|fusill|mezze?\b/.test(s)) return 'fam:pasta';
+  return 'fam:?';
+}
+function milkAttrs(name=''){
+  const s = normKey(name);
+  const fat = /\bintero\b/.test(s) ? 'fat:i'
+            : /\b(ps|parzialmente|semi|parz)\b/.test(s) ? 'fat:ps'
+            : /\bscrem\b/.test(s) ? 'fat:s'
+            : 'fat:?';
+  const lf  = /\b(zymil|senza lattosio|delact|s\/la)\b/.test(s) ? 'lf:1' : 'lf:0';
+  return `${fat}|${lf}`;
+}
+function canonicalKey(p) {
+  const brand = canonBrand(p.brand || '');
+  let base = normKey(p.name || '')
+    .replace(/\b(doc|uht|classico|classica|regular|regolare|shop|offerta|bio|igt|docg)\b/g,' ')
+    .replace(/\b(\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|cl|l|lt))\b/g, ' ')
+    .replace(/\b(\d+)\s*(pz|pezzi|x|×)\b/g, ' ')
+    .replace(/\s+/g,' ').trim();
+  const fam  = productFamily(p.name || '');
+  if (fam === 'fam:pasta') base = base.replace(/\b(\d{3,4})\b/g, ' ').trim();
+  const milk = /latte\b/.test(base) ? ('|' + milkAttrs(p.name || '')) : '';
+  return `${brand}|${base}|${fam}${milk}`;
 }
 
-async function postJSON(url, body, timeoutMs=30000) {
-  const ctrl = new AbortController();
-  const t = setTimeout(()=>ctrl.abort(), timeoutMs);
-  try {
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), signal: ctrl.signal });
-    const text = await r.text();
-    let json = null; try { json = JSON.parse(text); } catch {}
-    if (!r.ok) throw new Error(json?.error || json?.message || `${r.status} ${text?.slice(0,180)}`);
-    return json ?? { data: text };
-  } finally { clearTimeout(t); }
-}
+// neutralizza pesi/volumi; correzioni famiglie
+function sanitizeUnits(item) {
+  const out = { ...item };
+  out.brand = canonBrand(out.brand || '');
+  const fam = productFamily(out.name || '');
 
-/* ================= Intent / Sommelier helpers ================= */
-function looksLikeSommelierIntent(text='') {
-  const s = text.toLowerCase();
-  if (/\b(sommelier|carta (dei )?vini|mi consigli|consigliami|tra questi|da questa carta)\b/.test(s)) return true;
-  if (/\b(vino|barolo|nebbiolo|chianti|amarone|rosso|bianco|ros[ée]?)\b/.test(s) &&
-      /\b(corposo|tannico|non troppo tannico|fresco|minerale|fruttato|profumato|aspro|setoso)\b/.test(s)) return true;
-  return false;
-}
-function normalizeQueryForUI(q) {
-  return q?.trim() || 'Consigliami il migliore in base al mio gusto';
-}
-function LoadingOverlay({ open, message }) {
-  if (!open) return null;
-  return (
-    <div style={LO.overlay} aria-live="polite" aria-busy="true">
-      <video autoPlay loop muted playsInline preload="auto" style={LO.video}>
-        <source src="/video/stato-scorte-small.mp4" type="video/mp4" />
-      </video>
-      <div style={LO.scrim} />
-      <div style={LO.box}>
-        <div style={LO.caption}>{message || 'Elaborazione in corso…'}</div>
-      </div>
-    </div>
-  );
-}
-
-/* ================= Chat Modal ================= */
-function ChatModal({ open, onClose, onSend, messages, busy }) {
-  const [input, setInput] = useState('');
-  const bodyRef = useRef(null);
-  const inputRef = useRef(null);
-
-  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
-  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages, open]);
-  useEffect(() => {
-    const onKey = (ev) => { if (ev.key === 'Escape') onClose?.(); };
-    if (open) window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  const doSend = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput('');
-    await onSend(text);
-  };
-
-  if (!open) return null;
-  return (
-    <div style={S.overlay} role="dialog" aria-modal="true" aria-label="Chat dati">
-      <div style={S.modal}>
-        <div style={S.header}>
-          <div style={{ fontWeight: 800 }}>💬 Interroga dati</div>
-          <button onClick={onClose} aria-label="Chiudi" style={S.btnGhost}>✖</button>
-        </div>
-
-        <div ref={bodyRef} style={S.body}>
-          {messages.length === 0 && (
-            <div style={{ opacity: .85 }}>
-              Inizia chiedendo: “Quanto ho speso questo mese?” •
-              “Che cosa ho a casa?” • “Mi consigli un rosso da questa carta?” (poi premi <b>OCR</b>).
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
-              <div style={S.bubble}>
-                {m.mono ? <pre style={S.pre}>{m.text}</pre> : <span dangerouslySetInnerHTML={{ __html: m.text }} />}
-                {Array.isArray(m.blocks) && m.blocks.map((b, idx) => (
-                  <figure key={idx} style={{ margin:'10px 0 0', padding:0 }}>
-                    <div style={{ borderRadius:12, overflow:'hidden' }} dangerouslySetInnerHTML={{ __html: b.svg }} />
-                    {b.caption && <figcaption style={{ color:'#cdeafe', fontSize:12, opacity:.9, marginTop:4 }}>{b.caption}</figcaption>}
-                  </figure>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={S.inputRow}>
-          <input
-            ref={inputRef}
-            type="text"
-            placeholder="Scrivi la tua domanda e premi Invio…"
-            value={input}
-            onChange={(ev) => setInput(ev.target.value)}
-            onKeyDown={(ev) => !busy && ev.key === 'Enter' && doSend()}
-            disabled={busy}
-            style={S.input}
-          />
-          <button onClick={doSend} disabled={busy} style={S.btnPrimary}>
-            {busy ? '⏳' : 'Invia'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ================= Inventory renderer ================= */
-function renderInventorySnapshot(payload) {
-  const list = Array.isArray(payload?.elenco) ? payload.elenco : [];
-  const rows = list.map(it => ({
-    nome:  (it.name ?? '').trim() || '—',
-    qty:   (it.qty ?? it.quantity ?? it.qta ?? null),
-    pct:   clampPct(it.consumed_pct ?? it.consumo_pct ?? it.fill_pct ?? null)
-  }));
-  const table = smallTable(
-    rows.map(r => ({
-      prodotto: r.nome,
-      qta:      r.qty ?? '—',
-      consumo:  (r.pct != null ? fmtPct(r.pct) : '—')
-    })),
-    [
-      { key: 'prodotto', label: 'Prodotto' },
-      { key: 'qta',      label: 'Qtà'     },
-      { key: 'consumo',  label: 'Consumo' },
-    ]
-  );
-  const barsData = rows
-    .filter(r => r.pct != null)
-    .sort((a,b)=> (a.pct - b.pct))
-    .slice(0, 10)
-    .map(r => ({ label: r.nome, value: r.pct }));
-  const svg = svgBars(barsData, { max: 100, unit: '%', bg: '#0b0f14' });
-
-  const text =
-`🏠 Scorte (snapshot)
-Totale articoli: ${fmtInt(rows.length)}
-
-${table}`;
-
-  return {
-    text,
-    blocks: barsData.length ? [{ svg, caption: 'Consumo stimato (prime 10 voci)' }] : []
-  };
-}
-
-/* ================= Renderer unificato brain ================= */
-function renderBrainResponse(res) {
-  const payload = (res && typeof res === 'object' && 'result' in res) ? res.result : res;
-  const kind = payload?.kind;
-
-  const looksLikeInventory =
-    kind === 'inventory.snapshot' ||
-    (payload && typeof payload === 'object' && Array.isArray(payload.elenco));
-  if (looksLikeInventory) {
-    const rendered = renderInventorySnapshot(payload);
-    return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
+  if (SUSPECT_UPP.has(Number(out.unitsPerPack || 0)) || isWeightOrVolumeLabel(out.unitLabel || '') || fam === 'fam:pasta') {
+    out.unitsPerPack = 1; out.unitLabel = 'unità';
   }
+  if (fam === 'fam:pods') { out.brand = out.brand || 'Dash'; if (!out.unitsPerPack || out.unitLabel==='unità'){ out.unitsPerPack=30; out.unitLabel='pod'; } }
+  if (fam === 'fam:fiesta'){ out.brand = 'Ferrero'; if (!out.unitsPerPack || out.unitLabel==='unità'){ out.unitsPerPack=10; out.unitLabel='pezzi'; } }
+  if (fam === 'fam:yoyo')  { out.brand = 'Motta';   if (!out.unitsPerPack || out.unitLabel==='unità'){ out.unitsPerPack=10; out.unitLabel='pezzi'; } }
+  if (fam === 'fam:eggs')  { if (!out.unitsPerPack || out.unitsPerPack===1){ out.unitsPerPack=6; out.unitLabel='uova'; } }
 
-  const topList = payload?.top_negozi || payload?.top_stores;
-  const looksLikeMonthFinances =
-    kind === 'finances.month_summary' ||
-    (payload && typeof payload === 'object' &&
-      (payload.totale != null || payload.total != null) &&
-      Array.isArray(topList));
-  if (looksLikeMonthFinances) {
-    const totRaw = payload.total ?? payload.totale ?? 0;
-    const txs = payload.transactions ?? payload.transazioni ?? 0;
-    const top = Array.isArray(topList) ? topList : [];
-    const rows = top.map(r => ({
-      store: r.store || r.nome || r.name || '—',
-      speso: fmtEuro(r.speso ?? r.amount ?? 0)
-    }));
-    const table = smallTable(rows.slice(0, 10), [
-      { key: 'store', label: 'Negozio' },
-      { key: 'speso', label: 'Speso' }
-    ]);
-    const txt =
-`📊 Spese del mese
-Intervallo: ${payload.intervallo || 'mese corrente'}
-Totale: ${fmtEuro(totRaw)} • Transazioni: ${fmtInt(txs)}
+  if (/espresso in gran/i.test(out.name)) out.name = 'Caffè espresso in grani';
+  if (/caseificio/i.test(out.name)) { out.brand='Caseificio S. Stefano'; out.name='Formaggio fresco'; }
 
-${table}${rows.length > 10 ? `\n…(+${rows.length - 10})` : ''}`;
-    return { role: 'assistant', text: txt, mono: true };
+  return out;
+}
+function dedupeAndFix(items = []) {
+  const map = new Map();
+  for (const r of items) {
+    const p = sanitizeUnits(r);
+    const key = canonicalKey(p);
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, {
+        ...p,
+        packs: Math.max(1, Number(p.packs || 1)),
+        unitsPerPack: Math.max(1, Number(p.unitsPerPack || 1)),
+        unitLabel: p.unitLabel || 'unità'
+      });
+      continue;
+    }
+    cur.packs = Math.max(1, Number(cur.packs || 1)) + Math.max(1, Number(p.packs || 1));
+    const better = (a, b, aL, bL) => {
+      if (aL === 'unità' && bL !== 'unità') return [b, bL];
+      if (bL === 'unità' && aL !== 'unità') return [a, aL];
+      return [Math.max(a, b), aL || bL || 'unità'];
+    };
+    const [u, lbl] = better(Math.max(1, Number(cur.unitsPerPack||1)), Math.max(1, Number(p.unitsPerPack||1)), cur.unitLabel||'unità', p.unitLabel||'unità');
+    cur.unitsPerPack = u; cur.unitLabel = lbl;
+    const a = /^\d{4}-\d{2}-\d{2}$/.test(cur.expiresAt||'') ? cur.expiresAt : null;
+    const b = /^\d{4}-\d{2}-\d{2}$/.test(p.expiresAt||'') ? p.expiresAt : null;
+    if (!a && b) cur.expiresAt = b; else if (a && b && b < a) cur.expiresAt = b;
+    cur.priceTotal = (Number(cur.priceTotal)||0) + (Number(p.priceTotal)||0);
   }
-
-  const text = formatResult(payload ?? res);
-  return { role: 'assistant', text, mono: typeof (payload ?? res) !== 'string' };
-}
-
-/* ================= Sommelier renderer ================= */
-function renderSommelierInChat(result) {
-  const recs = Array.isArray(result?.recommendations) ? result.recommendations : [];
-  if (!recs.length) return 'Nessun risultato dalla carta. Prova a fotografare meglio o a cambiare richiesta.';
-  const byBand = recs.reduce((acc, r) => {
-    const k = r.price_band || 'mix';
-    if (!acc[k]) acc[k] = [];
-    acc[k].push(r);
-    return acc;
-  }, {});
-  let output = '🍷 Sommelier\n';
-  output += `Fonte: ${result?.source || '—'}\n`;
-  Object.keys(byBand).forEach(band => {
-    output += `\n${band.toUpperCase()}\n`;
-    byBand[band].slice(0, 6).forEach(r => {
-      const price = r.typical_price_eur != null ? ` ~${fmtEuro(r.typical_price_eur)}` : '';
-      output += `• ${r.name} — ${r.winery || '—'}${r.denomination ? ` • ${r.denomination}` : ''}${r.region ? ` • ${r.region}` : ''}${price}\n  ${r.why || ''}\n`;
-    });
-  });
-  output += `\nApri: /prodotti-tipici-vini`;
-  return output;
-}
-
-/* ============ Nuovi helper per negozio / scadenze / prezzi ============ */
-function buildStoreLabel(meta = {}) {
-  // Etichetta: "Store Luogo Indirizzo" (senza doppie spaziature)
-  const store = String(meta.store || '').trim();
-  const place = String(meta.place || meta.city || meta.locality || '').trim();
-  const addr  = String(meta.address || meta.addr || meta.addressLine || '').trim();
-  return [store, place, addr].filter(Boolean).join(' ');
-}
-function normExpiry(s='') {
-  const iso = toISODate(String(s||'').trim());
-  return iso || '';
+  return Array.from(map.values());
 }
 function normalizeItemForPipelines(p) {
   const packs = Math.max(1, Number(p.packs || p.qty || 1));
   const upp   = Math.max(1, Number(p.unitsPerPack || 1));
   const unit  = (p.unitLabel || p.uom || '').trim() || 'unità';
-  return {
-    ...p,
-    packs,
-    unitsPerPack: upp,
-    unitLabel: unit,
-    expiresAt: normExpiry(p.expiresAt || p.expiry || p.scadenza || ''),
-  };
+  return { ...p, packs, unitsPerPack: upp, unitLabel: unit, expiresAt: toISODate(p.expiresAt || p.expiry || p.scadenza || '') };
 }
-// Prezzo ibrido: se 1 unità => letto = unitario = totale; se >1 => letto = unitario, totale = unitario * qty
 function enforceHybridUnitPrice(p) {
   const packs = Math.max(1, Number(p.packs || p.qty || 1));
   const upp   = Math.max(1, Number(p.unitsPerPack || 1));
   const totalUnits = packs * upp;
   const rawUnit  = Number(p.priceEach ?? p.price) || 0;
   const rawTotal = Number(p.priceTotal) || 0;
-
   let priceEach = 0, priceTotal = 0;
-  if (totalUnits <= 1) {
-    priceEach = rawUnit || rawTotal || 0;
-    priceTotal = priceEach;
-  } else {
-    if (rawUnit) { priceEach = rawUnit; priceTotal = rawUnit * totalUnits; }
-    else { priceEach = totalUnits ? (rawTotal / totalUnits) : 0; priceTotal = rawTotal; }
-  }
+  if (totalUnits <= 1) { priceEach = rawUnit || rawTotal || 0; priceTotal = priceEach; }
+  else { if (rawUnit) { priceEach = rawUnit; priceTotal = rawUnit * totalUnits; } else { priceEach = totalUnits ? (rawTotal/totalUnits) : 0; priceTotal = rawTotal; } }
   return { ...p, packs, unitsPerPack: upp, priceEach, priceTotal, currency: p.currency || 'EUR' };
 }
 
-/* ======================= Home: “cervello & braccio” ======================= */
+/* ======================================================================================
+   Fast image downscale (client) + concurrency limit
+====================================================================================== */
+async function downscaleImageFile(file, { maxSide = 1400, quality = 0.72 } = {}) {
+  try {
+    if (!file || !/^image\//i.test(file.type) || file.type === 'application/pdf') return file;
+    const bitmap = await (async () => {
+      if ('createImageBitmap' in window) return await createImageBitmap(file);
+      const dataUrl = await new Promise((ok, ko) => {
+        const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(file);
+      });
+      const img = new Image(); await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
+      return img;
+    })();
+    const w0 = bitmap.width || bitmap.naturalWidth, h0 = bitmap.height || bitmap.naturalHeight;
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+    if (scale === 1 && file.size <= 1_200_000) return file;
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
+    const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0, w, h);
+    const blob = await new Promise(ok => canvas.toBlob(ok, 'image/jpeg', quality));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name || 'upload').replace(/\.\w+$/,'') + '.jpg', { type: 'image/jpeg' });
+  } catch { return file; }
+}
+async function mapWithLimit(arr, limit, worker) {
+  const out = new Array(arr.length);
+  let i = 0; const running = new Set();
+  async function run(k) { running.add(k); try { out[k] = await worker(arr[k], k); } finally { running.delete(k); if (i < arr.length) await run(i++); } }
+  const n = Math.min(limit, arr.length);
+  for (; i < n; i++) run(i);
+  while (running.size) await new Promise(r => setTimeout(r, 10));
+  return out;
+}
+
+/* ======================================================================================
+   Unified AI helpers
+====================================================================================== */
+function classifyOcrText(raw='') {
+  const s = String(raw || '').toLowerCase();
+  const score = (keys) => keys.reduce((n,k)=> n + (s.includes(k) ? 1 : 0), 0);
+  const receiptScore = score(['documento commerciale','scontrino','totale','subtotale','iva','resto','contanti','pagamento','euro','€','cassa','rt','cassiere','p.iva']);
+  const wineLabelScore = score(['docg','doc','igt','denominazione','imbottigliato da','% vol','alc']);
+  const rows = s.split(/\r?\n/).filter(l => l.trim());
+  const yearRows = rows.filter(l => /\b(19|20)\d{2}\b/.test(l)).length;
+  const euroRows = rows.filter(l => /€\s?\d/.test(l)).length;
+  const wineWords = rows.filter(l => /\b(barolo|nebbiolo|chianti|amarone|etna|franciacorta|vermentino|greco|fiano|sagrantino|montepulciano|nero d'avola)\b/.test(l)).length;
+  const wineListScore = (yearRows + euroRows + wineWords);
+  if (wineListScore >= 6) return 'wine_list';
+  if (wineLabelScore >= 3 && wineLabelScore > receiptScore) return 'wine_label';
+  if (receiptScore >= 3) return 'receipt';
+  return 'unknown';
+}
+function guessExpenseBucket(store='') {
+  const s = String(store).toLowerCase();
+  if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
+  return 'spese-casa';
+}
+async function postJSON(url, body, timeoutMs=30000) {
+  const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), signal: ctrl.signal });
+    const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {}
+    if (!r.ok) throw new Error(json?.error || json?.message || `${r.status} ${text?.slice(0,180)}`);
+    return json ?? { data: text };
+  } finally { clearTimeout(t); }
+}
+
+/* ======================================================================================
+   Home component
+====================================================================================== */
 const Home = () => {
   const fileInputRef = useRef(null);
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Loader video a schermo intero
-  const [loading, setLoading] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState('Elaboro lo scontrino…');
-
-  // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
-  // Intenti
   const lastUserIntentRef = useRef({ text: '', sommelier: false });
   const wineListsRef = useRef([]);
 
-  // Router / Siri
   const router = useRouter();
   const deepLinkHandledRef = useRef(false);
   const speakModeRef = useRef(false);
 
-  // UID per service role
   const [uid, setUid] = useState(null);
   useEffect(() => {
     (async () => {
@@ -466,7 +319,6 @@ const Home = () => {
     })();
   }, []);
 
-  // === Brain calls ===
   async function runBrainQuery(text, opts = {}) {
     const mod = await getBrain().catch(() => null);
     const fn = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
@@ -474,36 +326,31 @@ const Home = () => {
     return await fn(text, opts);
   }
 
-  /* ===== TTS: stato, voci, persistenza ===== */
+  /* =================== TTS (opzionale) =================== */
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const ttsEnabledRef = useRef(false);
   const [voices, setVoices] = useState([]);
   const [voiceId, setVoiceId] = useState(null);
-  const voicesRef = useRef([]);
-  const selectedVoiceRef = useRef(null);
+  const voicesRef = useRef([]); const selectedVoiceRef = useRef(null);
 
   function loadVoices() {
     try {
       if (typeof window === 'undefined' || !window.speechSynthesis) return;
-      const synth = window.speechSynthesis;
-      const list = synth.getVoices() || [];
+      const synth = window.speechSynthesis; const list = synth.getVoices() || [];
       if (!list.length) return;
       const it = list.filter(v => String(v.lang || '').toLowerCase().startsWith('it'));
       const ordered = [...it, ...list.filter(v => !String(v.lang || '').toLowerCase().startsWith('it'))];
-      voicesRef.current = ordered;
-      setVoices(ordered);
+      voicesRef.current = ordered; setVoices(ordered);
       const saved = (typeof window !== 'undefined') ? localStorage.getItem('__tts_voice') : null;
       const chosen = ordered.find(v => v.name === saved) || it[0] || ordered[0] || null;
-      setVoiceId(chosen ? chosen.name : null);
-      selectedVoiceRef.current = chosen;
+      setVoiceId(chosen ? chosen.name : null); selectedVoiceRef.current = chosen;
     } catch {}
   }
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
     const synth = window.speechSynthesis;
     const onVoices = () => loadVoices();
-    synth.addEventListener('voiceschanged', onVoices);
-    loadVoices();
+    synth.addEventListener('voiceschanged', onVoices); loadVoices();
     return () => synth.removeEventListener('voiceschanged', onVoices);
   }, []);
   useEffect(() => {
@@ -517,9 +364,7 @@ const Home = () => {
   useEffect(() => {
     try {
       const saved = typeof window !== 'undefined' ? localStorage.getItem('__tts_enabled') : null;
-      const on = saved === '1';
-      setTtsEnabled(on);
-      ttsEnabledRef.current = on;
+      const on = saved === '1'; setTtsEnabled(on); ttsEnabledRef.current = on;
     } catch {}
   }, []);
   useEffect(() => {
@@ -539,12 +384,11 @@ const Home = () => {
       const utt = new Utter(text);
       utt.lang = selectedVoiceRef.current?.lang || 'it-IT';
       if (selectedVoiceRef.current) utt.voice = selectedVoiceRef.current;
-      synth.cancel();
-      synth.speak(utt);
+      synth.cancel(); synth.speak(utt);
     } catch (e) { console.warn('[TTS] skip', e); }
   }
 
-  /* ========== OCR helpers unificati (ocrHome + fallback legacy) ========== */
+  /* =================== OCR helpers unificati (fast + fallback) =================== */
   function normFromOcrHome(j = {}) {
     const kind = j?.kind || 'unknown';
     const text = String(j?.text || '');
@@ -579,9 +423,7 @@ const Home = () => {
       totalPaid: Number(j?.totalPaid || 0),
       currency: String(j?.currency || 'EUR'),
     };
-    const src = Array.isArray(j?.purchases) ? j.purchases
-              : Array.isArray(j?.items)     ? j.items
-              : [];
+    const src = Array.isArray(j?.purchases) ? j.purchases : Array.isArray(j?.items) ? j.items : [];
     const purchases = src.map(p => ({
       name: String(p.name||'').trim(),
       brand: String(p.brand||'').trim(),
@@ -595,308 +437,70 @@ const Home = () => {
     }));
     return { kind: 'receipt', text, meta, purchases: purchases.map(normalizeItemForPipelines), wine: null, entries: null };
   }
+
+  // fast path: items-only
+  async function fastItemsOnly(file) {
+    const fd = new FormData(); fd.append('images', file, file.name || 'receipt.jpg');
+    const r = await fetch('/api/ocrHome?mode=items-only', { method:'POST', body: fd });
+    const j = await r.json().catch(()=> ({}));
+    if (r.ok && j?.ok && Array.isArray(j.purchases) && j.purchases.length) {
+      return j.purchases.map(p => ({
+        name: String(p.name||'').trim(),
+        brand: String(p.brand||'').trim(),
+        packs: Number(p.packs||0),
+        unitsPerPack: Number(p.unitsPerPack||0),
+        unitLabel: String(p.unitLabel||''),
+        priceEach: Number(p.priceEach||0),
+        priceTotal: Number(p.priceTotal||0),
+        currency: String(p.currency||'EUR'),
+        expiresAt: String(p.expiresAt||'')
+      }));
+    }
+    return null;
+  }
+
   async function fetchOcrUnified(file) {
-    const fd = new FormData();
-    fd.append('images', file, file.name || 'upload.jpg');
-    // ocrHome
+    // 0) fast attempt
+    const quick = await fastItemsOnly(file);
+    if (quick && quick.length) {
+      return { kind:'receipt', text:'', meta:{}, purchases: quick.map(normalizeItemForPipelines) };
+    }
+    // 1) ocrHome full
+    const fd = new FormData(); fd.append('images', file, file.name || 'upload.jpg');
     let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
     let j = null; try { j = await r.json(); } catch {}
     if (r.ok && j && !j.error) {
       const n = normFromOcrHome(j);
       if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
     }
-    // fallback legacy
+    // 2) legacy
     r = await fetch('/api/ocr', { method: 'POST', body: fd });
     j = await r.json().catch(()=> ({}));
     return normFromLegacyOcr(j);
   }
 
-  // Utility per Siri: URL/DataURL -> File
-  async function urlOrDataUrlToFile(src, name='siri.jpg') {
-    try {
-      if (!src) return null;
-      if (src.startsWith('data:')) {
-        const [head, b64] = src.split(',');
-        const mime = (head.match(/data:(.*?);base64/i)?.[1]) || 'image/jpeg';
-        const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-        return new File([buf], name, { type: mime });
-      }
-      const resp = await fetch(src, { mode: 'cors' });
-      const blob = await resp.blob();
-      const ext = (blob.type && blob.type.includes('png')) ? 'png'
-                : (blob.type && (blob.type.includes('jpeg') || blob.type.includes('jpg'))) ? 'jpg'
-                : 'bin';
-      return new File([blob], name.endsWith(ext) ? name : `${name}.${ext}`, { type: blob.type || 'application/octet-stream' });
-    } catch { return null; }
-  }
-  // ======== NORMALIZZAZIONE QUANTITÀ & DEDUPE (robusta) ========
-
-// tokenizza "povero" per confronti stabili
-function stripAccents(s=''){ return s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-function tokenClean(s=''){
-  return stripAccents(String(s).toLowerCase())
-    .replace(/[^a-z0-9\s]/g,' ')
-    .replace(/\s+/g,' ')
-    .trim();
-}
-
-// brand canonici più frequenti (estendibile)
-const BRAND_ALIASES = {
-  'm. bianco':'Mulino Bianco','mulino bianco':'Mulino Bianco',
-  'saiwa':'Saiwa','sanwa':'Saiwa','san carlo':'San Carlo',
-  'ferrero':'Ferrero','motta':'Motta','parmalat':'Parmalat','arborea':'Arborea',
-  'de cecco':'De Cecco','kimbo':'Kimbo','pantene':'Pantene','nivea':'Nivea','malizia':'Malizia','vileda':'Vileda'
-};
-function canonBrand(b=''){ const k = tokenClean(b); return BRAND_ALIASES[k] || (b ? b.trim() : ''); }
-
-// pesi/volumi che NON sono unità discrete (indizio forte)
-const WEIGHT_VOL_RE = /\b(\d+(?:[.,]\d+)?)\s*(?:g|gr|kg|ml|cl|l|lt)\b/i;
-// UPP “sospetti” che arrivano dagli LLM (non sono pezzi veri)
-const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,410,450,454,480,500,700,720,733,750,800,900,910,930,950,1000]);
-
-// famiglie/euristiche (pods, yoyo, fiesta, uova, pancarrè…)
-function productFamily(name=''){
-  const s = tokenClean(name);
-  if (/\bfiesta\b/.test(s)) return 'fam:fiesta';
-  if (/\byo[-\s]?yo\b/.test(s)) return 'fam:yoyo';
-  if (/\bpods?\b/.test(s)) return 'fam:pods';
-  if (/\buova?\b/.test(s)) return 'fam:eggs';
-  if (/\bpancarr[ei]\b/.test(s)) return 'fam:pancarre';
-  if (/\bspaghett|rigaton|penne|bucatini|fusill|mezze?\b/.test(s)) return 'fam:pasta';
-  return 'fam:?';
-}
-
-// latte: distingui intero/ps/sl
-function milkAttrs(name=''){
-  const s = tokenClean(name);
-  const fat = /\bintero\b/.test(s) ? 'fat:i'
-            : /\b(ps|parzialmente|semi|parz)\b/.test(s) ? 'fat:ps'
-            : /\bscrem\b/.test(s) ? 'fat:s'
-            : 'fat:?';
-  const lf  = /\b(zymil|senza lattosio|delact|s\/la)\b/.test(s) ? 'lf:1' : 'lf:0';
-  return `${fat}|${lf}`;
-}
-
-// chiave canonica per il dedupe (brand + base + famiglia + attributi latte se serve)
-function canonicalKey(p) {
-  const brand = canonBrand(p.brand || '');
-  let base = tokenClean(p.name || '')
-    .replace(/\b(doc|uht|classico|classica|regular|regolare|shop|offerta|bio|igt|docg)\b/g,' ')
-    .replace(/\b(\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|cl|l|lt))\b/g, ' ') // togli pesi
-    .replace(/\b(\d+)\s*(pz|pezzi|x|×)\b/g, ' ')                      // togli marcatori duplicanti
-    .replace(/\s+/g,' ').trim();
-
-  const fam  = productFamily(p.name || '');
-  if (fam === 'fam:pasta') base = base.replace(/\b(\d{3,4})\b/g, ' ').trim(); // es. "500" sparisce
-
-  const milk = /latte\b/.test(base) ? ('|' + milkAttrs(p.name || '')) : '';
-  return `${brand}|${base}|${fam}${milk}`;
-}
-
-// 1) Quantità: usa 1 “unità” per pesi/volumi, correzioni speciali (pods, fiesta, yoyo, uova…)
-function sanitizeUnits(item) {
-  const out = { ...item };
-  out.brand = canonBrand(out.brand || '');
-
-  // Se UPP arriva come 500/750 ecc. → riportiamo a 1 unità
-  const upp = Number(out.unitsPerPack || 0);
-  const lbl = String(out.unitLabel || '').toLowerCase();
-
-  const looksWeightUPP = SUSPECT_UPP.has(upp) || /^(g|gr|kg|ml|cl|l|lt)$/.test(lbl) || WEIGHT_VOL_RE.test(out.name);
-  if (looksWeightUPP && !/uova/.test(lbl)) {
-    out.unitsPerPack = 1;
-    out.unitLabel = 'unità';
-  }
-
-  // Regole famiglie
-  const fam = productFamily(out.name || '');
-  if (fam === 'fam:pods') {
-    out.brand = out.brand || 'Dash';
-    if (!out.unitsPerPack || out.unitLabel === 'unità') { out.unitsPerPack = 30; out.unitLabel = 'pod'; }
-  }
-  if (fam === 'fam:fiesta') { out.brand = 'Ferrero'; if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = 10; out.unitLabel = 'pezzi'; } }
-  if (fam === 'fam:yoyo')   { out.brand = 'Motta';   if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = 10; out.unitLabel = 'pezzi'; } }
-  if (fam === 'fam:eggs')   { if (!out.unitsPerPack || out.unitsPerPack === 1) { out.unitsPerPack = 6; out.unitLabel = 'uova'; } }
-  if (fam === 'fam:pasta')  { out.unitsPerPack = 1; out.unitLabel = 'unità'; } // pasta: 1 pacco, indipendente dal “500 g”
-  return out;
-}
-
-// 2) Correzioni last-mile note (qui puoi aggiungere casi specifici)
-function fixKnownProducts(p) {
-  let out = sanitizeUnits(p);
-
-  // “ESPRESSO IN GRAN B” → normalizza come “Espresso in grani”
-  if (/espresso in gran/i.test(out.name)) out.name = 'Caffè espresso in grani';
-
-  // “Caseificio S. Stefano fio” → normalizza brand/prodotto
-  if (/caseificio/i.test(out.name)) { out.brand = 'Caseificio S. Stefano'; out.name = 'Formaggio fresco'; }
-
-  return out;
-}
-
-// 3) Dedupe: somma packs; scegli UPP più informativo; expiry più vicina
-function dedupeAndFix(items = []) {
-  const map = new Map();
-  for (const r of items) {
-    const p = fixKnownProducts(r);
-    const key = canonicalKey(p);
-    const cur = map.get(key);
-
-    if (!cur) {
-      map.set(key, { ...p, packs: Math.max(1, Number(p.packs || 1)), unitsPerPack: Math.max(1, Number(p.unitsPerPack || 1)), unitLabel: p.unitLabel || 'unità' });
-      continue;
-    }
-
-    // somma confezioni
-    cur.packs = Math.max(1, Number(cur.packs || 1)) + Math.max(1, Number(p.packs || 1));
-
-    // scegli UPP “migliore”
-    const betterUPP = (a, b, aLbl, bLbl) => {
-      if (aLbl === 'unità' && bLbl !== 'unità') return [b, bLbl];
-      if (bLbl === 'unità' && aLbl !== 'unità') return [a, aLbl];
-      return [Math.max(a, b), aLbl || bLbl || 'unità'];
-    };
-    const [u, lbl] = betterUPP(
-      Math.max(1, Number(cur.unitsPerPack || 1)),
-      Math.max(1, Number(p.unitsPerPack || 1)),
-      cur.unitLabel || 'unità',
-      p.unitLabel || 'unità'
-    );
-    cur.unitsPerPack = u; cur.unitLabel = lbl;
-
-    // expiry: tieni la più vicina (min)
-    const a = /^\d{4}-\d{2}-\d{2}$/.test(cur.expiresAt || '') ? cur.expiresAt : null;
-    const b = /^\d{4}-\d{2}-\d{2}$/.test(p.expiresAt || '') ? p.expiresAt : null;
-    if (!a && b) cur.expiresAt = b;
-    if (a && b && b < a) cur.expiresAt = b;
-
-    // soma priceTotal solo informativo (non usato per doc_total se già noto)
-    cur.priceTotal = (Number(cur.priceTotal) || 0) + (Number(p.priceTotal) || 0);
-  }
-  return Array.from(map.values());
-}
-
-// Attributi latte per evitare merge “intero” vs “PS/SL”
-function milkAttrs(name=''){
-  const s = tokenClean(name);
-  const fat = /\bintero\b/.test(s) ? 'fat:i'
-            : /\b(ps|parzialmente|semi|parz)\b/.test(s) ? 'fat:ps'
-            : /\bscrem\b/.test(s) ? 'fat:s'
-            : 'fat:?';
-  const lf  = /\b(zymil|zl|senza lattosio|s\/la|senzalattosio|delact)\b/.test(s) ? 'lf:1' : 'lf:0';
-  return `${fat}|${lf}`;
-}
-// Alcuni prodotti “tipici” (Fiesta, Yo-Yo, Pods, Pancarrè…)
-function productFamily(name=''){
-  const s = tokenClean(name);
-  if (/\bfiesta\b/.test(s)) return 'fam:fiesta';
-  if (/\byo[-\s]?yo\b/.test(s)) return 'fam:yoyo';
-  if (/\bpods?\b/.test(s)) return 'fam:pods';
-  if (/\bpancarr[ei]\b/.test(s)) return 'fam:pancarre';
-  if (/\bcipster\b/.test(s)) return 'fam:cipster';
-  if (/\bgalletti\b/.test(s)) return 'fam:galletti';
-  if (/\bcornetti\b/.test(s)) return 'fam:cornetti';
-  if (/\bzucchero\b/.test(s)) return 'fam:zucchero';
-  if (/\buova\b/.test(s)) return 'fam:uova';
-  if (/\bmozzarella\b/.test(s)) return 'fam:mozzarella';
-  return 'fam:?';
-}
-function canonicalKey(p) {
-  const brand = canonBrand(p.brand || '');
-  // base name “povero” ma stabile
-  let base = tokenClean(p.name || '');
-  // togli parole molto generiche
-  base = base.replace(/\b(doc|uht|buono|classica|regular|regolare|shop|biodegr|bio|ps|s\/la)\b/g,' ')
-             .replace(/\s+/g,' ').trim();
-  const fam  = productFamily(p.name || '');
-  const milk = milkAttrs(p.name || '');
-  // Latte: separiamo intero/ps/sl; per altri famiglie basta brand+base+fam
-  const key = /fam:\?/.test(fam)
-    ? `${brand}|${base}`
-    : `${brand}|${base}|${fam}${fam==='fam:fiesta'||fam==='fam:yoyo'||fam==='fam:uova'||/latte/.test(base)?'|'+milk:''}`;
-  return key;
-}
-
-// Correzioni post-normalizzazione su alcuni prodotti noti
-function fixKnownProducts(p) {
-  let out = { ...p, brand: canonBrand(p.brand||'') };
-  const s = tokenClean(out.name);
-  // Dash Pods → brand Dash, 30 pod di default
-  if (/pods?\b/.test(s)) {
-    out.brand = 'Dash';
-    if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = /30\b/.test(s) ? 30 : out.unitsPerPack || 30; out.unitLabel = 'pod'; }
-  }
-  // Ferrero Fiesta → 10 pezzi
-  if (/\bfiesta\b/.test(s)) { out.brand = 'Ferrero'; out.unitsPerPack = out.unitsPerPack || 10; out.unitLabel = 'pezzi'; }
-  // Motta Yo-Yo → 10 pezzi
-  if (/\byo[-\s]?yo\b/.test(s)) { out.brand = 'Motta'; out.unitsPerPack = out.unitsPerPack || 10; out.unitLabel = 'pezzi'; }
-  // Pancarrè 16F
-  if (/\bpancarr[ei]\b/.test(s) && /16/.test(s) && (!out.unitsPerPack || out.unitLabel==='unità')) {
-    out.unitsPerPack = 16; out.unitLabel = 'fette';
-  }
-  // Latte UHT → cartone (1)
-  if (/\blatte\b/.test(s) && /\buht\b/.test(s)) {
-    if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = 1; out.unitLabel = 'cartone'; }
-  }
-  // Uova → 6 uova default
-  if (/\buova\b/.test(s) && (!out.unitsPerPack || out.unitsPerPack===1) && out.unitLabel==='unità') {
-    out.unitsPerPack = 6; out.unitLabel = 'uova';
-  }
-  return sanitizeUnits(out);
-}
-
-// Merge con somma packs, mantieni expiry più vicina
-function dedupeAndFix(items=[]) {
-  const map = new Map();
-  for (const raw of items) {
-    const p = fixKnownProducts(sanitizeUnits(raw));
-    const key = canonicalKey(p);
-    const cur = map.get(key);
-    if (!cur) {
-      map.set(key, { ...p });
-    } else {
-      cur.packs = Math.max(1, Number(cur.packs||1)) + Math.max(1, Number(p.packs||1));
-      // unitsPerPack: preferisci valore noto/non unità; se conflitto, tieni il più alto (es. 10 pod vs 1 unità)
-      if (!cur.unitsPerPack || cur.unitLabel==='unità') { cur.unitsPerPack = p.unitsPerPack || cur.unitsPerPack || 1; cur.unitLabel = p.unitLabel || cur.unitLabel || 'unità'; }
-      else if (p.unitsPerPack && p.unitsPerPack > cur.unitsPerPack && p.unitLabel && p.unitLabel !== 'unità') {
-        cur.unitsPerPack = p.unitsPerPack; cur.unitLabel = p.unitLabel;
-      }
-      // expiry: prendi la più vicina (min)
-      const a = cur.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(cur.expiresAt) ? cur.expiresAt : null;
-      const b = p.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(p.expiresAt) ? p.expiresAt : null;
-      if (!a && b) cur.expiresAt = b;
-      if (a && b && b < a) cur.expiresAt = b;
-      // somma eventuali priceTotal informativi (non usati per doc_total)
-      cur.priceTotal = (Number(cur.priceTotal)||0) + (Number(p.priceTotal)||0);
-    }
-  }
-  return Array.from(map.values());
-}
-// Solo le righe amministrative vanno droppate
-const NON_PRODUCT_RE = /\b(carta\s+\*{2,}|bancomat|pos|resto|sconto|arrotondamento|pagamento|totale|imponibile|ventilazione|iva)\b/i;
-function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
-
-
-
-  /* =================== OCR Smart (carta/etichetta/scontrino) =================== */
+  /* =================== OCR Smart handler =================== */
   async function handleSmartOCR(files) {
     const wantSommelier =
       lastUserIntentRef.current.sommelier ||
-      looksLikeSommelierIntent(queryText);
+      /\b(sommelier|carta (dei )?vini)\b/i.test(queryText);
 
     setChatOpen(true);
-
     try {
       setBusy(true);
 
+      // a) downscale tutte le immagini
+      const slimmed = await mapWithLimit(Array.from(files||[]), 2, f => downscaleImageFile(f, { maxSide: 1400, quality: .72 }));
+
+      // b) OCR con concorrenza 2
+      const results = await mapWithLimit(slimmed, 2, fetchOcrUnified);
+
+      // c) smista
       const texts = [];
       const receipts = [];
       const labels = [];
       const lists = [];
-
-      // 1) OCR ogni file con fallback automatico
-      for (const f of files) {
-        const n = await fetchOcrUnified(f);
+      for (const n of results) {
         if (n?.text) texts.push(n.text);
         const guess = n?.kind || classifyOcrText(n?.text || '');
         if (guess === 'receipt') receipts.push(n);
@@ -904,7 +508,7 @@ function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
         else if (guess === 'wine_list') lists.push(n);
       }
 
-      // 2) Routing — Carta vini / intento Sommelier
+      // Sommelier: carta vini
       if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
         const joined = (lists.length ? lists.map(x => x.text || '').join('\n---\n') : texts.join('\n---\n')).trim();
         if (!joined) {
@@ -913,25 +517,18 @@ function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
         }
         wineListsRef.current.push(joined);
         setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta vini acquisita. Avvio il Sommelier…' }]);
-        // se usi un sommelier locale, richiamalo qui
         return;
       }
 
-      // 3) Etichette vino
+      // Etichette vino
       if (labels.length) {
         if (!uid) {
           setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
         } else {
           for (const L of labels) {
             try {
-              const res = await postJSON('/api/vini/ingest', {
-                user_id: uid,
-                wine: L?.wine || null,
-                text: L?.text || ''
-              });
-              if (!(res?.ok || res?.inserted === 1)) {
-                setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
-              }
+              const res = await postJSON('/api/vini/ingest', { user_id: uid, wine: L?.wine || null, text: L?.text || '' });
+              if (!(res?.ok || res?.inserted === 1)) setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
             } catch (e) {
               setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
             }
@@ -941,9 +538,8 @@ function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
         return;
       }
 
-      // 4) Scontrino/i
+      // Scontrino/i
       if (receipts.length || texts.length) {
-        // --- Combina meta + righe ---
         const allPurchases = [];
         const meta = { store: '', address:'', place:'', purchaseDate: '', totalPaid: 0, currency: 'EUR' };
 
@@ -959,13 +555,12 @@ function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
           if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
         }
 
-        // --- Fallback DATA (se meta vuota) ---
         const isoFromMeta = toISODate(meta.purchaseDate);
         const isoFromOCR  = pickDateFromTexts(texts);
         const isoToday    = new Date().toISOString().slice(0, 10);
         meta.purchaseDate = isoFromMeta || isoFromOCR || isoToday;
 
-        // --- Normalizza righe (base) ---
+        // Normalizza base + filtra amministrative
         const itemsNorm = (allPurchases || []).map(p => ({
           name: String(p.name || '').trim(),
           brand: String(p.brand || '').trim(),
@@ -976,146 +571,98 @@ function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name)); }
           priceTotal: Number(p.priceTotal || 0),
           currency: String(p.currency || 'EUR'),
           expiresAt: String(p.expiresAt || p.expiry || p.scadenza || '')
-        })).filter(p => p.name);
+        })).filter(p => p.name && !shouldDropName(p.name));
 
         if (!itemsNorm.length) {
           setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
           return;
         }
- // --- SOSTITUISCI l'intera normalizeViaWebLocal con questa versione "robusta" ---
-async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
-  const arr = Array.isArray(items) ? items : [];
-  if (!arr.length) return arr;
 
-  // merge dei campi restituiti dal normalizzatore
-  const applyOne = (p, r) => {
-    // r può essere mancante o con drop:true
-    if (!r || (r.drop && !shouldDropName(p.name))) {
-      // tieni la riga ORIGINALE (non buttarla)
-      return { ...p };
-    }
-    if (r.drop && shouldDropName(p.name)) {
-      // è davvero una riga amministrativa → scarta
-      return null;
-    }
+        // Normalizzazione web (opzionale) + coercion prezzi
+        async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
+          const arr = Array.isArray(items) ? items : [];
+          if (!arr.length) return arr;
 
-    const out = { ...p };
-    const normName   = String(r.out?.normalizedName || '').trim();
-    const canonBrand = String(r.out?.canonicalBrand || '').trim();
-    const unitsPer   = Number(r.out?.unitsPerPack || 0);
-    const unitLabel  = String(r.out?.unitLabel || '').trim();
-    const packMult   = Number(r.out?.packMultiplier || 1);
+          // Vision → /api/normalize-vision
+          try {
+            const r = await fetch('/api/normalize-vision', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ items: arr.map(p => ({ name:p.name, brand:p.brand || '' })), receiptText, store, locale:'it-IT', trace:false })
+            });
+            const raw = await r.text(); let j=null; try{ j=JSON.parse(raw) }catch{}
+            if (r.ok && j?.ok && Array.isArray(j.results)) {
+              const pad = [...j.results]; while (pad.length < arr.length) pad.push(undefined);
+              const merged = [];
+              for (let i=0;i<arr.length;i++){
+                const p = arr[i]; const r1 = pad[i];
+                if (r1?.drop && shouldDropName(p.name)) continue;
+                const out = { ...p };
+                const nn = String(r1?.out?.normalizedName||'').trim();
+                const cb = String(r1?.out?.canonicalBrand||'').trim();
+                const upp = Number(r1?.out?.unitsPerPack||0);
+                const ul  = String(r1?.out?.unitLabel||'').trim();
+                if (nn) out.name = nn; if (cb) out.brand = cb;
+                if (upp>0) out.unitsPerPack = upp; if (ul) out.unitLabel = ul;
+                merged.push(out);
+              }
+              if (merged.length) return merged;
+            }
+          } catch {}
 
-    if (normName)   out.name  = normName;
-    if (canonBrand) out.brand = canonBrand;
-    if (unitsPer > 0) out.unitsPerPack = unitsPer;
-    if (unitLabel) out.unitLabel = unitLabel;
-    if (packMult > 1) out.packs = Math.max(1, Number(out.packs || 1)) * packMult;
+          // Fallback /api/normalize (OFF/euristiche)
+          try {
+            const resp = await fetch('/api/normalize', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ items: arr.map(p => ({ name:p.name, brand:p.brand||'' })), locale:'it-IT', trace:true })
+            });
+            const raw = await resp.text(); let j=null; try{ j=JSON.parse(raw) }catch{}
+            if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
+            const pad = [...j.results]; while (pad.length < arr.length) pad.push(undefined);
+            const merged = [];
+            for (let i=0;i<arr.length;i++){
+              const p = arr[i]; const r1 = pad[i];
+              if (r1?.drop && shouldDropName(p.name)) continue;
+              const out = { ...p };
+              const nn = String(r1?.out?.normalizedName||'').trim();
+              const cb = String(r1?.out?.canonicalBrand||'').trim();
+              const upp = Number(r1?.out?.unitsPerPack||0);
+              const ul  = String(r1?.out?.unitLabel||'').trim();
+              if (nn) out.name = nn; if (cb) out.brand = cb;
+              if (upp>0) out.unitsPerPack = upp; if (ul) out.unitLabel = ul;
+              merged.push(out);
+            }
+            return merged;
+          } catch { return arr; }
+        }
 
-    return out;
-  };
+        const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
+          receiptText: texts.join('\n'),
+          store: meta.store
+        }))
+          .map(normalizeItemForPipelines)
+          .map(p => {
+            // neutralizza pesi/volumi residui
+            let upp = Math.max(1, Number(p.unitsPerPack||1));
+            let ul  = String(p.unitLabel||'').trim() || 'unità';
+            if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(ul) || /\b\d+\s*(g|gr|kg|ml|cl|l|lt)\b/i.test(`${p.name} ${p.brand}`)) {
+              upp = 1; ul = 'unità';
+            }
+            return { ...p, unitsPerPack: upp, unitLabel: ul };
+          })
+          .map(enforceHybridUnitPrice);
 
-  // 1) Vision first (stile ChatGPT)
-  try {
-    const r = await fetch('/api/normalize-vision', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-        receiptText, store, locale:'it-IT', trace:false
-      })
-    });
-    const raw = await r.text();
-    let j=null; try{ j=JSON.parse(raw) }catch{}
-    if (r.ok && j?.ok && Array.isArray(j.results)) {
-      // Padding: se Vision torna meno risultati, completiamo con "undefined"
-      const padded = [...j.results];
-      while (padded.length < arr.length) padded.push(undefined);
+        const itemsReadyDedup = dedupeAndFix(itemsReady);
 
-      const merged = [];
-      for (let i=0;i<arr.length;i++){
-        const out = applyOne(arr[i], padded[i]);
-        if (out) merged.push(out); // scarta solo se davvero NON-PRODOTTO
-      }
-      if (merged.length) return merged;
-    }
-  } catch (e) {
-    console.warn('[normalizeViaWebLocal] vision fail', e?.message || e);
-  }
-
-  // 2) Fallback al normalizzatore /api/normalize (OFF/euristiche)
-  try {
-    const resp = await fetch('/api/normalize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: arr.map(p => ({ name: p.name, brand: p.brand || '' })),
-        locale: 'it-IT',
-        trace: true
-      })
-    });
-
-    const raw = await resp.text();
-    let j=null; try{ j=JSON.parse(raw) }catch{}
-    if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
-
-    const padded = [...j.results];
-    while (padded.length < arr.length) padded.push(undefined);
-
-    const merged = [];
-    for (let i=0;i<arr.length;i++){
-      const p = arr[i];
-      const r = padded[i];
-      if (r?.drop && shouldDropName(p.name)) continue; // scarta solo amministrative
-      const out = { ...p };
-      const normName   = String(r?.out?.normalizedName || '').trim();
-      const canonBrand = String(r?.out?.canonicalBrand || '').trim();
-      const unitsPer   = Number(r?.out?.unitsPerPack || 0);
-      const unitLabel  = String(r?.out?.unitLabel || '').trim();
-
-      if (normName)   out.name  = normName;
-      if (canonBrand) out.brand = canonBrand;
-      if (unitsPer>0) out.unitsPerPack = unitsPer;
-      if (unitLabel)  out.unitLabel = unitLabel;
-
-      merged.push(out);
-    }
-    return merged;
-  } catch (e) {
-    console.warn('[normalizeViaWebLocal] fallback OFF fail', e?.message || e);
-    return arr;
-  }
-}
-
-const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
-  receiptText: texts.join('\n'),
-  store: meta.store
-}))
-  .map(normalizeItemForPipelines)
-  .map(enforceHybridUnitPrice);
-
-// >>> ACCORPA duplicati e correggi unità/brand tipici
-const itemsReadyDedup = dedupeAndFix(itemsReady);
-
-
-        // Etichetta umana per link/tabelle: "Store Luogo Indirizzo"
-        const storeLabel = buildStoreLabel({
-          store: meta.store, address: meta.address, place: meta.place, city: meta.city, locality: meta.locality
-        });
-        if (storeLabel) meta.store = storeLabel;
-
-        // Totale: usa scontrino se presente, else somma righe
-        const totalFromLines = Number(itemsReady.reduce((s,p)=> s + (Number(p.priceTotal)||0), 0).toFixed(2));
+        const totalFromLines = Number(itemsReadyDedup.reduce((s,p)=> s + (Number(p.priceTotal)||0), 0).toFixed(2));
         const ocrTotal = Number(meta.totalPaid || 0);
         meta.totalPaid = ocrTotal > 0 ? ocrTotal : totalFromLines;
 
-        // Bucket + supermercato?
         const bucket = guessExpenseBucket(meta.store);
-        const storeIsSuper = (bucket !== 'cene-aperitivi' && isSupermarketStore(meta.store));
+        const storeIsSuper = (bucket !== 'cene-aperitivi' && /\b(supermercat|iper|market|discount|conad|coop|esselunga|carrefour|pam|despar|lidl|md|eurospin|todis|deco|decò|tigre|famila|dok|cra[iì]|penny)\b/i.test(meta.store||''));
 
-        // Accumuliamo note reali dagli endpoint
         const notes = [];
 
-        // --- a) FINANZE (link "Spesa [Store]") ---
+        // a) Finanze
         if (!uid) {
           notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
         } else {
@@ -1135,57 +682,44 @@ const itemsReadyDedup = dedupeAndFix(itemsReady);
               if (typeof window !== 'undefined') {
                 const stamp = Date.now();
                 localStorage.setItem('__finanze_last_ingest', String(stamp));
-                window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsReady.length, store: meta.store, stamp } }));
+                window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsReadyDedup.length, store: meta.store, stamp } }));
               }
               setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
-            } else {
-              notes.push('Finanze: nessuna riga inserita');
-            }
-          } catch (e) {
-            notes.push(`Finanze: ${e.message}`);
-          }
+            } else { notes.push('Finanze: nessuna riga inserita'); }
+          } catch (e) { notes.push(`Finanze: ${e.message}`); }
 
-          // --- b) SPESE CASA / CENE & APERITIVI ---
+          // b) Spese
           try {
             const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
             const payloadSpese = {
               user_id: uid,
-              store: meta.store,                    // "Decò Maxistore Castel di Sangro Via Abruzzi"
+              store: meta.store,
               purchaseDate: meta.purchaseDate,
-              totalPaid: meta.totalPaid,            // totale scontrino
-          items: itemsReadyDedup,                  // dettaglio completo: unitario, q.tà, pagato, scadenze
+              totalPaid: meta.totalPaid,
+              items: itemsReadyDedup,
               receiptTotalAuthoritative: true
             };
             const spRes = await postJSON(endpoint, payloadSpese);
             if (spRes?.ok && (spRes?.inserted || 0) > 0) {
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsReady.length } }));
-              }
+              if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsReadyDedup.length } }));
               setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
-            } else {
-              notes.push(`${bucket}: nessuna riga inserita`);
-            }
-          } catch (e) {
-            notes.push(`${bucket}: ${e.message}`);
-          }
+            } else { notes.push(`${bucket}: nessuna riga inserita`); }
+          } catch (e) { notes.push(`${bucket}: ${e.message}`); }
         }
 
-        // --- c) SCORTE (solo supermercato)
+        // c) Scorte
         if (storeIsSuper && uid) {
           try {
-            await postJSON('/api/stock/apply', { user_id: uid, items: itemsReady });
-            setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino del supermercato ✓' }]);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsReady.length, at: Date.now() } }));
-            }
+            await postJSON('/api/stock/apply', { user_id: uid, items: itemsReadyDedup });
+            setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino ✓' }]);
+            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsReadyDedup.length, at: Date.now() } }));
           } catch (e) { notes.push(`Scorte: ${e.message}`); }
         }
 
-        // --- d) riepilogo + voce ---
+        // d) riepilogo
         const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReadyDedup }), mono: true };
         setChatMsgs(arr => [
-          ...arr,
-          msg,
+          ...arr, msg,
           ...(notes.length ? [{ role:'assistant', text: 'Note:\n' + notes.map(n => `• ${n}`).join('\n'), mono: true }] : []),
           { role: 'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
         ]);
@@ -1193,30 +727,26 @@ const itemsReadyDedup = dedupeAndFix(itemsReady);
         return;
       }
 
-      // Tipo non riconosciuto
       setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
 
     } catch (err) {
-      console.error('[OCR flow] error', err, err?.stack);
+      console.error('[OCR flow] error', err);
       setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
     } finally {
       setBusy(false);
     }
   }
 
-  /* =================== Query testo (anche da Siri) =================== */
+  /* =================== Query testo =================== */
   async function submitQuery(textParam) {
     const raw = (textParam != null ? String(textParam) : queryText).trim();
     if (!raw || busy) return;
     if (textParam == null) setQueryText('');
     setChatOpen(true);
     setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
-    lastUserIntentRef.current = { text: raw, sommelier: looksLikeSommelierIntent(raw) };
+    lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
     if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
-      setChatMsgs(prev => [
-        ...prev,
-        { role:'assistant', text: 'Per favore premi <b>OCR</b> e fotografa la <b>carta dei vini</b> così ti consiglio dalla lista del locale.' }
-      ]);
+      setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per favore premi <b>OCR</b> e fotografa la <b>carta dei vini</b> così ti consiglio dalla lista del locale.' }]);
       return;
     }
     try {
@@ -1227,12 +757,10 @@ const itemsReadyDedup = dedupeAndFix(itemsReady);
       maybeSpeakMessage(msg);
     } catch (err) {
       setChatMsgs(prev => [...prev, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
-  /* =================== OCR handlers =================== */
+  /* =================== UI bits =================== */
   const handleFileChange = (ev) => {
     const files = Array.from(ev.target.files || []);
     if (!files.length || busy) return;
@@ -1248,27 +776,20 @@ const itemsReadyDedup = dedupeAndFix(itemsReady);
   };
   const handleSelectOCR = () => { if (!busy) fileInputRef.current?.click(); };
 
-  /* =================== VOCE → testo =================== */
   const handleVoiceText = async (spoken) => {
     const text = String(spoken||'').trim();
     if (!text || busy) return;
-    lastUserIntentRef.current = { text, sommelier: looksLikeSommelierIntent(text) };
+    lastUserIntentRef.current = { text, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(text) };
     if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
       setChatOpen(true);
-      setChatMsgs(prev => [
-        ...prev,
-        { role:'user', text },
-        { role:'assistant', text: '📷 Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }
-      ]);
+      setChatMsgs(prev => [...prev, { role:'user', text }, { role:'assistant', text: '📷 Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }]);
       return;
     }
     await submitQuery(text);
   };
 
-  /* =================== Deep-link Siri =================== */
   useEffect(() => {
     if (!router.isReady || deepLinkHandledRef.current) return;
-
     const sp = new URLSearchParams(window.location.search);
     const src  = sp.get('src')  || '';
     const mode = sp.get('mode') || '';
@@ -1276,50 +797,91 @@ const itemsReadyDedup = dedupeAndFix(itemsReady);
     const tts  = sp.get('tts');
     const voiceParam = sp.get('voice') || '';
     const imgParams = sp.getAll('img');
-
     if (tts === '1') setTtsEnabled(true);
     if (tts === '0') setTtsEnabled(false);
     if (mode === 'voice') speakModeRef.current = true;
-
     if (voiceParam) {
-      const attempt = () => {
-        const found = voicesRef.current.find(v => v.name === voiceParam);
-        if (found) setVoiceId(found.name);
-      };
-      attempt();
-      setTimeout(attempt, 700);
+      const attempt = () => { const found = voicesRef.current.find(v => v.name === voiceParam); if (found) setVoiceId(found.name); };
+      attempt(); setTimeout(attempt, 700);
     }
-
     deepLinkHandledRef.current = true;
-
-    if (src === 'siri') {
-      setChatOpen(true);
-      setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]);
-    }
-
+    if (src === 'siri') { setChatOpen(true); setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]); }
     (async () => {
       const files = [];
       for (let i=0; i<imgParams.length; i++) {
-        const f = await urlOrDataUrlToFile(imgParams[i], `siri_${i+1}.jpg`);
-        if (f) files.push(f);
+        const url = imgParams[i];
+        try {
+          if (url.startsWith('data:')) {
+            const [head, b64] = url.split(',');
+            const mime = (head.match(/data:(.*?);base64/i)?.[1]) || 'image/jpeg';
+            const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            files.push(new File([buf], `siri_${i+1}.jpg`, { type: mime }));
+          } else {
+            const resp = await fetch(url, { mode:'cors' }); const blob = await resp.blob();
+            files.push(new File([blob], `siri_${i+1}.${(blob.type.includes('png')?'png':'jpg')}`, { type: blob.type }));
+          }
+        } catch {}
       }
-      if (files.length) {
-        await handleSmartOCR(files);
-      } else if (q) {
-        await submitQuery(q);
-      }
+      if (files.length) { await handleSmartOCR(files); }
+      else if (q) { await submitQuery(q); }
       try {
         const url = new URL(window.location.href);
         ['q','src','mode','tts','voice','img'].forEach(p => url.searchParams.delete(p));
         window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''));
       } catch {}
     })();
-
   }, [router.isReady]);
 
-  const handleQueryKey = (ev) => { if (ev.key === 'Enter') submitQuery(); };
+  function renderBrainResponse(res) {
+    const payload = (res && typeof res === 'object' && 'result' in res) ? res.result : res;
+    const kind = payload?.kind;
 
-  /* --------- Riepilogo scontrino (con scadenze e unitario) --------- */
+    const looksLikeInventory =
+      kind === 'inventory.snapshot' ||
+      (payload && typeof payload === 'object' && Array.isArray(payload.elenco));
+    if (looksLikeInventory) {
+      const rendered = renderInventorySnapshot(payload);
+      return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
+    }
+
+    const topList = payload?.top_negozi || payload?.top_stores;
+    const looksLikeMonthFinances =
+      kind === 'finances.month_summary' ||
+      (payload && typeof payload === 'object' &&
+        (payload.totale != null || payload.total != null) &&
+        Array.isArray(topList));
+    if (looksLikeMonthFinances) {
+      const totRaw = payload.total ?? payload.totale ?? 0;
+      const txs = payload.transactions ?? payload.transazioni ?? 0;
+      const top = Array.isArray(topList) ? topList : [];
+      const rows = top.map(r => ({ store: r.store || r.nome || r.name || '—', speso: fmtEuro(r.speso ?? r.amount ?? 0) }));
+      const header = rows.slice(0,10).map(r => `${r.store}: ${r.speso}`).join('\n');
+      const txt =
+`📊 Spese del mese
+Intervallo: ${payload.intervallo || 'mese corrente'}
+Totale: ${fmtEuro(totRaw)} • Transazioni: ${fmtInt(txs)}
+
+${header}${rows.length>10?`\n…(+${rows.length-10})`:''}`;
+      return { role: 'assistant', text: txt, mono: true };
+    }
+
+    const text = formatResult(payload ?? res);
+    return { role: 'assistant', text, mono: typeof (payload ?? res) !== 'string' };
+  }
+  function renderInventorySnapshot(payload) {
+    const list = Array.isArray(payload?.elenco) ? payload.elenco : [];
+    const rows = list.map(it => ({ nome: (it.name ?? '').trim() || '—', qty: (it.qty ?? it.quantity ?? it.qta ?? null), pct: clampPct(it.consumed_pct ?? it.consumo_pct ?? it.fill_pct ?? null) }));
+    const table = rows.map(r => `${r.nome} — ${r.qty ?? '—'} — ${r.pct!=null?fmtPct(r.pct):'—'}`).join('\n');
+    const barsData = rows.filter(r => r.pct != null).sort((a,b)=> (a.pct - b.pct)).slice(0, 10).map(r => ({ label: r.nome, value: r.pct }));
+    const svg = svgBars(barsData, { max: 100, unit: '%', bg: '#0b0f14' });
+    const text =
+`🏠 Scorte (snapshot)
+Totale articoli: ${fmtInt(rows.length)}
+
+${table}`;
+    return { text, blocks: barsData.length ? [{ svg, caption: 'Consumo stimato (prime 10 voci)' }] : [] };
+  }
+
   function summarizeReceiptForChat({ store, purchaseDate, totalPaid, currency='EUR', purchases=[] }) {
     const tot = (Number(totalPaid)||0).toLocaleString('it-IT',{style:'currency',currency});
     const lines = purchases.slice(0,8).map(p => {
@@ -1352,99 +914,39 @@ ${lines}${purchases.length>8?`\n…(+${purchases.length-8})`:''}`
       </Head>
 
       {/* Video bg */}
-      <video
-        className="bg-video"
-        src="/composizione%201.mp4"
-        autoPlay
-        loop
-        muted
-        playsInline
-        controls={false}
-        preload="auto"
-        disablePictureInPicture
-        controlsList="nodownload noplaybackrate noremoteplayback"
-        aria-hidden="true"
-      />
+      <video className="bg-video" src="/composizione%201.mp4" autoPlay loop muted playsInline controls={false} preload="auto" disablePictureInPicture controlsList="nodownload noplaybackrate noremoteplayback" aria-hidden="true" />
       <div className="bg-overlay" aria-hidden="true" />
 
-      {/* Contenuto */}
       <main className="home-shell">
         <section className="primary-grid">
           <Link href="/liste-prodotti" className="card-cta card-prodotti animate-card pulse-prodotti sheen">
-            <span className="emoji">🛒</span>
-            <span className="title">LISTE PRODOTTI</span>
-            <span className="hint">Crea e gestisci le tue liste</span>
+            <span className="emoji">🛒</span><span className="title">LISTE PRODOTTI</span><span className="hint">Crea e gestisci le tue liste</span>
           </Link>
-
           <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
-            <span className="emoji">📊</span>
-            <span className="title">FINANZE</span>
-            <span className="hint">Entrate, spese e report</span>
+            <span className="emoji">📊</span><span className="title">FINANZE</span><span className="hint">Entrate, spese e report</span>
           </Link>
         </section>
 
-        {/* Funzionalità Avanzate */}
         <section className="advanced-box">
           <h2>Funzionalità Avanzate</h2>
 
           <div className="ask-row">
-            <input
-              className="query-input"
-              type="text"
-              placeholder='Chiedi a Jarvis… (es. "Quanto ho speso questo mese?" • "Cosa ho a casa?" • "Mi consigli un vino rosso da questa carta?")'
-              value={queryText}
-              onChange={(ev)=>setQueryText(ev.target.value)}
-              onKeyDown={handleQueryKey}
-              disabled={busy}
-            />
-            <button className="btn-ask" onClick={() => submitQuery()} disabled={busy}>
-              {busy ? '⏳' : '💬 Chiedi'}
-            </button>
+            <input className="query-input" type="text" placeholder='Chiedi a Jarvis… (es. "Quanto ho speso questo mese?" • "Cosa ho a casa?" • "Mi consigli un vino rosso da questa carta?")' value={queryText} onChange={(ev)=>setQueryText(ev.target.value)} onKeyDown={(ev)=> ev.key==='Enter' && submitQuery()} disabled={busy} />
+            <button className="btn-ask" onClick={() => submitQuery()} disabled={busy}>{busy ? '⏳' : '💬 Chiedi'}</button>
           </div>
 
           <div className="advanced-actions">
-            <button className="btn-ocr" onClick={handleSelectOCR} disabled={busy}>
-              {busy ? '⏳' : '📷 OCR'}
-            </button>
+            <button className="btn-ocr" onClick={handleSelectOCR} disabled={busy}>{busy ? '⏳' : '📷 OCR'}</button>
 
-            {/* Toggle TTS */}
-            <button
-              className="btn-manuale"
-              onClick={() => setTtsEnabled(v => !v)}
-              title="Abilita o disabilita la lettura vocale delle risposte"
-              aria-pressed={ttsEnabled}
-            >
+            <button className="btn-manuale" onClick={() => setTtsEnabled(v => !v)} title="Abilita/Disabilita lettura vocale" aria-pressed={ttsEnabled}>
               {ttsEnabled ? '🔊 Lettura vocale: ON' : '🔇 Lettura vocale: OFF'}
             </button>
 
-            {/* Selettore voce */}
-            <select
-              value={voiceId || ''}
-              onChange={(e) => setVoiceId(e.target.value || null)}
-              className="btn-manuale"
-              title="Seleziona la voce per la lettura"
-              style={{ minWidth: 220 }}
-              disabled={!voices.length}
-            >
-              {voices.length === 0 ? (
-                <option value="">(Caricamento voci…)</option>
-              ) : (
-                voices.map(v => (
-                  <option key={v.name} value={v.name}>
-                    {`${v.name} — ${v.lang}`}
-                  </option>
-                ))
-              )}
+            <select value={voiceId || ''} onChange={(e) => setVoiceId(e.target.value || null)} className="btn-manuale" title="Seleziona voce" style={{ minWidth: 220 }} disabled={!voices.length}>
+              {voices.length === 0 ? (<option value="">(Caricamento voci…)</option>) : (voices.map(v => (<option key={v.name} value={v.name}>{`${v.name} — ${v.lang}`}</option>)))}
             </select>
 
-            {/* Comando vocale (speech-to-text) */}
-            <VoiceRecorder
-              buttonClass="btn-vocale"
-              idleLabel="🎤 Comando vocale"
-              recordingLabel="⏹ Stop"
-              onText={handleVoiceText}
-              disabled={busy}
-            />
+            <VoiceRecorder buttonClass="btn-vocale" idleLabel="🎤 Comando vocale" recordingLabel="⏹ Stop" onText={handleVoiceText} disabled={busy} />
 
             <Link href="/dashboard" className="btn-manuale">🔎 Interroga dati</Link>
             <Link href="/prodotti-tipici-vini" className="btn-manuale">🍷 Prodotti tipici & Vini</Link>
@@ -1453,96 +955,59 @@ ${lines}${purchases.length>8?`\n…(+${purchases.length-8})`:''}`
       </main>
 
       {/* Input OCR nascosto */}
-      <input
-        type="file"
-        accept="image/*"
-        capture="environment"
-        multiple
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        style={{ display: 'none' }}
-      />
+      <input type="file" accept="image/*" capture="environment" multiple ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} />
 
-      {/* Chat Modal */}
-      <ChatModal
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        onSend={(text) => submitQuery(text)}
-        messages={chatMsgs}
-        busy={busy}
-      />
+      {/* Chat Modal (leggero) */}
+      {chatOpen && (
+        <div style={S.overlay} role="dialog" aria-modal="true" aria-label="Chat dati">
+          <div style={S.modal}>
+            <div style={S.header}>
+              <div style={{ fontWeight: 800 }}>💬 Interroga dati</div>
+              <button onClick={() => setChatOpen(false)} aria-label="Chiudi" style={S.btnGhost}>✖</button>
+            </div>
+            <div style={S.body}>
+              {chatMsgs.length === 0 && (
+                <div style={{ opacity: .85 }}>
+                  Inizia chiedendo: “Quanto ho speso questo mese?” •
+                  “Che cosa ho a casa?” • “Mi consigli un rosso da questa carta?” (poi premi <b>OCR</b>).
+                </div>
+              )}
+              {chatMsgs.map((m, i) => (
+                <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
+                  <div style={S.bubble}>{m.mono ? <pre style={S.pre}>{m.text}</pre> : <span dangerouslySetInnerHTML={{ __html: m.text }} />}</div>
+                </div>
+              ))}
+            </div>
+            <div style={S.inputRow}>
+              <input type="text" placeholder="Scrivi la tua domanda e premi Invio…" onKeyDown={(ev) => !busy && ev.key === 'Enter' && submitQuery(ev.currentTarget.value)} disabled={busy} style={S.input} />
+              <button onClick={() => submitQuery()} disabled={busy} style={S.btnPrimary}>{busy ? '⏳' : 'Invia'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <LoadingOverlay open={loading} message={loadingMsg} />
-
-      {/* CSS globale */}
       <style jsx global>{`
-        .bg-video {
-          position: fixed;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          z-index: -2;
-          pointer-events: none;
-          background: #000;
-        }
-        .bg-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: -1;
-          background: rgba(0, 0, 0, 0.35);
-          pointer-events: none;
-        }
-        .home-shell {
-          min-height: 100vh;
-          display: grid;
-          grid-template-rows: auto auto;
-          align-items: start;
-          justify-items: center;
-          gap: 1.25rem;
-          padding: 2rem 1rem 3rem;
-          color: #fff;
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-        }
-        .primary-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(240px, 1fr));
-          gap: 1rem;
-          width: min(1100px, 96vw);
-        }
+        .bg-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; pointer-events: none; background: #000; }
+        .bg-overlay { position: fixed; inset: 0; z-index: -1; background: rgba(0, 0, 0, 0.35); pointer-events: none; }
+        .home-shell { min-height: 100vh; display: grid; grid-template-rows: auto auto; align-items: start; justify-items: center; gap: 1.25rem; padding: 2rem 1rem 3rem; color: #fff; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+        .primary-grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 1rem; width: min(1100px, 96vw); }
         @media (max-width: 760px) { .primary-grid { grid-template-columns: 1fr; } }
-        .card-cta {
-          display: grid; align-content: center; justify-items: center; gap: 0.25rem;
-          text-decoration: none; color: #fff; border-radius: 18px;
-          padding: clamp(1.1rem, 3vw, 1.7rem);
-          min-height: clamp(130px, 22vw, 220px);
-          transition: transform 120ms ease, box-shadow 200ms ease, border-color 200ms ease;
-          position: relative; overflow: hidden; isolation: isolate;
-        }
+        .card-cta { display: grid; align-content: center; justify-items: center; gap: 0.25rem; text-decoration: none; color: #fff; border-radius: 18px; padding: clamp(1.1rem, 3vw, 1.7rem); min-height: clamp(130px, 22vw, 220px); transition: transform 120ms ease, box-shadow 200ms ease, border-color 200ms ease; position: relative; overflow: hidden; isolation: isolate; }
         .card-cta .emoji { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1; }
         .card-cta .title { font-weight: 800; font-size: clamp(1.1rem, 2.8vw, 1.6rem); }
         .card-cta .hint  { opacity: .85; font-size: clamp(.85rem, 2vw, .95rem); }
         .card-cta:hover { transform: translateY(-2px) scale(1.02); }
-        .card-prodotti { --tint: 236,72,153; background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85)); border: 1px solid rgba(236,72,153,0.35); }
-        .card-finanze { --tint: 59,130,246; background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85)); border: 1px solid rgba(59,130,246,0.35); }
+        .card-prodotti { background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85)); border: 1px solid rgba(236,72,153,0.35); }
+        .card-finanze  { background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85)); border: 1px solid rgba(59,130,246,0.35); }
         .animate-card { animation: cardGlow 3.2s ease-in-out infinite; }
-        .pulse-prodotti { --glowA: 236,72,153;  --glowB: 99,102,241; }
-        .pulse-finanze  { --glowA: 59,130,246;  --glowB: 6,182,212; }
-        @keyframes cardGlow {
-          0% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
-          50% { box-shadow: 0 0 35px rgba(var(--glowB), 0.85); }
-          100% { box-shadow: 0 0 15px rgba(var(--glowA), 0.4); }
-        }
+        @keyframes cardGlow { 0% { box-shadow: 0 0 15px rgba(99,102,241, 0.4); } 50% { box-shadow: 0 0 35px rgba(6,182,212, 0.85); } 100% { box-shadow: 0 0 15px rgba(99,102,241, 0.4); } }
         .advanced-box { width: min(1100px, 96vw); margin-top: .5rem; background: rgba(0, 0, 0, 0.55); border-radius: 16px; padding: 1rem; }
         .advanced-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
         .ask-row { display: grid; grid-template-columns: 1fr auto; gap: .5rem; margin-bottom: .6rem; }
         .query-input { width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: .55rem; padding: .52rem .7rem; color: #fff; outline: none; }
         .query-input::placeholder { color: rgba(255,255,255,0.65); }
         .btn-ask { background: linear-gradient(135deg, #6366f1, #06b6d4); border: 1px solid rgba(255,255,255,0.2); border-radius: .55rem; padding: .45rem .7rem; color: #fff; cursor: pointer; }
-        .btn-vocale, .btn-ocr, .btn-manuale {
-          display: inline-flex; align-items: center; justify-content: center;
-          padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; text-decoration: none;
-        }
+        .btn-vocale, .btn-ocr, .btn-manuale { display: inline-flex; align-items: center; justify-content: center; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; text-decoration: none; }
         .btn-vocale { background: #6366f1; }
         .btn-ocr { background: #06b6d4; }
         .btn-manuale { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); }
@@ -1564,13 +1029,6 @@ const S = {
   inputRow:{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,.16)', background:'rgba(0,0,0,.35)' },
   input:{ width:'100%', background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.2)', borderRadius:10, padding:'10px 12px', color:'#fff', outline:'none' },
   btnPrimary:{ background:'#6366f1', border:0, borderRadius:10, padding:'10px 12px', color:'#fff', cursor:'pointer' },
-};
-const LO = {
-  overlay:{ position:'fixed', inset:0, zIndex:10000, display:'grid', placeItems:'center' },
-  video:{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' },
-  scrim:{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.65))' },
-  box:{ position:'relative', zIndex:2, padding:'12px 16px', borderRadius:14, background:'rgba(0,0,0,.45)', border:'1px solid rgba(255,255,255,.15)', boxShadow:'0 12px 30px rgba(0,0,0,.45)' },
-  caption:{ color:'#fff', fontWeight:800, letterSpacing:.2, textShadow:'0 2px 6px rgba(0,0,0,.45)' }
 };
 
 export default withAuth(Home);
