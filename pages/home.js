@@ -629,35 +629,153 @@ const Home = () => {
       return new File([blob], name.endsWith(ext) ? name : `${name}.${ext}`, { type: blob.type || 'application/octet-stream' });
     } catch { return null; }
   }
-  // ====== Brand aliases & unit sanitizer ======
-const BRAND_ALIASES = {
-  'm. bianco':'Mulino Bianco','m.bianco':'Mulino Bianco','mulino bianco':'Mulino Bianco',
-  'sanwa':'Saiwa','saiwa':'Saiwa','san carlo':'San Carlo',
-  'dash':'Dash','lenor':'Lenor','ferrero':'Ferrero','motta':'Motta',
-  'arborea':'Arborea','parmalat':'Parmalat','galbani':'Galbani',
-  'garofalo':'Garofalo','lavazza':'Lavazza','eridania':'Eridania','chiquita':'Chiquita','deco':'Decò','decò':'Decò'
-};
-function canonBrand(b='') {
-  const k = String(b).toLowerCase().replace(/\./g,'').trim();
-  return BRAND_ALIASES[k] || (b ? b.trim() : '');
-}
-// “grammi/ml/cl/kg” NON sono unità discrete → riportiamo a 1 unità
-function sanitizeUnits(item) {
-  const bad = /^(g|gr|gramm|kg|ml|cl|l|litri?|grammi?)$/i;
-  const ulabel = String(item.unitLabel || '').trim();
-  if (bad.test(ulabel)) return { ...item, unitsPerPack: 1, unitLabel: 'unità' };
-  return item;
-}
+  // ======== NORMALIZZAZIONE QUANTITÀ & DEDUPE (robusta) ========
 
-// ====== Chiave canonica + merge ======
+// tokenizza "povero" per confronti stabili
 function stripAccents(s=''){ return s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 function tokenClean(s=''){
   return stripAccents(String(s).toLowerCase())
     .replace(/[^a-z0-9\s]/g,' ')
-    .replace(/\b(\d+)\s*(g|gr|kg|ml|cl|l)\b/g,' ')  // via pesi/volumi
-    .replace(/\b(\d+)\s*(pz|pezzi|x|×)\b/g,' ')     // via indicatori ripetuti
-    .replace(/\s+/g,' ').trim();
+    .replace(/\s+/g,' ')
+    .trim();
 }
+
+// brand canonici più frequenti (estendibile)
+const BRAND_ALIASES = {
+  'm. bianco':'Mulino Bianco','mulino bianco':'Mulino Bianco',
+  'saiwa':'Saiwa','sanwa':'Saiwa','san carlo':'San Carlo',
+  'ferrero':'Ferrero','motta':'Motta','parmalat':'Parmalat','arborea':'Arborea',
+  'de cecco':'De Cecco','kimbo':'Kimbo','pantene':'Pantene','nivea':'Nivea','malizia':'Malizia','vileda':'Vileda'
+};
+function canonBrand(b=''){ const k = tokenClean(b); return BRAND_ALIASES[k] || (b ? b.trim() : ''); }
+
+// pesi/volumi che NON sono unità discrete (indizio forte)
+const WEIGHT_VOL_RE = /\b(\d+(?:[.,]\d+)?)\s*(?:g|gr|kg|ml|cl|l|lt)\b/i;
+// UPP “sospetti” che arrivano dagli LLM (non sono pezzi veri)
+const SUSPECT_UPP = new Set([125,200,220,225,230,240,250,280,300,330,350,375,400,410,450,454,480,500,700,720,733,750,800,900,910,930,950,1000]);
+
+// famiglie/euristiche (pods, yoyo, fiesta, uova, pancarrè…)
+function productFamily(name=''){
+  const s = tokenClean(name);
+  if (/\bfiesta\b/.test(s)) return 'fam:fiesta';
+  if (/\byo[-\s]?yo\b/.test(s)) return 'fam:yoyo';
+  if (/\bpods?\b/.test(s)) return 'fam:pods';
+  if (/\buova?\b/.test(s)) return 'fam:eggs';
+  if (/\bpancarr[ei]\b/.test(s)) return 'fam:pancarre';
+  if (/\bspaghett|rigaton|penne|bucatini|fusill|mezze?\b/.test(s)) return 'fam:pasta';
+  return 'fam:?';
+}
+
+// latte: distingui intero/ps/sl
+function milkAttrs(name=''){
+  const s = tokenClean(name);
+  const fat = /\bintero\b/.test(s) ? 'fat:i'
+            : /\b(ps|parzialmente|semi|parz)\b/.test(s) ? 'fat:ps'
+            : /\bscrem\b/.test(s) ? 'fat:s'
+            : 'fat:?';
+  const lf  = /\b(zymil|senza lattosio|delact|s\/la)\b/.test(s) ? 'lf:1' : 'lf:0';
+  return `${fat}|${lf}`;
+}
+
+// chiave canonica per il dedupe (brand + base + famiglia + attributi latte se serve)
+function canonicalKey(p) {
+  const brand = canonBrand(p.brand || '');
+  let base = tokenClean(p.name || '')
+    .replace(/\b(doc|uht|classico|classica|regular|regolare|shop|offerta|bio|igt|docg)\b/g,' ')
+    .replace(/\b(\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|cl|l|lt))\b/g, ' ') // togli pesi
+    .replace(/\b(\d+)\s*(pz|pezzi|x|×)\b/g, ' ')                      // togli marcatori duplicanti
+    .replace(/\s+/g,' ').trim();
+
+  const fam  = productFamily(p.name || '');
+  if (fam === 'fam:pasta') base = base.replace(/\b(\d{3,4})\b/g, ' ').trim(); // es. "500" sparisce
+
+  const milk = /latte\b/.test(base) ? ('|' + milkAttrs(p.name || '')) : '';
+  return `${brand}|${base}|${fam}${milk}`;
+}
+
+// 1) Quantità: usa 1 “unità” per pesi/volumi, correzioni speciali (pods, fiesta, yoyo, uova…)
+function sanitizeUnits(item) {
+  const out = { ...item };
+  out.brand = canonBrand(out.brand || '');
+
+  // Se UPP arriva come 500/750 ecc. → riportiamo a 1 unità
+  const upp = Number(out.unitsPerPack || 0);
+  const lbl = String(out.unitLabel || '').toLowerCase();
+
+  const looksWeightUPP = SUSPECT_UPP.has(upp) || /^(g|gr|kg|ml|cl|l|lt)$/.test(lbl) || WEIGHT_VOL_RE.test(out.name);
+  if (looksWeightUPP && !/uova/.test(lbl)) {
+    out.unitsPerPack = 1;
+    out.unitLabel = 'unità';
+  }
+
+  // Regole famiglie
+  const fam = productFamily(out.name || '');
+  if (fam === 'fam:pods') {
+    out.brand = out.brand || 'Dash';
+    if (!out.unitsPerPack || out.unitLabel === 'unità') { out.unitsPerPack = 30; out.unitLabel = 'pod'; }
+  }
+  if (fam === 'fam:fiesta') { out.brand = 'Ferrero'; if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = 10; out.unitLabel = 'pezzi'; } }
+  if (fam === 'fam:yoyo')   { out.brand = 'Motta';   if (!out.unitsPerPack || out.unitLabel==='unità') { out.unitsPerPack = 10; out.unitLabel = 'pezzi'; } }
+  if (fam === 'fam:eggs')   { if (!out.unitsPerPack || out.unitsPerPack === 1) { out.unitsPerPack = 6; out.unitLabel = 'uova'; } }
+  if (fam === 'fam:pasta')  { out.unitsPerPack = 1; out.unitLabel = 'unità'; } // pasta: 1 pacco, indipendente dal “500 g”
+  return out;
+}
+
+// 2) Correzioni last-mile note (qui puoi aggiungere casi specifici)
+function fixKnownProducts(p) {
+  let out = sanitizeUnits(p);
+
+  // “ESPRESSO IN GRAN B” → normalizza come “Espresso in grani”
+  if (/espresso in gran/i.test(out.name)) out.name = 'Caffè espresso in grani';
+
+  // “Caseificio S. Stefano fio” → normalizza brand/prodotto
+  if (/caseificio/i.test(out.name)) { out.brand = 'Caseificio S. Stefano'; out.name = 'Formaggio fresco'; }
+
+  return out;
+}
+
+// 3) Dedupe: somma packs; scegli UPP più informativo; expiry più vicina
+function dedupeAndFix(items = []) {
+  const map = new Map();
+  for (const r of items) {
+    const p = fixKnownProducts(r);
+    const key = canonicalKey(p);
+    const cur = map.get(key);
+
+    if (!cur) {
+      map.set(key, { ...p, packs: Math.max(1, Number(p.packs || 1)), unitsPerPack: Math.max(1, Number(p.unitsPerPack || 1)), unitLabel: p.unitLabel || 'unità' });
+      continue;
+    }
+
+    // somma confezioni
+    cur.packs = Math.max(1, Number(cur.packs || 1)) + Math.max(1, Number(p.packs || 1));
+
+    // scegli UPP “migliore”
+    const betterUPP = (a, b, aLbl, bLbl) => {
+      if (aLbl === 'unità' && bLbl !== 'unità') return [b, bLbl];
+      if (bLbl === 'unità' && aLbl !== 'unità') return [a, aLbl];
+      return [Math.max(a, b), aLbl || bLbl || 'unità'];
+    };
+    const [u, lbl] = betterUPP(
+      Math.max(1, Number(cur.unitsPerPack || 1)),
+      Math.max(1, Number(p.unitsPerPack || 1)),
+      cur.unitLabel || 'unità',
+      p.unitLabel || 'unità'
+    );
+    cur.unitsPerPack = u; cur.unitLabel = lbl;
+
+    // expiry: tieni la più vicina (min)
+    const a = /^\d{4}-\d{2}-\d{2}$/.test(cur.expiresAt || '') ? cur.expiresAt : null;
+    const b = /^\d{4}-\d{2}-\d{2}$/.test(p.expiresAt || '') ? p.expiresAt : null;
+    if (!a && b) cur.expiresAt = b;
+    if (a && b && b < a) cur.expiresAt = b;
+
+    // soma priceTotal solo informativo (non usato per doc_total se già noto)
+    cur.priceTotal = (Number(cur.priceTotal) || 0) + (Number(p.priceTotal) || 0);
+  }
+  return Array.from(map.values());
+}
+
 // Attributi latte per evitare merge “intero” vs “PS/SL”
 function milkAttrs(name=''){
   const s = tokenClean(name);
@@ -968,16 +1086,16 @@ async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}
   }
 }
 
-
-       const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
+const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
   receiptText: texts.join('\n'),
   store: meta.store
 }))
-.map(normalizeItemForPipelines)
-.map(enforceHybridUnitPrice);
+  .map(normalizeItemForPipelines)
+  .map(enforceHybridUnitPrice);
 
 // >>> ACCORPA duplicati e correggi unità/brand tipici
 const itemsReadyDedup = dedupeAndFix(itemsReady);
+
 
         // Etichetta umana per link/tabelle: "Store Luogo Indirizzo"
         const storeLabel = buildStoreLabel({
