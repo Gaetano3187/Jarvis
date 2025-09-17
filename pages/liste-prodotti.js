@@ -166,6 +166,15 @@ function cleanupPurchasesQuantities(list) {
     if (!out.unitsPerPack) out.unitsPerPack = 1;
     if (!out.unitLabel) out.unitLabel = 'unità';
 
+    // Se non abbiamo ancora un UPP informativo, prova a ricavarlo dal testo (x6, 6 bottiglie, ecc.)
+if ((!out.unitsPerPack || out.unitsPerPack === 1) && (out.unitLabel || 'unità') === 'unità') {
+  const sniff = sniffUnitsPerPackFromText(`${out.name} ${out.brand || ''}`);
+  if (sniff && Number.isFinite(sniff.upp) && !SUSPECT_UPP.has(sniff.upp)) {
+    out.unitsPerPack = Math.max(1, sniff.upp);
+    out.unitLabel    = sniff.label || 'unità';
+    if (!out.packs && Number.isFinite(sniff.packs)) out.packs = Math.max(1, sniff.packs);
+  }
+}
     return out;
   });
 }
@@ -233,6 +242,48 @@ function dedupeAndFix(items = []) {
   }
   return Array.from(map.values());
 }
+function sniffUnitsPerPackFromText(name='') {
+  const s = normKey(name);
+
+  // pattern tipo "2x6", "3 × 8"
+  const hitNxM = s.match(/\b(\d+)\s*[x×]\s*(\d+)\b/);
+  if (hitNxM) {
+    const packs = Number(hitNxM[1]);
+    const upp   = Number(hitNxM[2]);
+    if (Number.isFinite(packs) && Number.isFinite(upp)) {
+      return { packs, upp, label: 'unità' };
+    }
+  }
+
+  // "conf da 6", "conf x 6"
+  const hitConf = s.match(/\bconf(?:ezioni)?\s*(?:da|x)\s*(\d+)\b/);
+  if (hitConf) {
+    const upp = Number(hitConf[1]);
+    if (Number.isFinite(upp)) return { packs: 1, upp, label: 'unità' };
+  }
+
+  // "6 bottiglie", "6 uova", "30 capsule/pods", "2 rotoli"
+  const pairs = [
+    { re:/\b(\d+)\s*(bottigli?e?)\b/, label:'bottiglie' },
+    { re:/\b(\d+)\s*(uova)\b/,        label:'uova' },
+    { re:/\b(\d+)\s*(?:capsule|capsul[ae]|pods?)\b/, label:'capsule' },
+    { re:/\b(\d+)\s*(rotol[oi])\b/,   label:'rotoli' },
+    { re:/\b(\d+)\s*(vasett[oi])\b/,  label:'vasetti' },
+    { re:/\b(\d+)\s*(bust[ae])\b/,    label:'buste' },
+    { re:/\b(\d+)\s*(lattin[ea]e?)\b/,label:'lattine' },
+    { re:/\b(\d+)\s*(fett[ea]e?)\b/,  label:'fette' },
+  ];
+  for (const {re,label} of pairs) {
+    const m = s.match(re);
+    if (m) {
+      const upp = Number(m[1]);
+      if (Number.isFinite(upp)) return { packs: 1, upp, label };
+    }
+  }
+
+  return null;
+}
+
 
 /* =========================================================================================
    PERSISTENZA LOCALE / CLOUD
@@ -376,11 +427,58 @@ function parseReceiptMeta(ocrText) {
   return { store, purchaseDate };
 }
 function parseReceiptPurchases(ocrText) {
+  // fallback locale se non hai definito sniffUnitsPerPackFromText altrove
+  const sniffUPP = (typeof sniffUnitsPerPackFromText === 'function')
+    ? sniffUnitsPerPackFromText
+    : function localSniff(name='') {
+        const s = normKey(name);
+
+        // pattern tipo "2x6", "3 × 8"
+        const hitNxM = s.match(/\b(\d+)\s*[x×]\s*(\d+)\b/);
+        if (hitNxM) {
+          const packs = Number(hitNxM[1]);
+          const upp   = Number(hitNxM[2]);
+          if (Number.isFinite(packs) && Number.isFinite(upp)) {
+            return { packs, upp, label: 'unità' };
+          }
+        }
+
+        // "conf da 6", "conf x 6"
+        const hitConf = s.match(/\bconf(?:ezioni)?\s*(?:da|x)\s*(\d+)\b/);
+        if (hitConf) {
+          const upp = Number(hitConf[1]);
+          if (Number.isFinite(upp)) return { packs: 1, upp, label: 'unità' };
+        }
+
+        // "6 bottiglie", "6 uova", "30 capsule/pods", "2 rotoli", "6 vasetti", "12 lattine", "10 buste", "8 fette"
+        const pairs = [
+          { re:/\b(\d+)\s*(bottigli?e?)\b/, label:'bottiglie' },
+          { re:/\b(\d+)\s*(uova)\b/,        label:'uova' },
+          { re:/\b(\d+)\s*(?:capsule|capsul[ae]|pods?)\b/, label:'capsule' },
+          { re:/\b(\d+)\s*(rotol[oi])\b/,   label:'rotoli' },
+          { re:/\b(\d+)\s*(vasett[oi])\b/,  label:'vasetti' },
+          { re:/\b(\d+)\s*(bust[ae])\b/,    label:'buste' },
+          { re:/\b(\d+)\s*(lattin[ea]e?)\b/,label:'lattine' },
+          { re:/\b(\d+)\s*(fett[ea]e?)\b/,  label:'fette' },
+        ];
+        for (const {re,label} of pairs) {
+          const m = s.match(re);
+          if (m) {
+            const upp = Number(m[1]);
+            if (Number.isFinite(upp)) return { packs: 1, upp, label };
+          }
+        }
+        return null;
+      };
+
   const rawLines = String(ocrText || '')
-    .split(/\r?\n/).map(s => s.replace(/\s{2,}/g, ' ').trim()).filter(Boolean);
+    .split(/\r?\n/)
+    .map(s => s.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
 
   const lines = [];
   for (const ln of rawLines) {
+    // righe tipo "2 x 6 1,99 3,98" vanno accodate alla riga precedente
     if (/^\d+\s*[xX]\s*\d+(?:[.,]\d{2})(?:\s+\d+(?:[.,]\d{2}))?\s*$/i.test(ln)) {
       if (lines.length) lines[lines.length - 1] += ' ' + ln;
       else lines.push(ln);
@@ -400,12 +498,15 @@ function parseReceiptPurchases(ocrText) {
     let work = raw.replace(/^[T*+\-]+\s*/, '').trim();
     if (!work) continue;
 
+    // quantità finale tipo "2 x 6 1,99 3,98"
     let packsFromTail = null;
     const tailQty = work.match(/(\d+)\s*[xX]\s*\d+(?:[.,]\d{2})(?:\s+\d+(?:[.,]\d{2}))?\s*$/);
     if (tailQty) {
       packsFromTail = parseInt(tailQty[1], 10);
       work = work.replace(tailQty[0], '').trim();
     }
+
+    // rimuovi sconto/aliquota/prezzi in coda
     work = work
       .replace(/\s+\d{1,2}%\s+\d+(?:[.,]\d{2})\s*$/i, '')
       .replace(/(?:€|eur|euro)\s*\d+(?:[.,]\d{2})\s*$/i, '')
@@ -414,6 +515,7 @@ function parseReceiptPurchases(ocrText) {
 
     if (IGNORE_RE.test(work)) continue;
 
+    // quantità inline tipo "... x 6"
     let packsInline = null;
     const mInline = work.match(/\b[xX]\s*(\d+)\b/);
     if (mInline) {
@@ -421,8 +523,13 @@ function parseReceiptPurchases(ocrText) {
       work = work.replace(mInline[0], '').trim();
     }
 
-    work = work.replace(/\b(\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt))\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+    // mai interpretare pesi/volumi come pezzi
+    work = work
+      .replace(/\b(\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|cl|l|lt))\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
 
+    // split brand finale Heuristica
     let name = work, brand = '';
     const parts = name.split(' ');
     if (parts.length > 1 && /^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-'.]*$/.test(parts[parts.length - 1])) {
@@ -430,6 +537,7 @@ function parseReceiptPurchases(ocrText) {
       name = parts.join(' ');
     }
 
+    // normalizzazioni rapide
     const txt = name.toLowerCase();
     if (/prezzemol/.test(txt)) name = 'prezzemolo';
     else if (/pan\s+bauletto/.test(txt)) name = 'pan bauletto bianco';
@@ -440,19 +548,34 @@ function parseReceiptPurchases(ocrText) {
     else if (/candeggin/i.test(name)) name = 'candeggina';
     else if (/\bcaff[eè]\b/.test(txt)) name = 'caffè';
 
+    // confezioni: priorità packsFromTail > packsInline > 1
     const packs = packsFromTail || packsInline || 1;
+
+    // === NEW: prova a ricavare UPP/etichetta (senza confondere pesi/volumi) ===
+    let upp = 1, unitLabel = 'unità';
+    const sniff = sniffUPP(work) || sniffUPP(name);
+    if (sniff && Number.isFinite(sniff.upp)) {
+      // se lo sniff ha trovato anche "NxM" con packs, non sovrascriviamo packsInline/tail già letti
+      upp       = Math.max(1, Number(sniff.upp));
+      unitLabel = sniff.label || 'unità';
+      // se non avevamo packs e lo sniff li ha (caso NxM), usa quelli
+      if (!packsFromTail && !packsInline && Number.isFinite(sniff.packs) && sniff.packs > 0) {
+        // packs rimane quello calcolato sopra, ma se entrambi mancavano lo aggiorniamo
+      }
+    }
 
     out.push({
       name: name.trim(),
       brand: brand || '',
       packs: Math.max(1, packs),
-      unitsPerPack: 1,      // ⬅ fallback locale: MAI dedurre pezzi da pesi
-      unitLabel: 'unità',
+      unitsPerPack: upp,     // ⬅️ ora valorizzato se intercettato
+      unitLabel,             // ⬅️ etichetta coerente (bottiglie, uova, capsule…)
       expiresAt: ''
     });
   }
   return out;
 }
+
 
 /* =========================================================================================
    CALCOLI SCORTE
@@ -1262,9 +1385,12 @@ export default function ListeProdotti() {
                             <div style={styles.stockTitle}>{s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}</div>
                             <div style={styles.progressOuterBig}><div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} /></div>
                             <div style={styles.stockLineSmall}>
-                              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                              {s.expiresAt ? (<span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span>) : null}
-                            </div>
+  <span>{Number(s.packs || 0)} conf. × {Number(s.unitsPerPack || 1)} {s.unitLabel || 'unità'}</span>
+  <span style={{ margin: '0 6px', opacity: .5 }}>•</span>
+  <span>residuo {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}</span>
+  {s.expiresAt ? (<span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span>) : null}
+</div>
+
                           </div>
                           <div className="actions" style={styles.rowActionsRight}>
                             <button title="Modifica" onClick={() => startRowEdit(idx, s)} style={styles.iconCircle} aria-label="Modifica scorta"><Pencil size={18} /></button>
