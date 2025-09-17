@@ -607,6 +607,86 @@ function colorForPct(p){
   if (x >= RESIDUE_THRESHOLDS.amber) return '#f59e0b';
   return '#ef4444';
 }
+// === Consumo & restock cumulativo ==========================================
+function daysBetweenISO(aISO, bISO) {
+  const a = new Date(aISO); const b = new Date(bISO);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  return (b - a) / 86400000;
+}
+
+/**
+ * Aggiorna la media di consumo giornaliero usando una media pesata sui giorni.
+ * - newRU: residuo istantaneo (in unità pezzo), dopo l'azione appena fatta
+ * - atISO: timestamp ISO dell'osservazione
+ * Mantiene/aggiorna: avgDailyUnits, avgWindowDays, driftBaseRU, driftBaseAt
+ */
+function applyConsumptionUpdate(row, newRU, atISO) {
+  const prevRU = Number(row?.driftBaseRU ?? row?.residueUnits ?? 0);
+  const prevAt = row?.driftBaseAt || row?.lastRestockAt || atISO;
+  let days = daysBetweenISO(prevAt, atISO);
+
+  // ignora rumore < 6 ore
+  if (!Number.isFinite(days) || days < (6/24)) {
+    return {
+      avgDailyUnits: Number(row?.avgDailyUnits || 0),
+      avgWindowDays: Number(row?.avgWindowDays || 0),
+      driftBaseRU: newRU,
+      driftBaseAt: atISO
+    };
+  }
+
+  // consumo (se positivo)
+  const consumed = Math.max(0, prevRU - newRU);
+  const instDaily = consumed / days;
+
+  const oldAvg  = Number(row?.avgDailyUnits || 0);
+  const oldDays = Math.max(0, Number(row?.avgWindowDays || 0));
+
+  // media pesata sui giorni osservati
+  const newDays = oldDays + days;
+  const newAvg  = newDays > 0 ? ((oldAvg * oldDays) + (instDaily * days)) / newDays : instDaily;
+
+  return {
+    avgDailyUnits: newAvg,
+    avgWindowDays: newDays,
+    driftBaseRU: newRU,
+    driftBaseAt: atISO
+  };
+}
+
+/**
+ * Restock cumulativo: PRIMA registra il consumo fino a 'atISO', POI somma le nuove unità.
+ * Ritorna un patch da fondere nella riga.
+ */
+function restockAccumulate(row, addedPacks, atISO, unitsPerPack) {
+  const upp = Math.max(1, Number(unitsPerPack || 1));
+  const addUnits = Math.max(0, Number(addedPacks || 0)) * upp;
+
+  // RU attuale (prima del carico)
+  const currentRU = residueUnitsOf(row);
+
+  // 1) Aggiorna media consumo fino ad ora sul residuo attuale
+  const upd1 = applyConsumptionUpdate(row, currentRU, atISO);
+
+  // 2) Somma il nuovo carico al residuo
+  const newRU = currentRU + addUnits;
+
+  // baselinePacks: tieni il massimo storico o riallinea all'attuale pieno
+  const baselinePacks = Math.max(
+    Math.ceil(newRU / upp),
+    Math.max(0, Number(row?.baselinePacks || 0))
+  );
+
+  return {
+    ...upd1,
+    residueUnits: newRU,
+    driftBaseRU: newRU,         // nuovo checkpoint
+    driftBaseAt: atISO,
+    lastRestockAt: atISO,
+    baselinePacks
+  };
+}
+
 function restockTouch(baselineFromPacks, lastDateISO, unitsPerPack){
   const upp = Math.max(1, Number(unitsPerPack || 1));
   const bp  = Math.max(0, Number(baselineFromPacks || 0));
@@ -1008,18 +1088,23 @@ export default function ListeProdotti() {
           if (idx >= 0) {
             const old = arr[idx];
             const newP = Math.max(0, Number(old.packs || 0) + packs);
-            arr[idx] = {
-              ...old,
-              name: p.name,
-              brand: p.brand || old.brand,
-              packs: newP,
-              unitsPerPack: upp,
-              unitLabel: old.unitLabel || unitL,
-              expiresAt: p.expiresAt || old.expiresAt || '',
-              packsOnly: false,
-              ...restockTouch(newP, todayISO, upp),
-              ...( !old.image && p.image ? { image: p.image } : {} ),
-            };
+           // calcola i pacchi aggiunti rispetto allo stato precedente
+const addedPacks = Math.max(0, newP - Math.max(0, Number(old.packs || 0)));
+const patch = restockAccumulate(old, addedPacks, todayISO, upp);
+
+arr[useIdx] = {
+  ...old,
+  name: p.name,
+  brand: p.brand || old.brand,
+  packs: newP,
+  unitsPerPack: upp,
+  unitLabel: (old.unitLabel && old.unitLabel !== 'unità') ? old.unitLabel : (unitL || old.unitLabel || 'unità'),
+  expiresAt: p.expiresAt || old.expiresAt || '',
+  packsOnly: false,
+  ...patch,
+  ...( !old.image && p.image ? { image: p.image } : {} ),
+};
+
           } else {
             const row = withRememberedImage({
               name: p.name,
@@ -1144,11 +1229,21 @@ export default function ListeProdotti() {
         packsOnly: false
       };
 
-      if (restock) {
-        next = { ...next, ...restockTouch(newPacks, todayISO, unitsPerPack) };
-      } else {
-        next.residueUnits = old.packsOnly ? Math.max(0, Number(newPacks)) : ru;
-      }
+     if (restock) {
+  // aggiunta di pacchi (nuovo carico): somma al residuo e aggiorna media
+  const prevPacks = Math.max(0, Number(old.packs || 0));
+  const addedPacks = Math.max(0, newPacks - prevPacks);
+  const patch = restockAccumulate(old, addedPacks, todayISO, unitsPerPack);
+  next = { ...next, ...patch };
+} else {
+  // semplice aggiornamento senza carico: aggiorna media sul nuovo residuo
+  const newRU = next.packsOnly
+    ? Math.max(0, Number(newPacks))
+    : Math.max(0, Number(next.packs || 0) * Math.max(1, unitsPerPack));
+  const patch = applyConsumptionUpdate(old, (editDraft._ruTouched ? Math.max(0, Number(String(editDraft.residueUnits ?? '0').replace(',','.'))) : newRU), todayISO);
+  next = { ...next, ...patch };
+}
+
 
       arr[index] = next;
       return arr;
