@@ -662,6 +662,41 @@ export default function ListeProdotti() {
     setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
     setShowListForm(false);
   }
+  function addStockManual() {
+  const name = (stockForm.name||'').trim(); if (!name) return;
+  const brand = (stockForm.brand||'').trim();
+  let packs = Math.max(1, Number(String(stockForm.packs).replace(',','.')) || 1);
+  let upp   = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
+  let unitL = (stockForm.unitLabel||'unità').trim() || 'unità';
+  const expiresAt = toISODate(stockForm.expiresAt||'');
+
+  // neutralizza pesi/volumi “furbi”
+  if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(unitL)) { upp = 1; unitL = 'unità'; }
+
+  const todayISO = new Date().toISOString().slice(0,10);
+  setStock(prev => {
+    const arr = [...prev];
+    const keyExact = `${normKey(name)}|${normKey(brand)}|${upp}`;
+    const idx = arr.findIndex(s => `${normKey(s.name)}|${normKey(s.brand||'')}|${Number(s.unitsPerPack||1)}` === keyExact);
+    if (idx >= 0) {
+      const old = arr[idx];
+      const newP = Math.max(0, Number(old.packs||0) + packs);
+      arr[idx] = { ...old, packs:newP, unitsPerPack:upp, unitLabel:old.unitLabel||unitL, expiresAt:expiresAt||old.expiresAt||'', ...restockTouch(newP, todayISO, upp), packsOnly:false };
+    } else {
+      arr.unshift({
+        name, brand, packs, unitsPerPack: upp, unitLabel: unitL, expiresAt,
+        baselinePacks: packs, lastRestockAt: todayISO, avgDailyUnits: 0, residueUnits: packs*upp,
+        packsOnly:false, needsUpdate:false
+      });
+    }
+    return arr;
+  });
+
+  setShowStockForm(false);
+  setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
+  showToast('Scorta aggiunta ✓', 'ok');
+}
+
   function removeItem(id) {
     setLists(prev => {
       const next = { ...prev };
@@ -1065,6 +1100,16 @@ export default function ListeProdotti() {
 
       <div style={styles.page}>
         <div style={styles.card}>
+          {/* ===== BANNER TITOLO ===== */}
+<section style={styles.bannerArea}>
+  <div style={styles.bannerBox}>
+    <video autoPlay loop muted playsInline preload="metadata" style={styles.bannerVideo} poster="/video/stato-scorte.png">
+      <source src="/video/Liste-prodotti.mp4" type="video/mp4" />
+    </video>
+    <div style={styles.bannerOverlay} />
+  </div>
+</section>
+
 
           {/* SEZ 1 — switch liste */}
           <section style={styles.sectionBox}>
@@ -1110,23 +1155,32 @@ export default function ListeProdotti() {
               </button>
             </div>
 
-            <div style={styles.toolsRow}>
-              <button
-                onClick={() => setShowListForm(v => !v)}
-                style={styles.iconCircle}
-                title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-                aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
-              >
-                <Image
-                  src="/img/icone%20%2B%20-/segno%20piu.png"
-                  alt="Aggiungi"
-                  width={42}
-                  height={42}
-                  priority
-                  style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }}
-                />
-              </button>
-            </div>
+           <div style={styles.toolsRow}>
+  {/* Vocale liste (usa toggleRecList già presente) */}
+  <button
+    type="button"
+    onClick={toggleRecList}
+    disabled={busy}
+    aria-label="Aggiungi alla lista con voce"
+    title={busy ? 'Elaborazione…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+    style={styles.ocr42}
+  >
+    <video autoPlay loop muted playsInline preload="metadata" style={styles.ocr42Video}>
+      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+    </video>
+  </button>
+
+  {/* Aggiungi manualmente alla lista */}
+  <button
+    onClick={() => setShowListForm(v => !v)}
+    style={styles.iconCircle}
+    title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+    aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+  >
+    <Image src="/img/icone%20%2B%20-/segno%20piu.png" alt="Aggiungi" width={42} height={42} priority
+           style={{ display:'block', width:'100%', height:'100%', objectFit:'contain' }}/>
+  </button>
+</div>
 
             {showListForm && (
               <div style={styles.sectionInner}>
@@ -1170,37 +1224,53 @@ export default function ListeProdotti() {
           </section>
 
           {/* SEZ 2 — CRITICI */}
-          <section style={styles.sectionBox}>
-            {critical.length === 0 ? (
-              <p style={{ opacity: .8, marginTop: 4 }}>Nessun prodotto critico.</p>
-            ) : (
-              <div style={styles.critListWrap}>
-                {critical.map((s, i) => {
-                  const { current, baseline, pct } = residueInfo(s);
-                  const w = Math.round(pct * 100);
-                  return (
-                    <div key={i} style={styles.critRow}>
-                      <div style={styles.critName}>{s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}</div>
-                      <div style={styles.progressOuterCrit}><div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} /></div>
-                      <div style={styles.critMeta}>
-                        {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
-                        {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
-                      </div>
-                      <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
-                        <button
-                          title="Elimina definitivamente"
-                          onClick={() => { const idx = stock.findIndex(ss => isSimilar(ss.name, s.name) && ((ss.brand || '') === (s.brand || ''))); if (idx >= 0) deleteStockRow(idx); }}
-                          style={{ ...styles.iconSquareBase, ...styles.iconDanger }}
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
+     {/* ===== SEZIONE 3 — PRODOTTI CRITICI ===== */}
+<section style={styles.sectionBox}>
+  {/* Banner critici */}
+  <div style={styles.bannerArea}>
+    <div style={styles.bannerBox}>
+      <video autoPlay loop muted playsInline preload="metadata" style={styles.bannerVideo}>
+        <source src="/video/banner%20esauriti.mp4" type="video/mp4" />
+      </video>
+      <div style={styles.bannerOverlay} />
+    </div>
+  </div>
+
+  {critical.length === 0 ? (
+    <p style={{ opacity:.8, marginTop:4 }}>Nessun prodotto critico.</p>
+  ) : (
+    <div style={styles.critListWrap}>
+      {critical.map((s, i) => {
+        const { current, baseline, pct } = residueInfo(s);
+        const w = Math.round(pct * 100);
+        return (
+          <div key={i} style={styles.critRow}>
+            <div style={styles.critName}>
+              {s.name}{s.brand ? <span style={styles.rowBrand}> · {s.brand}</span> : null}
+            </div>
+            <div style={styles.progressOuterCrit}>
+              <div style={{ ...styles.progressInner, width: `${w}%`, background: colorForPct(pct) }} />
+            </div>
+            <div style={styles.critMeta}>
+              {Math.round(current)}/{Math.max(1, Math.round(baseline))} {s.unitLabel || 'unità'}
+              {s.expiresAt ? <span style={styles.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span> : null}
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:8 }}>
+              <button
+                title="Elimina definitivamente"
+                onClick={() => { const idx = stock.findIndex(ss => isSimilar(ss.name, s.name) && ((ss.brand||'') === (s.brand||''))); if (idx >= 0) deleteStockRow(idx); }}
+                style={{ ...styles.iconBtnBase, color:'#f87171', borderColor:'rgba(248,113,113,.35)' }}
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</section>
+
 
           {/* SEZ 3 — SCORTE */}
           <section style={styles.sectionBox}>
@@ -1331,858 +1401,63 @@ export default function ListeProdotti() {
   );
 }
 
-/* =================== Styles (identici) =================== */
 const styles = {
-  page: {
-    minHeight: '100vh',
-    background: 'transparent',
-    padding: '24px 16px',
-    color: '#f8f1dc',
-    textShadow: '0 0 6px rgba(255,245,200,.15)',
-  },
+  page: { minHeight:'100vh', background:'transparent', padding:'24px 16px', color:'#f8f1dc' },
+  card: { maxWidth:1000, margin:'0 auto', background:'transparent', border:'1px solid rgba(255,255,255,.06)', borderRadius:18, padding:16 },
 
-  // Card trasparente
-  card: {
-    maxWidth: 1000,
-    margin: '0 auto',
-    background: 'transparent',
-    backdropFilter: 'none',
-    border: '1px solid rgba(255,255,255,.06)',
-    borderRadius: 18,
-    padding: 16,
-    boxShadow: 'none',
-  },
+  sectionBox:{ marginTop:18, padding:14, borderRadius:16, background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.12)', boxShadow:'0 10px 24px rgba(0,0,0,.28)' },
+  sectionInner:{ marginTop:10 },
+  kicker:{ margin:0, marginBottom:8, fontSize:'0.95rem', fontWeight:700, color:'#eaf7ff', borderLeft:'3px solid rgba(148,233,255,.65)', paddingLeft:10 },
 
-
-  // Card trasparente
-  card: {
-    maxWidth:1000, margin:'0 auto',
-    background:'transparent',
-    backdropFilter:'none',
-    border:'1px solid rgba(255,255,255,.06)',
-    borderRadius:18, padding:16,
-    boxShadow:'none'
-  },
-
-  headerRow:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 },
-  title3d:{
-    margin:0, fontSize:'1.6rem', letterSpacing:.6, fontWeight:800,
-    textShadow:'0 2px 0 #1b2230, 0 0 14px rgba(140,200,255,.35), 0 0 2px rgba(255,255,255,.25)'
-  },
-  homeBtn:{ padding:'8px 12px', borderRadius:10, background:'linear-gradient(180deg,#1f2937,#111827)', color:'#e5e7eb', border:'1px solid #334155' },
-  actionGhost:{ padding:'8px 12px', borderRadius:10, background:'transparent', color:'#cbd5e1', border:'1px solid #334155' },
-
-  switchRow:{ display:'flex', gap:8, marginTop:4, marginBottom:10, flexWrap:'wrap' },
-  switchBtn:{ padding:'10px 14px', borderRadius:999, border:'1px solid #334155', background:'rgba(17,24,39,.6)', color:'#e5e7eb' },
-  switchBtnActive:{ padding:'10px 14px', borderRadius:999, border:'1px solid #65a30d', background:'linear-gradient(180deg,#166534,#14532d)', color:'#ecfccb', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.08), 0 8px 18px rgba(0,0,0,.35)' },
+  switchImgRow:{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', marginTop:8, marginBottom:14 },
+  switchImgBtn:{ all:'unset', cursor:'pointer', display:'inline-grid', placeItems:'center', borderRadius:12, background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.08)', boxShadow:'0 6px 16px rgba(0,0,0,.28)' },
+  switchImg:{ display:'block', width:'100%', height:'auto' },
 
   toolsRow:{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', margin:'8px 0 2px' },
-  voiceBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#0ea5e9,#0284c7)', color:'#05243a', fontWeight:800 },
+  iconCircle:{ width:42, height:42, minWidth:42, display:'grid', placeItems:'center', borderRadius:12, border:'1px solid rgba(255,255,255,.18)', background:'rgba(15,23,42,.35)', color:'#e5e7eb', cursor:'pointer' },
   primaryBtn:{ padding:'10px 14px', borderRadius:12, border:'1px solid #334155', background:'linear-gradient(180deg,#16a34a,#15803d)', color:'#f0fdf4', fontWeight:700 },
-
-    sectionLarge: {
-    marginTop:18,
-    padding:12,
-    borderRadius:14,
-    background:'transparent',                  // ← trasparente
-    border:'1px solid rgba(255,255,255,.06)',  // bordo leggero
-    boxShadow:'none'                           // niente ombra grigia
-  },
-  sectionLifted: {
-    marginTop:18,
-    padding:14,
-    borderRadius:16,
-    background:'transparent',                  // ← trasparente
-    border:'1px solid rgba(255,255,255,.08)',
-    boxShadow:'none'                           // niente ombra grigia
-  },
-  // —————————————————— Aggiungi questi nuovi stili ——————————————————
-    iconCircle: {
-    width:38, height:38, minWidth:38,
-    display:'grid', placeItems:'center',
-    borderRadius:999,
-    border:'1px solid rgba(255,255,255,.18)',
-    background:'rgba(15,23,42,.35)',   // vetro scuro trasparente
-    color:'#e5e7eb',
-    boxShadow:'0 2px 8px rgba(0,0,0,.35)',
-    cursor:'pointer'
-  },
 
   h3:{ margin:'6px 0 10px', fontSize:'1.25rem', fontWeight:700, color:'#f9fafb' },
   h4:{ margin:'6px 0 6px', fontSize:'1.05rem', fontWeight:700, color:'#e5e7eb' },
 
-  // LISTA PRODOTTI: card rosse a pillola + bottoni icona
-  listCardRed: {
-    display:'flex',
-    justifyContent:'space-between',
-    alignItems:'center',
-    gap:10,
-    padding:'12px 14px',
-    borderRadius:16,
-    cursor:'pointer',
-    userSelect:'none',
-    background:'linear-gradient(180deg, #7f1d1d, #991b1b)',
-    border:'1px solid #450a0a',
-    boxShadow:'inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.35)',
-  },
-  listCardRedBought: {
-    background:'linear-gradient(180deg, #166534, #14532d)',
-    border:'1px solid #0f5132',
-    textDecoration:'line-through',
-    opacity:.9
-  },
-  iconBtnBase:{
-    width:36, height:36, minWidth:36,
-    display:'grid', placeItems:'center',
-    borderRadius:999,
-    border:'1px solid rgba(255,255,255,.15)',
-    background:'rgba(15,23,42,.55)',
-    color:'#f8fafc',
-    fontWeight:800,
-    boxShadow:'0 2px 8px rgba(0,0,0,.35)'
-  },
-  iconBtnGreen:{
-    background:'linear-gradient(180deg, #16a34a, #15803d)',
-    border:'1px solid #166534',
-    color:'#ffffff'
-  },
-  iconBtnDark:{
-    background:'linear-gradient(180deg, #0f172a, #111827)',
-    border:'1px solid #334155',
-    color:'#e5e7eb'
-  },
-  ocrPillBtn:{
-    padding:'8px 12px',
-    borderRadius:12,
-    border:'1px solid #7f1d1d',
-    background:'linear-gradient(180deg, #991b1b, #7f1d1d)',
-    color:'#fde68a',
-    fontWeight:700
-  },
-  trashBtn:{
-    padding:'8px 10px',
-    borderRadius:12,
-    border:'1px solid #4b5563',
-    background:'linear-gradient(180deg,#1f2937,#111827)',
-    color:'#f87171',
-    fontWeight:700
-  },
-
-  // LISTA — testo
-  rowLeft:{ flex:1, minWidth:0 },
-  rowName:{ fontSize:'1.05rem', fontWeight:600, color:'#fff' },
-  rowBrand:{ opacity:.8, fontWeight:400, marginLeft:4 },
-  rowMeta:{ fontSize:'.85rem', opacity:.85, marginTop:2 },
-  badgeBought:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#166534', color:'#dcfce7', fontSize:'.75rem' },
-  badgeToBuy:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#7f1d1d', color:'#fee2e2', fontSize:'.75rem' },
-  rowActions:{ display:'flex', gap:6, alignItems:'center' },
+  // Lista
+  listCardRed:{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, padding:'12px 14px', borderRadius:16, background:'linear-gradient(180deg, #7f1d1d, #991b1b)', border:'1px solid #450a0a' },
+  listCardRedBought:{ background:'linear-gradient(180deg, #166534, #14532d)', border:'1px solid #0f5132', textDecoration:'line-through', opacity:.9 },
+  iconBtnBase:{ width:36, height:36, minWidth:36, display:'grid', placeItems:'center', borderRadius:999, border:'1px solid rgba(255,255,255,.15)', background:'rgba(15,23,42,.55)', color:'#f8fafc', fontWeight:800 },
+  iconBtnDark:{ background:'linear-gradient(180deg, #0f172a, #111827)', border:'1px solid #334155', color:'#e5e7eb' },
+  trashBtn:{ padding:'8px 10px', borderRadius:12, border:'1px solid #4b5563', background:'linear-gradient(180deg,#1f2937,#111827)', color:'#f87171', fontWeight:700 },
+  rowLeft:{ flex:1, minWidth:0 }, rowName:{ fontSize:'1.05rem', fontWeight:600, color:'#fff' }, rowBrand:{ opacity:.8, fontWeight:400, marginLeft:4 },
+  rowMeta:{ fontSize:'.85rem', opacity:.85, marginTop:2 }, badgeBought:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#166534', color:'#dcfce7' },
+  badgeToBuy:{ marginLeft:6, padding:'2px 6px', borderRadius:8, background:'#7f1d1d', color:'#fee2e2' }, rowActions:{ display:'flex', gap:6, alignItems:'center' },
   rowActionsRight:{ display:'flex', gap:6, alignItems:'center', marginLeft:10 },
 
-  // STOCK / SCORTE
+  // Scorte
   stockList:{ display:'flex', flexDirection:'column', gap:6, marginTop:6 },
-  stockLineZ1:{ background:'rgba(255,255,255,.02)', padding:10, borderRadius:10 },
-  stockLineZ2:{ background:'rgba(0,0,0,.15)', padding:10, borderRadius:10 },
-  stockRow:{ display:'flex', alignItems:'center', gap:10 },
-  stockTitle:{ fontSize:'1rem', fontWeight:600, marginBottom:4 },
-  stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:2 },
-
-  imageBox:{
-    width:56, height:56, borderRadius:10,
-    border:'1px dashed #64748b',
-    display:'grid', placeItems:'center',
-    overflow:'hidden',
-    cursor:'pointer',
-    background:'rgba(255,255,255,.04)'
-  },
-  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' },
-  imagePlaceholder:{ fontSize:'1.5rem', color:'#94a3b8' },
-
-  kvCol:{ minWidth:90, textAlign:'center' },
-  kvLabel:{ fontSize:'.75rem', opacity:.75 },
-  kvValue:{ fontSize:'1rem', fontWeight:600 },
-
+  stockLineZ1:{ background:'rgba(255,255,255,.02)', padding:10, borderRadius:10 }, stockLineZ2:{ background:'rgba(0,0,0,.15)', padding:10, borderRadius:10 },
+  stockTitle:{ fontSize:'1rem', fontWeight:600, marginBottom:4 }, stockLineSmall:{ fontSize:'.85rem', opacity:.9, marginTop:2 },
+  imageBox:{ width:56, height:56, borderRadius:10, border:'1px dashed #64748b', display:'grid', placeItems:'center', overflow:'hidden', cursor:'pointer', background:'rgba(255,255,255,.04)' },
+  imageThumb:{ width:'100%', height:'100%', objectFit:'cover' }, imagePlaceholder:{ fontSize:'1.5rem', color:'#94a3b8' },
   progressOuterBig:{ height:10, background:'rgba(255,255,255,.1)', borderRadius:6, overflow:'hidden', marginTop:2 },
   progressOuterCrit:{ height:8, background:'rgba(255,255,255,.08)', borderRadius:6, overflow:'hidden', flex:1 },
   progressInner:{ height:'100%' },
-
   critListWrap:{ display:'flex', flexDirection:'column', gap:6 },
   critRow:{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, background:'rgba(255,255,255,.04)' },
-  critName:{ flex:1, fontWeight:600 },
-  critMeta:{ fontSize:'.8rem', opacity:.9 },
+  critName:{ flex:1, fontWeight:600 }, critMeta:{ fontSize:'.8rem', opacity:.9 },
   expiryChip:{ marginLeft:6, padding:'1px 5px', borderRadius:6, background:'#7f1d1d', color:'#fee2e2', fontSize:'.7rem' },
 
   // Bottoni piccoli
   smallOkBtn:{ padding:'6px 10px', borderRadius:8, background:'#16a34a', color:'#fff', fontWeight:700, border:'none' },
   smallGhostBtn:{ padding:'6px 10px', borderRadius:8, background:'transparent', border:'1px solid #475569', color:'#e2e8f0' },
-  smallDangerBtn:{ padding:'6px 10px', borderRadius:8, background:'#991b1b', border:'1px solid #7f1d1d', color:'#fee2e2' },
+  formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 }, formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
+  input:{ flex:1, minWidth:120, padding:'8px 10px', borderRadius:8, border:'1px solid #475569', background:'rgba(15,23,42,.65)', color:'#f1f5f9' },
 
-  formRow:{ display:'flex', flexWrap:'wrap', gap:8, marginTop:6 },
-  formRowWrap:{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' },
-   input:{
-    flex:1,
-    minWidth:120,
-    padding:'8px 10px',
-    borderRadius:8,
-    border:'1px solid #475569',
-    background:'rgba(15,23,42,.65)',
-    color:'#f1f5f9'
-  }, // ⬅️ VIRGOLA QUI
-  iconSquareBase: {
-    width: 38,
-    height: 38,
-    minWidth: 38,
-    display: 'grid',
-    placeItems: 'center',
-    borderRadius: 12,
-    border: '1px solid #4b5563',
-    background: 'linear-gradient(180deg,#1f2937,#111827)',
-    color: '#e5e7eb',
-    boxShadow: '0 2px 8px rgba(0,0,0,.35)',
-    cursor: 'pointer',
-  },
+  // Banner di sezione (titolo, critici, scorte)
+  bannerArea:{ marginTop:12 },
+  bannerBox:{ position:'relative', width:'100%', height:120, borderRadius:16, overflow:'hidden', background:'rgba(0,0,0,.6)', boxShadow:'0 8px 24px rgba(0,0,0,.35)', border:'1px solid rgba(255,255,255,.10)' },
+  bannerVideo:{ width:'100%', height:'100%', objectFit:'cover', display:'block' },
+  bannerOverlay:{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.45))' },
 
-    iconDanger: {
-    color: '#f87171',
-  },
-
-
-  sectionLarge: {
-    marginTop: '2rem',
-    padding: '1rem',
-  },
-
-  // ===== VIDEO OCR "GRANDE" (full width, come titolo + tasto) =====
-  ocrVideoBtnXL: {
-    all: 'unset',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-    width: '100%',
-    minHeight: 84,
-    padding: '10px 14px',
-    borderRadius: 14,
-    background: 'rgba(255,255,255,.06)',
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: '0 8px 20px rgba(0,0,0,.28)',
-    transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease',
-  },
-
-  ocrVideoXL: {
-    display: 'block',
-    height: 64,
-    width: 'auto',
-    objectFit: 'contain',
-    pointerEvents: 'none',
-    filter: 'drop-shadow(0 0 10px rgba(120,220,255,.55)) drop-shadow(0 0 22px rgba(80,200,255,.35))',
-  },
-
-  ocrVideoLabel: {
-    flex: 1,
-    fontWeight: 800,
-    fontSize: '1.25rem',
-    letterSpacing: '.02em',
-    color: '#e6f7ff',
-    textShadow: '0 0 10px rgba(120,220,255,.55), 0 0 18px rgba(80,200,255,.35)',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-    ocrVideoBtn: {
-    all: 'unset',
-    cursor: 'pointer',
-    display: 'inline-block',
-    borderRadius: 12,
-    overflow: 'hidden',
-    width: 84,
-    height: 84,
-    background: 'rgba(255,255,255,.06)',
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: '0 4px 12px rgba(0,0,0,.25)',
-    transition:
-      'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
-  },
-
-  ocrVideo: {
-    display: 'block',
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-    pointerEvents: 'none', // così il click passa al button
-    filter:
-      'drop-shadow(0 0 6px rgba(120,220,255,.45)) drop-shadow(0 0 14px rgba(80,200,255,.25))',
-  },
-    ocrRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-  },
-
-  ocrVideoBtn: {
-    all: 'unset',
-    cursor: 'pointer',
-    display: 'inline-block',
-    borderRadius: 14,
-    overflow: 'hidden',
-    width: 96,   // 👈 leggermente più grande
-    height: 96,  // 👈 leggermente più grande
-    background: 'rgba(255,255,255,.06)',
-    border: '1px solid rgba(255,255,255,.12)',
-    boxShadow: '0 4px 12px rgba(0,0,0,.25)',
-    transition:
-      'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
-  },
-
-  ocrVideo: {
-    display: 'block',
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-    pointerEvents: 'none',
-    filter:
-      'drop-shadow(0 0 6px rgba(120,220,255,.45)) drop-shadow(0 0 14px rgba(80,200,255,.25))',
-  },
-
-  ocrText: {
-    flex: 1,
-    fontSize: '1.05rem',
-    fontWeight: 500,
-    fontFamily: "'Poppins', 'Inter', sans-serif", // 👈 carattere elegante e moderno
-    color: '#e6f7ff',
-    textShadow:
-      '0 0 6px rgba(120,220,255,.45), 0 0 12px rgba(80,200,255,.25)',
-    lineHeight: 1.4,
-  },
-  switchImgRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-    flexWrap: 'wrap',
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  switchImgBtn: {
-    all: 'unset',
-    cursor: 'pointer',
-    display: 'inline-grid',
-    placeItems: 'center',
-    borderRadius: 12,
-    background: 'rgba(255,255,255,.04)',
-    border: '1px solid rgba(255,255,255,.08)',
-    boxShadow: '0 6px 16px rgba(0,0,0,.28)',
-    transition: 'transform .18s ease, box-shadow .18s ease',
-  },
-  switchImg: {
-    display: 'block',
-    width: '100%',
-    height: 'auto',
-  },
-    switchImgBtn: {
-    appearance: 'none',
-    border: 0,
-    padding: 0,
-    margin: 0,
-    cursor: 'pointer',
-    lineHeight: 0,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-
-    /* --- Arrotondamento e maschera --- */
-    borderRadius: 16,
-    overflow: 'hidden',
-
-    /* --- Effetto rilievo / vetro --- */
-    background: 'rgba(255,255,255,0.06)',
-    backdropFilter: 'blur(4px)',
-    boxShadow:
-      'inset 0 1px 3px rgba(255,255,255,.25), ' +  // highlight interno
-      '0 4px 12px rgba(0,0,0,.35)',                 // ombra esterna
-    border: '1px solid rgba(255,255,255,.12)',
-
-    transition: 'transform .18s ease, box-shadow .18s ease',
-  },
-
-  switchImgBtnHover: {
-    transform: 'translateY(-2px) scale(1.02)',
-    boxShadow:
-      'inset 0 1px 3px rgba(255,255,255,.25), ' +
-      '0 8px 20px rgba(0,0,0,.45)',
-    borderColor: 'rgba(148,233,255,.35)',
-  },
-
-  switchImg: {
-    display: 'block',
-    width: '100%',
-    height: 'auto',
-    pointerEvents: 'none',   // clic solo sul button
-    borderRadius: 16,        // segue il contenitore
-  },
-voiceVideoBtn: {
-  all: 'unset',
-  cursor: 'pointer',
-  display: 'inline-grid',
-  placeItems: 'center',
-  width: 96,
-  height: 96,
-  borderRadius: '50%',
-  overflow: 'hidden',
-  background: 'rgba(255,255,255,0.08)',
-  border: '1px solid rgba(255,255,255,0.18)',
-  boxShadow: '0 4px 12px rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.12)',
-  transition: 'transform .18s ease, box-shadow .18s ease',
-},
-  voiceVideoBtn: {
-    all: 'unset',
-    cursor: 'pointer',
-    display: 'inline-block',
-    width: 100,    // quadrato più grande
-    height: 100,
-    borderRadius: 18,     // angoli arrotondati ma forma quadrata
-    overflow: 'hidden',
-    background: 'linear-gradient(180deg,#1f2937,#111827)', // base scura
-    border: '1px solid rgba(255,255,255,.2)',
-    boxShadow:
-      'inset 0 1px 3px rgba(255,255,255,.25), ' + // highlight interno
-      '0 6px 14px rgba(0,0,0,.45)',               // ombra esterna
-    transition: 'transform .15s ease, box-shadow .15s ease',
-  },
-
-  voiceVideoBtnHover: {
-    transform: 'translateY(-2px) scale(1.02)',
-    boxShadow:
-      'inset 0 1px 3px rgba(255,255,255,.25), ' +
-      '0 10px 20px rgba(0,0,0,.55)',
-    borderColor: 'rgba(148,233,255,.35)',
-  },
-
-  voiceVideo: {
-    display: 'block',
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-    pointerEvents: 'none',
-    filter:
-      'drop-shadow(0 0 6px rgba(120,220,255,.45)) ' +
-      'drop-shadow(0 0 14px rgba(80,200,255,.25))',
-  },
-iconCircle: {
-  width: 42,
-  height: 42,
-  minWidth: 42,
-  display: 'grid',
-  placeItems: 'center',
-  borderRadius: 12, // più squadrato invece che cerchio
-  border: '1px solid rgba(255,255,255,.18)',
-  background: 'rgba(15,23,42,.35)',
-  boxShadow: '0 2px 6px rgba(0,0,0,.4)',
-  cursor: 'pointer',
-  overflow: 'hidden',
-},
-headerRowScorte: {
-  display: 'grid',
-  gridTemplateColumns: '1fr auto', // banner | comandi
-  alignItems: 'center',
-  gap: 12,
-  width: '100%',
-},
-
-// Banner sottile tipo "titolo"
-headerBannerBox: {
-  height: 96,                 // <- PUOI RENDERLO PIÙ SOTTILE (es. 80)
-  borderRadius: 14,
-  overflow: 'hidden',
-  boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-  background: 'rgba(0,0,0,.5)',
-},
-
-headerBannerVideo: {
-  width: '100%',
-  height: '160%',
-  objectFit: 'cover',         // niente bande: riempie e taglia sopra/sotto
-  objectPosition: 'center',   // centra (muletto + scritte)
-  display: 'block',
-},
-
-headerActions: {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-},
-
-headerIcon: {
-  width: 42,
-  height: 42,
-  minWidth: 42,
-  display: 'grid',
-  placeItems: 'center',
-  borderRadius: 12,
-  border: '1px solid rgba(255,255,255,.18)',
-  background: 'rgba(15,23,42,.35)',
-  boxShadow: '0 2px 6px rgba(0,0,0,.4)',
-  cursor: 'pointer',
-},
-headerRowScorte: {
-  // wrapper del titolo "Stato Scorte": colonna, piena larghezza
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'stretch',
-  gap: 10,
-  width: '100%',
-},
-
-// Banner: piena larghezza, altezza controllabile
-headerBannerBox: {
-  width: '100%',
-  height: 120,               // ← REGOLA qui l'altezza per far vedere muletto + scritta
-  borderRadius: 14,
-  overflow: 'hidden',
-  boxShadow: '0 6px 16px rgba(0,0,0,.35)',
-  background: 'rgba(0,0,0,.5)',
-},
-
-headerBannerVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',        // riempie senza bande
-  objectPosition: 'center',  // centra soggetti (muletto + scritta)
-  display: 'block',
-},
-
-// Pulsanti sotto al banner
-headerActions: {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-},
-scorteSection: {
-  position: 'relative',
-  marginTop: 18,
-  borderRadius: 16,
-  overflow: 'hidden',
-  border: '1px solid rgba(255,255,255,.08)',
-  // padding solo per il contenuto (il bg è assoluto)
-},
-
-scorteBg: {
-  position: 'absolute',
-  inset: 0,
-  zIndex: 0,
-  pointerEvents: 'none',
-},
-
-scorteBgVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  display: 'block',
-},
-
-scorteBgOverlay: {
-  position: 'absolute',
-  inset: 0,
-  background: 'linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.45))',
-},
-
-scorteContent: {
-  position: 'relative',
-  zIndex: 1,
-  padding: 14,
-},
-
-scorteHeader: {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 10,
-  marginBottom: 8,
-},
-  /* ——— Banner largo con video + tasti sotto ——— */
-bannerArea: {
-  marginTop: 12,
-},
-bannerBox: {
-  position: 'relative',
-  width: '100%',
-  height: 120,                 // ← altezza del banner (120–180 a gusto)
-  borderRadius: 16,
-  overflow: 'hidden',
-  background: 'rgba(0,0,0,.6)',
-  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-  border: '1px solid rgba(255,255,255,.10)',
-},
-bannerVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  backgroundColor: '#000', 
-   objectPosition: 'right center', // 👈 sposta tutto a destra 
-  display: 'block',
-},
-bannerOverlay: {
-  position: 'absolute',
-  inset: 0,
-  background: 'linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.45))',
-  pointerEvents: 'none',
-},
-bannerButtons: {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  marginTop: 10,
-  /* cambia l’allineamento qui: */
-  justifyContent: 'flex-start', // 'center' | 'flex-end' | 'space-between'
-},
-/* === STILI BANNER STATO SCORTE === */
-bannerArea: {
-  width: '100%',
-  margin: '24px 0',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 12,
-},
-
-bannerBox: {
-  position: 'relative',
-  width: '100%',
-  maxWidth: '100%',       // banner sempre a tutta larghezza sezione
-  borderRadius: 14,
-  overflow: 'hidden',
-  boxShadow: '0 6px 18px rgba(0,0,0,.4)',
-},
-
-bannerVideo: {
-  display: 'block',
-  width: '25%',
-  height: '120px',        // 👈 altezza fissa ottimizzata per PC
-  objectFit: 'cover',     // ritaglia solo sopra/sotto
-  objectPosition: 'center', // centra scritta + muletto
-  borderRadius: 14,
-},
-
-bannerOverlay: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: 'rgba(0,0,0,0.1)',
-},
-
-/* OCR + Tasti sotto al banner */
-ocrRow: {
-  display: 'flex',
-  gap: 12,
-  justifyContent: 'center',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  marginTop: 8,
-},
-
-ocrVideoBtn: {
-  width: 64,
-  height: 64,
-  borderRadius: 16,
-  overflow: 'hidden',
-  padding: 0,
-  border: 'none',
-  cursor: 'pointer',
-  boxShadow: '0 4px 10px rgba(0,0,0,.25)',
-},
-
-ocrVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-},
-
-voiceVideoBtn: {
-  width: 64,
-  height: 64,
-  borderRadius: 16,
-  overflow: 'hidden',
-  border: 'none',
-  cursor: 'pointer',
-  boxShadow: '0 4px 10px rgba(0,0,0,.25)',
-},
-
-voiceVideoBtnHover: {
-  transform: 'scale(1.05)',
-  transition: 'transform 0.2s ease',
-},
-
-voiceVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-},
-/* === LAYOUT SEZIONI === */
-sectionBox: {
-  marginTop: 18,
-  padding: 14,
-  borderRadius: 16,
-  background: 'rgba(255,255,255,.06)',
-  border: '1px solid rgba(255,255,255,.12)',
-  boxShadow: '0 10px 24px rgba(0,0,0,.28)',
-},
-sectionInner: {
-  marginTop: 10,
-},
-
-kicker: {
-  margin: 0,
-  marginBottom: 8,
-  fontSize: '0.95rem',
-  fontWeight: 700,
-  letterSpacing: '.02em',
-  textTransform: 'none',
-  color: '#eaf7ff',
-  textShadow: '0 1px 0 rgba(0,0,0,.45)',
-  borderLeft: '3px solid rgba(148,233,255,.65)',
-  paddingLeft: 10,
-  opacity: .95,
-},
-
-/* === SEZIONE 1: BANNER FULL-BLEED === */
-sec1FullBleed: {
-  position: 'relative',
-  width: '100%',
-  /* altezza della “striscia” banner: regola a piacere */
-  height: 160,                 // es: 140–200 per più/meno taglio
-  borderRadius: 16,
-  backgroundColor: '#4B4336',  
-  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-  border: '1px solid rgba(255,255,255,.10)',
-  margin: '8px 0 14px'
-},
-
-sec1Video: {
-  width: '30%',
-  height: '100%',
-  display: 'block',
-  objectFit: 'cover',          // riempi e taglia sopra/sotto
-  /* sposta la “finestra” verticale per decidere cosa si vede */
-  objectPosition: 'center 75%' // ↓ aumenta per scendere, ↓ diminuisci per salire
-  // esempi: 'center 30%' (più alto), 'center 50%' (centrato), 'center 65%' (più basso)
-},
-
-sec1Overlay: {
-  position: 'absolute',
-  inset: 0,
-  /* leggero velo per leggibilità */
-  background: 'linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.08))',
-  pointerEvents: 'none'
-},
-voiceVideoBtn: {
-  position: 'relative',            // <— serve per ancorare la maschera
-  width: 100,
-  height: 100,
-  borderRadius: 22,
-  padding: 0,
-  border: 'none',
-  background: 'linear-gradient(180deg,#1f2937,#111827)',
-  boxShadow: '0 6px 14px rgba(0,0,0,.45), inset 0 1px 3px rgba(255,255,255,.22)',
-  cursor: 'pointer',
-  overflow: 'visible'              // la maschera sotto farà il taglio
-},
-
-// “cornice” interna che definisce il ritaglio (puoi cambiare gli inset)
-voiceCrop: {
-  position: 'absolute',
-  top: 10,                         // ← taglio sopra
-  right: 10,                       // ← taglio a dx
-  bottom: 10,                      // ← taglio sotto
-  left: 10,                        // ← taglio a sx
-  borderRadius: 18,                // raggio interno ≈ al rettangolo neon
-  overflow: 'hidden',              // <— il vero taglio
-  pointerEvents: 'none'            // il click passa al bottone
-},
-
-voiceVideo: {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  display: 'block',
-  // opzionale: ritaglio ancora più preciso con angoli arrotondati
-  // clipPath: 'inset(6% 6% 10% 6% round 18px)',
-  filter: 'drop-shadow(0 0 0 rgba(0,0,0,0))' // niente alone aggiuntivo
-},
-voiceVideoBtn: {
-  position: 'relative',
-  width: 100, height: 100,
-  borderRadius: 22,
-  background: 'linear-gradient(180deg,#1f2937,#111827)',
-  border: 'none', padding: 0, cursor: 'pointer',
-  boxShadow: '0 6px 14px rgba(0,0,0,.45), inset 0 1px 3px rgba(255,255,255,.22)',
-  overflow: 'visible'
-},
-
-// Maschera che taglia tutto fuori dal bordo giallo
-voiceCrop: {
-  position: 'absolute',
-  inset: 10,                      // padding interno dal bordo esterno del tasto
-  overflow: 'hidden',             // taglio fisico
-  borderRadius: 18,
-  // clip ancora più precisa (taglio in % su ogni lato)
-  clipPath: 'inset(7% 6% 9% 6% round 18px)',
-  WebkitClipPath: 'inset(7% 6% 9% 6% round 18px)'
-},
-
-voiceVideo: {
-  width: '100%', height: '100%',
-  objectFit: 'cover',
-  display: 'block',
-  borderRadius: 0, boxShadow: 'none'   // evita aloni/curve indesiderate
-},
-  ocr42: {
-    width: 42,
-    height: 42,
-    minWidth: 42,
-    minHeight: 42,
-    padding: 0,
-    borderRadius: 12,
-    border: '1px solid rgba(255,255,255,.18)',
-    background: 'transparent',           // fondo trasparente
-    display: 'inline-grid',
-    placeItems: 'center',
-    overflow: 'hidden',                  // taglia il video perfettamente
-    boxShadow:
-      'inset 0 1px 1px rgba(255,255,255,.25),' + // piccolo highlight interno
-      '0 2px 6px rgba(0,0,0,.35)',               // ombra esterna soft
-    cursor: 'pointer',
-  },
-
-  ocr42Video: {
-    width: '100%',
-    height: '100%',
-    display: 'block',
-    objectFit: 'cover',      // riempie senza bande
-    pointerEvents: 'none',   // il click passa al button
-    transform: 'translateZ(0)', // evita aliasing/blur su alcuni browser
-  },
-  // contenitore 42x42 con ritaglio, rilievo leggero
-  voice42: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    padding: 0,
-    border: '1px solid rgba(255,255,255,.14)',
-    background: 'rgba(0,0,0,.18)',
-    display: 'inline-grid',
-    placeItems: 'center',
-    boxShadow: '0 2px 8px rgba(0,0,0,.35), inset 0 1px 1px rgba(255,255,255,.18)',
-    overflow: 'hidden',        // 👉 taglia il video ai bordi arrotondati
-    cursor: 'pointer'
-  },
-
-  // il video riempie e viene ritagliato dal contenitore
-  voice42Video: {
-    width: '100%',
-    height: '100%',
-    display: 'block',
-    objectFit: 'cover',        // 👉 niente bande: riempi e ritaglia
-    objectPosition: 'center'   // puoi anche provare 'center 55%' se vuoi scendere leggermente
-  }
-  }
-
+  // Pulsanti 42x42
+  ocr42:{ width:42, height:42, minWidth:42, minHeight:42, padding:0, borderRadius:12, border:'1px solid rgba(255,255,255,.18)', background:'transparent', display:'inline-grid', placeItems:'center', overflow:'hidden', boxShadow:'inset 0 1px 1px rgba(255,255,255,.25), 0 2px 6px rgba(0,0,0,.35)', cursor:'pointer' },
+  ocr42Video:{ width:'100%', height:'100%', display:'block', objectFit:'cover', pointerEvents:'none', transform:'translateZ(0)' }
+};
