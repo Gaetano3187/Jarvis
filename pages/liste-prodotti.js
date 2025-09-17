@@ -279,6 +279,133 @@ function sniffUnitsPerPackFromText(name='') {
       const upp = Number(m[1]);
       if (Number.isFinite(upp)) return { packs: 1, upp, label };
     }
+    // === Vocale: sinonimi quantità e intent =================================================
+const UNIT_SYNONYMS = '(?:unit(?:a|à)?|unit\\b|pz\\.?|pezz(?:i|o)\\.?|bottiglie?|busta(?:e)?|bustine?|lattin(?:a|e)|barattol(?:o|i)|vasett(?:o|i)|vaschett(?:a|e)|brick|cartocc(?:io|i)|fett(?:a|e)|uova|capsul(?:a|e)|pods|rotol(?:o|i)|fogli(?:o|i))';
+const PACK_SYNONYMS = '(?:conf(?:e(?:zioni)?)?|confezione|pacc?hi?|pack|multipack|scatol(?:a|e)|carton(?:e|i))';
+
+function wantsAbsoluteSet(text = '') {
+  const t = normKey(text);
+  return /(porta\s+a|imposta\s+a|metti\s+a|fissa\s+a|in\s+totale|totali|ora\s+sono|adesso\s+sono|fai\s+che\s+siano)/i.test(t);
+}
+function hasAbsoluteKeywords(text = '') {
+  const t = normKey(text);
+  return /\b(sono|resta(?:no)?|rimane(?:no)?|rimangono|rimasto|rimasti|rimaste|ci\s+sono\s+ancora|ancora)\b/i.test(t);
+}
+
+// MIME robusto per MediaRecorder
+function pickAudioMime(){
+  if (typeof window === 'undefined' || !window.MediaRecorder) {
+    return { mime: 'audio/webm', ext: 'webm' };
+  }
+  const cand = [
+    { mime: 'audio/webm;codecs=opus', ext:'webm' },
+    { mime: 'audio/ogg;codecs=opus',  ext:'ogg'  },
+    { mime: 'audio/mp4',              ext:'m4a'  },
+    { mime: 'audio/webm',             ext:'webm' },
+  ];
+  for (const c of cand) {
+    try { if (MediaRecorder.isTypeSupported?.(c.mime)) return c; } catch {}
+  }
+  return { mime: '', ext: 'webm' };
+}
+
+// Normalizza alcune etichette in output
+function normalizeUnitLabel(lbl=''){
+  const s = normKey(lbl);
+  if (/bottigl/.test(s)) return 'bottiglie';
+  if (/(?:pz|pezz|unit\b|unita?)/.test(s)) return 'pezzi';
+  if (/bust/.test(s)) return 'buste';
+  if (/lattin/.test(s)) return 'lattine';
+  if (/vasett/.test(s)) return 'vasetti';
+  if (/rotol/.test(s)) return 'rotoli';
+  if (/capsul/.test(s)) return 'capsule';
+  if (/fett/.test(s)) return 'fette';
+  if (/uova/.test(s)) return 'uova';
+  return 'unità';
+}
+
+/* ===== Parser aggiornamenti vocali scorte (packs/units + set/somma) ===== */
+function parseStockUpdateText(text) {
+  const t = normKey(text);
+  const parts = t.split(/[,;]+/g).map(s => s.trim()).filter(Boolean);
+  const res = [];
+  const absoluteGlobal = wantsAbsoluteSet(text) || hasAbsoluteKeywords(text);
+
+  const UNIT = UNIT_SYNONYMS;
+  const PACK = PACK_SYNONYMS;
+
+  // parole → numeri
+  const WORD_MAP = { un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10 };
+  const wordToNum = (chunk) => {
+    const m = chunk.match(/\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/i);
+    return m ? (WORD_MAP[m[1].toLowerCase()] || NaN) : NaN;
+  };
+
+  // stima “nome prodotto” → usa lessico e similarità
+  const guessName = (chunk) => {
+    let best = '', bestLen = 0;
+    for (const lex of GROCERY_LEXICON) {
+      if (isSimilar(chunk, lex) && lex.length > bestLen) { best = lex; bestLen = lex.length; }
+    }
+    if (!best) {
+      const tok = normKey(chunk).split(' ').filter(Boolean);
+      if (tok.length) best = tok.slice(0, 2).join(' ');
+    }
+    return best.trim();
+  };
+
+  // spezza per “e”
+  for (let raw of parts) {
+    if (/scad|scadenza|scade|entro/.test(raw)) continue;
+    if (/\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(raw)) continue;
+
+    const chunks = raw.split(/\s+e\s+/g).map(s => s.trim()).filter(Boolean);
+    for (const chunk of chunks) {
+      const name = guessName(chunk);
+      if (!name) continue;
+      const forceSet = hasAbsoluteKeywords(chunk);
+
+      const src = chunk.replace(
+        /\b(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\b/gi,
+        m => WORD_MAP[m.toLowerCase()] ?? m
+      );
+
+      // "2 confezioni da 6"
+      let m = src.match(new RegExp(`(\\d+)\\s*${PACK}\\s*(?:da|x)\\s*(\\d+)\\s*(?:${UNIT})?`, 'i'));
+      if (m) { res.push({ name, mode:'packs', value:Number(m[1]), _upp:Number(m[2]), explicit:true, op:'restockExplicit', forceSet }); continue; }
+
+      // "2x6"
+      m = src.match(/(\d+)\s*[x×]\s*(\d+)/i);
+      if (m) { res.push({ name, mode:'packs', value:Number(m[1]), _upp:Number(m[2]), explicit:true, op:'restockExplicit', forceSet }); continue; }
+
+      // "6 bottiglie"/"6 pezzi"
+      m = src.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${UNIT})\\b`, 'i'));
+      if (m) { res.push({ name, mode:'units', value:Number(String(m[1]).replace(',','.')), op:(forceSet||absoluteGlobal)?'set':'add', _upp:1 }); continue; }
+
+      // "3 confezioni"
+      m = src.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${PACK})\\b`, 'i'));
+      if (m) { res.push({ name, mode:'packs', value:Number(String(m[1]).replace(',','.')), op:(forceSet||absoluteGlobal)?'set':'add', _upp:1 }); continue; }
+
+      // numero scritto in parola
+      const wnum = wordToNum(chunk);
+      if (Number.isFinite(wnum)) {
+        const looksUnits = new RegExp(UNIT, 'i').test(chunk);
+        res.push({ name, mode: looksUnits ? 'units' : 'packs', value: wnum, op:(forceSet||absoluteGlobal)?'set':'add', _upp: looksUnits ? wnum : 1 });
+        continue;
+      }
+
+      // numero finale sciolto
+      const tail = src.match(/(\d+(?:[.,]\d+)?)\s*$/);
+      if (tail) {
+        const value = Number(String(tail[1]).replace(',','.'));
+        const looksUnits = new RegExp(UNIT, 'i').test(chunk);
+        res.push({ name, mode: looksUnits ? 'units' : 'packs', value, op:(forceSet||absoluteGlobal)?'set':'add', _upp: looksUnits ? value : 1 });
+      }
+    }
+  }
+  return res;
+}
+
   }
 
   return null;
@@ -724,6 +851,18 @@ export default function ListeProdotti() {
 
   const stockLockRef = useRef(0);
   const persistTimerRef = useRef(null);
+// === Vocale LISTE ===
+const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
+const mediaRecRef = useRef(null);
+const recordedChunks = useRef([]);
+const streamRef = useRef(null);
+const [recBusy, setRecBusy] = useState(false);
+
+// === Vocale SCORTE (inventario) ===
+const invMediaRef = useRef(null);
+const invChunksRef = useRef([]);
+const invStreamRef = useRef(null);
+const [invRecBusy, setInvRecBusy] = useState(false);
 
   // OCR inputs / immagini
   const ocrInputRef = useRef(null);
@@ -888,6 +1027,8 @@ export default function ListeProdotti() {
   const API_ASSISTANT_TEXT = '/api/assistant';
   const API_OCR = '/api/ocr';
   const API_FINANCES_INGEST = '/api/finances/ingest';
+  const API_STT = '/api/stt';
+
 
   async function handleOCR(files) {
     if (!files) return;
@@ -1092,7 +1233,7 @@ export default function ListeProdotti() {
 const addedPacks = Math.max(0, newP - Math.max(0, Number(old.packs || 0)));
 const patch = restockAccumulate(old, addedPacks, todayISO, upp);
 
-arr[useIdx] = {
+arr[idx] = {
   ...old,
   name: p.name,
   brand: p.brand || old.brand,
@@ -1273,6 +1414,206 @@ arr[useIdx] = {
     };
     reader.readAsDataURL(file);
   }
+  async function toggleRecList() {
+  if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
+  try {
+    const { mime } = pickAudioMime();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    mediaRecRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recordedChunks.current = [];
+    mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
+    mediaRecRef.current.onstop = processVoiceList;
+    mediaRecRef.current.start(250);
+    setRecBusy(true);
+  } catch (e) {
+    showToast('Microfono non disponibile', 'err');
+  }
+}
+
+async function processVoiceList() {
+  try {
+    // stop tracce
+    try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+    setRecBusy(false);
+
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    recordedChunks.current = [];
+    const fd = new FormData(); fd.append('audio', blob, 'list.webm');
+
+    setBusy(true);
+    const r = await timeoutFetch(API_STT, { method:'POST', body: fd }, 25000);
+    const js = await r.json().catch(()=>({}));
+    const text = String(js?.text || '').trim();
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    // Chiedi parsing all'assistente
+    const prompt = [
+      'Sei Jarvis. Capisci una LISTA DI SPESA dal parlato. RISPONDI SOLO JSON:',
+      '{ "items":[{ "name":"", "brand":"", "packs":1, "unitsPerPack":1, "unitLabel":"unità" }] }',
+      'Se manca brand usa "", packs=1, unitsPerPack=1, unitLabel="unità".',
+      'Lessico di riferimento: ' + GROCERY_LEXICON.join(', '),
+      'Testo:', text
+    ].join('\n');
+
+    const rr = await timeoutFetch(API_ASSISTANT_TEXT, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+    }, 25000);
+    const safe = await readJsonSafe(rr);
+    const answer = safe?.answer || safe?.data || safe;
+    const parsed = typeof answer === 'string' ? (()=>{ try{ return JSON.parse(answer);}catch{return null;}})() : answer;
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+
+    if (!items.length) { showToast('Nessuna voce riconosciuta', 'err'); return; }
+
+    // Applica alla lista corrente
+    setLists(prev => {
+      const next = { ...prev };
+      const arr = [...(prev[currentList] || [])];
+      for (const raw of items) {
+        const it = {
+          id: 'tmp-' + Math.random().toString(36).slice(2),
+          name: String(raw.name||'').trim(),
+          brand: String(raw.brand||'').trim(),
+          qty: Math.max(1, Number(raw.packs||raw.qty||1)),
+          unitsPerPack: Math.max(1, Number(raw.unitsPerPack||1)),
+          unitLabel: normalizeUnitLabel(raw.unitLabel || 'unità'),
+          purchased: false,
+        };
+        if (!it.name) continue;
+        const idx = arr.findIndex(i =>
+          normKey(i.name) === normKey(it.name) &&
+          normKey(i.brand||'') === normKey(it.brand||'') &&
+          Number(i.unitsPerPack||1) === Number(it.unitsPerPack||1)
+        );
+        if (idx >= 0) arr[idx] = { ...arr[idx], qty: Number(arr[idx].qty || 0) + it.qty };
+        else arr.push(it);
+      }
+      next[currentList] = arr;
+      return next;
+    });
+    showToast('Lista aggiornata da voce ✓', 'ok');
+  } catch (e) {
+    showToast(`Errore vocale lista: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    mediaRecRef.current = null; streamRef.current = null;
+  }
+}
+async function toggleVoiceInventory() {
+  if (invRecBusy) { try { invMediaRef.current?.stop(); } catch {} return; }
+  try {
+    const { mime } = pickAudioMime();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    invStreamRef.current = stream;
+    invMediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    invChunksRef.current = [];
+    invMediaRef.current.ondataavailable = (e) => { if (e?.data && e.data.size) invChunksRef.current.push(e.data); };
+    invMediaRef.current.onstop = processVoiceInventory;
+    invMediaRef.current.start(300);
+    setInvRecBusy(true);
+  } catch {
+    showToast('Microfono non disponibile', 'err');
+  }
+}
+
+async function processVoiceInventory() {
+  try {
+    try { invStreamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
+    setInvRecBusy(false);
+
+    if (!invChunksRef.current.length) { showToast('Nessun audio catturato', 'err'); return; }
+    const blob = new Blob(invChunksRef.current, { type: 'audio/webm' });
+    invChunksRef.current = [];
+
+    const fd = new FormData(); fd.append('audio', blob, 'inventory.webm');
+    setBusy(true);
+    const res = await timeoutFetch(API_STT, { method:'POST', body: fd }, 25000);
+    const js = await res.json().catch(()=>({}));
+    const text = String(js?.text || '').trim();
+    if (!text) throw new Error('Testo non riconosciuto');
+
+    const updates = parseStockUpdateText(text);
+    if (!updates.length) { showToast('Nessun aggiornamento scorte riconosciuto', 'err'); return; }
+
+    const todayISO = new Date().toISOString().slice(0,10);
+
+    setStock(prev => {
+      const arr = [...prev];
+      for (const u of updates) {
+        let idx = arr.findIndex(s => isSimilar(s.name, u.name));
+        const uppVoice = Math.max(1, Number(u._upp || 1));
+
+        // Crea riga se non esiste
+        if (idx < 0) {
+          if (u.mode === 'packs') {
+            const packs = Math.max(0, Number(u.value || 0));
+            const upp   = Math.max(1, uppVoice);
+            arr.unshift(withRememberedImage({
+              name: u.name, brand:'', packs,
+              unitsPerPack: upp, unitLabel: upp>1 ? 'pezzi' : 'unità',
+              expiresAt:'', baselinePacks: packs,
+              lastRestockAt: todayISO, avgDailyUnits: 0,
+              residueUnits: packs * upp, packsOnly:false, needsUpdate:false
+            }, imagesIndex));
+          } else {
+            const units = Math.max(0, Number(u.value || 0));
+            arr.unshift(withRememberedImage({
+              name: u.name, brand:'', packs: Math.max(1, Math.ceil(units/1)),
+              unitsPerPack: 1, unitLabel:'unità', expiresAt:'',
+              baselinePacks: Math.max(1, Math.ceil(units/1)),
+              lastRestockAt: todayISO, avgDailyUnits: 0,
+              residueUnits: units, packsOnly:false, needsUpdate:false
+            }, imagesIndex));
+          }
+          continue;
+        }
+
+        // Aggiorna riga esistente
+        const old = arr[idx];
+        const upp = Math.max(1, Number(old.unitsPerPack || uppVoice || 1));
+
+        if (u.op === 'set') {
+          if (u.mode === 'packs') {
+            const packs = Math.max(0, Number(u.value || 0));
+            const fullU = packs * upp;
+            const patch = applyConsumptionUpdate(old, fullU, todayISO);
+            arr[idx] = { ...old, packs, unitsPerPack: upp, unitLabel: old.unitLabel || 'unità', packsOnly:false,
+              ...patch, residueUnits: fullU, driftBaseRU: fullU, driftBaseAt: todayISO, lastRestockAt: todayISO,
+              baselinePacks: Math.max(packs, Number(old.baselinePacks||0))
+            };
+          } else {
+            const units = Math.max(0, Number(u.value || 0));
+            const patch = applyConsumptionUpdate(old, units, todayISO);
+            arr[idx] = { ...old, packsOnly:false, ...patch, residueUnits: units, driftBaseRU: units, driftBaseAt: todayISO };
+          }
+        } else { // add / restock
+          if (u.mode === 'packs') {
+            const addPacks = Math.max(0, Number(u.value || 0));
+            const newPacks = Math.max(0, Number(old.packs || 0) + addPacks);
+            const patch = restockAccumulate(old, addPacks, todayISO, upp);
+            arr[idx] = { ...old, packs:newPacks, unitsPerPack: upp, unitLabel: old.unitLabel || 'unità', packsOnly:false, ...patch };
+          } else {
+            const addUnits = Math.max(0, Number(u.value || 0));
+            const currentRU = residueUnitsOf(old);
+            const targetRU  = currentRU + addUnits;
+            const patch = applyConsumptionUpdate(old, targetRU, todayISO);
+            arr[idx] = { ...old, packsOnly:false, ...patch, residueUnits: targetRU, driftBaseRU: targetRU, driftBaseAt: todayISO, lastRestockAt: todayISO };
+          }
+        }
+      }
+      return arr;
+    });
+
+    showToast('Scorte aggiornate da voce ✓', 'ok');
+  } catch (e) {
+    showToast(`Errore vocale scorte: ${e?.message || e}`, 'err');
+  } finally {
+    setBusy(false);
+    invMediaRef.current = null; invStreamRef.current = null;
+  }
+}
+
 
   /* =========================================================================================
      RENDER
@@ -1329,11 +1670,34 @@ arr[useIdx] = {
             </div>
 
             <div style={styles.toolsRow}>
+              {/* VOCALE LISTE (42x42, ritaglio video) */}
+<button
+  type="button"
+  onClick={toggleRecList}
+  disabled={busy}
+  aria-label="Vocale Liste"
+  title={busy ? 'Elaborazione in corso…' : (recBusy ? 'Stop registrazione' : 'Aggiungi con voce')}
+  style={styles.voice42}
+>
+  <video
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="metadata"
+    style={styles.voice42Video}
+  >
+    <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+  </video>
+</button>
+
               <button
                 onClick={() => setShowListForm(v => !v)}
                 style={styles.iconCircle}
                 title={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
                 aria-label={showListForm ? 'Chiudi form lista' : 'Aggiungi manualmente alla lista'}
+
+                
               >
                 <Image
                   src="/img/icone%20%2B%20-/segno%20piu.png"
@@ -1423,11 +1787,14 @@ arr[useIdx] = {
           {/* SEZ 3 — SCORTE */}
           <section style={styles.sectionBox}>
             <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:8 }}>
+             
               <button type="button" onClick={() => ocrInputRef.current?.click()} style={styles.ocr42} aria-label="Scanner scontrino (OCR)" title="Scanner scontrino (OCR)">
                 <video autoPlay loop muted playsInline preload="metadata" style={styles.ocr42Video}><source src="/video/Ocr%20scontrini.mp4" type="video/mp4" /></video>
               </button>
               <h4 style={{margin:0}}>Tutte le scorte</h4>
             </div>
+
+            
 
             {stock.length === 0 ? (
               <p style={{ opacity: .8 }}>Nessuna scorta registrata.</p>
@@ -1441,6 +1808,31 @@ arr[useIdx] = {
                     <div key={idx} style={{ ...(zebra ? styles.stockLineZ1 : styles.stockLineZ2) }}>
                       {editingRow === idx ? (
                         <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:8 }}>
+  {/* OCR scontrino */}
+  <button type="button" onClick={() => ocrInputRef.current?.click()} style={styles.ocr42} aria-label="Scanner scontrino (OCR)" title="Scanner scontrino (OCR)">
+    <video autoPlay loop muted playsInline preload="metadata" style={styles.ocr42Video}>
+      <source src="/video/Ocr%20scontrini.mp4" type="video/mp4" />
+    </video>
+  </button>
+
+  {/* VOCALE SCORTE */}
+  <button
+    type="button"
+    onClick={toggleVoiceInventory}
+    disabled={busy}
+    aria-label="Vocale scorte"
+    title={busy ? 'Elaborazione in corso…' : (invRecBusy ? 'Stop registrazione scorte' : 'Riconoscimento vocale scorte')}
+    style={styles.voice42}
+  >
+    <video autoPlay loop muted playsInline preload="metadata" style={styles.voice42Video}>
+      <source src="/img/Button/tasto%20vocale%20Liste.mp4" type="video/mp4" />
+    </video>
+  </button>
+
+  <h4 style={{margin:0}}>Tutte le scorte</h4>
+</div>
+
                           <div style={styles.formRowWrap}>
                             <input style={styles.input} value={editDraft.name} onChange={e => handleEditDraftChange('name', e.target.value)} />
                             <input style={styles.input} value={editDraft.brand} onChange={e => handleEditDraftChange('brand', e.target.value)} placeholder="Marca" />
