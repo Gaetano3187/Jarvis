@@ -522,6 +522,14 @@ export default function ListeProdotti() {
   const stockLockRef = useRef(0);
   const persistTimerRef = useRef(null);
 
+  // --- Stato e ref per Vocale LISTA (SSR-safe) ---
+const [recBusy, setRecBusy] = useState(false);
+const mediaRecRef = useRef(null);
+const recordedChunks = useRef([]);
+const streamRef = useRef(null);
+
+
+
   // OCR inputs / immagini
   const ocrInputRef = useRef(null);
   const rowOcrInputRef = useRef(null);
@@ -712,6 +720,288 @@ export default function ListeProdotti() {
       )).filter(i => i.qty > 0);
       return next;
     });
+    // Vocale lista
+  theMediaWorkaround();
+
+  const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
+  const mediaRecRef = useRef(null);
+  const recordedChunks = useRef([]);
+  const streamRef = useRef(null);
+  const [recBusy, setRecBusy] = useState(false);
+
+  // Review (modale di convalida)
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewItems, setReviewItems] = useState([]);
+  const [reviewPick, setReviewPick] = useState({});
+  const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
+
+  // registra i setter per gli helper globali
+  useEffect(() => {
+    registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
+  }, []);
+
+  // Learning (memoria prodotti/alias/keep)
+  const [learned, setLearned] = useState({
+    products: {},
+    aliases: { product: {}, brand: {} },
+    keepTerms: {},
+    discardTerms: {}
+  });
+
+  // Vocale inventario unificato
+  const invMediaRef = useRef(null);
+  const invChunksRef = useRef([]);
+  const invStreamRef = useRef(null);
+  const [invRecBusy, setInvRecBusy] = useState(false);
+
+  // OCR inputs
+  const ocrInputRef = useRef(null);
+  const rowOcrInputRef = useRef(null);
+  const [targetRowIdx, setTargetRowIdx] = useState(null);
+
+  // Upload immagine per riga scorte
+  const rowImageInputRef = useRef(null);
+  const [targetImageIdx, setTargetImageIdx] = useState(null);
+
+  // Scorte manuali
+  const [stockForm, setStockForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '' });
+  const [showStockForm, setShowStockForm] = useState(false);
+
+  // Scadenze manuali
+  const [expiryForm, setExpiryForm] = useState({ name: '', expiresAt: '' });
+  const [showExpiryForm, setShowExpiryForm] = useState(false);
+
+  // 🔥 indice immagini: { "latte|parmalat": "data:image/..." }
+  const [imagesIndex, setImagesIndex] = useState({});
+
+  const curItems = lists[currentList] || [];
+
+  /* =================== Cloud Sync (Supabase) — opzionale =================== */
+  const userIdRef = useRef(null);
+  useEffect(() => {
+    if (!CLOUD_SYNC) return;
+    let mounted = true;
+
+    (async () => {
+      try {
+        const mod = await import('@/lib/supabaseClient').catch(() => null);
+        if (!mod?.supabase) return;
+        __supabase = mod.supabase;
+
+        const { data: userData, error: authErr } = await __supabase.auth.getUser();
+        if (authErr) return;
+        const uid = userData?.user?.id || null;
+        if (mounted) userIdRef.current = uid;
+        if (!uid) return;
+
+        const { data: row, error } = await __supabase
+          .from(CLOUD_TABLE)
+          .select('state')
+          .eq('user_id', uid)
+          .maybeSingle();
+
+        if (error) {
+          const msg = (error.message || '').toLowerCase();
+          if (!(error.code === '42703' || (msg.includes('column') && msg.includes('does not exist')))) {
+            if (DEBUG) console.warn('[cloud] load error', error);
+          }
+          return;
+        }
+
+        const st = row?.state;
+        if (!st) return;
+
+        setLists({
+          [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
+          [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
+        });
+        if (Array.isArray(st.stock)) setStock(st.stock);
+        if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
+          setCurrentList(st.currentList);
+        }
+        if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
+        // imagesIndex volutamente non da cloud
+      } catch (e) {
+        if (DEBUG) console.warn('[cloud init] skipped', e);
+      }
+          })();
+
+    return () => { mounted = false; };
+  }, []);
+
+
+
+  // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
+  function stripForCloud({ lists, stock, currentList, learned }) {
+    const safeLists = {
+      [LIST_TYPES.SUPERMARKET]: (lists?.[LIST_TYPES.SUPERMARKET] || []).map(({ image, ...r }) => r),
+      [LIST_TYPES.ONLINE]: (lists?.[LIST_TYPES.ONLINE] || []).map(({ image, ...r }) => r),
+    };
+    const safeStock = (stock || []).map(({ image, ...r }) => r);
+    const safeLearned =
+      learned && typeof learned === 'object'
+        ? learned
+        : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
+    return { lists: safeLists, stock: safeStock, currentList, learned: safeLearned };
+  }
+
+  const cloudTimerRef = useRef(null);
+  useEffect(() => {
+    if (!CLOUD_SYNC || !__supabase) return;
+    if (!userIdRef.current) return;
+
+    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+
+    // NON mandiamo imagesIndex in cloud, e togliamo field .image
+    const cloudState = stripForCloud({ lists, stock, currentList, learned });
+    const payload = { user_id: userIdRef.current, state: cloudState };
+
+    cloudTimerRef.current = setTimeout(async () => {
+      try {
+        await __supabase
+          .from(CLOUD_TABLE)
+          .upsert(payload, { onConflict: 'user_id' }); // returning minimal
+      } catch (e) {
+        if (DEBUG) console.warn('[cloud upsert] fail', e);
+      }
+    }, 5000);
+
+    return () => clearTimeout(cloudTimerRef.current);
+  }, [lists, stock, currentList, learned]);
+
+  /* === Brain Hub – versione robusta (evita forme incompatibili) === */
+  const HUB_KEY = '__jarvisBrainHub_v2';
+  function getHub() {
+    if (typeof window === 'undefined') return null;
+    const h = window[HUB_KEY];
+
+    const isValid =
+      h &&
+      typeof h === 'object' &&
+      typeof h.registerDataSource === 'function' &&
+      typeof h.registerCommand === 'function' &&
+      h._datasources instanceof Map &&
+      h._commands instanceof Map;
+
+    if (isValid) return h;
+
+    const hub = {
+      _datasources: new Map(),
+      _commands: new Map(),
+      registerDataSource(def) {
+        if (!def?.name) return;
+        this._datasources.set(def.name, def);
+      },
+      registerCommand(def) {
+        if (!def?.name) return;
+        this._commands.set(def.name, def);
+      },
+      async ask(name, payload) {
+        const ds = this._datasources.get(name);
+        return ds?.fetch(payload);
+      },
+      async run(name, payload) {
+        const cmd = this._commands.get(name);
+        return cmd?.execute(payload);
+      },
+      list() {
+        return {
+          datasources: [...this._datasources.keys() ],
+          commands:    [...this._commands.keys()    ],
+        };
+      },
+    };
+
+    window[HUB_KEY] = hub;
+    return hub;
+  }
+
+  useEffect(() => {
+    const hub = getHub();
+    if (!hub) return;
+
+    const safeRegDS = (def) => {
+      if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
+    };
+
+    safeRegDS({
+      name: 'scorte-complete',
+      fetch: () => {
+        return (stock || []).map((s) => {
+          const upp = Math.max(1, Number(s.unitsPerPack || 1));
+          const residueUnits = s.packsOnly
+            ? Math.max(0, Number(s.packs || 0))
+            : (Number.isFinite(Number(s.residueUnits))
+                ? Math.max(0, Number(s.residueUnits))
+                : Math.max(0, Number(s.packs || 0) * upp));
+          const baselineUnits = s.packsOnly
+            ? Math.max(1, Number(s.baselinePacks || s.packs || 1))
+            : Math.max(
+                upp,
+                Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp
+              );
+          const avgDailyUnits = Number(s.avgDailyUnits || 0);
+          return {
+            name: String(s.name || '').trim(),
+            brand: String(s.brand || '').trim(),
+            packs: Number(s.packs || 0),
+            unitsPerPack: upp,
+            unitLabel: s.unitLabel || 'unità',
+            residueUnits,
+            baselineUnits,
+            avgDailyUnits,
+            expiresAt: s.expiresAt || '',
+          };
+        });
+      },
+    });
+
+    safeRegDS({
+      name: 'scorte-esaurimento',
+      fetch: () => {
+        return (stock || []).filter((s) => {
+          const upp = Math.max(1, Number(s.unitsPerPack || 1));
+          const currentUnits = s.packsOnly
+            ? Math.max(0, Number(s.packs || 0))
+            : (Number.isFinite(Number(s.residueUnits)) ? Math.max(0, Number(s.residueUnits)) : Math.max(0, Number(s.packs || 0) * upp));
+          const baselineUnits = s.packsOnly
+            ? Math.max(1, Number(s.baselinePacks || s.packs || 1))
+            : Math.max(upp, (Number(s.baselinePacks) > 0 ? Number(s.baselinePacks) * upp : Number(s.packs || 0) * upp));
+          return baselineUnits > 0 && (currentUnits / baselineUnits) < 0.2;
+        });
+      },
+    });
+
+    safeRegDS({
+      name: 'scorte-scadenza',
+      fetch: ({ entroGiorni = 10 } = {}) => (stock || []).filter((s) => isExpiringSoon(s, entroGiorni)),
+    });
+
+    safeRegDS({
+      name: 'scorte-giorni-esaurimento',
+      fetch: () => {
+        const out = [];
+        for (const s of stock || []) {
+          const upp = Math.max(1, Number(s.unitsPerPack || 1));
+          const currentUnits = s.packsOnly
+            ? Math.max(0, Number(s.packs || 0))
+            : (Number.isFinite(Number(s.residueUnits)) ? Math.max(0, Number(s.residueUnits)) : Math.max(0, Number(s.packs || 0) * upp));
+          const day = Number(s.avgDailyUnits || 0);
+          const days = day > 0 ? Math.ceil(currentUnits / day) : null;
+          out.push({
+            name: s.name,
+            brand: s.brand || '',
+            unitLabel: s.unitLabel || 'unità',
+            residueUnits: currentUnits,
+            avgDailyUnits: day,
+            daysToDepletion: days,
+          });
+        }
+        return out;
+      },
+    });
+  }, [stock, lists]);
+
   }
 
   /* -------------------------------------------------------------------------------------
