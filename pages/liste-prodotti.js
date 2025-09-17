@@ -522,13 +522,11 @@ export default function ListeProdotti() {
   const stockLockRef = useRef(0);
   const persistTimerRef = useRef(null);
 
-  // --- Stato e ref per Vocale LISTA (SSR-safe) ---
-const [recBusy, setRecBusy] = useState(false);
-const mediaRecRef = useRef(null);
-const recordedChunks = useRef([]);
-const streamRef = useRef(null);
-
-
+  // --- Vocale LISTA: stato & ref (SSR-safe) ---
+  const [recBusy, setRecBusy] = useState(false);
+  const mediaRecRef = useRef(null);
+  const recordedChunks = useRef([]);
+  const streamRef = useRef(null);
 
   // OCR inputs / immagini
   const ocrInputRef = useRef(null);
@@ -670,40 +668,40 @@ const streamRef = useRef(null);
     setForm({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità' });
     setShowListForm(false);
   }
+
   function addStockManual() {
-  const name = (stockForm.name||'').trim(); if (!name) return;
-  const brand = (stockForm.brand||'').trim();
-  let packs = Math.max(1, Number(String(stockForm.packs).replace(',','.')) || 1);
-  let upp   = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
-  let unitL = (stockForm.unitLabel||'unità').trim() || 'unità';
-  const expiresAt = toISODate(stockForm.expiresAt||'');
+    const name = (stockForm.name||'').trim(); if (!name) return;
+    const brand = (stockForm.brand||'').trim();
+    let packs = Math.max(1, Number(String(stockForm.packs).replace(',','.')) || 1);
+    let upp   = Math.max(1, Number(String(stockForm.unitsPerPack).replace(',','.')) || 1);
+    let unitL = (stockForm.unitLabel||'unità').trim() || 'unità';
+    const expiresAt = toISODate(stockForm.expiresAt||'');
 
-  // neutralizza pesi/volumi “furbi”
-  if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(unitL)) { upp = 1; unitL = 'unità'; }
+    if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(unitL)) { upp = 1; unitL = 'unità'; }
 
-  const todayISO = new Date().toISOString().slice(0,10);
-  setStock(prev => {
-    const arr = [...prev];
-    const keyExact = `${normKey(name)}|${normKey(brand)}|${upp}`;
-    const idx = arr.findIndex(s => `${normKey(s.name)}|${normKey(s.brand||'')}|${Number(s.unitsPerPack||1)}` === keyExact);
-    if (idx >= 0) {
-      const old = arr[idx];
-      const newP = Math.max(0, Number(old.packs||0) + packs);
-      arr[idx] = { ...old, packs:newP, unitsPerPack:upp, unitLabel:old.unitLabel||unitL, expiresAt:expiresAt||old.expiresAt||'', ...restockTouch(newP, todayISO, upp), packsOnly:false };
-    } else {
-      arr.unshift({
-        name, brand, packs, unitsPerPack: upp, unitLabel: unitL, expiresAt,
-        baselinePacks: packs, lastRestockAt: todayISO, avgDailyUnits: 0, residueUnits: packs*upp,
-        packsOnly:false, needsUpdate:false
-      });
-    }
-    return arr;
-  });
+    const todayISO = new Date().toISOString().slice(0,10);
+    setStock(prev => {
+      const arr = [...prev];
+      const keyExact = `${normKey(name)}|${normKey(brand)}|${upp}`;
+      const idx = arr.findIndex(s => `${normKey(s.name)}|${normKey(s.brand||'')}|${Number(s.unitsPerPack||1)}` === keyExact);
+      if (idx >= 0) {
+        const old = arr[idx];
+        const newP = Math.max(0, Number(old.packs||0) + packs);
+        arr[idx] = { ...old, packs:newP, unitsPerPack:upp, unitLabel:old.unitLabel||unitL, expiresAt:expiresAt||old.expiresAt||'', ...restockTouch(newP, todayISO, upp), packsOnly:false };
+      } else {
+        arr.unshift({
+          name, brand, packs, unitsPerPack: upp, unitLabel: unitL, expiresAt,
+          baselinePacks: packs, lastRestockAt: todayISO, avgDailyUnits: 0, residueUnits: packs*upp,
+          packsOnly:false, needsUpdate:false
+        });
+      }
+      return arr;
+    });
 
-  setShowStockForm(false);
-  setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
-  showToast('Scorta aggiunta ✓', 'ok');
-}
+    setShowStockForm(false);
+    setStockForm({ name:'', brand:'', packs:'1', unitsPerPack:'1', unitLabel:'unità', expiresAt:'' });
+    showToast('Scorta aggiunta ✓', 'ok');
+  }
 
   function removeItem(id) {
     setLists(prev => {
@@ -712,124 +710,16 @@ const streamRef = useRef(null);
       return next;
     });
   }
+
   function incQty(id, delta) {
     setLists(prev => {
       const next = { ...prev };
-      next[currentList] = (prev[currentList] || []).map(i => (
-        i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i
-      )).filter(i => i.qty > 0);
+      next[currentList] = (prev[currentList] || [])
+        .map(i => (i.id === id ? { ...i, qty: Math.max(0, Number(i.qty || 0) + delta) } : i))
+        .filter(i => i.qty > 0);
       return next;
     });
-    // Vocale lista
-  theMediaWorkaround();
-
-  const recMimeRef = useRef({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
-  const mediaRecRef = useRef(null);
-  const recordedChunks = useRef([]);
-  const streamRef = useRef(null);
-  const [recBusy, setRecBusy] = useState(false);
-
-  // Review (modale di convalida)
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewItems, setReviewItems] = useState([]);
-  const [reviewPick, setReviewPick] = useState({});
-  const [pendingOcrMeta, setPendingOcrMeta] = useState(null);
-
-  // registra i setter per gli helper globali
-  useEffect(() => {
-    registerReviewSetters({ setReviewItems, setReviewPick, setPendingOcrMeta, setReviewOpen });
-  }, []);
-
-  // Learning (memoria prodotti/alias/keep)
-  const [learned, setLearned] = useState({
-    products: {},
-    aliases: { product: {}, brand: {} },
-    keepTerms: {},
-    discardTerms: {}
-  });
-
-  // Vocale inventario unificato
-  const invMediaRef = useRef(null);
-  const invChunksRef = useRef([]);
-  const invStreamRef = useRef(null);
-  const [invRecBusy, setInvRecBusy] = useState(false);
-
-  // OCR inputs
-  const ocrInputRef = useRef(null);
-  const rowOcrInputRef = useRef(null);
-  const [targetRowIdx, setTargetRowIdx] = useState(null);
-
-  // Upload immagine per riga scorte
-  const rowImageInputRef = useRef(null);
-  const [targetImageIdx, setTargetImageIdx] = useState(null);
-
-  // Scorte manuali
-  const [stockForm, setStockForm] = useState({ name: '', brand: '', packs: '1', unitsPerPack: '1', unitLabel: 'unità', expiresAt: '' });
-  const [showStockForm, setShowStockForm] = useState(false);
-
-  // Scadenze manuali
-  const [expiryForm, setExpiryForm] = useState({ name: '', expiresAt: '' });
-  const [showExpiryForm, setShowExpiryForm] = useState(false);
-
-  // 🔥 indice immagini: { "latte|parmalat": "data:image/..." }
-  const [imagesIndex, setImagesIndex] = useState({});
-
-  const curItems = lists[currentList] || [];
-
-  /* =================== Cloud Sync (Supabase) — opzionale =================== */
-  const userIdRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC) return;
-    let mounted = true;
-
-    (async () => {
-      try {
-        const mod = await import('@/lib/supabaseClient').catch(() => null);
-        if (!mod?.supabase) return;
-        __supabase = mod.supabase;
-
-        const { data: userData, error: authErr } = await __supabase.auth.getUser();
-        if (authErr) return;
-        const uid = userData?.user?.id || null;
-        if (mounted) userIdRef.current = uid;
-        if (!uid) return;
-
-        const { data: row, error } = await __supabase
-          .from(CLOUD_TABLE)
-          .select('state')
-          .eq('user_id', uid)
-          .maybeSingle();
-
-        if (error) {
-          const msg = (error.message || '').toLowerCase();
-          if (!(error.code === '42703' || (msg.includes('column') && msg.includes('does not exist')))) {
-            if (DEBUG) console.warn('[cloud] load error', error);
-          }
-          return;
-        }
-
-        const st = row?.state;
-        if (!st) return;
-
-        setLists({
-          [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-          [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-        });
-        if (Array.isArray(st.stock)) setStock(st.stock);
-        if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) {
-          setCurrentList(st.currentList);
-        }
-        if (st.learned && typeof st.learned === 'object') setLearned(st.learned);
-        // imagesIndex volutamente non da cloud
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud init] skipped', e);
-      }
-          })();
-
-    return () => { mounted = false; };
-  }, []);
-
-
+  }
 
   // 👉 stripForCloud: rimuove solo le immagini e mantiene il resto
   function stripForCloud({ lists, stock, currentList, learned }) {
@@ -844,37 +734,11 @@ const streamRef = useRef(null);
         : { products: {}, aliases: { product: {}, brand: {} }, keepTerms: {}, discardTerms: {} };
     return { lists: safeLists, stock: safeStock, currentList, learned: safeLearned };
   }
-
-  const cloudTimerRef = useRef(null);
-  useEffect(() => {
-    if (!CLOUD_SYNC || !__supabase) return;
-    if (!userIdRef.current) return;
-
-    if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
-
-    // NON mandiamo imagesIndex in cloud, e togliamo field .image
-    const cloudState = stripForCloud({ lists, stock, currentList, learned });
-    const payload = { user_id: userIdRef.current, state: cloudState };
-
-    cloudTimerRef.current = setTimeout(async () => {
-      try {
-        await __supabase
-          .from(CLOUD_TABLE)
-          .upsert(payload, { onConflict: 'user_id' }); // returning minimal
-      } catch (e) {
-        if (DEBUG) console.warn('[cloud upsert] fail', e);
-      }
-    }, 5000);
-
-    return () => clearTimeout(cloudTimerRef.current);
-  }, [lists, stock, currentList, learned]);
-
   /* === Brain Hub – versione robusta (evita forme incompatibili) === */
   const HUB_KEY = '__jarvisBrainHub_v2';
   function getHub() {
     if (typeof window === 'undefined') return null;
     const h = window[HUB_KEY];
-
     const isValid =
       h &&
       typeof h === 'object' &&
@@ -882,36 +746,16 @@ const streamRef = useRef(null);
       typeof h.registerCommand === 'function' &&
       h._datasources instanceof Map &&
       h._commands instanceof Map;
-
     if (isValid) return h;
-
     const hub = {
       _datasources: new Map(),
       _commands: new Map(),
-      registerDataSource(def) {
-        if (!def?.name) return;
-        this._datasources.set(def.name, def);
-      },
-      registerCommand(def) {
-        if (!def?.name) return;
-        this._commands.set(def.name, def);
-      },
-      async ask(name, payload) {
-        const ds = this._datasources.get(name);
-        return ds?.fetch(payload);
-      },
-      async run(name, payload) {
-        const cmd = this._commands.get(name);
-        return cmd?.execute(payload);
-      },
-      list() {
-        return {
-          datasources: [...this._datasources.keys() ],
-          commands:    [...this._commands.keys()    ],
-        };
-      },
+      registerDataSource(def) { if (!def?.name) return; this._datasources.set(def.name, def); },
+      registerCommand(def) { if (!def?.name) return; this._commands.set(def.name, def); },
+      async ask(name, payload) { const ds = this._datasources.get(name); return ds?.fetch(payload); },
+      async run(name, payload) { const cmd = this._commands.get(name); return cmd?.execute(payload); },
+      list() { return { datasources: [...this._datasources.keys()], commands: [...this._commands.keys()] }; },
     };
-
     window[HUB_KEY] = hub;
     return hub;
   }
@@ -920,9 +764,7 @@ const streamRef = useRef(null);
     const hub = getHub();
     if (!hub) return;
 
-    const safeRegDS = (def) => {
-      if (!hub._datasources.has(def.name)) hub.registerDataSource(def);
-    };
+    const safeRegDS = (def) => { if (!hub._datasources.has(def.name)) hub.registerDataSource(def); };
 
     safeRegDS({
       name: 'scorte-complete',
@@ -1002,7 +844,6 @@ const streamRef = useRef(null);
     });
   }, [stock, lists]);
 
-  }
 
   /* -------------------------------------------------------------------------------------
      OCR SCONTRINO / BUSTE → SCORTE + FINANZE (senza modale)
