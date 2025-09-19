@@ -1,5 +1,4 @@
-// pages/api/finances/ingest.js
-import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 
 const TBL_FIN = 'jarvis_finanze';
 
@@ -14,14 +13,17 @@ function isoDate(s){
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
-  // ✅ server client con cookie di supabase (auth helpers gestisce tutto)
-  const supabase = createServerSupabaseClient({ req, res });
+  // ✅ prendi il Bearer dal client
+  const authHeader = req.headers.authorization || '';
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { global: { headers: { Authorization: authHeader } } } // ⬅️ passa il token a PostgREST
+  );
 
-  const { data: { session }, error: authErr } = await supabase.auth.getSession();
-  if (authErr || !session?.user) {
-    return res.status(401).json({ ok:false, error:'Not authenticated' });
-  }
-  const user = session.user;
+  // ✅ user dal token (serve alle RLS)
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return res.status(401).json({ ok:false, error:'Not authenticated' });
 
   try {
     const {
@@ -35,7 +37,6 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     const day = isoDate(purchaseDate);
-
     const sumFromLines = (Array.isArray(items) ? items : []).reduce((s, it) => s + (toNum(it.priceTotal)), 0);
     let grand = (receiptTotalAuthoritative && toNum(totalPaid) > 0) ? toNum(totalPaid) : toNum(sumFromLines);
     grand = Number(grand.toFixed(2));
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
     const descr = `Spesa ${String(store||'').trim()}`;
 
     const row = {
-      user_id: user.id,     // ✅ forzato lato server
+      user_id: user.id,  // ✅ mai fidarsi del body; RLS richiede che combaci con auth.uid()
       date: day,
       amount,
       description: descr,
@@ -52,8 +53,8 @@ export default async function handler(req, res) {
       card_label
     };
 
-    const { error: insErr } = await supabase.from(TBL_FIN).insert(row);
-    if (insErr) throw insErr;
+    const { error } = await supabase.from(TBL_FIN).insert(row);
+    if (error) throw error;
 
     return res.status(200).json({ ok:true, inserted: 1, usedTotal: grand });
   } catch (e) {

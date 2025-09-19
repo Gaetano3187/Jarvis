@@ -281,21 +281,38 @@ function guessExpenseBucket(store='') {
   return 'spese-casa';
 }
 
-  async function postJSON(url, body, timeoutMs=30000) {
-  const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), timeoutMs);
+ import { supabase } from '@/lib/supabaseClient';
+
+async function postJSON(url, body, timeoutMs = 30000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+
   try {
+    // ✅ prendi la sessione corrente:
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.access_token || '';
+
     const r = await fetch(url, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // ✅ passa il JWT: il server potrà usarlo per RLS
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: ctrl.signal,
-      credentials: 'same-origin',   // 👈 aggiungi questo
+      credentials: 'same-origin',
     });
-    const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {}
+
+    const text = await r.text();
+    let json = null; try { json = JSON.parse(text); } catch {}
     if (!r.ok) throw new Error(json?.error || json?.message || `${r.status} ${text?.slice(0,180)}`);
     return json ?? { data: text };
-  } finally { clearTimeout(t); }
+  } finally {
+    clearTimeout(t);
+  }
 }
+
 
 /* ======================================================================================
    Home component
