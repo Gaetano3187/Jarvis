@@ -5,7 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
 import { useRouter } from 'next/router';
-import { postJSON } from '@/lib/http';
+
 
 // Registratore (solo client)
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
