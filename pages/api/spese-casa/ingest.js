@@ -1,7 +1,3 @@
-// pages/api/spese-casa/ingest.js
-// ⛳️ Da chiamare dal client usando postJSON di `lib/http.js`
-// che aggiunge automaticamente: Authorization: Bearer <JWT>
-
 import { createClient } from '@supabase/supabase-js';
 
 const TBL_SPESA = 'jarvis_spese_casa';
@@ -17,21 +13,13 @@ function normalizeLine(it) {
   const packs = Math.max(1, toNum(it.packs ?? it.qty ?? 1));
   const upp   = Math.max(1, toNum(it.unitsPerPack ?? 1));
   const totalUnits = packs * upp;
-
   let priceEach  = toNum(it.priceEach);
   let priceTotal = toNum(it.priceTotal);
-
-  if (totalUnits <= 1) {
-    const val = priceEach || priceTotal;
-    priceEach = val; priceTotal = val;
-  } else {
-    if (priceEach) priceTotal = Number((priceEach * totalUnits).toFixed(2));
-    else priceEach = totalUnits ? Number((priceTotal / totalUnits).toFixed(4)) : 0;
-  }
-
+  if (totalUnits <= 1) { const val = priceEach || priceTotal; priceEach = val; priceTotal = val; }
+  else { if (priceEach) priceTotal = Number((priceEach * totalUnits).toFixed(2)); else priceEach = totalUnits ? Number((priceTotal/totalUnits).toFixed(4)) : 0; }
   return {
-    name: (it.name || '').trim(),
-    brand: (it.brand || '').trim() || null,
+    name: (it.name||'').trim(),
+    brand: (it.brand||'').trim() || null,
     packs,
     units_per_pack: upp,
     unit_label: (it.unitLabel || it.uom || 'unità'),
@@ -44,7 +32,6 @@ function normalizeLine(it) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
-  // ✅ Legge il Bearer passato dal client (postJSON di lib/http.js)
   const authHeader = req.headers.authorization || '';
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -57,7 +44,6 @@ export default async function handler(req, res) {
 
   try {
     const {
-      // ❌ non passare user_id dal client
       store = '',
       purchaseDate,
       totalPaid = 0,
@@ -74,11 +60,10 @@ export default async function handler(req, res) {
 
     const lines = items.map(normalizeLine).filter(r => r.name);
 
-    // esiste già un doc_total per (user, store, date)?
     const { data: existing, error: selErr } = await supabase
       .from(TBL_SPESA)
       .select('id, doc_total')
-      .eq('user_id', user.id)     // ✅ coerente con RLS
+      .eq('user_id', user.id)     // ✅ lega al proprio utente
       .eq('store', storeLabel)
       .eq('purchase_date', day)
       .limit(1000);
@@ -90,7 +75,7 @@ export default async function handler(req, res) {
       : 0;
 
     const rows = lines.map((r, idx) => ({
-      user_id: user.id,           // ✅ forza coerenza con RLS
+      user_id: user.id,           // ✅ forzato lato server
       store: storeLabel || null,
       purchase_date: day,
       doc_total: idx === 0 ? docForFirst : 0,
