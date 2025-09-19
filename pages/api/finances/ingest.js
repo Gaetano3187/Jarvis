@@ -1,3 +1,7 @@
+// pages/api/finances/ingest.js
+// ⛳️ Da chiamare dal client usando postJSON di `lib/http.js`
+// che aggiunge automaticamente: Authorization: Bearer <JWT>
+
 import { createClient } from '@supabase/supabase-js';
 
 const TBL_FIN = 'jarvis_finanze';
@@ -13,20 +17,21 @@ function isoDate(s){
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
-  // ✅ prendi il Bearer dal client
+  // ✅ Legge il Bearer passato dal client (postJSON di lib/http.js)
   const authHeader = req.headers.authorization || '';
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: authHeader } } } // ⬅️ passa il token a PostgREST
+    { global: { headers: { Authorization: authHeader } } }
   );
 
-  // ✅ user dal token (serve alle RLS)
+  // ✅ Utente dalla sessione (serve alle policy RLS)
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) return res.status(401).json({ ok:false, error:'Not authenticated' });
 
   try {
     const {
+      // ❌ non serve user_id: viene forzato lato server
       store = '',
       purchaseDate,
       payment_method = 'cash',
@@ -37,18 +42,18 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     const day = isoDate(purchaseDate);
-    const sumFromLines = (Array.isArray(items) ? items : []).reduce((s, it) => s + (toNum(it.priceTotal)), 0);
+
+    // totale di movimento: scontrino intero (negativo = spesa)
+    const sumFromLines = (Array.isArray(items) ? items : []).reduce((s, it) => s + toNum(it.priceTotal), 0);
     let grand = (receiptTotalAuthoritative && toNum(totalPaid) > 0) ? toNum(totalPaid) : toNum(sumFromLines);
     grand = Number(grand.toFixed(2));
 
     const amount = -Math.abs(grand);
-    const descr = `Spesa ${String(store||'').trim()}`;
-
     const row = {
-      user_id: user.id,  // ✅ mai fidarsi del body; RLS richiede che combaci con auth.uid()
+      user_id: user.id, // ✅ forza coerenza con RLS
       date: day,
       amount,
-      description: descr,
+      description: `Spesa ${String(store || '').trim()}`,
       method: payment_method,
       card_label
     };
