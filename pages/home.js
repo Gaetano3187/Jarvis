@@ -280,10 +280,17 @@ function guessExpenseBucket(store='') {
   if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
   return 'spese-casa';
 }
-async function postJSON(url, body, timeoutMs=30000) {
+
+  async function postJSON(url, body, timeoutMs=30000) {
   const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), signal: ctrl.signal });
+    const r = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+      credentials: 'same-origin',   // 👈 aggiungi questo
+    });
     const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {}
     if (!r.ok) throw new Error(json?.error || json?.message || `${r.status} ${text?.slice(0,180)}`);
     return json ?? { data: text };

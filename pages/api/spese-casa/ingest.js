@@ -1,4 +1,5 @@
-import { createServerClient } from '@supabase/ssr';
+// pages/api/spese-casa/ingest.js
+import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs';
 
 const TBL_SPESA = 'jarvis_spese_casa';
 
@@ -13,10 +14,13 @@ function normalizeLine(it) {
   const packs = Math.max(1, toNum(it.packs ?? it.qty ?? 1));
   const upp   = Math.max(1, toNum(it.unitsPerPack ?? 1));
   const totalUnits = packs * upp;
+
   let priceEach  = toNum(it.priceEach);
   let priceTotal = toNum(it.priceTotal);
+
   if (totalUnits <= 1) { const val = priceEach || priceTotal; priceEach = val; priceTotal = val; }
   else { if (priceEach) priceTotal = Number((priceEach * totalUnits).toFixed(2)); else priceEach = totalUnits ? Number((priceTotal/totalUnits).toFixed(4)) : 0; }
+
   return {
     name: (it.name||'').trim(),
     brand: (it.brand||'').trim() || null,
@@ -32,20 +36,12 @@ function normalizeLine(it) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        get: (name) => req.cookies[name],
-        set: (name, value, options) => res.setHeader('Set-Cookie', `${name}=${value}; Path=/; HttpOnly; SameSite=Lax${options?.maxAge?`; Max-Age=${options.maxAge}`:''}`),
-        remove: (name, options) => res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`),
-      },
-    }
-  );
-
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return res.status(401).json({ ok:false, error:'Not authenticated' });
+  const supabase = createServerSupabaseClient({ req, res });
+  const { data: { session }, error: authErr } = await supabase.auth.getSession();
+  if (authErr || !session?.user) {
+    return res.status(401).json({ ok:false, error:'Not authenticated' });
+  }
+  const user = session.user;
 
   try {
     const {
@@ -65,11 +61,11 @@ export default async function handler(req, res) {
 
     const lines = items.map(normalizeLine).filter(r => r.name);
 
-    // esiste già un documento per (user, store, data)?
+    // verifica se esiste già un doc_total per (user, store, date)
     const { data: existing, error: selErr } = await supabase
       .from(TBL_SPESA)
       .select('id, doc_total')
-      .eq('user_id', user.id)          // ✅ vincolo sul proprio utente
+      .eq('user_id', user.id)      // ✅ lega alla sessione
       .eq('store', storeLabel)
       .eq('purchase_date', day)
       .limit(1000);
@@ -81,7 +77,7 @@ export default async function handler(req, res) {
       : 0;
 
     const rows = lines.map((r, idx) => ({
-      user_id: user.id,               // ✅ forzato lato server
+      user_id: user.id,           // ✅ forzato lato server
       store: storeLabel || null,
       purchase_date: day,
       doc_total: idx === 0 ? docForFirst : 0,
