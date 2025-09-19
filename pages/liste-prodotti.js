@@ -1119,6 +1119,15 @@ export default function ListeProdotti() {
             expiresAt: p.expiresAt || ''
           }))
         };
+        await postJSON('/api/finances/ingest', {
+  store: meta.store,
+  purchaseDate: meta.purchaseDate,
+  payment_method: 'cash',
+  card_label: null,
+  items: itemsReadyDedup,
+  totalPaid: meta.totalPaid,
+  receiptTotalAuthoritative: true
+});
         await fetchJSONStrict(API_FINANCES_INGEST, {
           method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
         }, 40000);
@@ -1134,6 +1143,7 @@ export default function ListeProdotti() {
       setBusy(false);
       if (ocrInputRef.current) ocrInputRef.current.value = '';
     }
+    
   }
 
   /* ===================== EDIT RIGA SCORTE ===================== */
