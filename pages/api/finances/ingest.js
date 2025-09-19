@@ -1,7 +1,6 @@
-// pages/api/finances/ingest.js
-import { supabase } from '@/lib/supabaseClient';
+import { createServerClient } from '@supabase/ssr';
 
-const TBL_FIN = 'jarvis_finanze'; // cambia se usi un nome diverso (es. jarvis_finance_movimenti)
+const TBL_FIN = 'jarvis_finanze';
 
 function toNum(n){ const v = Number(n); return Number.isFinite(v) ? v : 0; }
 function isoDate(s){
@@ -14,9 +13,24 @@ function isoDate(s){
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
+  // ✅ Server client che usa i cookie della sessione
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        get: (name) => req.cookies[name],
+        set: (name, value, options) => res.setHeader('Set-Cookie', `${name}=${value}; Path=/; HttpOnly; SameSite=Lax${options?.maxAge?`; Max-Age=${options.maxAge}`:''}`),
+        remove: (name, options) => res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`),
+      },
+    }
+  );
+
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return res.status(401).json({ ok:false, error:'Not authenticated' });
+
   try {
     const {
-      user_id,
       store = '',
       purchaseDate,
       payment_method = 'cash',
@@ -26,33 +40,23 @@ export default async function handler(req, res) {
       receiptTotalAuthoritative = false
     } = req.body || {};
 
-    if (!user_id) return res.status(400).json({ ok:false, error:'Missing user_id' });
-
     const day = isoDate(purchaseDate);
-
-    // Calcola il totale “affidabile”
-    const sumFromLines = (Array.isArray(items) ? items : []).reduce((s, it) => s + (toNum(it.priceTotal)), 0);
-    let grand = (receiptTotalAuthoritative && toNum(totalPaid) > 0)
-      ? toNum(totalPaid)
-      : toNum(sumFromLines);
+    const sumFromLines = (Array.isArray(items) ? items : []).reduce((s, it) => s + toNum(it.priceTotal), 0);
+    let grand = (receiptTotalAuthoritative && toNum(totalPaid) > 0) ? toNum(totalPaid) : toNum(sumFromLines);
     grand = Number(grand.toFixed(2));
 
-    // Movimento negativo (spesa)
     const amount = -Math.abs(grand);
-    const descr = `Spesa ${String(store||'').trim()}`;
-
-    // (Schema minimale: user_id, date, amount, description, method, card_label)
     const row = {
-      user_id,
+      user_id: user.id,                 // ✅ forzato lato server
       date: day,
       amount,
-      description: descr,
+      description: `Spesa ${String(store||'').trim()}`,
       method: payment_method,
       card_label
     };
 
-    const { error: insErr } = await supabase.from(TBL_FIN).insert(row);
-    if (insErr) throw insErr;
+    const { error } = await supabase.from(TBL_FIN).insert(row);
+    if (error) throw error;
 
     return res.status(200).json({ ok:true, inserted: 1, usedTotal: grand });
   } catch (e) {

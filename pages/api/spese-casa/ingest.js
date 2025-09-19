@@ -1,41 +1,25 @@
-// pages/api/spese-casa/ingest.js
-import { supabase } from '@/lib/supabaseClient';
+import { createServerClient } from '@supabase/ssr';
 
 const TBL_SPESA = 'jarvis_spese_casa';
 
-function toNum(n) { const v = Number(n); return Number.isFinite(v) ? v : 0; }
-function isoDate(s) {
+function toNum(n){ const v = Number(n); return Number.isFinite(v) ? v : 0; }
+function isoDate(s){
   if (!s) return new Date().toISOString().slice(0,10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
   return isNaN(d) ? new Date().toISOString().slice(0,10) : d.toISOString().slice(0,10);
 }
-
 function normalizeLine(it) {
   const packs = Math.max(1, toNum(it.packs ?? it.qty ?? 1));
   const upp   = Math.max(1, toNum(it.unitsPerPack ?? 1));
   const totalUnits = packs * upp;
-
   let priceEach  = toNum(it.priceEach);
   let priceTotal = toNum(it.priceTotal);
-
-  if (totalUnits <= 1) {
-    // singola unità: il letto vale sia unitario che totale
-    const val = priceEach || priceTotal;
-    priceEach = val;
-    priceTotal = val;
-  } else {
-    if (priceEach) {
-      priceTotal = Number((priceEach * totalUnits).toFixed(2));
-    } else {
-      // ho solo il totale: ricavo l'unitario
-      priceEach = totalUnits ? Number((priceTotal / totalUnits).toFixed(4)) : 0;
-    }
-  }
-
+  if (totalUnits <= 1) { const val = priceEach || priceTotal; priceEach = val; priceTotal = val; }
+  else { if (priceEach) priceTotal = Number((priceEach * totalUnits).toFixed(2)); else priceEach = totalUnits ? Number((priceTotal/totalUnits).toFixed(4)) : 0; }
   return {
-    name: (it.name || '').trim(),
-    brand: (it.brand || '').trim() || null,
+    name: (it.name||'').trim(),
+    brand: (it.brand||'').trim() || null,
     packs,
     units_per_pack: upp,
     unit_label: (it.unitLabel || it.uom || 'unità'),
@@ -48,9 +32,23 @@ function normalizeLine(it) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
 
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        get: (name) => req.cookies[name],
+        set: (name, value, options) => res.setHeader('Set-Cookie', `${name}=${value}; Path=/; HttpOnly; SameSite=Lax${options?.maxAge?`; Max-Age=${options.maxAge}`:''}`),
+        remove: (name, options) => res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`),
+      },
+    }
+  );
+
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return res.status(401).json({ ok:false, error:'Not authenticated' });
+
   try {
     const {
-      user_id,
       store = '',
       purchaseDate,
       totalPaid = 0,
@@ -58,36 +56,32 @@ export default async function handler(req, res) {
       receiptTotalAuthoritative = false,
     } = req.body || {};
 
-    if (!user_id) return res.status(400).json({ ok:false, error:'Missing user_id' });
-    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ ok:false, error:'No items' });
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ ok:false, error:'No items' });
+    }
 
     const storeLabel = String(store || '').trim();
     const day = isoDate(purchaseDate);
 
-    // Normalizza tutte le righe
-    const lines = items
-      .map(normalizeLine)
-      .filter(r => r.name); // scarta nomi vuoti
+    const lines = items.map(normalizeLine).filter(r => r.name);
 
-    // Controlla se per lo stesso gruppo (user+store+data) esiste già un doc_total
+    // esiste già un documento per (user, store, data)?
     const { data: existing, error: selErr } = await supabase
       .from(TBL_SPESA)
       .select('id, doc_total')
-      .eq('user_id', user_id)
+      .eq('user_id', user.id)          // ✅ vincolo sul proprio utente
       .eq('store', storeLabel)
       .eq('purchase_date', day)
       .limit(1000);
-
     if (selErr) throw selErr;
 
-    const groupHasDoc = (existing || []).some(r => toNum(r.doc_total) > 0);
-    const docForFirst = (!groupHasDoc && (receiptTotalAuthoritative && toNum(totalPaid) > 0))
+    const hasDoc = (existing || []).some(r => toNum(r.doc_total) > 0);
+    const docForFirst = (!hasDoc && (receiptTotalAuthoritative && toNum(totalPaid) > 0))
       ? Number(toNum(totalPaid).toFixed(2))
       : 0;
 
-    // Prepara batch insert: prima riga con doc_total (se dovuto), le altre 0
     const rows = lines.map((r, idx) => ({
-      user_id,
+      user_id: user.id,               // ✅ forzato lato server
       store: storeLabel || null,
       purchase_date: day,
       doc_total: idx === 0 ? docForFirst : 0,
