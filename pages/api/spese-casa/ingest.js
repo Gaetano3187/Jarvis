@@ -1,7 +1,6 @@
 // pages/api/spese-casa/ingest.js
-// Inserisce N righe in public.jarvis_spese_casa, tutte legate da un receipt_id (ritornato in risposta)
-
-import { createClient } from '@supabase/supabase-js';
+ import { createClient } from '@supabase/supabase-js';
+ import { randomUUID } from 'node:crypto';
 
 const TBL_SPESA = 'jarvis_spese_casa';
 
@@ -67,7 +66,7 @@ export default async function handler(req, res) {
     const lines = items.map(normalizeLine).filter(r => r.name);
 
     // genera o riusa un receipt_id
-    const rid = String(ridFromBody || (globalThis.crypto?.randomUUID?.() || require('crypto').randomUUID()));
+const rid = String(ridFromBody || (globalThis.crypto?.randomUUID?.() ?? randomUUID()));
 
     // applica doc_total alla prima riga del gruppo, se passato come autorevole
     const docForFirst = (receiptTotalAuthoritative && toNum(totalPaid) > 0)
