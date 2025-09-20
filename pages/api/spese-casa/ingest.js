@@ -1,3 +1,6 @@
+// pages/api/spese-casa/ingest.js
+// Inserisce N righe in public.jarvis_spese_casa, tutte legate da un receipt_id (ritornato in risposta)
+
 import { createClient } from '@supabase/supabase-js';
 
 const TBL_SPESA = 'jarvis_spese_casa';
@@ -15,8 +18,10 @@ function normalizeLine(it) {
   const totalUnits = packs * upp;
   let priceEach  = toNum(it.priceEach);
   let priceTotal = toNum(it.priceTotal);
+
   if (totalUnits <= 1) { const val = priceEach || priceTotal; priceEach = val; priceTotal = val; }
   else { if (priceEach) priceTotal = Number((priceEach * totalUnits).toFixed(2)); else priceEach = totalUnits ? Number((priceTotal/totalUnits).toFixed(4)) : 0; }
+
   return {
     name: (it.name||'').trim(),
     brand: (it.brand||'').trim() || null,
@@ -26,6 +31,7 @@ function normalizeLine(it) {
     price_each: priceEach,
     price_total: priceTotal,
     currency: it.currency || 'EUR',
+    expires_at: it.expiresAt || null,
   };
 }
 
@@ -49,6 +55,7 @@ export default async function handler(req, res) {
       totalPaid = 0,
       items = [],
       receiptTotalAuthoritative = false,
+      receipt_id: ridFromBody
     } = req.body || {};
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -57,28 +64,22 @@ export default async function handler(req, res) {
 
     const storeLabel = String(store || '').trim();
     const day = isoDate(purchaseDate);
-
     const lines = items.map(normalizeLine).filter(r => r.name);
 
-    const { data: existing, error: selErr } = await supabase
-      .from(TBL_SPESA)
-      .select('id, doc_total')
-      .eq('user_id', user.id)     // ✅ lega al proprio utente
-      .eq('store', storeLabel)
-      .eq('purchase_date', day)
-      .limit(1000);
-    if (selErr) throw selErr;
+    // genera o riusa un receipt_id
+    const rid = String(ridFromBody || (globalThis.crypto?.randomUUID?.() || require('crypto').randomUUID()));
 
-    const hasDoc = (existing || []).some(r => toNum(r.doc_total) > 0);
-    const docForFirst = (!hasDoc && (receiptTotalAuthoritative && toNum(totalPaid) > 0))
+    // applica doc_total alla prima riga del gruppo, se passato come autorevole
+    const docForFirst = (receiptTotalAuthoritative && toNum(totalPaid) > 0)
       ? Number(toNum(totalPaid).toFixed(2))
       : 0;
 
     const rows = lines.map((r, idx) => ({
-      user_id: user.id,           // ✅ forzato lato server
+      user_id: user.id,
       store: storeLabel || null,
       purchase_date: day,
       doc_total: idx === 0 ? docForFirst : 0,
+      receipt_id: rid,
       ...r,
     }));
 
@@ -89,6 +90,7 @@ export default async function handler(req, res) {
       ok: true,
       inserted: rows.length,
       doc_total_applied: docForFirst,
+      receipt_id: rid,
       group: { store: storeLabel, date: day }
     });
   } catch (e) {
