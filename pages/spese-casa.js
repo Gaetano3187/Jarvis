@@ -1,61 +1,22 @@
 // pages/spese-casa.js
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import { getJSON, postJSON } from '@/lib/http';
 
-/* ================= Helpers date & money ================= */
-function isoLocal(date = new Date()) {
-  const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-function smartDate(input) {
-  const s = String(input || '').trim().toLowerCase();
-  if (/\boggi\b/.test(s)) return isoLocal(new Date());
-  if (/\bieri\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() - 1); return isoLocal(d); }
-  if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d); }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-  if (m) { const dd = String(parseInt(m[1],10)).padStart(2,'0'); const mm = String(parseInt(m[2],10)).padStart(2,'0'); const yyyy = m[3]; return `${yyyy}-${mm}-${dd}`; }
-  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
-  if (m) { const yyyy = m[1]; const mm = String(parseInt(m[2],10)).padStart(2,'0'); const dd = String(parseInt(m[3],10)).padStart(2,'0'); return `${yyyy}-${mm}-${dd}`; }
-  const d = new Date(s); return isNaN(d) ? isoLocal(new Date()) : isoLocal(d);
-}
-function fmtDateIT(v) {
-  if (!v) return '-';
-  const s = String(v), ymd = s.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
-  if (ymd) { const [yy, mm, dd] = ymd.split('-').map(Number); return new Date(yy, mm - 1, dd).toLocaleDateString('it-IT'); }
-  return new Date(s).toLocaleDateString('it-IT');
-}
-function toNum(n){ const x = Number(n); return Number.isFinite(x) ? x : 0; }
-function eur(n){ return (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'}); }
+function isoLocal(d=new Date()){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),da=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${da}`;}
+function eur(n){ return (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'}) }
+function toNum(n){ const v=Number(n); return Number.isFinite(v)?v:0; }
 
-/* ============ Totale pagina: usa doc_total se presente (per gruppo) ============ */
-function sumReceipts(rows = []) {
-  const groups = new Map();
-  for (const r of rows) {
-    const k = r.receipt_id
-      ? `rid:${r.receipt_id}`
-      : `sd:${String(r.store||'').toLowerCase().trim()}|${String(r.purchase_date||r.created_at||'').slice(0,10)}`;
-    const g = groups.get(k) || { docTotal: 0, sumLines: 0 };
-    g.docTotal = Math.max(g.docTotal, Number(r.doc_total || 0) || 0);
-    g.sumLines += Number(r.price_total || 0) || 0;
-    groups.set(k, g);
-  }
-  let tot = 0; groups.forEach(g => { tot += g.docTotal > 0 ? g.docTotal : g.sumLines; });
-  return tot;
-}
-
-/* ============================ Component ============================ */
-function SpeseCasa() {
+export default withAuth(function SpeseCasa() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [showManual, setShowManual] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
-  // OCR & VOCE refs
+  // OCR & VOCE
   const ocrInputRef = useRef(null);
   const mediaRecRef = useRef(null);
   const streamRef = useRef(null);
@@ -64,11 +25,15 @@ function SpeseCasa() {
   const [stopping, setStopping] = useState(false);
   const mimeRef = useRef('');
 
-  // filtri da querystring (rid prioritario)
-  const { rid } = useMemo(() => {
-    if (typeof window === 'undefined') return { rid:'' };
+  // filtri da query (rid prioritario)
+  const { rid, qsStore, qsDate } = useMemo(() => {
+    if (typeof window === 'undefined') return { rid:'', qsStore:'', qsDate:'' };
     const sp = new URLSearchParams(window.location.search);
-    return { rid: sp.get('rid') || '' };
+    return {
+      rid: sp.get('rid') || '',
+      qsStore: sp.get('store') || '',
+      qsDate: sp.get('date') || '',
+    };
   }, []);
 
   // range mese corrente (se non c'è rid)
@@ -76,13 +41,13 @@ function SpeseCasa() {
   const periodStart = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
   const periodEnd   = isoLocal(new Date(now.getFullYear(), now.getMonth()+1, 0));
 
-  const fetchRows = useCallback(async () => {
+  const fetchRows = async () => {
     setLoading(true); setErr(null);
     try {
-      const query = rid ? { rid } : {};
-      const j = await getJSON('/api/spese-casa/list', { query });
+      const q = rid ? { rid } : (qsStore && qsDate ? { store: qsStore, date: qsDate } : {});
+      const j = await getJSON('/api/spese-casa/list', { query: q });
       let data = Array.isArray(j?.rows) ? j.rows : [];
-      if (!rid) {
+      if (!rid && !qsStore) {
         data = data.filter(r => {
           const d = String(r.purchase_date || r.created_at || '').slice(0,10);
           return d >= periodStart && d <= periodEnd;
@@ -91,24 +56,15 @@ function SpeseCasa() {
       setRows(data);
     } catch (e) {
       setErr(e?.message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [rid, periodStart, periodEnd]);
+    } finally { setLoading(false); }
+  };
 
-  useEffect(() => {
-    fetchRows();
-    const handler = () => fetchRows();
-    window.addEventListener('spese:ingest:done', handler);
-    return () => window.removeEventListener('spese:ingest:done', handler);
-  }, [fetchRows]);
+  useEffect(() => { fetchRows(); }, []); // al mount
 
-  /* =================== Inserimento manuale (via ingest API – 1 riga) =================== */
+  /* =================== Manual Add (via ingest API – 1 riga) =================== */
   const [form, setForm] = useState({
-    pv: '', indirizzo:'', luogo:'',
-    dettaglio:'', quantita:'1',
-    prezzoUnitario:'', prezzoTotale:'',
-    data:''
+    pv: '', dettaglio:'', quantita:'1',
+    prezzoUnitario:'', prezzoTotale:'', data:''
   });
 
   const qtyLive  = Math.max(1, parseFloat(form.quantita || '1') || 1);
@@ -118,8 +74,7 @@ function SpeseCasa() {
   const onSubmitManual = async (e) => {
     e.preventDefault(); setErr(null);
     try {
-      const storeFull = [form.pv, form.indirizzo, form.luogo].map(s=>String(s||'').trim()).filter(Boolean).join(' — ');
-      const dateISO = form.data ? smartDate(form.data) : isoLocal(new Date());
+      const dateISO = form.data ? form.data : isoLocal(new Date());
       const qty = Math.max(1, parseFloat(form.quantita) || 1);
       const unit = toNum(form.prezzoUnitario);
       let priceTotal = toNum(form.prezzoTotale);
@@ -127,10 +82,10 @@ function SpeseCasa() {
       const priceEach = unit > 0 ? unit : (qty ? priceTotal/qty : priceTotal);
 
       const payload = {
-        store: storeFull || form.pv || '',
+        store: form.pv || '',
         purchaseDate: dateISO,
         totalPaid: priceTotal,
-        receiptTotalAuthoritative: false,
+        receiptTotalAuthoritative: false, // una riga → non fissiamo doc_total
         items: [{
           name: form.dettaglio || '',
           brand: '',
@@ -147,10 +102,12 @@ function SpeseCasa() {
       const j = await postJSON('/api/spese-casa/ingest', payload);
       if (!j?.ok) throw new Error(j?.error || 'Insert fallito');
 
-      setForm({ pv:'', indirizzo:'', luogo:'', dettaglio:'', quantita:'1', prezzoUnitario:'', prezzoTotale:'', data:'' });
+      setForm({ pv:'', dettaglio:'', quantita:'1', prezzoUnitario:'', prezzoTotale:'', data:'' });
       setShowManual(false);
       await fetchRows();
-    } catch (e) { setErr(e?.message || String(e)); }
+    } catch (e) {
+      setErr(e?.message || String(e));
+    }
   };
 
   /* =================== Delete row =================== */
@@ -160,8 +117,11 @@ function SpeseCasa() {
       const j = await postJSON('/api/spese-casa/delete', { id });
       if (!j?.ok || !(j.deleted > 0)) throw new Error(j?.message || j?.error || 'Delete failed');
       await fetchRows();
-    } catch (e) { setErr(e?.message || String(e)); }
-    finally { setDeletingId(null); }
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   /* =================== OCR =================== */
@@ -171,16 +131,11 @@ function SpeseCasa() {
     try {
       const fd = new FormData();
       files.forEach(f => fd.append('images', f));
-      // OCR: prendi testo (o JSON vision)
       const resp = await fetch('/api/ocr', { method:'POST', body: fd });
       const ocr = await resp.json().catch(()=> ({}));
       if (!resp.ok) throw new Error(ocr?.error || 'OCR fallito');
-
-      // testo grezzo (preferito per assistant)
       const text = String(ocr?.text || ocr?.data?.text || ocr?.data || '').trim();
       if (!text) throw new Error('Nessun testo OCR');
-
-      // chiedi all'assistente di mappare in schema spesa
       const prompt = buildSystemPrompt('ocr', text, files.map(f=>f.name).join(', '));
       const r2 = await fetch('/api/assistant', {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -188,11 +143,9 @@ function SpeseCasa() {
       });
       const a2 = await r2.json().catch(()=> ({}));
       if (!r2.ok) throw new Error(a2?.error || 'Assistant fallito');
-
       const data = JSON.parse(a2.answer || '{}');
       await applyExpenseFromAssistant(data, text);
     } catch (e) {
-      console.error(e);
       setErr(e?.message || String(e));
     }
   };
@@ -223,7 +176,6 @@ function SpeseCasa() {
           const r = await fetch('/api/stt', { method:'POST', body: fd });
           const j = await r.json().catch(()=> ({}));
           if (!r.ok || !j?.text) throw new Error('STT fallito');
-
           const prompt = buildSystemPrompt('voice', j.text);
           const r2 = await fetch('/api/assistant', {
             method:'POST', headers:{'Content-Type':'application/json'},
@@ -231,11 +183,9 @@ function SpeseCasa() {
           });
           const a2 = await r2.json().catch(()=> ({}));
           if (!r2.ok) throw new Error(a2?.error || 'Assistant fallito');
-
           const data = JSON.parse(a2.answer || '{}');
           await applyExpenseFromAssistant(data, j.text);
         } catch (e) {
-          console.error(e);
           setErr(e?.message || String(e));
         } finally {
           try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
@@ -247,7 +197,6 @@ function SpeseCasa() {
       mr.start();
       setRecBusy(true);
     } catch (e) {
-      console.error(e);
       setErr('Microfono non disponibile');
       try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
       streamRef.current = null;
@@ -255,12 +204,7 @@ function SpeseCasa() {
       setStopping(false);
     }
   };
-
-  const stopVoice = async () => {
-    if (!recBusy || !mediaRecRef.current) return;
-    setStopping(true);
-    try { mediaRecRef.current.stop(); } catch {}
-  };
+  const stopVoice = async () => { if (recBusy && mediaRecRef.current) { setStopping(true); try { mediaRecRef.current.stop(); } catch {} } };
 
   /* ====== Prompt + Apply ====== */
   function buildSystemPrompt(source, userText, fileName) {
@@ -302,7 +246,7 @@ function SpeseCasa() {
     const saidIeri   = /\bieri\b/.test(raw);
     const saidDomani = /\bdomani\b/.test(raw);
 
-    let spentDate = smartDate(rc.data || '');
+    let spentDate = rc.data || isoLocal(new Date());
     if (saidOggi)   spentDate = isoLocal(new Date());
     if (saidIeri)  { const d = new Date(); d.setDate(d.getDate() - 1); spentDate = isoLocal(d); }
     if (saidDomani){ const d = new Date(); d.setDate(d.getDate() + 1); spentDate = isoLocal(d); }
@@ -313,7 +257,6 @@ function SpeseCasa() {
     const storeFull    = [puntoVendita, indirizzo, luogo].filter(Boolean).join(' — ');
     const totaleScontrino = toNum(rc.totaleScontrino);
 
-    // Mappa items → schema ingest
     const items = data.items.map(it => {
       const qty = Math.max(1, parseFloat(it.quantita) || 1);
       const unit = toNum(it.prezzoUnitario);
@@ -333,18 +276,16 @@ function SpeseCasa() {
       };
     });
 
-    // 1) Inserisci le righe scontrino (spese-casa/ingest) → ricevo receipt_id
-    const payloadSpese = {
+    const sc = await postJSON('/api/spese-casa/ingest', {
       store: storeFull || puntoVendita,
       purchaseDate: spentDate,
       totalPaid: totaleScontrino,
       receiptTotalAuthoritative: !!totaleScontrino,
       items
-    };
-    const sc = await postJSON('/api/spese-casa/ingest', payloadSpese);
+    });
     if (!sc?.ok) throw new Error(sc?.error || 'Insert spese fallito');
 
-    // 2) Se ho totale scontrino, inserisco anche in Finanze la riga sintetica
+    // movimento sintetico in Finanze (consigliato) — opzionale
     if (totaleScontrino > 0) {
       try {
         await postJSON('/api/finances/ingest', {
@@ -356,15 +297,10 @@ function SpeseCasa() {
           totalPaid: totaleScontrino,
           receiptTotalAuthoritative: true
         });
-      } catch (e) {
-        console.warn('[Finanze ingest] warning:', e?.message || e);
-      }
+      } catch (e) { /* soft-fail */ }
     }
 
-    // 3) refresh (se arrivo da redirect con rid, potrei navigare)
     await fetchRows();
-
-    // 4) Redirect allo scontrino appena aggiunto per vederlo isolato (opzionale)
     if (sc?.receipt_id && !rid) {
       const u = new URL(window.location.href);
       u.searchParams.set('rid', sc.receipt_id);
@@ -372,18 +308,18 @@ function SpeseCasa() {
     }
   }
 
-  /* =================== Totali =================== */
-  const totalePagina = sumReceipts(rows);
+  const totale = rows.reduce((s,r)=> s + (Number(r.price_total)||0), 0);
+  const docSum = rows.reduce((s,r)=> s + (Number(r.doc_total)||0), 0);
+  const docShown = docSum > 0 ? docSum : totale;
 
   return (
     <>
       <Head><title>Spese Casa</title></Head>
-
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
             <h2 className="title">🏠 Spese Casa {rid ? <small style={{opacity:.8}}>(scontrino)</small> : <small style={{opacity:.8}}>(mese corrente)</small>}</h2>
-            <Link href="/finanze" className="btn-manuale">📊 Vai a Finanze</Link>
+            <Link href="/entrate" className="btn-manuale">↩ Entrate & Saldi</Link>
           </div>
 
           <div className="table-buttons">
@@ -402,19 +338,8 @@ function SpeseCasa() {
               <label>Punto vendita</label>
               <input value={form.pv} onChange={e=>setForm(f=>({...f, pv:e.target.value}))} required />
 
-              <div className="row-2">
-                <div>
-                  <label>Indirizzo</label>
-                  <input value={form.indirizzo} onChange={e=>setForm(f=>({...f, indirizzo:e.target.value}))} />
-                </div>
-                <div>
-                  <label>Luogo</label>
-                  <input value={form.luogo} onChange={e=>setForm(f=>({...f, luogo:e.target.value}))} />
-                </div>
-              </div>
-
               <label>Dettaglio prodotto/servizio</label>
-              <textarea value={form.dettaglio} onChange={e=>setForm(f=>({...f, dettaglio:e.target.value}))} required />
+              <input value={form.dettaglio} onChange={e=>setForm(f=>({...f, dettaglio:e.target.value}))} required />
 
               <div className="row-3">
                 <div>
@@ -471,7 +396,7 @@ function SpeseCasa() {
                     return (
                       <tr key={r.id}>
                         <td>{r.store || '-'}</td>
-                        <td>{fmtDateIT(r.purchase_date || r.created_at)}</td>
+                        <td>{new Date(r.purchase_date || r.created_at).toLocaleDateString('it-IT')}</td>
                         <td>{r.name || '-'}</td>
                         <td>{qty}</td>
                         <td>{eur(r.price_each)}</td>
@@ -491,11 +416,15 @@ function SpeseCasa() {
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={5} style={{textAlign:'right', fontWeight:700}}>Totale {rid ? 'scontrino' : 'mese'}:</td>
+                    <td style={{fontWeight:800}}>{eur(docShown)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
             )}
-            <div className="total-box">
-              Totale {rid ? 'scontrino' : 'mese'}: <b>{eur(totalePagina)}</b>
-            </div>
           </div>
         </div>
       </div>
@@ -503,29 +432,23 @@ function SpeseCasa() {
       <style jsx>{`
         .spese-casa-container1 { width:100%; display:flex; align-items:center; justify-content:center; background:#0f172a; min-height:100vh; padding:2rem; font-family: Inter, sans-serif; }
         .spese-casa-container2 { background:rgba(0, 0, 0, 0.6); padding:2rem; border-radius:1rem; color:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.3); max-width: 1100px; width:100%; }
-        .title { margin-bottom:1rem; font-size:1.5rem; }
-        .table-buttons { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; align-items:center; }
-        .btn-ocr, .btn-manuale, .btn-vocale { display:inline-block; text-align:center; background:#10b981; color:#fff; border:none; padding:.5rem 1rem; border-radius:.5rem; cursor:pointer; text-decoration:none; }
+        .title { margin:0; font-size:1.5rem; }
+        .table-buttons { display:flex; flex-wrap:wrap; gap:.6rem; margin:.5rem 0 1rem; align-items:center; }
+        .btn-vocale, .btn-ocr, .btn-manuale { background:#10b981; color:#fff; border:0; padding:.5rem 1rem; border-radius:.5rem; cursor:pointer; }
         .btn-ocr { background:#f43f5e; }
-        .btn-vocale { background:#6366f1; }
-        .input-section { display:flex; flex-direction:column; gap:.75rem; margin-bottom:1.25rem; background:rgba(255,255,255,0.06); padding:1rem; border-radius:.75rem; }
-        .row-2 { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; }
-        .row-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:.75rem; }
-        @media (max-width: 760px) { .row-2, .row-3 { grid-template-columns: 1fr; } }
-        input, textarea, select { width:100%; padding:.6rem; border:none; border-radius:.5rem; background:rgba(255,255,255,0.1); color:#fff; }
-        textarea { resize:vertical; min-height:4.5rem; }
+        .input-section { display:flex; flex-direction:column; gap:.6rem; margin-bottom:1rem; background:rgba(255,255,255,0.06); padding:1rem; border-radius:.75rem; }
+        .row-2 { display:grid; grid-template-columns: 1fr 1fr; gap:.6rem; }
+        .row-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:.6rem; }
+        @media (max-width:760px){ .row-2, .row-3 { grid-template-columns: 1fr; } }
+        input, textarea { width:100%; padding:.55rem; border-radius:.5rem; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.08); color:#fff; }
         .custom-table { width:100%; border-collapse:collapse; }
-        .custom-table th, .custom-table td { padding:.75rem 1rem; border-bottom:1px solid rgba(255,255,255,0.1); vertical-align:top; }
-        .custom-table thead { background:#1f2937; }
-        .total-box { margin-top:1rem; background:rgba(34,197,94,0.8); padding:1rem; border-radius:.5rem; text-align:right; font-weight:600; }
-        .error { color:#f87171; margin-top:1rem; }
-        .icon-trash { background:transparent; border:1px solid rgba(239,68,68,.55); color:#f87171; padding:.35rem .55rem; border-radius:.5rem; cursor:pointer; }
-        .icon-trash:hover { background:rgba(239,68,68,.12); }
-        .icon-trash:disabled { opacity:.55; cursor:not-allowed; }
-        .live-total { display:flex; align-items:flex-end; font-weight:600; color:#c7f9cc; }
+        .custom-table th, .custom-table td { padding:.65rem .6rem; border-bottom:1px solid rgba(255,255,255,.12); }
+        .icon-trash { background:transparent; border:1px solid rgba(248,113,113,.45); color:#f87171; border-radius:.5rem; padding:.3rem .55rem; cursor:pointer; }
+        .icon-trash:hover { background:rgba(248,113,113,.12); }
+        .error { color:#f87171; margin-top:.8rem; }
+        .btn-manuale { background:#10b981; }
+        .btn-vocale { background:#6366f1; }
       `}</style>
     </>
   );
-}
-
-export default withAuth(SpeseCasa);
+});
