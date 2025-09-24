@@ -1,7 +1,6 @@
 // pages/api/finances/ingest.js
 // Inserisce 1 riga in public.jarvis_finanze per il movimento sintetico (spesa negativa)
 
-import { createClient } from '@supabase/supabase-js';
 // /pages/api/finances/ingest.js
 import { createClient } from '@supabase/supabase-js';
 

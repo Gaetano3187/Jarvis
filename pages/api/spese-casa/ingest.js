@@ -1,6 +1,5 @@
 // pages/api/spese-casa/ingest.js
- import { createClient } from '@supabase/supabase-js';
- import { randomUUID } from 'node:crypto';
+ import { createClient } from '@supabase/supabase-js'; import { randomUUID } from 'node:crypto';
  // /pages/api/spese-casa/ingest.js
 import { createClient } from '@supabase/supabase-js';
 
