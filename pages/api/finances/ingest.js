@@ -1,91 +1,15 @@
 // /pages/api/finances/ingest.js
 import { createClient } from '@supabase/supabase-js';
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+const TABLE_HEAD  = 'jarvis_finanze';   // riga "testa spesa" (totale negativo)
+const TABLE_LINES = 'jarvis_finances';  // righe analitiche opzionali
 
-  // ✅ crea un client server-side per questa richiesta, propagando il JWT del client
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: req.headers.authorization || '' } } }
-  );
-
-  try {
-    const {
-      user_id,
-      store,
-      purchaseDate,
-      payment_method = 'cash',
-      card_label = null,
-      items = [],
-      totalPaid = 0,
-      receipt_id,
-      link_label,
-      link_path,
-    } = req.body || {};
-
-    if (!user_id || !purchaseDate || !receipt_id) {
-      return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
-    }
-
-    // 1) testa spesa su jarvis_finanze (importo negativo)
-    const head = {
-      user_id,
-      date: purchaseDate,
-      amount: Number(-Math.abs(totalPaid || 0)),
-      description: link_label
-        ? `${link_label} — clicca per dettagli`
-        : `Spesa ${store || ''} — clicca per dettagli`,
-      method: payment_method,
-      card_label,
-    };
-
-    const { error: e1, data: d1 } = await supabase
-      .from('jarvis_finanze')
-      .insert(head)
-      .select('id')
-      .single();
-    if (e1) throw e1;
-
-    // 2) righe analitiche opzionali
-    if (Array.isArray(items) && items.length) {
-      const rows = items.map(p => ({
-        user_id,
-        store,
-        purchase_date: purchaseDate,
-        payment_method,
-        card_label,
-        name: p.name || '',
-        brand: p.brand || '',
-        packs: Number(p.packs || 1),
-        units_per_pack: Number(p.unitsPerPack || 1),
-        unit_label: p.unitLabel || 'unità',
-        price_each: Number(p.priceEach || 0),
-        price_total: Number(p.priceTotal || 0),
-        currency: p.currency || 'EUR',
-        expires_at: p.expiresAt || null,
-        location: null,
-      }));
-      const { error: e2 } = await supabase.from('jarvis_finances').insert(rows);
-      if (e2) throw e2;
-    }
-
-    return res.status(200).json({ ok: true, receipt_id, link_path, finance_head_id: d1?.id || null });
-  } catch (err) {
-    return res.status(500).json({ error: String(err.message || err) });
-  }
-}
-
-
-
-const TBL_FIN = 'jarvis_finanze';
-
-function toNum(n) {
+function toNumber(n) {
   const v = Number(n);
   return Number.isFinite(v) ? v : 0;
 }
-function isoDate(s) {
+
+function toIsoDate(s) {
   if (!s) return new Date().toISOString().slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
@@ -93,71 +17,111 @@ function isoDate(s) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // ✅ JWT dal client (lib/http.js mette Authorization: Bearer …)
-  const authHeader = req.headers.authorization || '';
+  // ✅ Client server-side per questa richiesta (RLS via JWT del client)
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: authHeader } } }
+    {
+      global: { headers: { Authorization: req.headers.authorization || '' } },
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+    }
   );
-
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) {
-    return res.status(401).json({ ok: false, error: 'Not authenticated' });
-  }
 
   try {
     const {
+      user_id,
       store = '',
       purchaseDate,
       payment_method = 'cash',
       card_label = null,
       items = [],
       totalPaid = 0,
-      receiptTotalAuthoritative = false,
+      receipt_id,                    // ⬅️ per collegarsi a /spese-casa
+      link_label,                    // es. "Spesa Maxi Store Decò (2025-09-24)"
+      link_path,                     // es. "/spese-casa?rid=<uuid>"
+      receiptTotalAuthoritative = true
     } = req.body || {};
 
-    // Somma righe: supporta priceTotal (camel) e price_total (snake)
-    const sumFromLines = (Array.isArray(items) ? items : []).reduce((sum, it) => {
-      const line = toNum(it?.priceTotal ?? it?.price_total);
-      return sum + line;
-    }, 0);
-
-    const day = isoDate(purchaseDate);
-    let grand = receiptTotalAuthoritative && toNum(totalPaid) > 0
-      ? toNum(totalPaid)
-      : toNum(sumFromLines);
-    grand = Number(grand.toFixed(2));
-
-    // Se non arriva nulla, non ha senso inserire 0: blocca gentilmente
-    if (!grand) {
-      return res.status(400).json({ ok: false, error: 'Importo totale nullo: totalPaid o items.priceTotal mancanti' });
+    // Validazioni minime
+    if (!user_id || !purchaseDate) {
+      return res.status(400).json({ error: 'user_id e purchaseDate sono obbligatori' });
+    }
+    if (!receipt_id) {
+      // Lo richiediamo per coerenza col linking cross-pagina
+      return res.status(400).json({ error: 'receipt_id è obbligatorio per il linking' });
     }
 
-    // Spesa = importo negativo
-    const amount = -Math.abs(grand);
-    const row = {
-      user_id: user.id,
+    const day = toIsoDate(purchaseDate);
+
+    // Totale: privilegia il totalPaid se autorevole, altrimenti somma righe
+    const sumLines = (Array.isArray(items) ? items : []).reduce(
+      (s, it) => s + toNumber(it?.priceTotal ?? it?.price_total),
+      0
+    );
+    let grand = receiptTotalAuthoritative && toNumber(totalPaid) > 0
+      ? toNumber(totalPaid)
+      : sumLines;
+    grand = Math.round(grand * 100) / 100;
+
+    if (!grand) {
+      return res.status(400).json({ error: 'Importo totale nullo: totalPaid o items.priceTotal mancanti' });
+    }
+
+    // 1) Inserisce la TESTA SPESA (importo negativo)
+    const description =
+      (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store || '').trim()} — clicca per dettagli`);
+
+    const headRow = {
+      user_id,
       date: day,
-      amount,
-      description: `Spesa ${String(store || '').trim()}`,
+      amount: -Math.abs(grand),  // spesa = negativo
+      description,
       method: payment_method,
-      card_label,
+      card_label
     };
 
-    // Ritorna l'id inserito per comodità
-    const { data, error } = await supabase.from(TBL_FIN).insert(row).select('id').single();
-    if (error) {
-      return res.status(400).json({ ok: false, error: error.message || 'Insert failed' });
+    const { data: headIns, error: headErr } = await supabase
+      .from(TABLE_HEAD)
+      .insert(headRow)
+      .select('id')
+      .single();
+
+    if (headErr) throw headErr;
+
+    // 2) (Opzionale) righe analitiche per statistiche/store ranking
+    if (Array.isArray(items) && items.length) {
+      const rows = items.map(p => ({
+        user_id,
+        store,
+        purchase_date: day,
+        payment_method,
+        card_label,
+        name: p?.name ?? '',
+        brand: p?.brand ?? '',
+        packs: toNumber(p?.packs ?? 1),
+        units_per_pack: toNumber(p?.unitsPerPack ?? 1),
+        unit_label: p?.unitLabel ?? 'unità',
+        price_each: toNumber(p?.priceEach ?? 0),
+        price_total: toNumber(p?.priceTotal ?? 0),
+        currency: p?.currency ?? 'EUR',
+        expires_at: p?.expiresAt ?? null,
+        location: null
+      }));
+
+      const { error: linesErr } = await supabase.from(TABLE_LINES).insert(rows);
+      if (linesErr) throw linesErr;
     }
 
-    return res.status(200).json({ ok: true, inserted: 1, id: data?.id || null, usedTotal: grand });
-  } catch (e) {
-    console.error('[finances/ingest]', e);
-    return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    return res.status(200).json({
+      ok: true,
+      finance_head_id: headIns?.id ?? null,
+      receipt_id,
+      link_path: link_path || null,
+      usedTotal: grand
+    });
+  } catch (err) {
+    return res.status(500).json({ error: String(err?.message || err) });
   }
 }

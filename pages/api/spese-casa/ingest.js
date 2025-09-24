@@ -1,89 +1,44 @@
-// pages/api/spese-casa/ingest.js
- import { createClient } from '@supabase/supabase-js';
- import { randomUUID } from 'node:crypto';
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+// /pages/api/spese-casa/ingest.js
+import { createClient } from '@supabase/supabase-js';
 
-  // ✅ client server-side per questa richiesta (RLS con JWT del client)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: req.headers.authorization || '' } } }
-  );
+const TABLE = 'jarvis_spese_casa';
 
-  try {
-    const {
-      user_id,
-      store,
-      purchaseDate,
-      items = [],
-      totalPaid = 0,
-      receipt_id,
-      link_label,
-      link_path,
-    } = req.body || {};
-
-    if (!user_id || !purchaseDate || !receipt_id) {
-      return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
-    }
-    if (!Array.isArray(items) || !items.length) {
-      return res.status(400).json({ error: 'items è vuoto' });
-    }
-
-    const rows = items.map((p, i) => ({
-      user_id,
-      store,
-      purchase_date: purchaseDate,
-      doc_total: i === 0 ? Number(totalPaid || 0) : null,
-      name: p.name || '',
-      brand: p.brand || '',
-      packs: Number(p.packs || 1),
-      units_per_pack: Number(p.unitsPerPack || 1),
-      unit_label: p.unitLabel || 'unità',
-      price_each: Number(p.priceEach || 0),
-      price_total: Number(p.priceTotal || 0),
-      currency: p.currency || 'EUR',
-      expires_at: p.expiresAt || null,
-      receipt_id,
-    }));
-
-    const { error: e1, count } = await supabase
-      .from('jarvis_spese_casa')
-      .insert(rows, { count: 'exact' });
-    if (e1) throw e1;
-
-    return res.status(200).json({ ok: true, inserted: count || rows.length, receipt_id, link_path, link_label });
-  } catch (err) {
-    return res.status(500).json({ error: String(err.message || err) });
-  }
+function toNumber(n) {
+  const v = Number(n);
+  return Number.isFinite(v) ? v : 0;
 }
-
-
-const TBL_SPESA = 'jarvis_spese_casa';
-
-function toNum(n){ const v = Number(n); return Number.isFinite(v) ? v : 0; }
-function isoDate(s){
-  if (!s) return new Date().toISOString().slice(0,10);
+function toIsoDate(s) {
+  if (!s) return new Date().toISOString().slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
-  return isNaN(d) ? new Date().toISOString().slice(0,10) : d.toISOString().slice(0,10);
+  return Number.isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
 }
-function normalizeLine(it) {
-  const packs = Math.max(1, toNum(it.packs ?? it.qty ?? 1));
-  const upp   = Math.max(1, toNum(it.unitsPerPack ?? 1));
+function normalizeLine(it = {}) {
+  const packs = Math.max(1, toNumber(it.packs ?? it.qty ?? 1));
+  const upp   = Math.max(1, toNumber(it.unitsPerPack ?? 1));
   const totalUnits = packs * upp;
-  let priceEach  = toNum(it.priceEach);
-  let priceTotal = toNum(it.priceTotal);
 
-  if (totalUnits <= 1) { const val = priceEach || priceTotal; priceEach = val; priceTotal = val; }
-  else { if (priceEach) priceTotal = Number((priceEach * totalUnits).toFixed(2)); else priceEach = totalUnits ? Number((priceTotal/totalUnits).toFixed(4)) : 0; }
+  let priceEach  = toNumber(it.priceEach);
+  let priceTotal = toNumber(it.priceTotal);
+
+  if (totalUnits <= 1) {
+    const val = priceEach || priceTotal;
+    priceEach = val;
+    priceTotal = val;
+  } else {
+    if (priceEach) {
+      priceTotal = Number((priceEach * totalUnits).toFixed(2));
+    } else {
+      priceEach = totalUnits ? Number((priceTotal / totalUnits).toFixed(4)) : 0;
+    }
+  }
 
   return {
-    name: (it.name||'').trim(),
-    brand: (it.brand||'').trim() || null,
+    name: (it.name || '').trim(),
+    brand: (it.brand || '').trim() || null,
     packs,
     units_per_pack: upp,
-    unit_label: (it.unitLabel || it.uom || 'unità'),
+    unit_label: it.unitLabel || it.uom || 'unità',
     price_each: priceEach,
     price_total: priceTotal,
     currency: it.currency || 'EUR',
@@ -92,65 +47,76 @@ function normalizeLine(it) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method not allowed' });
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const authHeader = req.headers.authorization || '';
+  // ✅ Client server-side per questa richiesta (RLS via JWT del client)
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: authHeader } } }
+    {
+      global: { headers: { Authorization: req.headers.authorization || '' } },
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+    }
   );
-
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return res.status(401).json({ ok:false, error:'Not authenticated' });
 
   try {
     const {
+      user_id,
       store = '',
       purchaseDate,
-      totalPaid = 0,
       items = [],
-      receiptTotalAuthoritative = false,
-      receipt_id: ridFromBody
+      totalPaid = 0,
+      receipt_id,                        // ⬅️ obbligatoria per il linking
+      link_label,                        // (echo, non salvato a DB qui)
+      link_path,                         // (echo, non salvato a DB qui)
+      receiptTotalAuthoritative = true,  // se true, usa totalPaid come doc_total prima riga
     } = req.body || {};
 
+    if (!user_id || !purchaseDate || !receipt_id) {
+      return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
+    }
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ ok:false, error:'No items' });
+      return res.status(400).json({ error: 'items è vuoto' });
     }
 
-    const storeLabel = String(store || '').trim();
-    const day = isoDate(purchaseDate);
+    const day = toIsoDate(purchaseDate);
     const lines = items.map(normalizeLine).filter(r => r.name);
 
-    // genera o riusa un receipt_id
-const rid = String(ridFromBody || (globalThis.crypto?.randomUUID?.() ?? randomUUID()));
+    const docTotalForFirst =
+      receiptTotalAuthoritative && toNumber(totalPaid) > 0
+        ? Number(toNumber(totalPaid).toFixed(2))
+        : null;
 
-    // applica doc_total alla prima riga del gruppo, se passato come autorevole
-    const docForFirst = (receiptTotalAuthoritative && toNum(totalPaid) > 0)
-      ? Number(toNum(totalPaid).toFixed(2))
-      : 0;
-
-    const rows = lines.map((r, idx) => ({
-      user_id: user.id,
-      store: storeLabel || null,
+    const rows = lines.map((r, i) => ({
+      user_id,
+      store: store || null,
       purchase_date: day,
-      doc_total: idx === 0 ? docForFirst : 0,
-      receipt_id: rid,
-      ...r,
+      doc_total: i === 0 ? docTotalForFirst : null,
+      name: r.name,
+      brand: r.brand,
+      packs: r.packs,
+      units_per_pack: r.units_per_pack,
+      unit_label: r.unit_label,
+      price_each: r.price_each,
+      price_total: r.price_total,
+      currency: r.currency,
+      expires_at: r.expires_at,
+      receipt_id,
     }));
 
-    const { error: insErr } = await supabase.from(TBL_SPESA).insert(rows);
+    const { error: insErr, count } = await supabase
+      .from(TABLE)
+      .insert(rows, { count: 'exact' });
     if (insErr) throw insErr;
 
     return res.status(200).json({
       ok: true,
-      inserted: rows.length,
-      doc_total_applied: docForFirst,
-      receipt_id: rid,
-      group: { store: storeLabel, date: day }
+      inserted: count || rows.length,
+      receipt_id,
+      link_path: link_path || null,
+      link_label: link_label || null,
     });
-  } catch (e) {
-    console.error('[spese-casa/ingest]', e);
-    return res.status(500).json({ ok:false, error: e?.message || String(e) });
+  } catch (err) {
+    return res.status(500).json({ error: String(err?.message || err) });
   }
 }
