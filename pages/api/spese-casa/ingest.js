@@ -1,8 +1,6 @@
 // pages/api/spese-casa/ingest.js
- import { createClient } from '@supabase/supabase-js'; import { randomUUID } from 'node:crypto';
- // /pages/api/spese-casa/ingest.js
-import { createClient } from '@supabase/supabase-js';
-
+ import { createClient } from '@supabase/supabase-js';
+ import { randomUUID } from 'node:crypto';
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
