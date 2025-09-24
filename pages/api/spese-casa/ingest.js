@@ -1,4 +1,3 @@
-// /pages/api/spese-casa/ingest.js
 import { createClient } from '@supabase/supabase-js';
 
 const TABLE = 'jarvis_spese_casa';
@@ -61,25 +60,31 @@ export default async function handler(req, res) {
 
   try {
     const {
-      user_id,
+      user_id,                       // opzionale: se assente lo ricavo dal JWT
       store = '',
-      purchaseDate,
+      purchaseDate,                  // può arrivare vuoto → lo normalizzo
       items = [],
       totalPaid = 0,
-      receipt_id,                        // ⬅️ obbligatoria per il linking
-      link_label,                        // (echo, non salvato a DB qui)
-      link_path,                         // (echo, non salvato a DB qui)
-      receiptTotalAuthoritative = true,  // se true, usa totalPaid come doc_total prima riga
+      receipt_id,                    // ⬅️ OBBLIGATORIO per il linking
+      link_label,                    // echo (non salvato qui)
+      link_path,                     // echo (non salvato qui)
+      receiptTotalAuthoritative = true,
     } = req.body || {};
 
-    if (!user_id || !purchaseDate || !receipt_id) {
-      return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
+    // Ricavo l'utente dal JWT (prioritario rispetto al body)
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) return res.status(401).json({ error: 'Not authenticated' });
+    const uid = userData?.user?.id || user_id;
+    if (!uid) return res.status(401).json({ error: 'Missing user' });
+
+    if (!receipt_id) {
+      return res.status(400).json({ error: 'receipt_id è obbligatorio' });
     }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'items è vuoto' });
     }
 
-    const day = toIsoDate(purchaseDate);
+    const day = toIsoDate(purchaseDate);         // ← mai stringa vuota
     const lines = items.map(normalizeLine).filter(r => r.name);
 
     const docTotalForFirst =
@@ -88,7 +93,7 @@ export default async function handler(req, res) {
         : null;
 
     const rows = lines.map((r, i) => ({
-      user_id,
+      user_id: uid,
       store: store || null,
       purchase_date: day,
       doc_total: i === 0 ? docTotalForFirst : null,
