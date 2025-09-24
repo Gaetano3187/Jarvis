@@ -3,11 +3,19 @@
 
 import { createClient } from '@supabase/supabase-js';
 // /pages/api/finances/ingest.js
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // ✅ crea un client server-side per questa richiesta, propagando il JWT del client
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { global: { headers: { Authorization: req.headers.authorization || '' } } }
+  );
+
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     const {
       user_id,
       store,
@@ -16,27 +24,25 @@ export default async function handler(req, res) {
       card_label = null,
       items = [],
       totalPaid = 0,
-      receipt_id,            // ⬅️ arriva dal client
-      link_label,            // es. "Spesa Maxi Store Decò (2025-09-24)"
-      link_path,             // es. "/spese-casa?rid=<uuid>"
+      receipt_id,
+      link_label,
+      link_path,
     } = req.body || {};
 
     if (!user_id || !purchaseDate || !receipt_id) {
       return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
     }
 
-    // 1) TESTA SPESA su jarvis_finanze (una sola riga, importo negativo)
+    // 1) testa spesa su jarvis_finanze (importo negativo)
     const head = {
       user_id,
       date: purchaseDate,
-      amount: Number(-Math.abs(totalPaid || 0)), // spesa = negativo
+      amount: Number(-Math.abs(totalPaid || 0)),
       description: link_label
         ? `${link_label} — clicca per dettagli`
         : `Spesa ${store || ''} — clicca per dettagli`,
       method: payment_method,
       card_label,
-      // (facoltativo) se vuoi persistere il link in descrizione HTML/MD
-      // oppure salva il link_path in una tua colonna se l'hai prevista
     };
 
     const { error: e1, data: d1 } = await supabase
@@ -44,11 +50,9 @@ export default async function handler(req, res) {
       .insert(head)
       .select('id')
       .single();
-
     if (e1) throw e1;
-    const finance_head_id = d1?.id || null;
 
-    // 2) Righe analitiche per statistiche (facoltative ma utili)
+    // 2) righe analitiche opzionali
     if (Array.isArray(items) && items.length) {
       const rows = items.map(p => ({
         user_id,
@@ -65,22 +69,18 @@ export default async function handler(req, res) {
         price_total: Number(p.priceTotal || 0),
         currency: p.currency || 'EUR',
         expires_at: p.expiresAt || null,
-        location: null
+        location: null,
       }));
       const { error: e2 } = await supabase.from('jarvis_finances').insert(rows);
       if (e2) throw e2;
     }
 
-    return res.status(200).json({
-      ok: true,
-      receipt_id,
-      finance_head_id,
-      link_path, // utile per echo o redirect lato client
-    });
+    return res.status(200).json({ ok: true, receipt_id, link_path, finance_head_id: d1?.id || null });
   } catch (err) {
     return res.status(500).json({ error: String(err.message || err) });
   }
 }
+
 
 
 const TBL_FIN = 'jarvis_finanze';

@@ -2,26 +2,34 @@
  import { createClient } from '@supabase/supabase-js';
  import { randomUUID } from 'node:crypto';
  // /pages/api/spese-casa/ingest.js
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // ✅ client server-side per questa richiesta (RLS con JWT del client)
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { global: { headers: { Authorization: req.headers.authorization || '' } } }
+  );
+
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     const {
       user_id,
       store,
       purchaseDate,
       items = [],
       totalPaid = 0,
-      receipt_id,       // ⬅️ OBBLIGATORIO per il linking
-      link_label,       // (fac.)
-      link_path,        // (fac.)
+      receipt_id,
+      link_label,
+      link_path,
     } = req.body || {};
 
     if (!user_id || !purchaseDate || !receipt_id) {
       return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
     }
-    if (!Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(items) || !items.length) {
       return res.status(400).json({ error: 'items è vuoto' });
     }
 
@@ -29,7 +37,7 @@ export default async function handler(req, res) {
       user_id,
       store,
       purchase_date: purchaseDate,
-      doc_total: i === 0 ? Number(totalPaid || 0) : null, // opzionale
+      doc_total: i === 0 ? Number(totalPaid || 0) : null,
       name: p.name || '',
       brand: p.brand || '',
       packs: Number(p.packs || 1),
@@ -39,22 +47,15 @@ export default async function handler(req, res) {
       price_total: Number(p.priceTotal || 0),
       currency: p.currency || 'EUR',
       expires_at: p.expiresAt || null,
-      receipt_id, // ⬅️ CHIAVE DI COLLEGAMENTO
+      receipt_id,
     }));
 
     const { error: e1, count } = await supabase
       .from('jarvis_spese_casa')
       .insert(rows, { count: 'exact' });
-
     if (e1) throw e1;
 
-    return res.status(200).json({
-      ok: true,
-      inserted: count || rows.length,
-      receipt_id,
-      link_path,  // utile per redirect/echo
-      link_label, // utile per echo
-    });
+    return res.status(200).json({ ok: true, inserted: count || rows.length, receipt_id, link_path, link_label });
   } catch (err) {
     return res.status(500).json({ error: String(err.message || err) });
   }
