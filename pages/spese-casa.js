@@ -334,13 +334,18 @@ function SpeseCasa() {
     });
 
     // 1) Inserisci le righe scontrino (spese-casa/ingest) → ricevo receipt_id
-    const payloadSpese = {
-      store: storeFull || puntoVendita,
-      purchaseDate: spentDate,
-      totalPaid: totaleScontrino,
-      receiptTotalAuthoritative: !!totaleScontrino,
-      items
-    };
+  const payloadSpese = {
+  user_id: uid,
+  store: meta.store,
+  purchaseDate: meta.purchaseDate,
+  totalPaid: meta.totalPaid,
+  items: itemsReadyDedup,
+  receipt_id: receiptId,     // ⬅️ IMPORTANTISSIMO
+  link_label: linkLabel,     // (comodo per echo lato UI)
+  link_path: linkPath,       // (comodo per echo lato UI)
+  receiptTotalAuthoritative: true
+};
+await postJSON('/api/spese-casa/ingest', payloadSpese);
     const sc = await postJSON('/api/spese-casa/ingest', payloadSpese);
     if (!sc?.ok) throw new Error(sc?.error || 'Insert spese fallito');
 

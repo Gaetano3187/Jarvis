@@ -1,6 +1,65 @@
 // pages/api/spese-casa/ingest.js
  import { createClient } from '@supabase/supabase-js';
  import { randomUUID } from 'node:crypto';
+ // /pages/api/spese-casa/ingest.js
+import { supabase } from '@/lib/supabaseClient';
+
+export default async function handler(req, res) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const {
+      user_id,
+      store,
+      purchaseDate,
+      items = [],
+      totalPaid = 0,
+      receipt_id,       // ⬅️ OBBLIGATORIO per il linking
+      link_label,       // (fac.)
+      link_path,        // (fac.)
+    } = req.body || {};
+
+    if (!user_id || !purchaseDate || !receipt_id) {
+      return res.status(400).json({ error: 'user_id, purchaseDate e receipt_id sono obbligatori' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items è vuoto' });
+    }
+
+    const rows = items.map((p, i) => ({
+      user_id,
+      store,
+      purchase_date: purchaseDate,
+      doc_total: i === 0 ? Number(totalPaid || 0) : null, // opzionale
+      name: p.name || '',
+      brand: p.brand || '',
+      packs: Number(p.packs || 1),
+      units_per_pack: Number(p.unitsPerPack || 1),
+      unit_label: p.unitLabel || 'unità',
+      price_each: Number(p.priceEach || 0),
+      price_total: Number(p.priceTotal || 0),
+      currency: p.currency || 'EUR',
+      expires_at: p.expiresAt || null,
+      receipt_id, // ⬅️ CHIAVE DI COLLEGAMENTO
+    }));
+
+    const { error: e1, count } = await supabase
+      .from('jarvis_spese_casa')
+      .insert(rows, { count: 'exact' });
+
+    if (e1) throw e1;
+
+    return res.status(200).json({
+      ok: true,
+      inserted: count || rows.length,
+      receipt_id,
+      link_path,  // utile per redirect/echo
+      link_label, // utile per echo
+    });
+  } catch (err) {
+    return res.status(500).json({ error: String(err.message || err) });
+  }
+}
+
 
 const TBL_SPESA = 'jarvis_spese_casa';
 

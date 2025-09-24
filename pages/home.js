@@ -687,22 +687,39 @@ const Home = () => {
         const storeIsSuper = (bucket !== 'cene-aperitivi' && /\b(supermercat|iper|market|discount|conad|coop|esselunga|carrefour|pam|despar|lidl|md|eurospin|todis|deco|decò|tigre|famila|dok|cra[iì]|penny)\b/i.test(meta.store||''));
 
         const notes = [];
+// ⬇️ subito prima della sezione "a) Finanze"
+const receiptId =
+  (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+
+// opzionale: testo link utile da riusare
+const linkLabel = `Spesa ${meta.store || 'supermercato'} (${meta.purchaseDate})`;
+const linkPath  = `/spese-casa?rid=${encodeURIComponent(receiptId)}`;
 
         // a) Finanze
         if (!uid) {
           notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
         } else {
           try {
-            const payloadFin = {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: meta.purchaseDate,
-              payment_method: 'cash',
-              card_label: null,
-              items: itemsReadyDedup,
-              totalPaid: meta.totalPaid,
-              receiptTotalAuthoritative: true
-            };
+          const payloadFin = {
+  user_id: uid,
+  store: meta.store,
+  purchaseDate: meta.purchaseDate,
+  payment_method: 'cash',
+  card_label: null,
+  // ⬇️ chiave di collegamento cross-tabella
+  receipt_id: receiptId,
+  // ⬇️ facoltativi ma comodi per render del link
+  link_label: linkLabel,
+  link_path: linkPath,
+  // totale documento (negativo lato finanze)
+  totalPaid: meta.totalPaid,
+  // (opzionale) righe per analytics su jarvis_finances
+  items: itemsReadyDedup,
+  receiptTotalAuthoritative: true
+};
+await postJSON('/api/finances/ingest', payloadFin);
             const finRes = await postJSON('/api/finances/ingest', payloadFin);
             if (finRes?.ok && (finRes?.inserted || 0) > 0) {
               if (typeof window !== 'undefined') {
