@@ -72,14 +72,15 @@ export default async function handler(req, res) {
     // 1) TESTA SPESA (no .select() → niente policy SELECT)
     const description =
       (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store||'').trim()} — clicca per dettagli`);
-    const headRow = {
-      user_id: uid,
-      date: day,                    // 👈 mai "", sempre YYYY-MM-DD
-      amount: -Math.abs(grand),     // spesa = negativo
-      description,
-      method: payment_method,
-      card_label
-    };
+   const headRow = {
+   user_id: uid,
+   date: day,
+   amount: -Math.abs(grand),
+  description,
+  method: payment_method,
+  card_label,
+   receipt_id            // ⬅️ salva l’ID per poter linkare
+};
 
     const { error: headErr } = await supabase
       .from(TABLE_HEAD)
