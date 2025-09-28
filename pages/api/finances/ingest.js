@@ -8,11 +8,13 @@ function toNumber(n) {
   const v = Number(n);
   return Number.isFinite(v) ? v : 0;
 }
-function toIsoDate(s) {
-  if (!s) return new Date().toISOString().slice(0, 10);
+function normalizeDate(input) {
+  const today = new Date().toISOString().slice(0, 10);
+  const s = (typeof input === 'string' ? input.trim() : '');
+  if (!s) return today;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
+  return Number.isNaN(d.getTime()) ? today : d.toISOString().slice(0, 10);
 }
 
 export default async function handler(req, res) {
@@ -28,7 +30,7 @@ export default async function handler(req, res) {
     }
   );
 
-  // ✅ Verifica autenticazione e coerenza user_id
+  // ✅ Verifica autenticazione
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userData?.user?.id) {
     return res.status(401).json({ error: 'Not authenticated (missing/invalid JWT)' });
@@ -38,7 +40,7 @@ export default async function handler(req, res) {
     const {
       user_id,                        // opzionale: se presente deve combaciare col JWT
       store = '',
-      purchaseDate,
+      purchaseDate,                   // può essere vuota/invalid -> normalizziamo
       payment_method = 'cash',
       card_label = null,
       items = [],
@@ -57,7 +59,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'receipt_id è obbligatorio' });
     }
 
-    const day = toIsoDate(purchaseDate);
+    // 🔒 Data SEMPRE valida (mai "")
+    const day = normalizeDate(purchaseDate);
 
     // Totale documento: preferisci totalPaid se autorevole, altrimenti somma righe
     const sumLines = (Array.isArray(items) ? items : []).reduce(
@@ -77,7 +80,7 @@ export default async function handler(req, res) {
 
     const headRow = {
       user_id: uid,
-      date: day,                  // 👈 sempre normalizzata
+      date: day,                  // 👈 SEMPRE una data valida YYYY-MM-DD
       amount: -Math.abs(grand),   // spesa = negativo
       description,
       method: payment_method,
@@ -96,10 +99,11 @@ export default async function handler(req, res) {
         code: headErr.code || null,
         details: headErr.details || null,
         hint: headErr.hint || null,
+        debug: { day }
       });
     }
 
-    // 2) RIGHE ANALITICHE (opzionali ma utili)
+    // 2) RIGHE ANALITICHE (opzionali)
     if (Array.isArray(items) && items.length) {
       const rows = items.map(p => ({
         user_id: uid,
@@ -125,7 +129,7 @@ export default async function handler(req, res) {
           error: linesErr.message || 'Insert lines failed',
           code: linesErr.code || null,
           details: linesErr.details || null,
-          hint: linesErr.hint || null,
+          hint: linesErr.hint || null
         });
       }
     }
@@ -135,7 +139,8 @@ export default async function handler(req, res) {
       finance_head_id: headIns?.id ?? null,
       receipt_id,
       link_path: link_path || null,
-      usedTotal: grand
+      usedTotal: grand,
+      day
     });
   } catch (err) {
     return res.status(500).json({ error: String(err?.message || err) });
