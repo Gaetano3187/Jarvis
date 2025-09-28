@@ -15,7 +15,15 @@ const normDate = input => {
 };
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  // 🔓 Preflight & CORS (anche se sei same-origin, gestirlo evita 405 su OPTIONS)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed', received: req.method });
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -40,7 +48,7 @@ export default async function handler(req, res) {
     if (user_id && user_id !== auth.user.id) return res.status(403).json({ error: 'user_id mismatch with JWT' });
     if (!receipt_id) return res.status(400).json({ error: 'receipt_id è obbligatorio' });
 
-    // ✅ data sempre valida (mai "")
+    // ✅ data sempre valida (mai stringa vuota)
     const day = normDate(purchaseDate);
 
     // totale documento
@@ -58,7 +66,7 @@ export default async function handler(req, res) {
     const { error: headErr } = await supabase
       .from(TABLE_HEAD)
       .insert(headRow, { returning: 'minimal' });
-    if (headErr) return res.status(400).json({ error: headErr.message, debug: { day } });
+    if (headErr) return res.status(400).json({ error: headErr.message, debug: { day, method: req.method } });
 
     // 2) righe analitiche (opzionali)
     if (Array.isArray(items) && items.length) {
@@ -71,7 +79,7 @@ export default async function handler(req, res) {
         currency: p?.currency ?? 'EUR', expires_at: p?.expiresAt ?? null, location: null
       }));
       const { error: linesErr } = await supabase.from(TABLE_LINES).insert(rows, { returning: 'minimal' });
-      if (linesErr) return res.status(400).json({ error: linesErr.message, debug: { day } });
+      if (linesErr) return res.status(400).json({ error: linesErr.message, debug: { day, method: req.method } });
     }
 
     return res.status(200).json({ ok: true, receipt_id, link_path: link_path || null, day, usedTotal: grand });

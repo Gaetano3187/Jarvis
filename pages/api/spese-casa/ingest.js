@@ -49,7 +49,16 @@ function normalizeLine(it = {}) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  // 🔓 CORS / Preflight (evita 405 su OPTIONS)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed', received: req.method });
+  }
 
   // Client server-side con JWT del client (RLS)
   const supabase = createClient(
@@ -118,7 +127,11 @@ export default async function handler(req, res) {
       receipt_id,
     }));
 
-    const { error: insErr, count } = await supabase.from(TABLE).insert(rows, { count: 'exact' });
+    // Insert senza SELECT di ritorno (returning: 'minimal'), ma con count
+    const { error: insErr, count } = await supabase
+      .from(TABLE)
+      .insert(rows, { returning: 'minimal', count: 'exact' });
+
     if (insErr) {
       return res.status(400).json({
         error: insErr.message || 'Insert failed',
