@@ -1,4 +1,3 @@
-// /pages/api/finances/ingest.js
 import { createClient } from '@supabase/supabase-js';
 
 const TABLE_HEAD  = 'jarvis_finanze';
@@ -16,7 +15,7 @@ const normDate = input => {
 };
 
 export default async function handler(req, res) {
-  // 🔓 CORS / Preflight
+  // CORS / Preflight
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -24,22 +23,18 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed', received: req.method, route: 'finances/ingest' });
+    return res.status(405).json({ error: 'Method not allowed', received: req.method, route: 'finances/ingest_v2' });
   }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      global: { headers: { Authorization: req.headers.authorization || '' } },
-      auth: { autoRefreshToken:false, persistSession:false, detectSessionInUrl:false }
-    }
+    { global: { headers: { Authorization: req.headers.authorization || '' } },
+      auth: { autoRefreshToken:false, persistSession:false, detectSessionInUrl:false } }
   );
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user?.id) {
-    return res.status(401).json({ error: 'Not authenticated (missing/invalid JWT)' });
-  }
+  if (authErr || !auth?.user?.id) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
     const {
@@ -49,50 +44,25 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     const uid = user_id ?? auth.user.id;
-    if (user_id && user_id !== auth.user.id) {
-      return res.status(403).json({ error: 'user_id mismatch with JWT' });
-    }
-    if (!receipt_id) {
-      return res.status(400).json({ error: 'receipt_id è obbligatorio' });
-    }
+    if (user_id && user_id !== auth.user.id) return res.status(403).json({ error: 'user_id mismatch with JWT' });
+    if (!receipt_id) return res.status(400).json({ error: 'receipt_id è obbligatorio' });
 
-    // ✅ Data SEMPRE valida (mai stringa vuota)
-    const day = normDate(purchaseDate);
+    const day = normDate(purchaseDate); // ✅ mai stringa vuota
 
-    // Totale documento (preferisci totalPaid se autorevole)
     const sumLines = (Array.isArray(items) ? items : []).reduce(
-      (s,it)=> s + toNum(it?.priceTotal ?? it?.price_total), 0
-    );
+      (s,it)=> s + toNum(it?.priceTotal ?? it?.price_total), 0);
     let grand = receiptTotalAuthoritative && toNum(totalPaid) > 0 ? toNum(totalPaid) : sumLines;
     grand = Math.round(grand * 100) / 100;
-    if (!grand) {
-      return res.status(400).json({ error: 'Importo totale nullo', debug: { purchaseDate, day } });
-    }
+    if (!grand) return res.status(400).json({ error: 'Importo totale nullo', debug:{ purchaseDate, day } });
 
-    // 1) TESTA SPESA (no .select() → niente policy SELECT)
-    const description =
-      (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store||'').trim()} — clicca per dettagli`);
-   const headRow = {
-   user_id: uid,
-   date: day,
-   amount: -Math.abs(grand),
-  description,
-  method: payment_method,
-  card_label,
-   receipt_id            // ⬅️ salva l’ID per poter linkare
-};
+    const description = (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store||'').trim()} — clicca per dettagli`);
+    const headRow = { user_id: uid, date: day, amount: -Math.abs(grand), description, method: payment_method, card_label };
 
     const { error: headErr } = await supabase
       .from(TABLE_HEAD)
       .insert(headRow, { returning: 'minimal' });
-    if (headErr) {
-      return res.status(400).json({
-        error: headErr.message || 'Insert head failed',
-        debug: { purchaseDate, day }
-      });
-    }
+    if (headErr) return res.status(400).json({ error: headErr.message, debug:{ purchaseDate, day } });
 
-    // 2) RIGHE ANALITICHE (opzionali)
     if (Array.isArray(items) && items.length) {
       const rows = items.map(p => ({
         user_id: uid, store, purchase_date: day, payment_method, card_label,
@@ -102,25 +72,11 @@ export default async function handler(req, res) {
         price_each: toNum(p?.priceEach ?? 0), price_total: toNum(p?.priceTotal ?? 0),
         currency: p?.currency ?? 'EUR', expires_at: p?.expiresAt ?? null, location: null
       }));
-      const { error: linesErr } = await supabase
-        .from(TABLE_LINES)
-        .insert(rows, { returning: 'minimal' });
-      if (linesErr) {
-        return res.status(400).json({
-          error: linesErr.message || 'Insert lines failed',
-          debug: { purchaseDate, day }
-        });
-      }
+      const { error: linesErr } = await supabase.from(TABLE_LINES).insert(rows, { returning: 'minimal' });
+      if (linesErr) return res.status(400).json({ error: linesErr.message, debug:{ purchaseDate, day } });
     }
 
-    return res.status(200).json({
-      ok: true,
-      receipt_id,
-      link_path: link_path || null,
-      day,
-      usedTotal: grand,
-      ver: 'finances/ingest@final'
-    });
+    return res.status(200).json({ ok:true, ver:'finances/ingest_v2', receipt_id, day, usedTotal: grand, link_path: link_path || null });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });
   }

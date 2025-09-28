@@ -713,7 +713,7 @@ try {
     receiptTotalAuthoritative: true
   };
 
-  const finRes = await postJSON('/api/finances/ingest', payloadFin);
+const finRes = await postJSON('/api/finances/ingest_v2', payloadFin);
 
   if (finRes?.ok && (finRes?.finance_head_id || finRes?.inserted || 0) > 0) {
     if (typeof window !== 'undefined') {
