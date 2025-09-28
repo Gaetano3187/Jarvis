@@ -683,87 +683,87 @@ const Home = () => {
 
         const notes = [];
 
-        // 🔒 Data sicura (ISO YYYY-MM-DD, mai stringa vuota)
-        const purchaseDateSafe =
-          (meta.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(meta.purchaseDate))
-            ? meta.purchaseDate
-            : new Date().toISOString().slice(0, 10);
+       // 🔒 Data sicura (ISO YYYY-MM-DD, mai stringa vuota)
+const purchaseDateSafe =
+  (meta.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(meta.purchaseDate))
+    ? meta.purchaseDate
+    : new Date().toISOString().slice(0, 10);
 
-        // 🔗 ID univoco della spesa (link Finanze ↔ Spese Casa) + link comodi
-        const receiptId =
-          (typeof crypto !== 'undefined' && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
-        const linkLabel = `Spesa ${meta.store || 'supermercato'} (${purchaseDateSafe})`;
-        const linkPath  = `/spese-casa?rid=${encodeURIComponent(receiptId)}`;
+// 🔗 ID univoco della spesa (link Finanze ↔ Spese Casa) + link comodi
+const receiptId =
+  (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+const linkLabel = `Spesa ${meta.store || 'supermercato'} (${purchaseDateSafe})`;
+const linkPath  = `/spese-casa?rid=${encodeURIComponent(receiptId)}`;
 
-        /* ---------------- a) Finanze (testa spesa) ---------------- */
-        if (!uid) {
-          notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
-        } else {
-          try {
-            const payloadFin = {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: purchaseDateSafe,
-              payment_method: 'cash',
-              card_label: null,
-              receipt_id: receiptId,
-              link_label: linkLabel,
-              link_path: linkPath,
-              totalPaid: meta.totalPaid,
-              items: itemsReadyDedup,
-              receiptTotalAuthoritative: true
-            };
+// user_id opzionale (lo passa solo se c'è)
+const maybeUid = uid || null;
 
-            const finRes = await postJSON('/api/finances/ingest', payloadFin);
+/* ---------------- a) Finanze (testa spesa) ---------------- */
+try {
+  const payloadFin = {
+    ...(maybeUid ? { user_id: maybeUid } : {}),
+    store: meta.store,
+    purchaseDate: purchaseDateSafe,
+    payment_method: 'cash',
+    card_label: null,
+    receipt_id: receiptId,
+    link_label: linkLabel,
+    link_path: linkPath,
+    totalPaid: meta.totalPaid,
+    items: itemsReadyDedup,
+    receiptTotalAuthoritative: true
+  };
 
-            if (finRes?.ok && (finRes?.finance_head_id || finRes?.inserted || 0) > 0) {
-              if (typeof window !== 'undefined') {
-                const stamp = Date.now();
-                localStorage.setItem('__finanze_last_ingest', String(stamp));
-                window.dispatchEvent(new CustomEvent('finanze:ingest:done', {
-                  detail: { count: itemsReadyDedup.length, store: meta.store, stamp, receipt_id: receiptId }
-                }));
-              }
-              setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
-            } else {
-              notes.push('Finanze: nessuna riga inserita');
-            }
-          } catch (e) {
-            notes.push(`Finanze: ${e.message}`);
-          }
+  const finRes = await postJSON('/api/finances/ingest', payloadFin);
 
-          /* ---------------- b) Spese Casa (righe collegate) ---------------- */
-          try {
-            const payloadSpese = {
-              user_id: uid,
-              store: meta.store,
-              purchaseDate: purchaseDateSafe,
-              totalPaid: meta.totalPaid,
-              items: itemsReadyDedup,
-              receipt_id: receiptId,
-              link_label: linkLabel,
-              link_path: linkPath,
-              receiptTotalAuthoritative: true
-            };
+  if (finRes?.ok && (finRes?.finance_head_id || finRes?.inserted || 0) > 0) {
+    if (typeof window !== 'undefined') {
+      const stamp = Date.now();
+      localStorage.setItem('__finanze_last_ingest', String(stamp));
+      window.dispatchEvent(new CustomEvent('finanze:ingest:done', {
+        detail: { count: itemsReadyDedup.length, store: meta.store, stamp, receipt_id: receiptId }
+      }));
+    }
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
+  } else {
+    notes.push('Finanze: nessuna riga inserita');
+  }
+} catch (e) {
+  // se vedi 401/403 qui, allora sei davvero non autenticato (token mancante)
+  notes.push(`Finanze: ${e.message}`);
+}
 
-            const spRes = await postJSON('/api/spese-casa/ingest', payloadSpese);
+/* ---------------- b) Spese Casa (righe collegate) ---------------- */
+try {
+  const payloadSpese = {
+    ...(maybeUid ? { user_id: maybeUid } : {}),
+    store: meta.store,
+    purchaseDate: purchaseDateSafe,
+    totalPaid: meta.totalPaid,
+    items: itemsReadyDedup,
+    receipt_id: receiptId,
+    link_label: linkLabel,
+    link_path: linkPath,
+    receiptTotalAuthoritative: true
+  };
 
-            if (spRes?.ok && (spRes?.inserted || 0) > 0) {
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('spese:ingest:done', {
-                  detail:{ count: itemsReadyDedup.length, receipt_id: receiptId }
-                }));
-              }
-              setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Spese Casa: inserimento completato ✓' }]);
-            } else {
-              notes.push('Spese Casa: nessuna riga inserita');
-            }
-          } catch (e) {
-            notes.push(`Spese Casa: ${e.message}`);
-          }
-        }
+  const spRes = await postJSON('/api/spese-casa/ingest', payloadSpese);
+
+  if (spRes?.ok && (spRes?.inserted || 0) > 0) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('spese:ingest:done', {
+        detail:{ count: itemsReadyDedup.length, receipt_id: receiptId }
+      }));
+    }
+    setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Spese Casa: inserimento completato ✓' }]);
+  } else {
+    notes.push('Spese Casa: nessuna riga inserita');
+  }
+} catch (e) {
+  notes.push(`Spese Casa: ${e.message}`);
+}
 
         // c) Scorte
         if (storeIsSuper && uid) {
