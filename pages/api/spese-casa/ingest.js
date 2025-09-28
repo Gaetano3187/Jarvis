@@ -1,3 +1,4 @@
+// /pages/api/spese-casa/ingest.js
 import { createClient } from '@supabase/supabase-js';
 
 const TABLE = 'jarvis_spese_casa';
@@ -48,7 +49,7 @@ function normalizeLine(it = {}) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // ✅ Client server-side per questa richiesta (RLS via JWT del client)
+  // Client server-side con JWT del client (RLS)
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -58,25 +59,29 @@ export default async function handler(req, res) {
     }
   );
 
+  // ✅ Verifica autenticazione e coerenza user_id
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !userData?.user?.id) {
+    return res.status(401).json({ error: 'Not authenticated (missing/invalid JWT)' });
+  }
+
   try {
     const {
-      user_id,                       // opzionale: se assente lo ricavo dal JWT
+      user_id,                        // opzionale: se presente deve combaciare col JWT
       store = '',
-      purchaseDate,                  // può arrivare vuoto → lo normalizzo
+      purchaseDate,                   // normalizzata lato server
       items = [],
       totalPaid = 0,
-      receipt_id,                    // ⬅️ OBBLIGATORIO per il linking
-      link_label,                    // echo (non salvato qui)
-      link_path,                     // echo (non salvato qui)
-      receiptTotalAuthoritative = true,
+      receipt_id,                     // ⬅️ OBBLIGATORIO per linking
+      link_label,                     // echo per la UI
+      link_path,                      // echo per la UI
+      receiptTotalAuthoritative = true
     } = req.body || {};
 
-    // Ricavo l'utente dal JWT (prioritario rispetto al body)
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr) return res.status(401).json({ error: 'Not authenticated' });
-    const uid = userData?.user?.id || user_id;
-    if (!uid) return res.status(401).json({ error: 'Missing user' });
-
+    const uid = user_id ?? userData.user.id;
+    if (user_id && user_id !== userData.user.id) {
+      return res.status(403).json({ error: 'user_id mismatch with JWT' });
+    }
     if (!receipt_id) {
       return res.status(400).json({ error: 'receipt_id è obbligatorio' });
     }
@@ -84,9 +89,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'items è vuoto' });
     }
 
-    const day = toIsoDate(purchaseDate);         // ← mai stringa vuota
+    const day = toIsoDate(purchaseDate);
     const lines = items.map(normalizeLine).filter(r => r.name);
 
+    // Applica doc_total alla prima riga solo se totalPaid è valido e autorevole
     const docTotalForFirst =
       receiptTotalAuthoritative && toNumber(totalPaid) > 0
         ? Number(toNumber(totalPaid).toFixed(2))
@@ -109,17 +115,22 @@ export default async function handler(req, res) {
       receipt_id,
     }));
 
-    const { error: insErr, count } = await supabase
-      .from(TABLE)
-      .insert(rows, { count: 'exact' });
-    if (insErr) throw insErr;
+    const { error: insErr, count } = await supabase.from(TABLE).insert(rows, { count: 'exact' });
+    if (insErr) {
+      return res.status(400).json({
+        error: insErr.message || 'Insert failed',
+        code: insErr.code || null,
+        details: insErr.details || null,
+        hint: insErr.hint || null,
+      });
+    }
 
     return res.status(200).json({
       ok: true,
       inserted: count || rows.length,
       receipt_id,
-      link_path: link_path || null,
       link_label: link_label || null,
+      link_path: link_path || null
     });
   } catch (err) {
     return res.status(500).json({ error: String(err?.message || err) });

@@ -8,7 +8,6 @@ function toNumber(n) {
   const v = Number(n);
   return Number.isFinite(v) ? v : 0;
 }
-
 function toIsoDate(s) {
   if (!s) return new Date().toISOString().slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -19,7 +18,7 @@ function toIsoDate(s) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // ✅ Client server-side per questa richiesta (RLS via JWT del client)
+  // Client server-side con JWT del client (RLS)
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -29,54 +28,57 @@ export default async function handler(req, res) {
     }
   );
 
+  // ✅ Verifica autenticazione e coerenza user_id
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !userData?.user?.id) {
+    return res.status(401).json({ error: 'Not authenticated (missing/invalid JWT)' });
+  }
+
   try {
     const {
-      user_id,
+      user_id,                        // opzionale: se presente deve combaciare col JWT
       store = '',
       purchaseDate,
       payment_method = 'cash',
       card_label = null,
       items = [],
       totalPaid = 0,
-      receipt_id,                    // ⬅️ per collegarsi a /spese-casa
-      link_label,                    // es. "Spesa Maxi Store Decò (2025-09-24)"
-      link_path,                     // es. "/spese-casa?rid=<uuid>"
+      receipt_id,                     // ⬅️ obbligatorio per il linking (non generarlo qui)
+      link_label,                     // echo per la UI
+      link_path,                      // echo per la UI
       receiptTotalAuthoritative = true
     } = req.body || {};
 
-    // Validazioni minime
-    if (!user_id || !purchaseDate) {
-      return res.status(400).json({ error: 'user_id e purchaseDate sono obbligatori' });
+    const uid = user_id ?? userData.user.id;
+    if (user_id && user_id !== userData.user.id) {
+      return res.status(403).json({ error: 'user_id mismatch with JWT' });
     }
     if (!receipt_id) {
-      // Lo richiediamo per coerenza col linking cross-pagina
-      return res.status(400).json({ error: 'receipt_id è obbligatorio per il linking' });
+      return res.status(400).json({ error: 'receipt_id è obbligatorio' });
     }
 
     const day = toIsoDate(purchaseDate);
 
-    // Totale: privilegia il totalPaid se autorevole, altrimenti somma righe
+    // Totale documento: preferisci totalPaid se autorevole, altrimenti somma righe
     const sumLines = (Array.isArray(items) ? items : []).reduce(
       (s, it) => s + toNumber(it?.priceTotal ?? it?.price_total),
       0
     );
-    let grand = receiptTotalAuthoritative && toNumber(totalPaid) > 0
-      ? toNumber(totalPaid)
-      : sumLines;
+    let grand = receiptTotalAuthoritative && toNumber(totalPaid) > 0 ? toNumber(totalPaid) : sumLines;
     grand = Math.round(grand * 100) / 100;
-
     if (!grand) {
       return res.status(400).json({ error: 'Importo totale nullo: totalPaid o items.priceTotal mancanti' });
     }
 
-    // 1) Inserisce la TESTA SPESA (importo negativo)
-    const description =
-      (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store || '').trim()} — clicca per dettagli`);
+    // 1) TESTA SPESA (importo negativo)
+    const description = link_label
+      ? `${link_label} — clicca per dettagli`
+      : `Spesa ${String(store || '').trim()} — clicca per dettagli`;
 
     const headRow = {
-      user_id,
-      date: day,
-      amount: -Math.abs(grand),  // spesa = negativo
+      user_id: uid,
+      date: day,                  // 👈 sempre normalizzata
+      amount: -Math.abs(grand),   // spesa = negativo
       description,
       method: payment_method,
       card_label
@@ -88,12 +90,19 @@ export default async function handler(req, res) {
       .select('id')
       .single();
 
-    if (headErr) throw headErr;
+    if (headErr) {
+      return res.status(400).json({
+        error: headErr.message || 'Insert head failed',
+        code: headErr.code || null,
+        details: headErr.details || null,
+        hint: headErr.hint || null,
+      });
+    }
 
-    // 2) (Opzionale) righe analitiche per statistiche/store ranking
+    // 2) RIGHE ANALITICHE (opzionali ma utili)
     if (Array.isArray(items) && items.length) {
       const rows = items.map(p => ({
-        user_id,
+        user_id: uid,
         store,
         purchase_date: day,
         payment_method,
@@ -111,7 +120,14 @@ export default async function handler(req, res) {
       }));
 
       const { error: linesErr } = await supabase.from(TABLE_LINES).insert(rows);
-      if (linesErr) throw linesErr;
+      if (linesErr) {
+        return res.status(400).json({
+          error: linesErr.message || 'Insert lines failed',
+          code: linesErr.code || null,
+          details: linesErr.details || null,
+          hint: linesErr.hint || null,
+        });
+      }
     }
 
     return res.status(200).json({
