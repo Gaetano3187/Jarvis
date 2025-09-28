@@ -5,7 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
 import { useRouter } from 'next/router';
-
+import { supabase } from '@/lib/supabaseClient'; // ⬅️ spostato in alto
 
 // Registratore (solo client)
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
@@ -282,14 +282,11 @@ function guessExpenseBucket(store='') {
   return 'spese-casa';
 }
 
- import { supabase } from '@/lib/supabaseClient';
-
 async function postJSON(url, body, timeoutMs = 30000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
   try {
-    // ✅ prendi la sessione corrente:
     const { data: { session } } = await supabase.auth.getSession();
     const accessToken = session?.access_token || '';
 
@@ -297,7 +294,6 @@ async function postJSON(url, body, timeoutMs = 30000) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // ✅ passa il JWT: il server potrà usarlo per RLS
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
       body: JSON.stringify(body),
@@ -312,9 +308,7 @@ async function postJSON(url, body, timeoutMs = 30000) {
   } finally {
     clearTimeout(t);
   }
-  
 }
-
 
 /* ======================================================================================
    Home component
@@ -338,9 +332,9 @@ const Home = () => {
   useEffect(() => {
     (async () => {
       const mod = await import('@/lib/supabaseClient').catch(()=>null);
-      const supabase = mod?.supabase;
-      if (!supabase) return;
-      const { data:{ user } } = await supabase.auth.getUser();
+      const supabaseDyn = mod?.supabase;
+      if (!supabaseDyn) return;
+      const { data:{ user } } = await supabaseDyn.auth.getUser();
       setUid(user?.id || null);
     })();
   }, []);
@@ -687,72 +681,87 @@ const Home = () => {
         const storeIsSuper = (bucket !== 'cene-aperitivi' && /\b(supermercat|iper|market|discount|conad|coop|esselunga|carrefour|pam|despar|lidl|md|eurospin|todis|deco|decò|tigre|famila|dok|cra[iì]|penny)\b/i.test(meta.store||''));
 
         const notes = [];
-// ⬇️ subito prima della sezione "a) Finanze"
-const receiptId =
-  (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
 
-// opzionale: testo link utile da riusare
-const linkLabel = `Spesa ${meta.store || 'supermercato'} (${meta.purchaseDate})`;
-const linkPath  = `/spese-casa?rid=${encodeURIComponent(receiptId)}`;
+        // 🔒 Data sicura (ISO YYYY-MM-DD, mai stringa vuota)
+        const purchaseDateSafe =
+          (meta.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(meta.purchaseDate))
+            ? meta.purchaseDate
+            : new Date().toISOString().slice(0, 10);
 
-        // a) Finanze
+        // 🔗 ID univoco della spesa (link Finanze ↔ Spese Casa) + link comodi
+        const receiptId =
+          (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+        const linkLabel = `Spesa ${meta.store || 'supermercato'} (${purchaseDateSafe})`;
+        const linkPath  = `/spese-casa?rid=${encodeURIComponent(receiptId)}`;
+
+        /* ---------------- a) Finanze (testa spesa) ---------------- */
         if (!uid) {
           notes.push('⚠️ Non autenticato: Finanze/Spese non salvate');
         } else {
           try {
-const purchaseDateSafe =
-  (meta.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(meta.purchaseDate))
-    ? meta.purchaseDate
-    : new Date().toISOString().slice(0, 10);
-
-          const payloadFin = {
-  user_id: uid,
-  store: meta.store,
-  purchaseDate: meta.purchaseDate,
-  payment_method: 'cash',
-  card_label: null,
-  // ⬇️ chiave di collegamento cross-tabella
-  receipt_id: receiptId,
-  // ⬇️ facoltativi ma comodi per render del link
-  link_label: linkLabel,
-  link_path: linkPath,
-  // totale documento (negativo lato finanze)
-  totalPaid: meta.totalPaid,
-  // (opzionale) righe per analytics su jarvis_finances
-  items: itemsReadyDedup,
-  receiptTotalAuthoritative: true
-};
-await postJSON('/api/finances/ingest', payloadFin);
-            const finRes = await postJSON('/api/finances/ingest', payloadFin);
-            if (finRes?.ok && (finRes?.inserted || 0) > 0) {
-              if (typeof window !== 'undefined') {
-                const stamp = Date.now();
-                localStorage.setItem('__finanze_last_ingest', String(stamp));
-                window.dispatchEvent(new CustomEvent('finanze:ingest:done', { detail: { count: itemsReadyDedup.length, store: meta.store, stamp } }));
-              }
-              setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
-            } else { notes.push('Finanze: nessuna riga inserita'); }
-          } catch (e) { notes.push(`Finanze: ${e.message}`); }
-
-          // b) Spese
-          try {
-            const endpoint = bucket === 'cene-aperitivi' ? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
-            const payloadSpese = {
+            const payloadFin = {
               user_id: uid,
               store: meta.store,
-              purchaseDate: meta.purchaseDate,
+              purchaseDate: purchaseDateSafe,
+              payment_method: 'cash',
+              card_label: null,
+              receipt_id: receiptId,
+              link_label: linkLabel,
+              link_path: linkPath,
               totalPaid: meta.totalPaid,
               items: itemsReadyDedup,
               receiptTotalAuthoritative: true
             };
-            const spRes = await postJSON(endpoint, payloadSpese);
+
+            const finRes = await postJSON('/api/finances/ingest', payloadFin);
+
+            if (finRes?.ok && (finRes?.finance_head_id || finRes?.inserted || 0) > 0) {
+              if (typeof window !== 'undefined') {
+                const stamp = Date.now();
+                localStorage.setItem('__finanze_last_ingest', String(stamp));
+                window.dispatchEvent(new CustomEvent('finanze:ingest:done', {
+                  detail: { count: itemsReadyDedup.length, store: meta.store, stamp, receipt_id: receiptId }
+                }));
+              }
+              setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
+            } else {
+              notes.push('Finanze: nessuna riga inserita');
+            }
+          } catch (e) {
+            notes.push(`Finanze: ${e.message}`);
+          }
+
+          /* ---------------- b) Spese Casa (righe collegate) ---------------- */
+          try {
+            const payloadSpese = {
+              user_id: uid,
+              store: meta.store,
+              purchaseDate: purchaseDateSafe,
+              totalPaid: meta.totalPaid,
+              items: itemsReadyDedup,
+              receipt_id: receiptId,
+              link_label: linkLabel,
+              link_path: linkPath,
+              receiptTotalAuthoritative: true
+            };
+
+            const spRes = await postJSON('/api/spese-casa/ingest', payloadSpese);
+
             if (spRes?.ok && (spRes?.inserted || 0) > 0) {
-              if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail:{ bucket, count: itemsReadyDedup.length } }));
-              setChatMsgs(arr => [...arr, { role:'assistant', text:`💾 ${bucket}: inserimento completato ✓` }]);
-            } else { notes.push(`${bucket}: nessuna riga inserita`); }
-          } catch (e) { notes.push(`${bucket}: ${e.message}`); }
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('spese:ingest:done', {
+                  detail:{ count: itemsReadyDedup.length, receipt_id: receiptId }
+                }));
+              }
+              setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Spese Casa: inserimento completato ✓' }]);
+            } else {
+              notes.push('Spese Casa: nessuna riga inserita');
+            }
+          } catch (e) {
+            notes.push(`Spese Casa: ${e.message}`);
+          }
         }
 
         // c) Scorte
@@ -765,7 +774,7 @@ await postJSON('/api/finances/ingest', payloadFin);
         }
 
         // d) riepilogo
-        const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchases: itemsReadyDedup }), mono: true };
+        const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchaseDate: purchaseDateSafe, purchases: itemsReadyDedup }), mono: true };
         setChatMsgs(arr => [
           ...arr, msg,
           ...(notes.length ? [{ role:'assistant', text: 'Note:\n' + notes.map(n => `• ${n}`).join('\n'), mono: true }] : []),
