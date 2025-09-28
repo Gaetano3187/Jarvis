@@ -699,20 +699,21 @@ const maybeUid = uid || null;
 
 /* ---------------- a) Finanze (testa spesa) ---------------- */
 try {
- const finRes = await postJSON('/api/finances/ingest_v2', {
-  ...(uid ? { user_id: uid } : {}),
-  store: meta.store,
-  purchaseDate: purchaseDateSafe,
-  payment_method: 'cash',
-  card_label: null,
-  receipt_id: receiptId,
-  link_label: linkLabel,
-  link_path: linkPath,
-  totalPaid: meta.totalPaid,
-  items: itemsReadyDedup,          // ok passarli, ma…
-  insert_lines: false,             // ⬅️ …per ora NON inserirli
-  receiptTotalAuthoritative: true
-});
+  const finRes = await postJSON('/api/finances/ingest_v2', {
+    ...(uid ? { user_id: uid } : {}),
+    store: meta.store,
+    purchaseDate: purchaseDateSafe,
+    payment_method: 'cash',
+    card_label: null,
+    receipt_id: receiptId,
+    link_label: linkLabel,
+    link_path: linkPath,
+    totalPaid: meta.totalPaid,
+    items: itemsReadyDedup,
+   insert_lines: false,
+   insert_lines: true,            // ⬅️ INSERISCI ANCHE LE RIGHE ANALITICHE
+    receiptTotalAuthoritative: true
+  });
 
   if (finRes?.ok && (finRes?.finance_head_id || finRes?.inserted || 0) > 0) {
     if (typeof window !== 'undefined') {

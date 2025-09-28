@@ -1,7 +1,8 @@
+// /pages/api/finances/ingest_v2.js
 import { createClient } from '@supabase/supabase-js';
 
 const TABLE_HEAD  = 'jarvis_finanze';
-const TABLE_LINES = 'jarvis_finances';
+const TABLE_LINES = 'jarvis_finances'; // inserimento disattivato di default
 
 const toNum = n => (Number.isFinite(Number(n)) ? Number(n) : 0);
 const normDate = input => {
@@ -21,10 +22,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   if (req.method === 'OPTIONS') return res.status(200).end();
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed', received: req.method, route: 'finances/ingest_v2' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error:'Method not allowed', received:req.method, route:'finances/ingest_v2' });
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -40,7 +38,8 @@ export default async function handler(req, res) {
     const {
       user_id, store = '', purchaseDate, payment_method = 'cash', card_label = null,
       items = [], totalPaid = 0, receipt_id, link_label, link_path,
-      receiptTotalAuthoritative = true
+      receiptTotalAuthoritative = true,
+      insert_lines = false // ⬅️ per default NON inserisce righe analitiche
     } = req.body || {};
 
     const uid = user_id ?? auth.user.id;
@@ -49,21 +48,21 @@ export default async function handler(req, res) {
 
     const day = normDate(purchaseDate); // ✅ mai stringa vuota
 
-    const sumLines = (Array.isArray(items) ? items : []).reduce(
-      (s,it)=> s + toNum(it?.priceTotal ?? it?.price_total), 0);
+    // totale documento
+    const sumLines = (Array.isArray(items) ? items : []).reduce((s,it)=> s + toNum(it?.priceTotal ?? it?.price_total), 0);
     let grand = receiptTotalAuthoritative && toNum(totalPaid) > 0 ? toNum(totalPaid) : sumLines;
     grand = Math.round(grand * 100) / 100;
     if (!grand) return res.status(400).json({ error: 'Importo totale nullo', debug:{ purchaseDate, day } });
 
+    // 1) testa spesa (no SELECT di ritorno)
     const description = (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store||'').trim()} — clicca per dettagli`);
     const headRow = { user_id: uid, date: day, amount: -Math.abs(grand), description, method: payment_method, card_label };
 
-    const { error: headErr } = await supabase
-      .from(TABLE_HEAD)
-      .insert(headRow, { returning: 'minimal' });
-    if (headErr) return res.status(400).json({ error: headErr.message, debug:{ purchaseDate, day } });
+    const { error: headErr } = await supabase.from(TABLE_HEAD).insert(headRow, { returning: 'minimal' });
+    if (headErr) return res.status(400).json({ error: headErr.message, debug:{ purchaseDate, day, stage:'head' } });
 
-    if (Array.isArray(items) && items.length) {
+    // 2) (opzionale) righe analitiche SOLO se richieste esplicitamente
+    if (insert_lines && Array.isArray(items) && items.length) {
       const rows = items.map(p => ({
         user_id: uid, store, purchase_date: day, payment_method, card_label,
         name: p?.name ?? '', brand: p?.brand ?? '',
@@ -72,8 +71,8 @@ export default async function handler(req, res) {
         price_each: toNum(p?.priceEach ?? 0), price_total: toNum(p?.priceTotal ?? 0),
         currency: p?.currency ?? 'EUR', expires_at: p?.expiresAt ?? null, location: null
       }));
-      const { error: linesErr } = await supabase.from(TABLE_LINES).insert(rows, { returning: 'minimal' });
-      if (linesErr) return res.status(400).json({ error: linesErr.message, debug:{ purchaseDate, day } });
+      const { error: linesErr } = await supabase.from(TABLE_LINES).insert(rows, { returning:'minimal' });
+      if (linesErr) return res.status(400).json({ error: linesErr.message, debug:{ purchaseDate, day, stage:'lines' } });
     }
 
     return res.status(200).json({ ok:true, ver:'finances/ingest_v2', receipt_id, day, usedTotal: grand, link_path: link_path || null });
