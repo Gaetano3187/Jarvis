@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 const TABLE_HEAD  = 'jarvis_finanze';
 const TABLE_LINES = 'jarvis_finances';
 
-const toNum = (n) => (Number.isFinite(Number(n)) ? Number(n) : 0);
-const normDate = (input) => {
+const toNum = n => (Number.isFinite(Number(n)) ? Number(n) : 0);
+const normDate = input => {
   const today = new Date().toISOString().slice(0,10);
   if (!input || typeof input !== 'string') return today;
   const s = input.trim();
@@ -20,8 +20,10 @@ export default async function handler(req, res) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: req.headers.authorization || '' } },
-      auth: { autoRefreshToken:false, persistSession:false, detectSessionInUrl:false } }
+    {
+      global: { headers: { Authorization: req.headers.authorization || '' } },
+      auth: { autoRefreshToken:false, persistSession:false, detectSessionInUrl:false }
+    }
   );
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -38,16 +40,18 @@ export default async function handler(req, res) {
     if (user_id && user_id !== auth.user.id) return res.status(403).json({ error: 'user_id mismatch with JWT' });
     if (!receipt_id) return res.status(400).json({ error: 'receipt_id è obbligatorio' });
 
-    // ✅ data sempre valida (mai stringa vuota)
+    // ✅ data sempre valida (mai "")
     const day = normDate(purchaseDate);
 
     // totale documento
-    const sumLines = (Array.isArray(items) ? items : []).reduce((s,it)=> s + toNum(it?.priceTotal ?? it?.price_total), 0);
+    const sumLines = (Array.isArray(items) ? items : []).reduce(
+      (s,it)=> s + toNum(it?.priceTotal ?? it?.price_total), 0
+    );
     let grand = receiptTotalAuthoritative && toNum(totalPaid) > 0 ? toNum(totalPaid) : sumLines;
     grand = Math.round(grand * 100) / 100;
     if (!grand) return res.status(400).json({ error: 'Importo totale nullo' });
 
-    // 1) testa spesa (nessuna SELECT di ritorno -> niente policy SELECT)
+    // 1) testa spesa (no .select() → non serve policy SELECT)
     const description = (link_label ? `${link_label} — clicca per dettagli` : `Spesa ${String(store||'').trim()} — clicca per dettagli`);
     const headRow = { user_id: uid, date: day, amount: -Math.abs(grand), description, method: payment_method, card_label };
 
