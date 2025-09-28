@@ -331,13 +331,10 @@ const Home = () => {
 
   const [uid, setUid] = useState(null);
   useEffect(() => {
-    (async () => {
-      const mod = await import('@/lib/supabaseClient').catch(()=>null);
-      const supabaseDyn = mod?.supabase;
-      if (!supabaseDyn) return;
-      const { data:{ user } } = await supabaseDyn.auth.getUser();
-      setUid(user?.id || null);
-    })();
+   (async () => {
+      const { data:{ user } } = await supabase.auth.getUser();
+     setUid(user?.id || null);
+   })();
   }, []);
 
   async function runBrainQuery(text, opts = {}) {
