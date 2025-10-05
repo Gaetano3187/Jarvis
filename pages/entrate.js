@@ -203,117 +203,106 @@ function Entrate() {
         };
       });
 
- /* ===================== heads per categoria ===================== */
-const SELECT_COLS = [
-  'receipt_id','store','purchase_date','price_total','payment_method','link_label','link_path'
-].join(',');
-
-const { data: casaHeads  } = await supabase.from('jarvis_spese_casa'     ).select(SELECT_COLS)
-  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
-const { data: ceneHeads  } = await supabase.from('jarvis_cene_aperitivi' ).select(SELECT_COLS)
-  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
-const { data: vestitiHeads } = await supabase.from('jarvis_vestiti_altro').select(SELECT_COLS)
-  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
-const { data: varieHeads } = await supabase.from('jarvis_varie'          ).select(SELECT_COLS)
-  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
-
-/* ===================== helpers ===================== */
-const routeBaseOf = (kind) => (
-  kind === 'cene'    ? '/cene-aperitivi' :
-  kind === 'vestiti' ? '/vestiti-altro'  :
-  kind === 'varie'   ? '/varie'          :
-                       '/spese-casa'
-);
-
-/** key di gruppo: priorità receipt_id; altrimenti store+data+kind */
-const groupKey = (h, kind) => {
-  if (h.receipt_id) return `rid:${h.receipt_id}`;
-  const s = String(h.store || '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const d = String(h.purchase_date || '');
-  return `sd:${s}|${d}|${kind}`;
+ /* ===================== helpers ===================== */
+const CAT_TO_ROUTE = {
+  'spese-casa':     '/spese-casa',
+  'cene-aperitivi': '/cene-aperitivi',
+  'vestiti-altro':  '/vestiti-altro',
+  'varie':          '/varie',
 };
 
-/** somma importi all’interno del gruppo */
-function groupRows(heads = [], kind) {
+/* ======== HEADS dal ledger unico ======== */
+const { data: finHeads, error: finErr } = await supabase
+  .from('jarvis_finances')
+  .select('receipt_id, category, store, purchase_date, price_total, payment_method, link_label, link_path, created_at')
+  .eq('user_id', user.id)
+  .in('category', ['spese-casa','cene-aperitivi','vestiti-altro','varie'])
+  .gte('purchase_date', startDate)
+  .lte('purchase_date', endDate)
+  .order('purchase_date', { ascending: false })
+  .order('created_at', { ascending: false });
+if (finErr) throw finErr;
+
+/** raggruppa: 1 riga per receipt_id (oppure store+data+categoria) evitando DOPPIO CONTEGGIO
+ *  - se esiste la "testa scontrino" (link_label/link_path) usa il suo totale (headTotal)
+ *  - altrimenti somma le righe analitiche (linesSum)
+ */
+function groupFinHeads(heads = []) {
   const map = new Map();
-  for (const h of heads || []) {
-    const key = groupKey(h, kind);
+  for (const h of heads) {
+    const dateISO = h.purchase_date || '';
+    const key = h.receipt_id
+      ? `rid:${h.receipt_id}`
+      : `sd:${String(h.store || '').toLowerCase().trim()}|${dateISO}|${h.category || 'spese-casa'}`;
+
+    const isHead = Boolean(
+      (h.link_label && String(h.link_label).trim()) ||
+      (h.link_path  && String(h.link_path ).trim())
+    );
+
     const g = map.get(key) || {
-      kind,
-      rid: h.receipt_id || null,
-      store: h.store || '',
-      dateISO: h.purchase_date || '',
-      link_label: h.link_label || '',
-      link_path: h.link_path || '',
+      receipt_id: h.receipt_id || null,
+      category:   h.category   || 'spese-casa',
+      store:      h.store      || '',
+      dateISO,
       payment_method: h.payment_method || '',
-      total: 0,
+      link_label:     h.link_label     || '',
+      link_path:      h.link_path      || '',
+      headTotal: 0,
+      linesSum:  0,
     };
+
     if (!g.store && h.store) g.store = h.store;
-    if (!g.dateISO && h.purchase_date) g.dateISO = h.purchase_date;
     if (!g.link_label && h.link_label) g.link_label = h.link_label;
-    if (!g.link_path && h.link_path) g.link_path = h.link_path;
+    if (!g.link_path  && h.link_path)  g.link_path  = h.link_path;
     if (!g.payment_method && h.payment_method) g.payment_method = h.payment_method;
 
-    g.total += Math.abs(Number(h.price_total || 0));
+    const val = Number(h.price_total || 0);
+    if (isHead) g.headTotal = Math.max(g.headTotal, val);
+    else        g.linesSum  += val;
+
     map.set(key, g);
   }
 
-  // output “riga unica per scontrino/store+data”
   return Array.from(map.values()).map(g => {
     const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
-    const baseTxt = g.kind === 'cene' ? 'Cena/Aperitivo'
-                  : g.kind === 'vestiti' ? 'Vestiti/Altro'
-                  : g.kind === 'varie'   ? 'Varie' : 'Spesa';
+    const monthParam = (g.dateISO || '').slice(0, 7);
+    const baseTxt =
+      g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
+      g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
+      g.category === 'varie'          ? 'Varie'          : 'Spesa';
+
+    // usa headTotal se presente, altrimenti somma righe
+    const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
+    const tot = Number((total || 0).toFixed(2));
+
     const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
     const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
-    const routeBase = routeBaseOf(g.kind);
-    const defaultPath = g.rid
-      ? `${routeBase}?rid=${encodeURIComponent(g.rid)}`
-      : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}`;
 
-    const tot = Number(g.total.toFixed(2));
+    const routeBase = CAT_TO_ROUTE[g.category] || '/spese-casa';
+    const defaultPath = g.receipt_id
+      ? `${routeBase}?rid=${encodeURIComponent(g.receipt_id)}&month=${monthParam}`
+      : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}&month=${monthParam}`;
+
+    const route = (g.link_path && g.link_path.trim())
+      ? `${g.link_path}${g.link_path.includes('?') ? '&' : '?'}month=${monthParam}`
+      : defaultPath;
+
     return {
-      id: `${g.kind}-${g.rid || `${g.store}|${g.dateISO}`}`,
+      id: `${g.category}-${g.receipt_id || `${g.store}|${g.dateISO}`}`,
       kind: 'expense-linked',
-      dateISO: g.dateISO || '',
+      dateISO: g.dateISO,
       label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
-      route: (g.link_path && g.link_path.trim()) ? g.link_path : defaultPath,
-      displayAmount: -tot,            // sempre mostrato
-      amount: isCash ? -tot : 0,      // impatta il pocket solo se contanti
+      route,
+      displayAmount: -tot,          // mostrato sempre
+      amount: isCash ? -tot : 0,    // impatta “Soldi in tasca” solo se contanti
       affectsPocket: isCash,
     };
   });
 }
 
-/** dedupe “di ferro”: unisce eventuali doppioni residui per route (o per kind+store+data) */
-function dedupByRoute(rows = []) {
-  const map = new Map();
-  for (const r of rows) {
-    // chiave robusta: preferisci il route (contiene rid), altrimenti kind+data+label normalizzata
-    const key = r.route
-      ? r.route.split('&').filter(Boolean)[0]   // normalizza: ignora filtri extra dopo il rid
-      : `${r.kind}|${r.dateISO}|${String(r.label||'').toLowerCase().replace(/\s+/g,' ').trim()}`;
-    const cur = map.get(key);
-    if (!cur) {
-      map.set(key, { ...r });
-    } else {
-      cur.displayAmount = Number((Number(cur.displayAmount||0) + Number(r.displayAmount||0)).toFixed(2));
-      cur.amount        = Number((Number(cur.amount||0)        + Number(r.amount||0)).toFixed(2));
-      cur.affectsPocket = cur.affectsPocket || r.affectsPocket;
-      // mantieni label/route/date della prima occorrenza
-    }
-  }
-  return Array.from(map.values());
-}
-
-/* === costruzione righe spesa raggruppate + dedupe === */
-const grouped = [
-  ...groupRows(casaHeads,    'spese'),
-  ...groupRows(ceneHeads,    'cene'),
-  ...groupRows(vestitiHeads, 'vestiti'),
-  ...groupRows(varieHeads,   'varie'),
-];
-const expenseRows = dedupByRoute(grouped);
+/* === righe spesa dal ledger raggruppate === */
+const expenseRows = groupFinHeads(finHeads);
 
 /* === merge finale con movimenti manuali === */
 const filteredManual = hideVarieCashAfterClear
@@ -326,7 +315,7 @@ const rows = [...expenseRows, ...filteredManual]
 
 setPocketRows(rows);
 
-// Totale spese periodo (dal ledger completo)
+/* === Totale spese periodo (dal ledger completo) === */
 const { data: exp, error: expErr } = await supabase
   .from('jarvis_finances')
   .select('price_total,purchase_date')
