@@ -196,7 +196,7 @@ function Entrate() {
 // Spese Casa
 const { data: casaHeads, error: casaErr } = await supabase
   .from('jarvis_spese_casa')
-  .select('receipt_id, store, purchase_date, price_total, payment_method')
+  .select('receipt_id, store, purchase_date, price_total,')
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
@@ -205,7 +205,7 @@ if (casaErr) throw casaErr;
 // Cene & Aperitivi
 const { data: ceneHeads, error: ceneErr } = await supabase
   .from('jarvis_cene_aperitivi')
-  .select('receipt_id, store, purchase_date, price_total, payment_method')
+  .select('receipt_id, store, purchase_date, price_total, ')
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
@@ -215,7 +215,7 @@ let vestitiHeads = [];
 try {
   const { data, error } = await supabase
     .from('jarvis_vestiti_altro')
-    .select('receipt_id, store, purchase_date, price_total, payment_method')
+    .select('receipt_id, store, purchase_date, price_total, ')
     .eq('user_id', user.id)
     .gte('purchase_date', startDate)
     .lte('purchase_date', endDate);
@@ -231,7 +231,7 @@ let varieHeads = [];
 try {
   const { data, error } = await supabase
     .from('jarvis_varie')
-    .select('receipt_id, store, purchase_date, price_total, payment_method')
+    .select('receipt_id, store, purchase_date, price_total, ')
     .eq('user_id', user.id)
     .gte('purchase_date', startDate)
     .lte('purchase_date', endDate);
@@ -240,13 +240,33 @@ try {
 } catch (e) {
   if (String(e?.code) !== '42P01') console.warn('[varie]', e);
 }
+// Mappa payment_method per receipt_id da jarvis_finances
+const allReceiptIds = Array.from(new Set([
+  ...(casaHeads?.map(h => h.receipt_id) || []),
+  ...(ceneHeads?.map(h => h.receipt_id) || []),
+  ...(vestitiHeads?.map(h => h.receipt_id) || []),
+  ...(varieHeads?.map(h => h.receipt_id) || []),
+].filter(Boolean)));
+
+let paymentMap = new Map();
+if (allReceiptIds.length) {
+  const { data: pmRows } = await supabase
+    .from('jarvis_finances')
+    .select('receipt_id, payment_method')
+    .in('receipt_id', allReceiptIds);
+  if (Array.isArray(pmRows)) {
+    paymentMap = new Map(pmRows.map(r => [r.receipt_id, String(r.payment_method || '').toLowerCase()]));
+  }
+}
 
 
-function headToRow(h, kindRoute) {
+
+function headToRow(h, kindRoute, paymentMap) {
   const dateISO = h.purchase_date || '';
   const total   = Number(h.price_total ?? 0);
-  const pm      = String(h.payment_method || '').toLowerCase();
-  const isCash  = (pm === 'cash' || pm === 'contanti');
+
+  const pmLower = h.receipt_id ? (paymentMap?.get(h.receipt_id) || '') : '';
+  const isCash  = /^(cash|contanti)$/.test(pmLower);
 
   const baseTxt = kindRoute === 'cene'    ? 'Cena/Aperitivo'
                 : kindRoute === 'vestiti' ? 'Vestiti/Altro'
@@ -271,19 +291,18 @@ function headToRow(h, kindRoute) {
     dateISO,
     label,
     route,
-    displayAmount: -Math.abs(total || 0),         // importo visualizzato sempre
-    amount: isCash ? -Math.abs(total || 0) : 0,   // impatto su “soldi in tasca” solo se contanti
+    displayAmount: -Math.abs(total || 0),         // sempre mostrato
+    amount: isCash ? -Math.abs(total || 0) : 0,   // impatta solo se contanti
     affectsPocket: isCash,
     kind: 'expense-linked',
   };
 }
-     const expenseRows = [
-  ...((casaHeads    || []).map(h => headToRow(h, 'spese'))),
-  ...((ceneHeads    || []).map(h => headToRow(h, 'cene'))),
-  ...((vestitiHeads || []).map(h => headToRow(h, 'vestiti'))),
-  ...((varieHeads   || []).map(h => headToRow(h, 'varie'))),
+const expenseRows = [
+  ...((casaHeads    || []).map(h => headToRow(h, 'spese',   paymentMap))),
+  ...((ceneHeads    || []).map(h => headToRow(h, 'cene',    paymentMap))),
+  ...((vestitiHeads || []).map(h => headToRow(h, 'vestiti', paymentMap))), // se presenti
+  ...((varieHeads   || []).map(h => headToRow(h, 'varie',   paymentMap))), // se presenti
 ];
-
 
       // opzionale: filtro “Varie” dopo pulizia (qui non si applica alle testate, ma lo manteniamo coerente)
       const filteredManual = hideVarieCashAfterClear
@@ -633,9 +652,11 @@ function headToRow(h, kindRoute) {
                           ? <Link href={m.route} className="row-link">{m.label}</Link>
                           : <span>{m.label}</span>}
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        {m.amount >= 0 ? '+' : '-'} {Math.abs(m.amount).toFixed(2)}
-                      </td>
+                   <td style={{ textAlign: 'right' }}>
+  {(m.displayAmount ?? m.amount) >= 0 ? '+' : '-'}{' '}
+  {Math.abs(m.displayAmount ?? m.amount).toFixed(2)}
+</td>
+
                     </tr>
                   ))}
                 </tbody>
