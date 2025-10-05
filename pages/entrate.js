@@ -34,15 +34,24 @@ function parseAmountLoose(v) {
   const s = String(v ?? '').trim().replace(/\s/g,'').replace(/\./g,'').replace(',', '.');
   const n = Number(s); return Number.isFinite(n) ? n : 0;
 }
-// Estrae il primo importo dal testo (con virgola o punto)
+
+// Estrae l’importo più plausibile dal testo (evita di “prendere” il giorno della data)
 function parseMoneyFromText(t='') {
-  const s = String(t || '').replace(/\s+/g,' ').trim();
-  const m = s.match(/([-+]?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)/);
-  if (!m) return 0;
-  const raw = m[1].replace(/\s/g,'').replace(/\./g,'').replace(',', '.');
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
+  const s = String(t || '').toLowerCase().replace(/\s+/g,' ').trim();
+  // cattura tutti i numeri decimali; accetta separatori . , e spazi migliaia
+  const re = /[-+]?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d+)?|[-+]?\d+(?:[.,]\d+)?/g;
+  const nums = [];
+  for (const m of s.matchAll(re)) {
+    const raw = m[0].replace(/\s/g,'').replace(/\./g,'').replace(',', '.');
+    const val = Number(raw);
+    if (Number.isFinite(val)) nums.push(val);
+  }
+  if (!nums.length) return 0;
+  // preferisci numeri >= 1 e il MASSIMO (tipicamente il totale); altrimenti il primo valido
+  const cand = nums.filter(n => Math.abs(n) >= 1);
+  return (cand.length ? Math.max(...cand.map(Math.abs)) : Math.abs(nums[0]));
 }
+
 // Oggi/ieri/domani o data esplicita
 function pickDateFromText(t='') {
   const s = String(t).toLowerCase();
@@ -57,6 +66,7 @@ function pickDateFromText(t='') {
   }
   return isoLocal(new Date());
 }
+
 // Riconosce intenzione "tasca": +ricarica / -uscita
 function detectPocketIntent(text='') {
   const s = String(text).toLowerCase();
@@ -68,14 +78,33 @@ function detectPocketIntent(text='') {
 
   const isPos = POS.test(s);
   const isNeg = NEG.test(s);
-
-  if (!isPos && !isNeg && !/\btasca\b|\bcontanti\b/.test(s)) return null;
+  if (!isPos && !isNeg && !(/\btasca\b|\bcontanti\b/).test(s)) return null;
 
   const dateISO = pickDateFromText(s);
   if (isNeg) return { delta: -Math.abs(amount), dateISO, note: 'Uscita contanti (voce)' };
   return { delta: +Math.abs(amount), dateISO, note: 'Ricarica contanti (voce)' };
 }
 
+// Riconosce ENTRATE dal parlato: "ho incassato 1000", "mi ha pagato Rossi", "ho preso lo stipendio 1500"
+function detectIncomeIntent(text='') {
+  const s = String(text || '').toLowerCase();
+  const amount = parseMoneyFromText(s);
+  if (!amount) return null; // se non c'è cifra, lascia ad Assistant
+  const dateISO = pickDateFromText(s);
+
+  let source = 'Entrata';
+  if (/\bstipendio|paga|salario|mensilit[àa]\b/.test(s)) source = 'Stipendio';
+  else if (/\bincass|incasso|fattur|bonific|rimborso\b/.test(s)) source = 'Incasso';
+  else if (/\bmi ha pagato\b/.test(s)) source = 'Pagamento ricevuto';
+
+  // Nome pagatore (se presente)
+  const payerMatch = s.match(/\b(?:da|dal|dalla|dai|dalle|dal\s+signor|dal\s+sig\.?|dalla\s+signora|sig\.?|sig\.ra|signor|signora)\s+([a-zà-ù' ]{2,40})/i);
+  if (payerMatch) {
+    const name = titleize(payerMatch[1].replace(/\b(euro|€)\b/gi,'').trim());
+    source = (source === 'Entrata') ? `Pagamento da ${name}` : `${source} da ${name}`;
+  }
+  return { source, description: source, amount: Math.abs(amount), dateISO };
+}
 
 function formatIT(iso) {
   if (!iso) return '';
@@ -95,14 +124,11 @@ function isRestaurantBar(store='') {
   const s = String(store).toLowerCase();
   return /\b(ristorante|trattoria|pizzeria|bar|pub|bistrot|osteria|sushi|braceria|enoteca)\b/i.test(s);
 }
+
 // Evita virgole finali nei select Supabase
 function sbSelect(cols = []) {
   if (!Array.isArray(cols)) return '*';
-  const list = cols
-    .filter(Boolean)
-    .map(String)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const list = cols.filter(Boolean).map(String).map(s => s.trim()).filter(s => s.length > 0);
   return list.length ? list.join(',') : '*';
 }
 
