@@ -5,12 +5,17 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
 import { useRouter } from 'next/router';
-import { supabase } from '@/lib/supabaseClient'; // ⬅️ spostato in alto
+import { supabase } from '@/lib/supabaseClient';
 
 // Registratore (solo client)
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
 // Import dinamico del brain (solo quando serve)
 const getBrain = () => import('@/lib/brainHub');
+
+/* ======================================================================================
+   Config comportamento modale/chat
+====================================================================================== */
+const OPEN_CHAT_ON_OCR = false; // OCR silenzioso: niente modale, niente chat durante OCR
 
 /* ======================================================================================
    Helpers generali
@@ -308,7 +313,6 @@ async function postJSON(url, body, timeoutMs = 30000) {
   } finally {
     clearTimeout(t);
   }
-  
 }
 
 /* ======================================================================================
@@ -329,12 +333,16 @@ const Home = () => {
   const deepLinkHandledRef = useRef(false);
   const speakModeRef = useRef(false);
 
+  // mini-toast opzionale (feedback non intrusivo)
+  const [toast, setToast] = useState(null);
+  function showToast(txt) { setToast(txt); setTimeout(()=>setToast(null), 2200); }
+
   const [uid, setUid] = useState(null);
   useEffect(() => {
-   (async () => {
+    (async () => {
       const { data:{ user } } = await supabase.auth.getUser();
-     setUid(user?.id || null);
-   })();
+      setUid(user?.id || null);
+    })();
   }, []);
 
   async function runBrainQuery(text, opts = {}) {
@@ -497,13 +505,56 @@ const Home = () => {
     return normFromLegacyOcr(j);
   }
 
+  /* =================== Pipeline inserimenti =================== */
+  async function insertFinanze(payload) {
+    return await postJSON('/api/finances/ingest_v2', payload);
+  }
+  async function insertSpeseCasa(payload) {
+    return await postJSON('/api/speseCasa/ingest_v1', payload);
+  }
+  async function insertCeneAperitivi(payload) {
+    return await postJSON('/api/ceneAperitivi/ingest_v1', payload);
+  }
+  async function insertScorte(payload) {
+    return await postJSON('/api/scorte/ingest_v1', payload);
+  }
+
+  function computeReceiptDate(n, fallbackTexts=[]) {
+    const d = toISODate(n?.meta?.purchaseDate || '');
+    if (d) return d;
+    const p = pickDateFromTexts(fallbackTexts);
+    return p || new Date().toISOString().slice(0,10);
+  }
+
+  function filterAndPrepareItems(items=[]) {
+    const cleaned = (items || [])
+      .filter(p => p && String(p.name||'').trim())
+      .filter(p => !shouldDropName(p.name));
+    const deduped = dedupeAndFix(cleaned);
+    const enforced = deduped.map(enforceHybridUnitPrice);
+    const total = enforced.reduce((s, x) => s + (Number(x.priceTotal)||0), 0);
+    return { items: enforced, total: Number(total.toFixed(2)) };
+  }
+
+  function inferStore(n) {
+    const m = n?.meta || {};
+    const store = String(m.store || '').trim();
+    if (store) return store;
+    // prova da testo se esiste
+    const t = String(n?.text || '').split('\n')[0] || '';
+    return t.slice(0, 64).trim();
+  }
+
+  function isBarRistorante(store='') {
+    return guessExpenseBucket(store) === 'cene-aperitivi';
+  }
+
   /* =================== OCR Smart handler =================== */
   async function handleSmartOCR(files) {
     const wantSommelier =
       lastUserIntentRef.current.sommelier ||
       /\b(sommelier|carta (dei )?vini)\b/i.test(queryText);
 
-    setChatOpen(true);
     try {
       setBusy(true);
 
@@ -526,564 +577,332 @@ const Home = () => {
         else if (guess === 'wine_list') lists.push(n);
       }
 
-      // Sommelier: carta vini
+      // === SOMMELIER / CARTA VINI ===
+      // Se carico carta vini via OCR (lists) oppure ho intenzione sommelier senza etichette: apri modale e salva memoria
       if (lists.length || (wantSommelier && !labels.length && !receipts.length)) {
-        const joined = (lists.length ? lists.map(x => x.text || '').join('\n---\n') : texts.join('\n---\n')).trim();
-        if (!joined) {
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: '❌ OCR: nessun testo riconosciuto dalla carta.' }]);
-          return;
-        }
-        wineListsRef.current.push(joined);
-        setChatMsgs(arr => [...arr, { role: 'assistant', text: '📄 Carta vini acquisita. Avvio il Sommelier…' }]);
+        wineListsRef.current = [
+          ...wineListsRef.current,
+          ...lists.map(l => String(l.text || '')),
+        ].slice(-8); // tieni ultime 8 carte
+        // Apri modale on-demand per guida sommelier
+        openChatWithSystem([
+          { role: 'assistant', text: 'Modalità Sommelier attiva. Carica una foto della **carta dei vini** o chiedimi: "Che vino abbino con la tagliata?", "Trova un Nebbiolo tradizionale"…' }
+        ]);
+        showToast('Sommelier pronto 🍷');
+        dispatchEvent(new CustomEvent('jarvis:ocr:done', { detail: { type: 'sommelier', lists: lists.length } }));
         return;
       }
 
-      // Etichette vino
-      if (labels.length) {
-        if (!uid) {
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: '⚠️ Non autenticato: impossibile salvare in Prodotti tipici & Vini.' }]);
-        } else {
-          for (const L of labels) {
+      // Se ho etichette (wine_label), usale come contesto sommelier (senza inserimenti Finanze/Scorte)
+      if (labels.length && !receipts.length) {
+        wineListsRef.current = [
+          ...wineListsRef.current,
+          ...labels.map(l => String(l.text || ''))
+        ].slice(-12);
+        openChatWithSystem([
+          { role: 'assistant', text: 'Ho letto alcune **etichette vino**. Chiedimi pure info o abbinamenti nella modale.' }
+        ]);
+        showToast('Etichette vino acquisite 🍇');
+        dispatchEvent(new CustomEvent('jarvis:ocr:done', { detail: { type: 'wine_label', count: labels.length } }));
+        return;
+      }
+
+      // === RICEVUTE / SCONTRINI ===
+      if (receipts.length) {
+        // OCR silenzioso: non aprire modale e non scrivere in chat
+        // Inserisci nelle pipeline secondo routing
+        let insCount = 0;
+        for (const n of receipts) {
+          const store = inferStore(n);
+          const date = computeReceiptDate(n, texts);
+          const { items, total } = filterAndPrepareItems(n.purchases || []);
+          const isBar = isBarRistorante(store);
+
+          // evito di inserire se non ci sono items significativi
+          if (!items.length && total <= 0) continue;
+
+          const basePayload = {
+            user_id: uid,
+            store,
+            date,
+            total_paid: (Number(n?.meta?.totalPaid) || total || 0),
+            currency: String(n?.meta?.currency || 'EUR'),
+            items
+          };
+
+          // Finanze (sempre)
+          try {
+            await insertFinanze({ ...basePayload, bucket: isBar ? 'cene-aperitivi' : 'spese-casa', source: 'receipt' });
+          } catch (e) {
+            console.warn('Finanze insert error:', e);
+          }
+
+          // Spese Casa o Cene & Aperitivi
+          try {
+            if (isBar) {
+              await insertCeneAperitivi({ ...basePayload, note: 'OCR bar/ristorante', source: 'receipt' });
+            } else {
+              await insertSpeseCasa({ ...basePayload, note: 'OCR supermercato', source: 'receipt' });
+            }
+          } catch (e) {
+            console.warn('Spese/Cene insert error:', e);
+          }
+
+          // Scorte solo supermercato
+          if (!isBar) {
             try {
-              const res = await postJSON('/api/vini/ingest', { user_id: uid, wine: L?.wine || null, text: L?.text || '' });
-              if (!(res?.ok || res?.inserted === 1)) setChatMsgs(arr => [...arr, { role:'assistant', text:'ℹ️ Vini: nessuna riga inserita' }]);
+              const scorteItems = items.map(p => ({
+                name: p.name,
+                brand: p.brand || null,
+                packs: p.packs,
+                units_per_pack: p.unitsPerPack,
+                unit_label: p.unitLabel,
+                expires_at: p.expiresAt || null,
+                price_each: p.priceEach,
+                price_total: p.priceTotal,
+                currency: p.currency || 'EUR',
+              }));
+              await insertScorte({ user_id: uid, store, date, items: scorteItems, source: 'receipt' });
             } catch (e) {
-              setChatMsgs(arr => [...arr, { role:'assistant', text:`⚠️ Vini: ${e.message}` }]);
+              console.warn('Scorte insert error:', e);
             }
           }
-          setChatMsgs(arr => [...arr, { role:'assistant', text:'🍷 Etichetta registrata in "Prodotti tipici & Vini".' }]);
+
+          insCount++;
         }
+
+        showToast(insCount ? `Scontrino importato (${insCount}) ✅` : 'Nessun articolo valido trovato');
+        // CustomEvent non intrusivi
+        dispatchEvent(new CustomEvent('jarvis:ocr:done', { detail: { type: 'receipt', count: receipts.length } }));
         return;
       }
 
-      // Scontrino/i
-      if (receipts.length || texts.length) {
-        const allPurchases = [];
-        const meta = { store: '', address:'', place:'', purchaseDate: '', totalPaid: 0, currency: 'EUR' };
-
-        for (const R of receipts) {
-          const items = Array.isArray(R?.purchases) ? R.purchases : [];
-          allPurchases.push(...items);
-
-          if (!meta.store)        meta.store        = String(R?.meta?.store || R?.store || '');
-          if (!meta.address)      meta.address      = String(R?.meta?.address || R?.address || '');
-          if (!meta.place)        meta.place        = String(R?.meta?.place || R?.meta?.city || R?.place || R?.city || '');
-          if (!meta.purchaseDate) meta.purchaseDate = String(R?.meta?.purchaseDate || R?.purchaseDate || '');
-          if (!meta.totalPaid)    meta.totalPaid    = Number(R?.meta?.totalPaid || R?.totalPaid || 0);
-          if (!meta.currency)     meta.currency     = String(R?.meta?.currency || R?.currency || 'EUR');
-        }
-
-        const isoFromMeta = toISODate(meta.purchaseDate);
-        const isoFromOCR  = pickDateFromTexts(texts);
-        const isoToday    = new Date().toISOString().slice(0, 10);
-        meta.purchaseDate = isoFromMeta || isoFromOCR || isoToday;
-
-        // Normalizza base + filtra amministrative
-        const itemsNorm = (allPurchases || []).map(p => ({
-          name: String(p.name || '').trim(),
-          brand: String(p.brand || '').trim(),
-          packs: Number(p.packs || 0),
-          unitsPerPack: Number(p.unitsPerPack || 0),
-          unitLabel: String(p.unitLabel || ''),
-          priceEach: Number(p.priceEach || 0),
-          priceTotal: Number(p.priceTotal || 0),
-          currency: String(p.currency || 'EUR'),
-          expiresAt: String(p.expiresAt || p.expiry || p.scadenza || '')
-        })).filter(p => p.name && !shouldDropName(p.name));
-
-        if (!itemsNorm.length) {
-          setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ Nessuna riga acquisto riconosciuta. Non invio a Finanze/Spese.' }]);
-          return;
-        }
-
-        // Normalizzazione web (opzionale) + coercion prezzi
-        async function normalizeViaWebLocal(items, { receiptText = '', store = '' } = {}) {
-          const arr = Array.isArray(items) ? items : [];
-          if (!arr.length) return arr;
-
-          // Vision → /api/normalize-vision
-          try {
-            const r = await fetch('/api/normalize-vision', {
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ items: arr.map(p => ({ name:p.name, brand:p.brand || '' })), receiptText, store, locale:'it-IT', trace:false })
-            });
-            const raw = await r.text(); let j=null; try{ j=JSON.parse(raw) }catch{}
-            if (r.ok && j?.ok && Array.isArray(j.results)) {
-              const pad = [...j.results]; while (pad.length < arr.length) pad.push(undefined);
-              const merged = [];
-              for (let i=0;i<arr.length;i++){
-                const p = arr[i]; const r1 = pad[i];
-                if (r1?.drop && shouldDropName(p.name)) continue;
-                const out = { ...p };
-                const nn = String(r1?.out?.normalizedName||'').trim();
-                const cb = String(r1?.out?.canonicalBrand||'').trim();
-                const upp = Number(r1?.out?.unitsPerPack||0);
-                const ul  = String(r1?.out?.unitLabel||'').trim();
-                if (nn) out.name = nn; if (cb) out.brand = cb;
-                if (upp>0) out.unitsPerPack = upp; if (ul) out.unitLabel = ul;
-                merged.push(out);
-              }
-              if (merged.length) return merged;
-            }
-          } catch {}
-
-          // Fallback /api/normalize (OFF/euristiche)
-          try {
-            const resp = await fetch('/api/normalize', {
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ items: arr.map(p => ({ name:p.name, brand:p.brand||'' })), locale:'it-IT', trace:true })
-            });
-            const raw = await resp.text(); let j=null; try{ j=JSON.parse(raw) }catch{}
-            if (!resp.ok || !j?.ok || !Array.isArray(j.results)) return arr;
-            const pad = [...j.results]; while (pad.length < arr.length) pad.push(undefined);
-            const merged = [];
-            for (let i=0;i<arr.length;i++){
-              const p = arr[i]; const r1 = pad[i];
-              if (r1?.drop && shouldDropName(p.name)) continue;
-              const out = { ...p };
-              const nn = String(r1?.out?.normalizedName||'').trim();
-              const cb = String(r1?.out?.canonicalBrand||'').trim();
-              const upp = Number(r1?.out?.unitsPerPack||0);
-              const ul  = String(r1?.out?.unitLabel||'').trim();
-              if (nn) out.name = nn; if (cb) out.brand = cb;
-              if (upp>0) out.unitsPerPack = upp; if (ul) out.unitLabel = ul;
-              merged.push(out);
-            }
-            return merged;
-          } catch { return arr; }
-        }
-
-        const itemsReady = (await normalizeViaWebLocal(itemsNorm, {
-          receiptText: texts.join('\n'),
-          store: meta.store
-        }))
-          .map(normalizeItemForPipelines)
-          .map(p => {
-            // neutralizza pesi/volumi residui
-            let upp = Math.max(1, Number(p.unitsPerPack||1));
-            let ul  = String(p.unitLabel||'').trim() || 'unità';
-            if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(ul) || /\b\d+\s*(g|gr|kg|ml|cl|l|lt)\b/i.test(`${p.name} ${p.brand}`)) {
-              upp = 1; ul = 'unità';
-            }
-            return { ...p, unitsPerPack: upp, unitLabel: ul };
-          })
-          .map(enforceHybridUnitPrice);
-
-        const itemsReadyDedup = dedupeAndFix(itemsReady);
-
-        const totalFromLines = Number(itemsReadyDedup.reduce((s,p)=> s + (Number(p.priceTotal)||0), 0).toFixed(2));
-        const ocrTotal = Number(meta.totalPaid || 0);
-        meta.totalPaid = ocrTotal > 0 ? ocrTotal : totalFromLines;
-
-        const bucket = guessExpenseBucket(meta.store);
-        const storeIsSuper = (bucket !== 'cene-aperitivi' && /\b(supermercat|iper|market|discount|conad|coop|esselunga|carrefour|pam|despar|lidl|md|eurospin|todis|deco|decò|tigre|famila|dok|cra[iì]|penny)\b/i.test(meta.store||''));
-
-        const notes = [];
-
-       // 🔒 Data sicura (ISO YYYY-MM-DD, mai stringa vuota)
-const purchaseDateSafe =
-  (meta.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(meta.purchaseDate))
-    ? meta.purchaseDate
-    : new Date().toISOString().slice(0, 10);
-
-// 🔗 ID univoco della spesa (link Finanze ↔ Spese Casa) + link comodi
-const receiptId =
-  (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
-const linkLabel = `Spesa ${meta.store || 'supermercato'} (${purchaseDateSafe})`;
-const linkPath  = `/spese-casa?rid=${encodeURIComponent(receiptId)}`;
-
-// user_id opzionale (lo passa solo se c'è)
-const maybeUid = uid || null;
-
-/* ---------------- a) Finanze (testa spesa) ---------------- */
-try {
-  const finRes = await postJSON('/api/finances/ingest_v2', {
-    ...(uid ? { user_id: uid } : {}),
-    store: meta.store,
-    purchaseDate: purchaseDateSafe,
-    payment_method: 'cash',
-    card_label: null,
-    receipt_id: receiptId,
-    link_label: linkLabel,
-    link_path: linkPath,
-    totalPaid: meta.totalPaid,
-    items: itemsReadyDedup,
-   insert_lines: false,
-   insert_lines: true,            // ⬅️ INSERISCI ANCHE LE RIGHE ANALITICHE
-    receiptTotalAuthoritative: true
-  });
-
-  if (finRes?.ok && (finRes?.finance_head_id || finRes?.inserted || 0) > 0) {
-    if (typeof window !== 'undefined') {
-      const stamp = Date.now();
-      localStorage.setItem('__finanze_last_ingest', String(stamp));
-      window.dispatchEvent(new CustomEvent('finanze:ingest:done', {
-        detail: { count: itemsReadyDedup.length, store: meta.store, stamp, receipt_id: receiptId }
-      }));
-    }
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Finanze: inserimento completato ✓' }]);
-  } else {
-    notes.push('Finanze: nessuna riga inserita');
-  }
-} catch (e) {
-  // se vedi 401/403 qui, allora sei davvero non autenticato (token mancante)
-  notes.push(`Finanze: ${e.message}`);
-}
-
-/* ---------------- b) Spese Casa (righe collegate) ---------------- */
-try {
-  const payloadSpese = {
-    ...(maybeUid ? { user_id: maybeUid } : {}),
-    store: meta.store,
-    purchaseDate: purchaseDateSafe,
-    totalPaid: meta.totalPaid,
-    items: itemsReadyDedup,
-    receipt_id: receiptId,
-    link_label: linkLabel,
-    link_path: linkPath,
-    receiptTotalAuthoritative: true
-  };
-
-  const spRes = await postJSON('/api/spese-casa/ingest', payloadSpese);
-
-  if (spRes?.ok && (spRes?.inserted || 0) > 0) {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('spese:ingest:done', {
-        detail:{ count: itemsReadyDedup.length, receipt_id: receiptId }
-      }));
-    }
-    setChatMsgs(arr => [...arr, { role:'assistant', text:'💾 Spese Casa: inserimento completato ✓' }]);
-  } else {
-    notes.push('Spese Casa: nessuna riga inserita');
-  }
-} catch (e) {
-  notes.push(`Spese Casa: ${e.message}`);
-}
-
-        // c) Scorte
-        if (storeIsSuper && uid) {
-          try {
-            await postJSON('/api/stock/apply', { user_id: uid, items: itemsReadyDedup });
-            setChatMsgs(arr => [...arr, { role:'assistant', text:'📦 Scorte aggiornate dal scontrino ✓' }]);
-            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('scorte:updated', { detail:{ count: itemsReadyDedup.length, at: Date.now() } }));
-          } catch (e) { notes.push(`Scorte: ${e.message}`); }
-        }
-
-        // d) riepilogo
-        const msg = { role: 'assistant', text: summarizeReceiptForChat({ ...meta, purchaseDate: purchaseDateSafe, purchases: itemsReadyDedup }), mono: true };
-        setChatMsgs(arr => [
-          ...arr, msg,
-          ...(notes.length ? [{ role:'assistant', text: 'Note:\n' + notes.map(n => `• ${n}`).join('\n'), mono: true }] : []),
-          { role: 'assistant', text: '✅ Scontrino elaborato. Ora puoi chiedere: "quanto ho speso negli ultimi 2 mesi", "cosa ho a casa", "prodotti in esaurimento", "quando scade il latte", "in cosa spendo di più?".' }
-        ]);
-        maybeSpeakMessage(msg);
-        return;
-      }
-
-      setChatMsgs(arr => [...arr, { role: 'assistant', text: 'ℹ️ OCR eseguito, ma non ho riconosciuto il tipo (scontrino/carta/etichetta).' }]);
-
+      // Nessun caso gestito esplicito
+      showToast('OCR completato. Nessun dato rilevante.');
+      dispatchEvent(new CustomEvent('jarvis:ocr:done', { detail: { type: 'none' } }));
     } catch (err) {
-      console.error('[OCR flow] error', err);
-      setChatMsgs(arr => [...arr, { role: 'assistant', text: `❌ Errore OCR: ${err?.message || err}` }]);
+      console.error('handleSmartOCR error:', err);
+      showToast('Errore OCR');
+      dispatchEvent(new CustomEvent('jarvis:ocr:error', { detail: { message: String(err?.message || err) } }));
     } finally {
       setBusy(false);
     }
   }
 
-  /* =================== Query testo =================== */
-  async function submitQuery(textParam) {
-    const raw = (textParam != null ? String(textParam) : queryText).trim();
-    if (!raw || busy) return;
-    if (textParam == null) setQueryText('');
+  /* =================== Modale/Chat on-demand =================== */
+  function openChatWithSystem(initial = []) {
+    // apre la modale e inserisce messaggi (senza TTS automatico)
     setChatOpen(true);
-    setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
-    lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
-    if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
-      setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per favore premi <b>OCR</b> e fotografa la <b>carta dei vini</b> così ti consiglio dalla lista del locale.' }]);
-      return;
+    if (initial?.length) {
+      setChatMsgs(prev => {
+        const next = [...prev, ...initial.map(m => ({ role: m.role || 'assistant', text: m.text }))];
+        return next;
+      });
     }
+  }
+
+  async function askInModal(text) {
+    const q = String(text || '').trim();
+    if (!q) return;
+    // Tutte le risposte vanno SOLO nella modale (anche TTS se attivo)
+    setChatMsgs(prev => [...prev, { role: 'user', text: q }]);
     try {
-      setBusy(true);
-      const out = await runBrainQuery(raw, { first: chatMsgs.length === 0 });
-      const msg = renderBrainResponse(out);
+      const memory = wineListsRef.current?.join('\n---\n') || '';
+      const res = await runBrainQuery(q, {
+        mode: 'modal-only',
+        wine_memory: memory || undefined
+      });
+      const msg = { role: 'assistant', text: formatResult(res) };
       setChatMsgs(prev => [...prev, msg]);
       maybeSpeakMessage(msg);
-    } catch (err) {
-      setChatMsgs(prev => [...prev, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
-    } finally { setBusy(false); }
+    } catch (e) {
+      const msg = { role: 'assistant', text: 'Errore durante la risposta. Riprova.' };
+      setChatMsgs(prev => [...prev, msg]);
+      maybeSpeakMessage(msg);
+    }
   }
 
-  /* =================== UI bits =================== */
-  const handleFileChange = (ev) => {
-    const files = Array.from(ev.target.files || []);
-    if (!files.length || busy) return;
-    (async () => {
-      try {
-        setBusy(true);
-        await handleSmartOCR(files);
-      } finally {
-        setBusy(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    })();
-  };
-  const handleSelectOCR = () => { if (!busy) fileInputRef.current?.click(); };
+  /* =================== Voice intents =================== */
+  async function onVoiceText(text) {
+    const t = String(text || '').trim();
+    if (!t) return;
+    lastUserIntentRef.current = {
+      text: t,
+      sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(t)
+    };
 
-  const handleVoiceText = async (spoken) => {
-    const text = String(spoken||'').trim();
-    if (!text || busy) return;
-    lastUserIntentRef.current = { text, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(text) };
-    if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
-      setChatOpen(true);
-      setChatMsgs(prev => [...prev, { role:'user', text }, { role:'assistant', text: '📷 Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }]);
+    // Se è domanda → apri modale e rispondi lì (OCR non coinvolto)
+    if (/\?$/.test(t) || /\b(cosa ho a casa|quanto ho speso|ho una bottiglia|quali offerte|cosa manca)\b/i.test(t) || lastUserIntentRef.current.sommelier) {
+      if (!chatOpen) openChatWithSystem();
+      await askInModal(t);
       return;
     }
-    await submitQuery(text);
-  };
+  }
 
+  /* =================== Deep-link ?img= =================== */
   useEffect(() => {
-    if (!router.isReady || deepLinkHandledRef.current) return;
-    const sp = new URLSearchParams(window.location.search);
-    const src  = sp.get('src')  || '';
-    const mode = sp.get('mode') || '';
-    const q    = sp.get('q')    || '';
-    const tts  = sp.get('tts');
-    const voiceParam = sp.get('voice') || '';
-    const imgParams = sp.getAll('img');
-    if (tts === '1') setTtsEnabled(true);
-    if (tts === '0') setTtsEnabled(false);
-    if (mode === 'voice') speakModeRef.current = true;
-    if (voiceParam) {
-      const attempt = () => { const found = voicesRef.current.find(v => v.name === voiceParam); if (found) setVoiceId(found.name); };
-      attempt(); setTimeout(attempt, 700);
-    }
-    deepLinkHandledRef.current = true;
-    if (src === 'siri') { setChatOpen(true); setChatMsgs(prev => [...prev, { role:'assistant', text:'🎙️ richiesta ricevuta da Siri…' }]); }
-    (async () => {
-      const files = [];
-      for (let i=0; i<imgParams.length; i++) {
-        const url = imgParams[i];
+    const q = router.query;
+    if (deepLinkHandledRef.current) return;
+    if (q?.img) {
+      deepLinkHandledRef.current = true;
+      (async () => {
         try {
-          if (url.startsWith('data:')) {
-            const [head, b64] = url.split(',');
-            const mime = (head.match(/data:(.*?);base64/i)?.[1]) || 'image/jpeg';
-            const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-            files.push(new File([buf], `siri_${i+1}.jpg`, { type: mime }));
-          } else {
-            const resp = await fetch(url, { mode:'cors' }); const blob = await resp.blob();
-            files.push(new File([blob], `siri_${i+1}.${(blob.type.includes('png')?'png':'jpg')}`, { type: blob.type }));
-          }
-        } catch {}
-      }
-      if (files.length) { await handleSmartOCR(files); }
-      else if (q) { await submitQuery(q); }
-      try {
-        const url = new URL(window.location.href);
-        ['q','src','mode','tts','voice','img'].forEach(p => url.searchParams.delete(p));
-        window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''));
-      } catch {}
-    })();
-  }, [router.isReady]);
-
-  function renderBrainResponse(res) {
-    const payload = (res && typeof res === 'object' && 'result' in res) ? res.result : res;
-    const kind = payload?.kind;
-
-    const looksLikeInventory =
-      kind === 'inventory.snapshot' ||
-      (payload && typeof payload === 'object' && Array.isArray(payload.elenco));
-    if (looksLikeInventory) {
-      const rendered = renderInventorySnapshot(payload);
-      return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
+          const url = Array.isArray(q.img) ? q.img[0] : q.img;
+          showToast('Importo immagine…');
+          dispatchEvent(new CustomEvent('jarvis:ocr:progress', { detail: { stage: 'download' } }));
+          const r = await fetch(url);
+          const blob = await r.blob();
+          const file = new File([blob], 'deeplink.jpg', { type: blob.type || 'image/jpeg' });
+          await handleSmartOCR([file]);
+        } catch (e) {
+          console.warn('deeplink ?img= error', e);
+          showToast('Impossibile importare immagine');
+        }
+      })();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.query?.img]);
 
-    const topList = payload?.top_negozi || payload?.top_stores;
-    const looksLikeMonthFinances =
-      kind === 'finances.month_summary' ||
-      (payload && typeof payload === 'object' &&
-        (payload.totale != null || payload.total != null) &&
-        Array.isArray(topList));
-    if (looksLikeMonthFinances) {
-      const totRaw = payload.total ?? payload.totale ?? 0;
-      const txs = payload.transactions ?? payload.transazioni ?? 0;
-      const top = Array.isArray(topList) ? topList : [];
-      const rows = top.map(r => ({ store: r.store || r.nome || r.name || '—', speso: fmtEuro(r.speso ?? r.amount ?? 0) }));
-      const header = rows.slice(0,10).map(r => `${r.store}: ${r.speso}`).join('\n');
-      const txt =
-`📊 Spese del mese
-Intervallo: ${payload.intervallo || 'mese corrente'}
-Totale: ${fmtEuro(totRaw)} • Transazioni: ${fmtInt(txs)}
-
-${header}${rows.length>10?`\n…(+${rows.length-10})`:''}`;
-      return { role: 'assistant', text: txt, mono: true };
-    }
-
-    const text = formatResult(payload ?? res);
-    return { role: 'assistant', text, mono: typeof (payload ?? res) !== 'string' };
+  /* =================== UI Handlers =================== */
+  function onClickOcr() {
+    if (busy) return;
+    fileInputRef.current?.click();
   }
-  function renderInventorySnapshot(payload) {
-    const list = Array.isArray(payload?.elenco) ? payload.elenco : [];
-    const rows = list.map(it => ({ nome: (it.name ?? '').trim() || '—', qty: (it.qty ?? it.quantity ?? it.qta ?? null), pct: clampPct(it.consumed_pct ?? it.consumo_pct ?? it.fill_pct ?? null) }));
-    const table = rows.map(r => `${r.nome} — ${r.qty ?? '—'} — ${r.pct!=null?fmtPct(r.pct):'—'}`).join('\n');
-    const barsData = rows.filter(r => r.pct != null).sort((a,b)=> (a.pct - b.pct)).slice(0, 10).map(r => ({ label: r.nome, value: r.pct }));
-    const svg = svgBars(barsData, { max: 100, unit: '%', bg: '#0b0f14' });
-    const text =
-`🏠 Scorte (snapshot)
-Totale articoli: ${fmtInt(rows.length)}
-
-${table}`;
-    return { text, blocks: barsData.length ? [{ svg, caption: 'Consumo stimato (prime 10 voci)' }] : [] };
+  async function onFilesPicked(e) {
+    const files = e.target.files || [];
+    if (!files.length) return;
+    // OCR silenzioso
+    await handleSmartOCR(files);
+    e.target.value = ''; // reset per ri-selezione
   }
 
-  function summarizeReceiptForChat({ store, purchaseDate, totalPaid, currency='EUR', purchases=[] }) {
-    const tot = (Number(totalPaid)||0).toLocaleString('it-IT',{style:'currency',currency});
-    const lines = purchases.slice(0,8).map(p => {
-      const q  = Math.max(1, Number(p.packs||p.qty||1));
-      const up = Math.max(1, Number(p.unitsPerPack||1));
-      const label = p.unitLabel || 'unità';
-      const unit = Number(p.priceEach||0);
-      const lineTot = Number(p.priceTotal||0);
-      const exp = p.expiresAt ? ` • scad: ${p.expiresAt}` : '';
-      const unitTxt = unit ? ` @ ${(unit).toLocaleString('it-IT',{style:'currency',currency})}` : '';
-      const lineTotTxt = lineTot ? ` = ${(lineTot).toLocaleString('it-IT',{style:'currency',currency})}` : '';
-      return `• ${p.name}${p.brand ? ` (${p.brand})` : ''} — ${q} conf. × ${up} ${label}${unitTxt}${lineTotTxt}${exp}`;
-    }).join('\n');
-    return (
-`🧾 Scontrino rilevato
-Punto vendita: ${store || '—'}
-Data: ${purchaseDate || '—'}
-Totale scontrino: ${tot}
-
-Righe principali:
-${lines}${purchases.length>8?`\n…(+${purchases.length-8})`:''}`
-    );
+  function onOpenModal() {
+    openChatWithSystem();
+  }
+  function onOpenSommelier() {
+    lastUserIntentRef.current = { text: 'sommelier', sommelier: true };
+    openChatWithSystem([
+      { role: 'assistant', text: 'Sommelier attivo 🍷. Scatta la **carta dei vini** con il pulsante 📷 OCR oppure chiedimi un consiglio.' }
+    ]);
   }
 
+  /* =================== Render =================== */
   return (
     <>
       <Head>
-        <title>Home - Jarvis-Assistant</title>
-        <meta property="og:title" content="Home - Jarvis-Assistant" />
+        <title>Home – Jarvis</title>
       </Head>
 
-      {/* Video bg */}
-      <video className="bg-video" src="/composizione%201.mp4" autoPlay loop muted playsInline controls={false} preload="auto" disablePictureInPicture controlsList="nodownload noplaybackrate noremoteplayback" aria-hidden="true" />
-      <div className="bg-overlay" aria-hidden="true" />
+      <div className="min-h-screen bg-[#0b0f14] text-[#e5f2ff]">
+        <header className="max-w-5xl mx-auto px-4 py-6 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-wide">Jarvis • Home</h1>
+          <div className="flex items-center gap-3">
+            <button
+              className={`px-3 py-2 rounded-xl border border-[#1f2a38] ${busy ? 'opacity-60' : 'hover:bg-[#111b24]'}`}
+              onClick={onClickOcr}
+              disabled={busy}
+              title="OCR Scontrino o Carta vini"
+            >📷 OCR</button>
 
-      <main className="home-shell">
-        <section className="primary-grid">
-          <Link href="/liste-prodotti" className="card-cta card-prodotti animate-card pulse-prodotti sheen">
-            <span className="emoji">🛒</span><span className="title">LISTE PRODOTTI</span><span className="hint">Crea e gestisci le tue liste</span>
-          </Link>
-          <Link href="/finanze" className="card-cta card-finanze animate-card pulse-finanze sheen" style={{ animationDelay: '0.15s' }}>
-            <span className="emoji">📊</span><span className="title">FINANZE</span><span className="hint">Entrate, spese e report</span>
-          </Link>
-        </section>
+            <button
+              className="px-3 py-2 rounded-xl border border-[#1f2a38] hover:bg-[#111b24]"
+              onClick={onOpenModal}
+              title="Apri modale Interroga dati"
+            >🔎 Interroga dati</button>
 
-        <section className="advanced-box">
-          <h2>Funzionalità Avanzate</h2>
+            <button
+              className="px-3 py-2 rounded-xl border border-[#1f2a38] hover:bg-[#111b24]"
+              onClick={onOpenSommelier}
+              title="Sommelier / Carta dei vini"
+            >🍷 Sommelier</button>
 
-          <div className="ask-row">
-            <input className="query-input" type="text" placeholder='Chiedi a Jarvis… (es. "Quanto ho speso questo mese?" • "Cosa ho a casa?" • "Mi consigli un vino rosso da questa carta?")' value={queryText} onChange={(ev)=>setQueryText(ev.target.value)} onKeyDown={(ev)=> ev.key==='Enter' && submitQuery()} disabled={busy} />
-            <button className="btn-ask" onClick={() => submitQuery()} disabled={busy}>{busy ? '⏳' : '💬 Chiedi'}</button>
+            <label className="flex items-center gap-2 text-sm px-2 py-1 rounded-lg border border-[#1f2a38]">
+              <input type="checkbox" checked={ttsEnabled} onChange={e => setTtsEnabled(e.target.checked)} />
+              TTS
+            </label>
           </div>
+        </header>
 
-          <div className="advanced-actions">
-            <button className="btn-ocr" onClick={handleSelectOCR} disabled={busy}>{busy ? '⏳' : '📷 OCR'}</button>
+        <main className="max-w-5xl mx-auto px-4 pb-24">
+          <section className="grid md:grid-cols-2 gap-6">
+            <div className="p-4 rounded-2xl border border-[#1f2a38] bg-[#0c1219]">
+              <h2 className="text-lg font-medium mb-3">Comandi vocali</h2>
+              <p className="text-sm opacity-80 mb-3">Esempi: “cosa ho a casa?”, “quanto ho speso questo mese?”, “sommelier consiglia un Barolo classico”. Le risposte compaiono solo nella modale.</p>
+              <VoiceRecorder onFinalText={onVoiceText} />
+            </div>
 
-            <button className="btn-manuale" onClick={() => setTtsEnabled(v => !v)} title="Abilita/Disabilita lettura vocale" aria-pressed={ttsEnabled}>
-              {ttsEnabled ? '🔊 Lettura vocale: ON' : '🔇 Lettura vocale: OFF'}
-            </button>
+            <div className="p-4 rounded-2xl border border-[#1f2a38] bg-[#0c1219]">
+              <h2 className="text-lg font-medium mb-3">Scorciatoie</h2>
+              <ul className="text-sm list-disc pl-5 space-y-1 opacity-90">
+                <li>📷 OCR: importa scontrini o carta dei vini (silenzioso, nessuna modale).</li>
+                <li>🔎 Interroga dati: apri la modale e poni domande su Finanze/Scorte.</li>
+                <li>🍷 Sommelier: guida per OCR carta dei vini e Q&A in modale.</li>
+              </ul>
+              <div className="mt-4">
+                <div dangerouslySetInnerHTML={{ __html: svgBars([
+                  { label: 'Spese Casa', value: 72 },
+                  { label: 'Cene & Aperitivi', value: 25 },
+                  { label: 'Scorte aggiornate', value: 88 },
+                ], { max: 100, unit: '%', bg: '#0c1219' }) }} />
+              </div>
+            </div>
+          </section>
 
-            <select value={voiceId || ''} onChange={(e) => setVoiceId(e.target.value || null)} className="btn-manuale" title="Seleziona voce" style={{ minWidth: 220 }} disabled={!voices.length}>
-              {voices.length === 0 ? (<option value="">(Caricamento voci…)</option>) : (voices.map(v => (<option key={v.name} value={v.name}>{`${v.name} — ${v.lang}`}</option>)))}
-            </select>
+          <section className="mt-6 p-4 rounded-2xl border border-[#1f2a38] bg-[#0c1219]">
+            <h2 className="text-lg font-medium mb-3">Link utili</h2>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <Link className="px-3 py-2 rounded-xl border border-[#1f2a38] hover:bg-[#111b24]" href="/entrate">Entrate &amp; Saldi</Link>
+              <Link className="px-3 py-2 rounded-xl border border-[#1f2a38] hover:bg-[#111b24]" href="/spese-casa">Spese Casa</Link>
+              <Link className="px-3 py-2 rounded-xl border border-[#1f2a38] hover:bg-[#111b24]" href="/scorte">Scorte</Link>
+            </div>
+          </section>
+        </main>
 
-            <VoiceRecorder buttonClass="btn-vocale" idleLabel="🎤 Comando vocale" recordingLabel="⏹ Stop" onText={handleVoiceText} disabled={busy} />
-
-            <Link href="/dashboard" className="btn-manuale">🔎 Interroga dati</Link>
-            <Link href="/prodotti-tipici-vini" className="btn-manuale">🍷 Prodotti tipici & Vini</Link>
+        {/* Toast leggero */}
+        {toast && (
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl border border-[#1f2a38] bg-[#0c1219] shadow">
+            {toast}
           </div>
-        </section>
-      </main>
+        )}
 
-      {/* Input OCR nascosto */}
-      <input type="file" accept="image/*" capture="environment" multiple ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} />
-
-      {/* Chat Modal (leggero) */}
-      {chatOpen && (
-        <div style={S.overlay} role="dialog" aria-modal="true" aria-label="Chat dati">
-          <div style={S.modal}>
-            <div style={S.header}>
-              <div style={{ fontWeight: 800 }}>💬 Interroga dati</div>
-              <button onClick={() => setChatOpen(false)} aria-label="Chiudi" style={S.btnGhost}>✖</button>
-            </div>
-            <div style={S.body}>
-              {chatMsgs.length === 0 && (
-                <div style={{ opacity: .85 }}>
-                  Inizia chiedendo: “Quanto ho speso questo mese?” •
-                  “Che cosa ho a casa?” • “Mi consigli un rosso da questa carta?” (poi premi <b>OCR</b>).
-                </div>
-              )}
-              {chatMsgs.map((m, i) => (
-                <div key={i} style={{ display:'grid', justifyContent: m.role === 'user' ? 'end' : 'start' }}>
-                  <div style={S.bubble}>{m.mono ? <pre style={S.pre}>{m.text}</pre> : <span dangerouslySetInnerHTML={{ __html: m.text }} />}</div>
-                </div>
-              ))}
-            </div>
-            <div style={S.inputRow}>
-              <input type="text" placeholder="Scrivi la tua domanda e premi Invio…" onKeyDown={(ev) => !busy && ev.key === 'Enter' && submitQuery(ev.currentTarget.value)} disabled={busy} style={S.input} />
-              <button onClick={() => submitQuery()} disabled={busy} style={S.btnPrimary}>{busy ? '⏳' : 'Invia'}</button>
+        {/* Modale Interroga dati (on-demand) */}
+        {chatOpen && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={()=>setChatOpen(false)}>
+            <div className="w-full max-w-2xl rounded-2xl border border-[#203040] bg-[#0a121a]" onClick={e=>e.stopPropagation()}>
+              <div className="px-4 py-3 flex items-center justify-between border-b border-[#1f2a38]">
+                <div className="font-medium">Interroga dati</div>
+                <button className="px-2 py-1 rounded-lg border border-[#1f2a38] hover:bg-[#111b24]" onClick={()=>setChatOpen(false)}>Chiudi</button>
+              </div>
+              <div className="max-h-[60vh] overflow-auto p-4 space-y-3">
+                {chatMsgs.length === 0 && (
+                  <div className="text-sm opacity-80">
+                    Fai una domanda: “cosa ho a casa?”, “quanto ho speso a settembre?”, “mostra spese Deco”, oppure usa la modalità 🍷 Sommelier.
+                  </div>
+                )}
+                {chatMsgs.map((m, i) => (
+                  <div key={i} className={`p-3 rounded-xl ${m.role==='user' ? 'bg-[#111b24] text-[#e5f2ff]' : 'bg-[#0f1820] text-[#cfe7ff]'}`}>
+                    <div className="text-xs opacity-70 mb-1">{m.role==='user' ? 'Tu' : 'Jarvis'}</div>
+                    <div className="whitespace-pre-wrap leading-relaxed">{m.text}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="p-3 border-t border-[#1f2a38]">
+                <form onSubmit={async (e)=>{ e.preventDefault(); const form = e.currentTarget; const q = form.q.value; form.q.value=''; await askInModal(q); }}>
+                  <div className="flex gap-2">
+                    <input name="q" placeholder="Scrivi una domanda…" className="flex-1 px-3 py-2 rounded-xl bg-[#0d1620] border border-[#1f2a38] outline-none" />
+                    <button className="px-3 py-2 rounded-xl border border-[#1f2a38] hover:bg-[#111b24]" type="submit">Invia</button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <style jsx global>{`
-        .bg-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; pointer-events: none; background: #000; }
-        .bg-overlay { position: fixed; inset: 0; z-index: -1; background: rgba(0, 0, 0, 0.35); pointer-events: none; }
-        .home-shell { min-height: 100vh; display: grid; grid-template-rows: auto auto; align-items: start; justify-items: center; gap: 1.25rem; padding: 2rem 1rem 3rem; color: #fff; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-        .primary-grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 1rem; width: min(1100px, 96vw); }
-        @media (max-width: 760px) { .primary-grid { grid-template-columns: 1fr; } }
-        .card-cta { display: grid; align-content: center; justify-items: center; gap: 0.25rem; text-decoration: none; color: #fff; border-radius: 18px; padding: clamp(1.1rem, 3vw, 1.7rem); min-height: clamp(130px, 22vw, 220px); transition: transform 120ms ease, box-shadow 200ms ease, border-color 200ms ease; position: relative; overflow: hidden; isolation: isolate; }
-        .card-cta .emoji { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1; }
-        .card-cta .title { font-weight: 800; font-size: clamp(1.1rem, 2.8vw, 1.6rem); }
-        .card-cta .hint  { opacity: .85; font-size: clamp(.85rem, 2vw, .95rem); }
-        .card-cta:hover { transform: translateY(-2px) scale(1.02); }
-        .card-prodotti { background: linear-gradient(145deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85)); border: 1px solid rgba(236,72,153,0.35); }
-        .card-finanze  { background: linear-gradient(145deg, rgba(6,182,212,0.85), rgba(59,130,246,0.85)); border: 1px solid rgba(59,130,246,0.35); }
-        .animate-card { animation: cardGlow 3.2s ease-in-out infinite; }
-        @keyframes cardGlow { 0% { box-shadow: 0 0 15px rgba(99,102,241, 0.4); } 50% { box-shadow: 0 0 35px rgba(6,182,212, 0.85); } 100% { box-shadow: 0 0 15px rgba(99,102,241, 0.4); } }
-        .advanced-box { width: min(1100px, 96vw); margin-top: .5rem; background: rgba(0, 0, 0, 0.55); border-radius: 16px; padding: 1rem; }
-        .advanced-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-        .ask-row { display: grid; grid-template-columns: 1fr auto; gap: .5rem; margin-bottom: .6rem; }
-        .query-input { width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: .55rem; padding: .52rem .7rem; color: #fff; outline: none; }
-        .query-input::placeholder { color: rgba(255,255,255,0.65); }
-        .btn-ask { background: linear-gradient(135deg, #6366f1, #06b6d4); border: 1px solid rgba(255,255,255,0.2); border-radius: .55rem; padding: .45rem .7rem; color: #fff; cursor: pointer; }
-        .btn-vocale, .btn-ocr, .btn-manuale { display: inline-flex; align-items: center; justify-content: center; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; text-decoration: none; }
-        .btn-vocale { background: #6366f1; }
-        .btn-ocr { background: #06b6d4; }
-        .btn-manuale { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); }
-        .btn-vocale:hover, .btn-ocr:hover, .btn-manuale:hover { opacity: .9; }
-      `}</style>
+        {/* Hidden file input */}
+        <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onFilesPicked} />
+      </div>
     </>
   );
-};
-
-/* ---------- Stili inline per il modale ---------- */
-const S = {
-  overlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', display:'grid', placeItems:'center', zIndex:9999, backdropFilter:'blur(2px)' },
-  modal:{ width:'min(920px, 92vw)', maxHeight:'82vh', background:'rgba(0,0,0,.85)', border:'1px solid rgba(255,255,255,.18)', borderRadius:12, display:'grid', gridTemplateRows:'auto 1fr auto', overflow:'hidden', boxShadow:'0 12px 30px rgba(0,0,0,.45)' },
-  header:{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', background:'linear-gradient(145deg, rgba(99,102,241,.28), rgba(6,182,212,.22))', borderBottom:'1px solid rgba(255,255,255,.16)' },
-  btnGhost:{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,.25)', borderRadius:10, padding:'4px 8px', cursor:'pointer' },
-  body:{ padding:'10px 12px', overflow:'auto', display:'grid', gap:8, background:'radial-gradient(1200px 500px at 10% 0%, rgba(236,72,153,.05), transparent 60%), radial-gradient(800px 400px at 100% 100%, rgba(59,130,246,.06), transparent 60%), rgba(0,0,0,.15)' },
-  bubble:{ maxWidth:'78ch', whiteSpace:'pre-wrap', wordBreak:'break-word', background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.18)', padding:'8px 10px', borderRadius:12, color:'#fff' },
-  pre:{ margin:0, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' },
-  inputRow:{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,.16)', background:'rgba(0,0,0,.35)' },
-  input:{ width:'100%', background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.2)', borderRadius:10, padding:'10px 12px', color:'#fff', outline:'none' },
-  btnPrimary:{ background:'#6366f1', border:0, borderRadius:10, padding:'10px 12px', color:'#fff', cursor:'pointer' },
 };
 
 export default withAuth(Home);
