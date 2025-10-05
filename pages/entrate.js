@@ -193,50 +193,97 @@ function Entrate() {
       });
 
       /* ---------- 🔗 TESTATE SPESE CON LINK ---------- */
-      // Spese Casa (supermercato)
-      const { data: casaHeads, error: casaErr } = await supabase
-        .from('jarvis_spese_casa')
-        .select('receipt_id, link_label, link_path, store, purchase_date, total_paid, price_total')
-        .eq('user_id', user.id)
-        .gte('purchase_date', startDate)
-        .lte('purchase_date', endDate);
-      if (casaErr) throw casaErr;
+// Spese Casa
+const { data: casaHeads, error: casaErr } = await supabase
+  .from('jarvis_spese_casa')
+  .select('receipt_id, store, purchase_date, price_total, payment_method')
+  .eq('user_id', user.id)
+  .gte('purchase_date', startDate)
+  .lte('purchase_date', endDate);
+if (casaErr) throw casaErr;
 
-      // Cene & Aperitivi (ristorante/bar)
-      const { data: ceneHeads, error: ceneErr } = await supabase
-        .from('jarvis_cene_aperitivi')
-        .select('receipt_id, link_label, link_path, store, purchase_date, total_paid, price_total')
-        .eq('user_id', user.id)
-        .gte('purchase_date', startDate)
-        .lte('purchase_date', endDate);
-      if (ceneErr) throw ceneErr;
+// Cene & Aperitivi
+const { data: ceneHeads, error: ceneErr } = await supabase
+  .from('jarvis_cene_aperitivi')
+  .select('receipt_id, store, purchase_date, price_total, payment_method')
+  .eq('user_id', user.id)
+  .gte('purchase_date', startDate)
+  .lte('purchase_date', endDate);
+if (ceneErr) throw ceneErr;
+// Vestiti & Altro
+let vestitiHeads = [];
+try {
+  const { data, error } = await supabase
+    .from('jarvis_vestiti_altro')
+    .select('receipt_id, store, purchase_date, price_total, payment_method')
+    .eq('user_id', user.id)
+    .gte('purchase_date', startDate)
+    .lte('purchase_date', endDate);
+  if (error) throw error;
+  vestitiHeads = data || [];
+} catch (e) {
+  // Se la tabella non esiste (42P01) o altre differenze di schema, ignora senza bloccare la pagina
+  if (String(e?.code) !== '42P01') console.warn('[vestiti_altro]', e);
+}
 
-      function headToRow(h, kindRoute) {
-        const dateISO = h.purchase_date || '';
-        const total = Number(h.total_paid ?? h.price_total ?? 0);
-        const store = titleize(h.store || 'Punto vendita');
-        const kindText = (kindRoute === 'cene') ? 'Cena/Aperitivo' : 'Spesa';
-        const niceDate = formatIT(dateISO);
-        const label = (h.link_label && h.link_label.trim())
-          ? h.link_label
-          : `${kindText} ${store} (${niceDate || dateISO || ''})`;
-        const route = (h.link_path && h.link_path.trim())
-          ? h.link_path
-          : `/${kindRoute === 'cene' ? 'cene-aperitivi' : 'spese-casa'}?rid=${encodeURIComponent(h.receipt_id || '')}`;
-        return {
-          id: `${kindRoute}-${h.receipt_id || `${store}|${dateISO}`}`,
-          dateISO,
-          label,
-          route,
-          amount: -Math.abs(total || 0),
-          kind: 'expense-linked',
-        };
-      }
+// Varie
+let varieHeads = [];
+try {
+  const { data, error } = await supabase
+    .from('jarvis_varie')
+    .select('receipt_id, store, purchase_date, price_total, payment_method')
+    .eq('user_id', user.id)
+    .gte('purchase_date', startDate)
+    .lte('purchase_date', endDate);
+  if (error) throw error;
+  varieHeads = data || [];
+} catch (e) {
+  if (String(e?.code) !== '42P01') console.warn('[varie]', e);
+}
 
-      const expenseRows = [
-        ...((casaHeads || []).map(h => headToRow(h, 'spese'))),
-        ...((ceneHeads || []).map(h => headToRow(h, 'cene'))),
-      ];
+
+function headToRow(h, kindRoute) {
+  const dateISO = h.purchase_date || '';
+  const total   = Number(h.price_total ?? 0);
+  const pm      = String(h.payment_method || '').toLowerCase();
+  const isCash  = (pm === 'cash' || pm === 'contanti');
+
+  const baseTxt = kindRoute === 'cene'    ? 'Cena/Aperitivo'
+                : kindRoute === 'vestiti' ? 'Vestiti/Altro'
+                : kindRoute === 'varie'   ? 'Varie'
+                :                           'Spesa';
+
+  const store    = titleize(h.store || (kindRoute === 'cene' ? 'Locale' : 'Punto vendita'));
+  const niceDate = formatIT(dateISO);
+  const label    = `${baseTxt} ${store}${niceDate ? ` (${niceDate})` : (dateISO ? ` (${dateISO})` : '')}`;
+
+  const routeBase =
+      kindRoute === 'cene'    ? '/cene-aperitivi'
+    : kindRoute === 'vestiti' ? '/vestiti-altro'
+    : kindRoute === 'varie'   ? '/varie'
+    :                           '/spese-casa';
+
+  const route = h.receipt_id ? `${routeBase}?rid=${encodeURIComponent(h.receipt_id)}`
+                             : routeBase;
+
+  return {
+    id: `${kindRoute}-${h.receipt_id || `${store}|${dateISO}`}`,
+    dateISO,
+    label,
+    route,
+    displayAmount: -Math.abs(total || 0),         // importo visualizzato sempre
+    amount: isCash ? -Math.abs(total || 0) : 0,   // impatto su “soldi in tasca” solo se contanti
+    affectsPocket: isCash,
+    kind: 'expense-linked',
+  };
+}
+     const expenseRows = [
+  ...((casaHeads    || []).map(h => headToRow(h, 'spese'))),
+  ...((ceneHeads    || []).map(h => headToRow(h, 'cene'))),
+  ...((vestitiHeads || []).map(h => headToRow(h, 'vestiti'))),
+  ...((varieHeads   || []).map(h => headToRow(h, 'varie'))),
+];
+
 
       // opzionale: filtro “Varie” dopo pulizia (qui non si applica alle testate, ma lo manteniamo coerente)
       const filteredManual = hideVarieCashAfterClear
