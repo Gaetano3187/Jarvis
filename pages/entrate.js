@@ -203,11 +203,21 @@ function Entrate() {
         };
       });
 
-      /* ---------- 🔗 TESTATE SPESE CON LINK ---------- */
+  // ▼▼▼ TESTATE CATEGORIE (usa le colonne create con la migrazione) ▼▼▼
+const SELECT_COLS = [
+  'receipt_id',
+  'store',
+  'purchase_date',
+  'price_total',
+  'payment_method',
+  'link_label',
+  'link_path',
+].join(',');
+
 // Spese Casa
 const { data: casaHeads, error: casaErr } = await supabase
   .from('jarvis_spese_casa')
-  .select(sbSelect(['receipt_id','store','purchase_date','price_total']))  // ⬅️ niente virgola finale
+  .select(SELECT_COLS)
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
@@ -216,127 +226,95 @@ if (casaErr) throw casaErr;
 // Cene & Aperitivi
 const { data: ceneHeads, error: ceneErr } = await supabase
   .from('jarvis_cene_aperitivi')
-  .select(sbSelect(['receipt_id','store','purchase_date','price_total']))
+  .select(SELECT_COLS)
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
 if (ceneErr) throw ceneErr;
 
-// Vestiti & Altro (se la tabella esiste)
-let vestitiHeads = [];
-try {
-  const { data, error } = await supabase
-    .from('jarvis_vestiti_altro')
-    .select(sbSelect(['receipt_id','store','purchase_date','price_total']))
-    .eq('user_id', user.id)
-    .gte('purchase_date', startDate)
-    .lte('purchase_date', endDate);
-  if (error) throw error;
-  vestitiHeads = data || [];
-} catch (e) {
-  if (String(e?.code) !== '42P01') console.warn('[vestiti_altro]', e);
-}
+// Vestiti & Altro
+const { data: vestitiHeads, error: vestitiErr } = await supabase
+  .from('jarvis_vestiti_altro')
+  .select(SELECT_COLS)
+  .eq('user_id', user.id)
+  .gte('purchase_date', startDate)
+  .lte('purchase_date', endDate);
+if (vestitiErr) throw vestitiErr;
 
-// Varie (se la tabella esiste)
-let varieHeads = [];
-try {
-  const { data, error } = await supabase
-    .from('jarvis_varie')
-    .select(sbSelect(['receipt_id','store','purchase_date','price_total']))
-    .eq('user_id', user.id)
-    .gte('purchase_date', startDate)
-    .lte('purchase_date', endDate);
-  if (error) throw error;
-  varieHeads = data || [];
-} catch (e) {
-  if (String(e?.code) !== '42P01') console.warn('[varie]', e);
-}
+// Varie
+const { data: varieHeads, error: varieErr } = await supabase
+  .from('jarvis_varie')
+  .select(SELECT_COLS)
+  .eq('user_id', user.id)
+  .gte('purchase_date', startDate)
+  .lte('purchase_date', endDate);
+if (varieErr) throw varieErr;
 
-// Mappa payment_method per receipt_id da jarvis_finances
-let paymentMap = new Map();
-const allReceiptIds = Array.from(new Set([
-  ...(casaHeads?.map(h => h.receipt_id) || []),
-  ...(ceneHeads?.map(h => h.receipt_id) || []),
-  ...(vestitiHeads?.map(h => h.receipt_id) || []),
-  ...(varieHeads?.map(h => h.receipt_id) || []),
-].filter(Boolean)));
-
-if (allReceiptIds.length) {
-  const { data: pmRows, error: pmErr } = await supabase
-    .from('jarvis_finances')
-    .select(sbSelect(['receipt_id','payment_method']))
-    .in('receipt_id', allReceiptIds);
-  if (!pmErr && Array.isArray(pmRows)) {
-    paymentMap = new Map(pmRows.map(r => [r.receipt_id, String(r.payment_method || '').toLowerCase()]));
-  }
-}
-
-
-
-function headToRow(h, kindRoute, paymentMap) {
+// Mapper riga con link (usa direttamente i campi delle tabelle categoria)
+function headToRow(h, kind) {
+  const isCash = /^(cash|contanti)$/i.test(String(h.payment_method || ''));
   const dateISO = h.purchase_date || '';
-  const total   = Number(h.price_total ?? 0);
+  const dateIT  = dateISO ? new Date(dateISO).toLocaleDateString('it-IT') : '';
 
-  const pmLower = h.receipt_id ? (paymentMap?.get(h.receipt_id) || '') : '';
-  const isCash  = /^(cash|contanti)$/.test(pmLower);
+  const baseTxt =
+    kind === 'cene'    ? 'Cena/Aperitivo' :
+    kind === 'vestiti' ? 'Vestiti/Altro'  :
+    kind === 'varie'   ? 'Varie'         :
+                         'Spesa';
 
-  const baseTxt = kindRoute === 'cene'    ? 'Cena/Aperitivo'
-                : kindRoute === 'vestiti' ? 'Vestiti/Altro'
-                : kindRoute === 'varie'   ? 'Varie'
-                :                           'Spesa';
-
-  const store    = titleize(h.store || (kindRoute === 'cene' ? 'Locale' : 'Punto vendita'));
-  const niceDate = formatIT(dateISO);
-  const label    = `${baseTxt} ${store}${niceDate ? ` (${niceDate})` : (dateISO ? ` (${dateISO})` : '')}`;
-
-  const routeBase =
-      kindRoute === 'cene'    ? '/cene-aperitivi'
-    : kindRoute === 'vestiti' ? '/vestiti-altro'
-    : kindRoute === 'varie'   ? '/varie'
-    :                           '/spese-casa';
-
-  const route = h.receipt_id ? `${routeBase}?rid=${encodeURIComponent(h.receipt_id)}`
-                             : routeBase;
+  const defaultLabel = `${baseTxt} ${h.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
+  const defaultPath  =
+    `/${kind === 'cene' ? 'cene-aperitivi' :
+       kind === 'vestiti' ? 'vestiti-altro' :
+       kind === 'varie' ? 'varie' : 'spese-casa'
+     }?rid=${encodeURIComponent(h.receipt_id || '')}`;
 
   return {
-    id: `${kindRoute}-${h.receipt_id || `${store}|${dateISO}`}`,
+    id: `${kind}-${h.receipt_id || `${h.store}|${dateISO}`}`,
     dateISO,
-    label,
-    route,
-    displayAmount: -Math.abs(total || 0),         // sempre mostrato
-    amount: isCash ? -Math.abs(total || 0) : 0,   // impatta solo se contanti
+    label: (h.link_label?.trim() || defaultLabel),
+    route: (h.link_path?.trim()  || defaultPath),
+    // importo sempre mostrato
+    displayAmount: -Math.abs(Number(h.price_total || 0)),
+    // impatto su “Soldi in tasca” solo se pagamento in contanti
+    amount: isCash ? -Math.abs(Number(h.price_total || 0)) : 0,
     affectsPocket: isCash,
     kind: 'expense-linked',
   };
 }
+
+// Costruisco le righe spesa per tutte le categorie
 const expenseRows = [
-  ...((casaHeads    || []).map(h => headToRow(h, 'spese',   paymentMap))),
-  ...((ceneHeads    || []).map(h => headToRow(h, 'cene',    paymentMap))),
-  ...((vestitiHeads || []).map(h => headToRow(h, 'vestiti', paymentMap))), // se presenti
-  ...((varieHeads   || []).map(h => headToRow(h, 'varie',   paymentMap))), // se presenti
+  ...(casaHeads    ?? []).map(h => headToRow(h, 'spese')),
+  ...(ceneHeads    ?? []).map(h => headToRow(h, 'cene')),
+  ...(vestitiHeads ?? []).map(h => headToRow(h, 'vestiti')),
+  ...(varieHeads   ?? []).map(h => headToRow(h, 'varie')),
 ];
 
-      // opzionale: filtro “Varie” dopo pulizia (qui non si applica alle testate, ma lo manteniamo coerente)
-      const filteredManual = hideVarieCashAfterClear
-        ? manualRows.filter(r => r.kind !== 'manual' || r.category_id !== CATEGORY_ID_VARIE)
-        : manualRows;
+// opzionale: filtro “Varie” dopo pulizia (qui non si applica alle testate, ma lo manteniamo coerente)
+const filteredManual = hideVarieCashAfterClear
+  ? manualRows.filter(r => r.kind !== 'manual' || r.category_id !== CATEGORY_ID_VARIE)
+  : manualRows;
 
-      // Unisco: prima spese con link, poi manuali (ordinati per data)
-      const rows = [...expenseRows, ...filteredManual]
-        .filter(r => Number.isFinite(r.amount) && r.amount !== 0)
-        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+// Unisco: prima spese con link, poi manuali (ordinati per data)
+// ⚠️ NON filtrare via amount!=0, altrimenti spariscono i pagamenti elettronici (amount=0):
+const rows = [...expenseRows, ...filteredManual]
+  .filter(r => Number.isFinite(r.amount) || Number.isFinite(r.displayAmount))
+  .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
-      setPocketRows(rows);
+setPocketRows(rows);
 
-      // totale spese periodo (dal ledger completo)
-      const { data: exp } = await supabase
-        .from('jarvis_finances')
-        .select('price_total, purchase_date')
-        .eq('user_id', user.id)
-        .gte('purchase_date', startDate)
-        .lte('purchase_date', endDate);
-      const totalExp = (exp || []).reduce((t, r) => t + Number(r.price_total || 0), 0);
-      setMonthExpenses(totalExp);
+// Totale spese periodo (dal ledger completo jarvis_finances)
+const { data: exp, error: expErr } = await supabase
+  .from('jarvis_finances')
+  .select('price_total, purchase_date')
+  .eq('user_id', user.id)
+  .gte('purchase_date', startDate)
+  .lte('purchase_date', endDate);
+if (expErr) throw expErr;
+
+const totalExp = (exp || []).reduce((t, r) => t + Number(r.price_total || 0), 0);
+setMonthExpenses(totalExp);
 
     } catch (err) {
       showError(setError, err);
