@@ -52,6 +52,17 @@ function isRestaurantBar(store='') {
   const s = String(store).toLowerCase();
   return /\b(ristorante|trattoria|pizzeria|bar|pub|bistrot|osteria|sushi|braceria|enoteca)\b/i.test(s);
 }
+// Evita virgole finali nei select Supabase
+function sbSelect(cols = []) {
+  if (!Array.isArray(cols)) return '*';
+  const list = cols
+    .filter(Boolean)
+    .map(String)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return list.length ? list.join(',') : '*';
+}
+
 
 /* —— carryover mese corrente —— */
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
