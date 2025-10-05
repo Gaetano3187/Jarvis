@@ -196,7 +196,7 @@ function Entrate() {
 // Spese Casa
 const { data: casaHeads, error: casaErr } = await supabase
   .from('jarvis_spese_casa')
-  .select('receipt_id, store, purchase_date, price_total,')
+  .select(sbSelect(['receipt_id','store','purchase_date','price_total']))  // ⬅️ niente virgola finale
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
@@ -205,33 +205,33 @@ if (casaErr) throw casaErr;
 // Cene & Aperitivi
 const { data: ceneHeads, error: ceneErr } = await supabase
   .from('jarvis_cene_aperitivi')
-  .select('receipt_id, store, purchase_date, price_total, ')
+  .select(sbSelect(['receipt_id','store','purchase_date','price_total']))
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
 if (ceneErr) throw ceneErr;
-// Vestiti & Altro
+
+// Vestiti & Altro (se la tabella esiste)
 let vestitiHeads = [];
 try {
   const { data, error } = await supabase
     .from('jarvis_vestiti_altro')
-    .select('receipt_id, store, purchase_date, price_total, ')
+    .select(sbSelect(['receipt_id','store','purchase_date','price_total']))
     .eq('user_id', user.id)
     .gte('purchase_date', startDate)
     .lte('purchase_date', endDate);
   if (error) throw error;
   vestitiHeads = data || [];
 } catch (e) {
-  // Se la tabella non esiste (42P01) o altre differenze di schema, ignora senza bloccare la pagina
   if (String(e?.code) !== '42P01') console.warn('[vestiti_altro]', e);
 }
 
-// Varie
+// Varie (se la tabella esiste)
 let varieHeads = [];
 try {
   const { data, error } = await supabase
     .from('jarvis_varie')
-    .select('receipt_id, store, purchase_date, price_total, ')
+    .select(sbSelect(['receipt_id','store','purchase_date','price_total']))
     .eq('user_id', user.id)
     .gte('purchase_date', startDate)
     .lte('purchase_date', endDate);
@@ -240,7 +240,9 @@ try {
 } catch (e) {
   if (String(e?.code) !== '42P01') console.warn('[varie]', e);
 }
+
 // Mappa payment_method per receipt_id da jarvis_finances
+let paymentMap = new Map();
 const allReceiptIds = Array.from(new Set([
   ...(casaHeads?.map(h => h.receipt_id) || []),
   ...(ceneHeads?.map(h => h.receipt_id) || []),
@@ -248,13 +250,12 @@ const allReceiptIds = Array.from(new Set([
   ...(varieHeads?.map(h => h.receipt_id) || []),
 ].filter(Boolean)));
 
-let paymentMap = new Map();
 if (allReceiptIds.length) {
-  const { data: pmRows } = await supabase
+  const { data: pmRows, error: pmErr } = await supabase
     .from('jarvis_finances')
-    .select('receipt_id, payment_method')
+    .select(sbSelect(['receipt_id','payment_method']))
     .in('receipt_id', allReceiptIds);
-  if (Array.isArray(pmRows)) {
+  if (!pmErr && Array.isArray(pmRows)) {
     paymentMap = new Map(pmRows.map(r => [r.receipt_id, String(r.payment_method || '').toLowerCase()]));
   }
 }
