@@ -31,6 +31,21 @@ function fmtDateIT(v) {
 function toNum(n){ const x = Number(n); return Number.isFinite(x) ? x : 0; }
 function eur(n){ return (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'}); }
 
+/* =============== Helpers mese =============== */
+function toMonthKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+function monthBounds(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end   = new Date(y, m, 0);
+  const toISO = dt => isoLocal(dt);
+  return { startISO: toISO(start), endISO: toISO(end) };
+}
+function clampMonthKey(s) { return /^\d{4}-\d{2}$/.test(String(s||'')) ? s : toMonthKey(new Date()); }
+
 /* ============ Totale pagina: usa doc_total se presente (per gruppo) ============ */
 function sumReceipts(rows = []) {
   const groups = new Map();
@@ -64,37 +79,62 @@ function SpeseCasa() {
   const [stopping, setStopping] = useState(false);
   const mimeRef = useRef('');
 
-  // filtri da querystring (rid prioritario)
-  const { rid } = useMemo(() => {
-    if (typeof window === 'undefined') return { rid:'' };
+  // querystring
+  const { rid, initialMonth } = useMemo(() => {
+    if (typeof window === 'undefined') return { rid:'', initialMonth:null };
     const sp = new URLSearchParams(window.location.search);
-    return { rid: sp.get('rid') || '' };
+    return { rid: sp.get('rid') || '', initialMonth: sp.get('month') || null };
   }, []);
 
-  // range mese corrente (se non c'è rid)
-  const now = new Date();
-  const periodStart = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
-  const periodEnd   = isoLocal(new Date(now.getFullYear(), now.getMonth()+1, 0));
+  // SELETTORE MESE
+  const [monthKey, setMonthKey] = useState(() => {
+    if (typeof window === 'undefined') return toMonthKey(new Date());
+    const local = window.localStorage.getItem('__sc_month');
+    return clampMonthKey(initialMonth || local || toMonthKey(new Date()));
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('__sc_month', monthKey);
+      const url = new URL(window.location.href);
+      url.searchParams.set('month', monthKey);
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  }, [monthKey]);
+
+  const { startISO, endISO } = useMemo(() => monthBounds(monthKey), [monthKey]);
 
   const fetchRows = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
+      // lato API: se supporta, passiamo rid; altrimenti filtriamo client-side
       const query = rid ? { rid } : {};
       const j = await getJSON('/api/spese-casa/list', { query });
       let data = Array.isArray(j?.rows) ? j.rows : [];
+
+      // se non sto guardando uno scontrino specifico → filtro per mese selezionato
       if (!rid) {
         data = data.filter(r => {
           const d = String(r.purchase_date || r.created_at || '').slice(0,10);
-          return d >= periodStart && d <= periodEnd;
+          return d >= startISO && d <= endISO;
         });
       }
+
       setRows(data);
+
+      // se arrivo con ?rid=... e non c'è month in URL, aggancio il mese giusto
+      if (rid && !initialMonth && data.length) {
+        const first = String(data[0].purchase_date || data[0].created_at || '').slice(0,10);
+        if (first) {
+          const mk = first.slice(0,7);
+          if (mk && mk !== monthKey) setMonthKey(mk);
+        }
+      }
     } catch (e) {
       setErr(e?.message || String(e));
     } finally {
       setLoading(false);
     }
-  }, [rid, periodStart, periodEnd]);
+  }, [rid, startISO, endISO, initialMonth, monthKey]);
 
   useEffect(() => {
     fetchRows();
@@ -147,9 +187,16 @@ function SpeseCasa() {
       const j = await postJSON('/api/spese-casa/ingest', payload);
       if (!j?.ok) throw new Error(j?.error || 'Insert fallito');
 
+      // refresh + deep link allo scontrino
       setForm({ pv:'', indirizzo:'', luogo:'', dettaglio:'', quantita:'1', prezzoUnitario:'', prezzoTotale:'', data:'' });
-      setShowManual(false);
+      window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail: { at: Date.now() } }));
       await fetchRows();
+      if (j?.receipt_id) {
+        const u = new URL(window.location.href);
+        u.searchParams.set('rid', j.receipt_id);
+        u.searchParams.set('month', (dateISO).slice(0,7));
+        window.location.replace(u.toString());
+      }
     } catch (e) { setErr(e?.message || String(e)); }
   };
 
@@ -171,16 +218,15 @@ function SpeseCasa() {
     try {
       const fd = new FormData();
       files.forEach(f => fd.append('images', f));
-      // OCR: prendi testo (o JSON vision)
+      // OCR base
       const resp = await fetch('/api/ocr', { method:'POST', body: fd });
       const ocr = await resp.json().catch(()=> ({}));
       if (!resp.ok) throw new Error(ocr?.error || 'OCR fallito');
 
-      // testo grezzo (preferito per assistant)
       const text = String(ocr?.text || ocr?.data?.text || ocr?.data || '').trim();
       if (!text) throw new Error('Nessun testo OCR');
 
-      // chiedi all'assistente di mappare in schema spesa
+      // Assistant → JSON spesa
       const prompt = buildSystemPrompt('ocr', text, files.map(f=>f.name).join(', '));
       const r2 = await fetch('/api/assistant', {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -255,12 +301,7 @@ function SpeseCasa() {
       setStopping(false);
     }
   };
-
-  const stopVoice = async () => {
-    if (!recBusy || !mediaRecRef.current) return;
-    setStopping(true);
-    try { mediaRecRef.current.stop(); } catch {}
-  };
+  const stopVoice = async () => { if (!recBusy || !mediaRecRef.current) return; setStopping(true); try { mediaRecRef.current.stop(); } catch {} };
 
   /* ====== Prompt + Apply ====== */
   function buildSystemPrompt(source, userText, fileName) {
@@ -285,11 +326,10 @@ function SpeseCasa() {
       '    "prezzoPagato": number opzionale',
       '  }]',
       '}',
-      'Se non trovi indirizzo/luogo lasciali vuoti.',
-      ''
+      'Se non trovi indirizzo/luogo lasciali vuoti.'
     ].join('\n');
-    if (source === 'ocr') return [header, 'Testo OCR (' + fn + '):', String(userText || '')].join('\n');
-    return [header, 'Trascrizione:', String(userText || '')].join('\n');
+    if (source === 'ocr') return [header, '', 'Testo OCR (' + fn + '):', String(userText || '')].join('\n');
+    return [header, '', 'Trascrizione:', String(userText || '')].join('\n');
   }
 
   async function applyExpenseFromAssistant(data, rawSourceText = '') {
@@ -319,7 +359,7 @@ function SpeseCasa() {
       const unit = toNum(it.prezzoUnitario);
       let lineTotal = toNum(it.prezzoPagato);
       if (!lineTotal && unit) lineTotal = Number((unit * qty).toFixed(2));
-      const priceEach = unit > 0 ? unit : (qty ? lineTotal/qty : lineTotal);
+      const priceEach = unit > 0 ? unit : (qty ? (lineTotal/qty) : lineTotal);
       return {
         name: String(it.dettaglio || '').trim(),
         brand: '',
@@ -333,46 +373,31 @@ function SpeseCasa() {
       };
     });
 
-    // 1) Inserisci le righe scontrino (spese-casa/ingest) → ricevo receipt_id
-  const payloadSpese = {
-  user_id: uid,
-  store: meta.store,
-  purchaseDate: meta.purchaseDate,
-  totalPaid: meta.totalPaid,
-  items: itemsReadyDedup,
-  receipt_id: receiptId,     // ⬅️ IMPORTANTISSIMO
-  link_label: linkLabel,     // (comodo per echo lato UI)
-  link_path: linkPath,       // (comodo per echo lato UI)
-  receiptTotalAuthoritative: true
-};
-await postJSON('/api/spese-casa/ingest', payloadSpese);
+    // HEAD payload per /api/spese-casa/ingest
+    const totalPaid = totaleScontrino > 0
+      ? Number(totaleScontrino.toFixed(2))
+      : Number(items.reduce((s, x) => s + Number(x.priceTotal || 0), 0).toFixed(2));
+
+    const payloadSpese = {
+      store: storeFull || puntoVendita,
+      purchaseDate: spentDate,
+      totalPaid,
+      items,
+      receiptTotalAuthoritative: totaleScontrino > 0
+    };
+
     const sc = await postJSON('/api/spese-casa/ingest', payloadSpese);
     if (!sc?.ok) throw new Error(sc?.error || 'Insert spese fallito');
 
-    // 2) Se ho totale scontrino, inserisco anche in Finanze la riga sintetica
-    if (totaleScontrino > 0) {
-      try {
-        await postJSON('/api/finances/ingest', {
-          store: storeFull || puntoVendita,
-          purchaseDate: spentDate,
-          payment_method: 'cash',
-          card_label: null,
-          items,
-          totalPaid: totaleScontrino,
-          receiptTotalAuthoritative: true
-        });
-      } catch (e) {
-        console.warn('[Finanze ingest] warning:', e?.message || e);
-      }
-    }
-
-    // 3) refresh (se arrivo da redirect con rid, potrei navigare)
+    // refresh
+    window.dispatchEvent(new CustomEvent('spese:ingest:done', { detail: { at: Date.now() } }));
     await fetchRows();
 
-    // 4) Redirect allo scontrino appena aggiunto per vederlo isolato (opzionale)
+    // Deep link allo scontrino (e al mese giusto)
     if (sc?.receipt_id && !rid) {
       const u = new URL(window.location.href);
       u.searchParams.set('rid', sc.receipt_id);
+      u.searchParams.set('month', spentDate.slice(0,7));
       window.location.replace(u.toString());
     }
   }
@@ -387,8 +412,29 @@ await postJSON('/api/spese-casa/ingest', payloadSpese);
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
-            <h2 className="title">🏠 Spese Casa {rid ? <small style={{opacity:.8}}>(scontrino)</small> : <small style={{opacity:.8}}>(mese corrente)</small>}</h2>
+            <h2 className="title">🏠 Spese Casa {rid ? <small style={{opacity:.8}}>(scontrino)</small> : <small style={{opacity:.8}}>(mese {monthKey})</small>}</h2>
             <Link href="/finanze" className="btn-manuale">📊 Vai a Finanze</Link>
+          </div>
+
+          {/* Toolbar mese (visibile anche con rid; utile per navigare) */}
+          <div className="month-toolbar" style={{display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px'}}>
+            <button className="btn-manuale" onClick={()=>{
+              const [y,m]=monthKey.split('-').map(Number);
+              const d=new Date(y, m-2, 1); setMonthKey(toMonthKey(d));
+            }}>«</button>
+
+            <input
+              type="month"
+              value={monthKey}
+              onChange={(e)=> setMonthKey(clampMonthKey(e.target.value))}
+              className="btn-manuale"
+              style={{padding:'6px 10px'}}
+            />
+
+            <button className="btn-manuale" onClick={()=>{
+              const [y,m]=monthKey.split('-').map(Number);
+              const d=new Date(y, m, 1); setMonthKey(toMonthKey(d));
+            }}>»</button>
           </div>
 
           <div className="table-buttons">
@@ -402,55 +448,55 @@ await postJSON('/api/spese-casa/ingest', payloadSpese);
             <input ref={ocrInputRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={e => onOCRFiles(Array.from(e.target.files || []))} />
           </div>
 
-          {showManual && (
-            <form className="input-section" onSubmit={onSubmitManual}>
-              <label>Punto vendita</label>
-              <input value={form.pv} onChange={e=>setForm(f=>({...f, pv:e.target.value}))} required />
-
-              <div className="row-2">
-                <div>
-                  <label>Indirizzo</label>
-                  <input value={form.indirizzo} onChange={e=>setForm(f=>({...f, indirizzo:e.target.value}))} />
-                </div>
-                <div>
-                  <label>Luogo</label>
-                  <input value={form.luogo} onChange={e=>setForm(f=>({...f, luogo:e.target.value}))} />
-                </div>
-              </div>
-
-              <label>Dettaglio prodotto/servizio</label>
-              <textarea value={form.dettaglio} onChange={e=>setForm(f=>({...f, dettaglio:e.target.value}))} required />
-
-              <div className="row-3">
-                <div>
-                  <label>Data</label>
-                  <input type="date" value={form.data} onChange={e=>setForm(f=>({...f, data:e.target.value}))} />
-                </div>
-                <div>
-                  <label>Quantità</label>
-                  <input type="number" min="1" step="1" value={form.quantita} onChange={e=>setForm(f=>({...f, quantita:e.target.value}))} required />
-                </div>
-                <div>
-                  <label>Prezzo unitario (€)</label>
-                  <input type="number" step="0.01" value={form.prezzoUnitario} onChange={e=>setForm(f=>({...f, prezzoUnitario:e.target.value}))} />
-                </div>
-              </div>
-
-              <div className="row-2">
-                <div>
-                  <label>Prezzo pagato (€)</label>
-                  <input type="number" step="0.01" value={form.prezzoTotale} onChange={e=>setForm(f=>({...f, prezzoTotale:e.target.value}))} />
-                </div>
-                <div className="live-total">
-                  {`Calcolo: ${qtyLive} × ${eur(unitLive)} = ${eur(liveTot)}`}
-                </div>
-              </div>
-
-              <button className="btn-manuale">Aggiungi</button>
-            </form>
-          )}
-
           <div className="table-container">
+            {showManual && (
+              <form className="input-section" onSubmit={onSubmitManual}>
+                <label>Punto vendita</label>
+                <input value={form.pv} onChange={e=>setForm(f=>({...f, pv:e.target.value}))} required />
+
+                <div className="row-2">
+                  <div>
+                    <label>Indirizzo</label>
+                    <input value={form.indirizzo} onChange={e=>setForm(f=>({...f, indirizzo:e.target.value}))} />
+                  </div>
+                  <div>
+                    <label>Luogo</label>
+                    <input value={form.luogo} onChange={e=>setForm(f=>({...f, luogo:e.target.value}))} />
+                  </div>
+                </div>
+
+                <label>Dettaglio prodotto/servizio</label>
+                <textarea value={form.dettaglio} onChange={e=>setForm(f=>({...f, dettaglio:e.target.value}))} required />
+
+                <div className="row-3">
+                  <div>
+                    <label>Data</label>
+                    <input type="date" value={form.data} onChange={e=>setForm(f=>({...f, data:e.target.value}))} />
+                  </div>
+                  <div>
+                    <label>Quantità</label>
+                    <input type="number" min="1" step="1" value={form.quantita} onChange={e=>setForm(f=>({...f, quantita:e.target.value}))} required />
+                  </div>
+                  <div>
+                    <label>Prezzo unitario (€)</label>
+                    <input type="number" step="0.01" value={form.prezzoUnitario} onChange={e=>setForm(f=>({...f, prezzoUnitario:e.target.value}))} />
+                  </div>
+                </div>
+
+                <div className="row-2">
+                  <div>
+                    <label>Prezzo pagato (€)</label>
+                    <input type="number" step="0.01" value={form.prezzoTotale} onChange={e=>setForm(f=>({...f, prezzoTotale:e.target.value}))} />
+                  </div>
+                  <div className="live-total">
+                    {`Calcolo: ${qtyLive} × ${eur(unitLive)} = ${eur(liveTot)}`}
+                  </div>
+                </div>
+
+                <button className="btn-manuale">Aggiungi</button>
+              </form>
+            )}
+
             {loading ? (
               <p>Caricamento…</p>
             ) : err ? (
@@ -499,7 +545,7 @@ await postJSON('/api/spese-casa/ingest', payloadSpese);
               </table>
             )}
             <div className="total-box">
-              Totale {rid ? 'scontrino' : 'mese'}: <b>{eur(totalePagina)}</b>
+              Totale {rid ? 'scontrino' : `mese ${monthKey}`}: <b>{eur(totalePagina)}</b>
             </div>
           </div>
         </div>
@@ -508,7 +554,7 @@ await postJSON('/api/spese-casa/ingest', payloadSpese);
       <style jsx>{`
         .spese-casa-container1 { width:100%; display:flex; align-items:center; justify-content:center; background:#0f172a; min-height:100vh; padding:2rem; font-family: Inter, sans-serif; }
         .spese-casa-container2 { background:rgba(0, 0, 0, 0.6); padding:2rem; border-radius:1rem; color:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.3); max-width: 1100px; width:100%; }
-        .title { margin-bottom:1rem; font-size:1.5rem; }
+        .title { margin-bottom:.5rem; font-size:1.5rem; }
         .table-buttons { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; align-items:center; }
         .btn-ocr, .btn-manuale, .btn-vocale { display:inline-block; text-align:center; background:#10b981; color:#fff; border:none; padding:.5rem 1rem; border-radius:.5rem; cursor:pointer; text-decoration:none; }
         .btn-ocr { background:#f43f5e; }

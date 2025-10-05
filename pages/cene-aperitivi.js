@@ -1,142 +1,236 @@
 // pages/cene-aperitivi.js
-import React, { useEffect, useRef, useState } from 'react'
-import Head from 'next/head'
-import Link from 'next/link'
-import withAuth from '../hoc/withAuth'
-import { supabase } from '@/lib/supabaseClient'
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import Head from 'next/head';
+import Link from 'next/link';
+import withAuth from '../hoc/withAuth';
+import { supabase } from '@/lib/supabaseClient';
 
-const CATEGORY_ID_CENE = '0f8eb04a-8a1a-4899-9f29-236a5be7e9db'
+const CATEGORY_ID_CENE = '0f8eb04a-8a1a-4899-9f29-236a5be7e9db';
 
+/* -------------------- helpers data/tempo -------------------- */
+function isoLocal(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+function toMonthKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+function clampMonthKey(s) {
+  return /^\d{4}-\d{2}$/.test(String(s || '')) ? s : toMonthKey(new Date());
+}
+function monthBounds(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  return { startISO: isoLocal(start), endISO: isoLocal(end) };
+}
+
+/* -------------------- componente -------------------- */
 function CeneAperitivi() {
-  // Stati & refs
-  const [spese, setSpese] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [recBusy, setRecBusy] = useState(false)
+  const [spese, setSpese] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Recorder / OCR
+  const [recBusy, setRecBusy] = useState(false);
+  const mediaRecRef = useRef(null);
+  const recordedChunks = useRef([]);
+  const ocrInputRef = useRef(null);
+
   const [nuovaSpesa, setNuovaSpesa] = useState({
     puntoVendita: '',
     dettaglio: '',
     quantita: '1',
     prezzoTotale: '',
     spentAt: '',
-  })
+  });
 
-  const formRef = useRef(null)
-  const ocrInputRef = useRef(null)
-  const mediaRecRef = useRef(null)
-  const recordedChunks = useRef([])
+  // Query string (rid, month)
+  const { rid, initialMonth } = useMemo(() => {
+    if (typeof window === 'undefined') return { rid: '', initialMonth: null };
+    const sp = new URLSearchParams(window.location.search);
+    return {
+      rid: sp.get('rid') || '',
+      initialMonth: sp.get('month') || null,
+    };
+  }, []);
 
-  // Carica storico on mount
+  // Selettore mese
+  const [monthKey, setMonthKey] = useState(() => {
+    if (typeof window === 'undefined') return toMonthKey(new Date());
+    const local = window.localStorage.getItem('__cene_month');
+    return clampMonthKey(initialMonth || local || toMonthKey(new Date()));
+  });
   useEffect(() => {
-    fetchSpese()
-  }, [])
+    try {
+      window.localStorage.setItem('__cene_month', monthKey);
+      const url = new URL(window.location.href);
+      url.searchParams.set('month', monthKey);
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  }, [monthKey]);
 
-  async function fetchSpese() {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('finances')
-      .select('id, description, amount, qty, spent_at')
-      .eq('category_id', CATEGORY_ID_CENE)
-      .order('created_at', { ascending: false })
-    if (error) setError(error.message)
-    else setSpese(data || [])
-    setLoading(false)
-  }
+  // Se arrivo con ?rid ma senza month → provo a dedurre il mese dalla testata (se esiste)
+  useEffect(() => {
+    if (!rid || initialMonth) return;
+    (async () => {
+      try {
+        const { data: head } = await supabase
+          .from('jarvis_cene_aperitivi')
+          .select('purchase_date')
+          .eq('receipt_id', rid)
+          .maybeSingle();
+        const mk = head?.purchase_date ? String(head.purchase_date).slice(0, 7) : null;
+        if (mk && mk !== monthKey) setMonthKey(mk);
+      } catch {
+        /* ignora: la tabella potrebbe non esistere in questo schema */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rid]);
 
-  // Aggiungi manuale (una riga)
-  const handleAdd = async e => {
-    e.preventDefault()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return setError('Sessione scaduta')
+  const { startISO, endISO } = useMemo(() => monthBounds(monthKey), [monthKey]);
 
-    const row = {
-      user_id:     user.id,
-      category_id: CATEGORY_ID_CENE,
-      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
-      amount:      Number(nuovaSpesa.prezzoTotale) || 0,
-      spent_at:    nuovaSpesa.spentAt || new Date().toISOString().slice(0,10),
-      qty:         parseInt(nuovaSpesa.quantita, 10) || 1,
+  /* -------------------- fetch elenco -------------------- */
+  const fetchSpese = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
+
+      // Leggo dal ledger "finances" filtrando per utente, categoria e mese selezionato
+      const { data, error: qErr } = await supabase
+        .from('finances')
+        .select('id, description, amount, qty, spent_at, created_at')
+        .eq('user_id', user.id)
+        .eq('category_id', CATEGORY_ID_CENE)
+        .gte('spent_at', `${startISO}T00:00:00`)
+        .lte('spent_at', `${endISO}T23:59:59`)
+        .order('spent_at', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (qErr) throw qErr;
+      setSpese(data || []);
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
     }
+  }, [startISO, endISO]);
 
-    const { error: insertError } = await supabase.from('finances').insert(row)
-    if (insertError) setError(insertError.message)
-    else {
+  useEffect(() => {
+    fetchSpese();
+  }, [fetchSpese]);
+
+  /* -------------------- add manuale (una riga) -------------------- */
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('Sessione scaduta');
+
+      const row = {
+        user_id: user.id,
+        category_id: CATEGORY_ID_CENE,
+        description: `[${nuovaSpesa.puntoVendita || 'Cena/Aperitivo'}] ${nuovaSpesa.dettaglio}`,
+        amount: Number(nuovaSpesa.prezzoTotale) || 0,
+        spent_at: (nuovaSpesa.spentAt || isoLocal(new Date())),
+        qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+      };
+
+      const { error: insertError } = await supabase.from('finances').insert(row);
+      if (insertError) throw insertError;
+
       setNuovaSpesa({
         puntoVendita: '',
         dettaglio: '',
         quantita: '1',
         prezzoTotale: '',
         spentAt: '',
-      })
-      fetchSpese()
+      });
+      await fetchSpese();
+    } catch (e) {
+      setError(e?.message || String(e));
     }
-  }
+  };
 
-  // Elimina voce
-  const handleDelete = async id => {
-    const { error } = await supabase.from('finances').delete().eq('id', id)
-    if (error) setError(error.message)
-    else setSpese(spese.filter(r => r.id !== id))
-  }
-
-  // OCR multiplo
-  const handleOCR = async files => {
-    if (!files?.length) return
+  /* -------------------- delete -------------------- */
+  const handleDelete = async (id) => {
     try {
-      const fd = new FormData()
-      files.forEach(f => fd.append('images', f))
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd })
-      const { text } = await res.json()
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text))
-    } catch (err) {
-      console.error(err)
-      setError('OCR fallito')
+      const { error } = await supabase.from('finances').delete().eq('id', id);
+      if (error) throw error;
+      setSpese((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      setError(e?.message || String(e));
     }
-  }
+  };
 
-  // Registrazione audio
+  /* -------------------- OCR multiplo -------------------- */
+  const handleOCR = async (files) => {
+    if (!files?.length) return;
+    try {
+      const fd = new FormData();
+      files.forEach((f) => fd.append('images', f));
+      const res = await fetch('/api/ocr', { method: 'POST', body: fd });
+      const { text } = await res.json();
+      await parseAssistantPrompt(buildSystemPrompt('ocr', text));
+    } catch (err) {
+      console.error(err);
+      setError('OCR fallito');
+    }
+  };
+
+  /* -------------------- Registrazione audio -------------------- */
   const toggleRec = async () => {
     if (recBusy) {
-      mediaRecRef.current?.stop()
-      return
+      try { mediaRecRef.current?.stop(); } catch {}
+      return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaRecRef.current = new MediaRecorder(stream)
-      recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e =>
-        e.data.size && recordedChunks.current.push(e.data)
-      mediaRecRef.current.onstop = processVoice
-      mediaRecRef.current.start()
-      setRecBusy(true)
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecRef.current = new MediaRecorder(stream);
+      recordedChunks.current = [];
+      mediaRecRef.current.ondataavailable = (e) => e.data.size && recordedChunks.current.push(e.data);
+      mediaRecRef.current.onstop = processVoice;
+      mediaRecRef.current.start();
+      setRecBusy(true);
     } catch {
-      setError('Microfono non disponibile')
+      setError('Microfono non disponibile');
     }
-  }
+  };
 
   const processVoice = async () => {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' })
-    const fd = new FormData()
-    fd.append('audio', blob, 'voice.webm')
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    const fd = new FormData();
+    fd.append('audio', blob, 'voice.webm');
     try {
-      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json()
-      await parseAssistantPrompt(buildSystemPrompt('voice', text))
+      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json();
+      await parseAssistantPrompt(buildSystemPrompt('voice', text));
     } catch (err) {
-      console.error(err)
-      setError('STT fallito')
+      console.error(err);
+      setError('STT fallito');
     } finally {
-      setRecBusy(false)
+      setRecBusy(false);
     }
-  }
+  };
 
-  // Prompt "receipt": voce unica con righe + totale
+  /* -------------------- Prompt assistant -------------------- */
   function buildSystemPrompt(source, userText) {
     const header =
       source === 'ocr'
         ? 'Sei Jarvis. Dal testo OCR estrai uno scontrino unico.'
-        : 'Sei Jarvis. Dal dettato vocale estrai uno scontrino unico (ignora “ehm”, “ok”, ecc.).'
+        : 'Sei Jarvis. Dal dettato vocale estrai uno scontrino unico (ignora “ehm”, “ok”, ecc.).';
 
     return `
 ${header}
@@ -163,89 +257,93 @@ Rispondi **solo** JSON, senza testo extra:
 
 TESTO_INPUT:
 ${userText}
-`.trim()
+`.trim();
   }
 
-  // Parsing AI & DB insert (una riga con dettaglio)
+  /* -------------------- Parsing & insert -------------------- */
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt }),
-    })
-    const { answer, error: apiErr } = await res.json()
-    if (!res.ok || apiErr) throw new Error(apiErr || res.status)
+    });
+    const { answer, error: apiErr } = await res.json();
+    if (!res.ok || apiErr) throw new Error(apiErr || res.status);
 
-    const data = JSON.parse(answer)
+    const data = JSON.parse(answer);
 
-    // Helper € con virgola
-    const eur = n => (Number(n || 0).toFixed(2)).replace('.', ',')
+    const eurF = (n) => Number(n || 0).toFixed(2).replace('.', ',');
 
-    let puntoVendita = ''
-    let spentAt = new Date().toISOString().slice(0,10)
-    let total = 0
-    let descr = ''
+    let puntoVendita = '';
+    let spentAt = isoLocal(new Date());
+    let total = 0;
+    let descr = '';
 
     if (data.type === 'receipt' && Array.isArray(data.lineItems)) {
-      puntoVendita = data.puntoVendita || ''
-      spentAt = data.data || spentAt
+      puntoVendita = data.puntoVendita || '';
+      spentAt = data.data || spentAt;
 
-      const rows = data.lineItems.map(li => {
-        const qty = Number(li.qty || 1)
-        const lineTotal = qty * Number(li.price || 0)
-        return `${li.desc?.trim() || 'Voce'}${qty>1 ? ` x${qty}`:''} ${eur(lineTotal)} €`
-      })
-      const calc = data.lineItems.reduce((s, li) => s + (Number(li.qty || 1) * Number(li.price || 0)), 0)
-      total = Number(data.total || calc)
-      descr = `${rows.join('; ')}; Totale scontrino: ${eur(total)} €`
+      const rows = data.lineItems.map((li) => {
+        const qty = Number(li.qty || 1);
+        const lineTotal = qty * Number(li.price || 0);
+        return `${li.desc?.trim() || 'Voce'}${qty > 1 ? ` x${qty}` : ''} ${eurF(lineTotal)} €`;
+      });
+      const calc = data.lineItems.reduce(
+        (s, li) => s + (Number(li.qty || 1) * Number(li.price || 0)),
+        0
+      );
+      total = Number(data.total || calc);
+      descr = `${rows.join('; ')}; Totale scontrino: ${eurF(total)} €`;
     } else if (data.type === 'expense' && Array.isArray(data.items) && data.items.length) {
-      // Fallback compatibile: raggruppa tutto in UNA riga
-      const rows = []
-      total = 0
-      let candidatePV = ''
-      data.items.forEach(it => {
-        const q = Number(it.quantita || 1)
-        const price = Number(it.prezzoTotale || 0) // totale voce
-        total += price
-        if (it.data) spentAt = it.data
-        if (!candidatePV && it.puntoVendita) candidatePV = it.puntoVendita
-        rows.push(`${(it.dettaglio || 'Voce').trim()}${q>1 ? ` x${q}`:''} ${eur(price)} €`)
-      })
-      puntoVendita = candidatePV
-      descr = `${rows.join('; ')}; Totale scontrino: ${eur(total)} €`
+      // Fallback compatibile
+      const rows = [];
+      total = 0;
+      let candidatePV = '';
+      data.items.forEach((it) => {
+        const q = Number(it.quantita || 1);
+        const price = Number(it.prezzoTotale || 0);
+        total += price;
+        if (it.data) spentAt = it.data;
+        if (!candidatePV && it.puntoVendita) candidatePV = it.puntoVendita;
+        rows.push(`${(it.dettaglio || 'Voce').trim()}${q > 1 ? ` x${q}` : ''} ${eurF(price)} €`);
+      });
+      puntoVendita = candidatePV;
+      descr = `${rows.join('; ')}; Totale scontrino: ${eurF(total)} €`;
     } else {
-      throw new Error('Assistant response invalid')
+      throw new Error('Assistant response invalid');
     }
 
     const {
       data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) throw new Error('Sessione scaduta')
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sessione scaduta');
 
     const row = {
-      user_id:      user.id,
-      category_id:  CATEGORY_ID_CENE,
-      description:  `[${puntoVendita || 'Cena/Aperitivo'}] ${descr}`,
-      amount:       Number(total) || 0,
-      spent_at:     spentAt,
-      qty:          1,
-    }
+      user_id: user.id,
+      category_id: CATEGORY_ID_CENE,
+      description: `[${puntoVendita || 'Cena/Aperitivo'}] ${descr}`,
+      amount: Number(total) || 0,
+      spent_at: spentAt,
+      qty: 1,
+    };
 
-    const { error: dbErr } = await supabase.from('finances').insert(row)
-    if (dbErr) throw dbErr
+    const { error: dbErr } = await supabase.from('finances').insert(row);
+    if (dbErr) throw dbErr;
 
-    await fetchSpese()
+    await fetchSpese();
+
+    // aggiorna form con riepilogo ultima voce
     setNuovaSpesa({
       puntoVendita: puntoVendita || '',
-      dettaglio:    descr,
-      quantita:     '1',
+      dettaglio: descr,
+      quantita: '1',
       prezzoTotale: Number(total) || 0,
-      spentAt:      spentAt,
-    })
+      spentAt,
+    });
   }
 
-  // Render
-  const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
+  /* -------------------- render -------------------- */
+  const totale = spese.reduce((t, r) => t + Number(r.amount || 0) * (r.qty || 1), 0);
 
   return (
     <>
@@ -253,7 +351,31 @@ ${userText}
 
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
-          <h2>🍽️ Cene e Aperitivi</h2>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+            <h2 className="title">🍽️ Cene e Aperitivi <small style={{opacity:.8}}>(mese {monthKey})</small></h2>
+            <Link href="/finanze" className="btn-manuale">📊 Vai a Finanze</Link>
+          </div>
+
+          {/* Toolbar mese */}
+          <div className="month-toolbar" style={{display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px'}}>
+            <button className="btn-manuale" onClick={()=>{
+              const [y,m]=monthKey.split('-').map(Number);
+              const d=new Date(y, m-2, 1); setMonthKey(toMonthKey(d));
+            }}>«</button>
+
+            <input
+              type="month"
+              value={monthKey}
+              onChange={(e)=> setMonthKey(clampMonthKey(e.target.value))}
+              className="btn-manuale"
+              style={{padding:'6px 10px'}}
+            />
+
+            <button className="btn-manuale" onClick={()=>{
+              const [y,m]=monthKey.split('-').map(Number);
+              const d=new Date(y, m, 1); setMonthKey(toMonthKey(d));
+            }}>»</button>
+          </div>
 
           <div className="table-buttons">
             <button className="btn-vocale" onClick={toggleRec}>
@@ -269,52 +391,67 @@ ${userText}
               capture="environment"
               multiple
               hidden
-              onChange={e => handleOCR(Array.from(e.target.files))}
+              onChange={e => handleOCR(Array.from(e.target.files || []))}
             />
           </div>
 
-          <form className="input-section" ref={formRef} onSubmit={handleAdd}>
+          {/* form manuale */}
+          <form className="input-section" onSubmit={handleAdd}>
             <label>Punto vendita</label>
             <input
               value={nuovaSpesa.puntoVendita}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
               required
             />
+
             <label>Dettaglio</label>
             <textarea
               value={nuovaSpesa.dettaglio}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
               required
             />
-            <label>Quantità</label>
-            <input
-              type="number"
-              min="1"
-              value={nuovaSpesa.quantita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-              required
-            />
-            <label>Data</label>
-            <input
-              type="date"
-              value={nuovaSpesa.spentAt}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
-              required
-            />
-            <label>Prezzo totale (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={nuovaSpesa.prezzoTotale}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
-              required
-            />
-            <button className="btn-manuale">Aggiungi</button>
+
+            <div className="row-3" style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'.75rem'}}>
+              <div>
+                <label>Quantità</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={nuovaSpesa.quantita}
+                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label>Data</label>
+                <input
+                  type="date"
+                  value={nuovaSpesa.spentAt}
+                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label>Prezzo totale (€)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={nuovaSpesa.prezzoTotale}
+                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <button className="btn-manuale" style={{marginTop:'.5rem'}}>Aggiungi</button>
           </form>
 
+          {/* tabella elenco */}
           <div className="table-container">
             {loading ? (
               <p>Caricamento…</p>
+            ) : error ? (
+              <p className="error">Errore: {error}</p>
             ) : (
               <table className="custom-table">
                 <thead>
@@ -329,33 +466,33 @@ ${userText}
                 </thead>
                 <tbody>
                   {spese.map(r => {
-                    const m = r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
+                    const m = (r.description || '').match(/^\[(.*?)\]\s*(.*)$/) || [];
                     return (
                       <tr key={r.id}>
-                        <td>{m[1] || '-'}</td>
+                        <td>{m[1] || 'Cena/Aperitivo'}</td>
                         <td>{m[2] || r.description}</td>
-                        <td>{r.qty}</td>
-                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
-                        <td>{r.amount.toFixed(2)}</td>
-                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
+                        <td>{r.qty || 1}</td>
+                        <td>{new Date(r.spent_at || r.created_at).toLocaleDateString('it-IT')}</td>
+                        <td>{(Number(r.amount || 0)).toFixed(2)}</td>
+                        <td>
+                          <button onClick={() => handleDelete(r.id)} className="btn-danger" title="Elimina">🗑</button>
+                        </td>
                       </tr>
-                    )
+                    );
                   })}
                 </tbody>
               </table>
             )}
-            <div className="total-box">Totale: € {totale.toFixed(2)}</div>
+            <div className="total-box">Totale mese {monthKey}: € {totale.toFixed(2)}</div>
           </div>
 
-          {error && <p className="error">{error}</p>}
-
           <Link href="/home">
-            <button className="btn-vocale">🏠 Home</button>
+            <button className="btn-vocale" style={{marginTop:'1rem'}}>🏠 Home</button>
           </Link>
         </div>
       </div>
 
-      {/* Stili identici a quelli di Vestiti ed Altro */}
+      {/* Stili */}
       <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
@@ -373,17 +510,18 @@ ${userText}
           border-radius: 1rem;
           color: #fff;
           box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          max-width: 800px;
+          max-width: 900px;
           width: 100%;
         }
-        .title { margin-bottom: 1rem; font-size: 1.5rem; color: #fff; }
-        .table-buttons { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-        .btn-vocale, .btn-ocr, .btn-manuale {
+        .title { margin-bottom: .5rem; font-size: 1.5rem; color: #fff; }
+        .table-buttons { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+        .btn-vocale, .btn-ocr, .btn-manuale, .btn-danger {
           background: #10b981; color: #fff; border: none;
           padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer;
         }
         .btn-ocr { background: #f43f5e; }
-        .input-section { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .btn-danger { background: #ef4444; }
+        .input-section { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
         input, textarea {
           width: 100%; padding: 0.6rem; border: none; border-radius: 0.5rem;
           background: rgba(255, 255, 255, 0.1); color: #fff;
@@ -396,13 +534,13 @@ ${userText}
         }
         .custom-table tbody tr:hover { background: rgba(255,255,255,0.05); }
         .total-box {
-          margin-top: 1rem; background: rgba(34,197,94,0.8);
+          margin-top: 1rem; background: rgba(34,197,94,0.85);
           padding: 1rem; border-radius: 0.5rem; text-align: right; font-weight: 600;
         }
-        .error { color: #f87171; margin-top: 1rem; }
+        .month-toolbar .btn-manuale { background: rgba(99,102,241,.9); }
       `}</style>
     </>
-  )
+  );
 }
 
-export default withAuth(CeneAperitivi)
+export default withAuth(CeneAperitivi);
