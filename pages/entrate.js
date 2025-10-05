@@ -203,66 +203,40 @@ function Entrate() {
         };
       });
 
- // ▼▼▼ TESTATE CATEGORIE (usa le colonne create con la migrazione) ▼▼▼
+ /* ===================== heads per categoria ===================== */
 const SELECT_COLS = [
-  'receipt_id',
-  'store',
-  'purchase_date',
-  'price_total',
-  'payment_method',
-  'link_label',
-  'link_path',
+  'receipt_id','store','purchase_date','price_total','payment_method','link_label','link_path'
 ].join(',');
 
-// Spese Casa
-const { data: casaHeads, error: casaErr } = await supabase
-  .from('jarvis_spese_casa')
-  .select(SELECT_COLS)
-  .eq('user_id', user.id)
-  .gte('purchase_date', startDate)
-  .lte('purchase_date', endDate);
-if (casaErr) throw casaErr;
+const { data: casaHeads  } = await supabase.from('jarvis_spese_casa'     ).select(SELECT_COLS)
+  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
+const { data: ceneHeads  } = await supabase.from('jarvis_cene_aperitivi' ).select(SELECT_COLS)
+  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
+const { data: vestitiHeads } = await supabase.from('jarvis_vestiti_altro').select(SELECT_COLS)
+  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
+const { data: varieHeads } = await supabase.from('jarvis_varie'          ).select(SELECT_COLS)
+  .eq('user_id', user.id).gte('purchase_date', startDate).lte('purchase_date', endDate);
 
-// Cene & Aperitivi
-const { data: ceneHeads, error: ceneErr } = await supabase
-  .from('jarvis_cene_aperitivi')
-  .select(SELECT_COLS)
-  .eq('user_id', user.id)
-  .gte('purchase_date', startDate)
-  .lte('purchase_date', endDate);
-if (ceneErr) throw ceneErr;
+/* ===================== helpers ===================== */
+const routeBaseOf = (kind) => (
+  kind === 'cene'    ? '/cene-aperitivi' :
+  kind === 'vestiti' ? '/vestiti-altro'  :
+  kind === 'varie'   ? '/varie'          :
+                       '/spese-casa'
+);
 
-// Vestiti & Altro
-const { data: vestitiHeads, error: vestitiErr } = await supabase
-  .from('jarvis_vestiti_altro')
-  .select(SELECT_COLS)
-  .eq('user_id', user.id)
-  .gte('purchase_date', startDate)
-  .lte('purchase_date', endDate);
-if (vestitiErr) throw vestitiErr;
-
-// Varie
-const { data: varieHeads, error: varieErr } = await supabase
-  .from('jarvis_varie')
-  .select(SELECT_COLS)
-  .eq('user_id', user.id)
-  .gte('purchase_date', startDate)
-  .lte('purchase_date', endDate);
-if (varieErr) throw varieErr;
-
-/* -------------------- Raggruppamento per scontrino -------------------- */
-/** Ritorna una chiave gruppo: priorità receipt_id, altrimenti store+data */
-function groupKey(h, kind) {
+/** key di gruppo: priorità receipt_id; altrimenti store+data+kind */
+const groupKey = (h, kind) => {
   if (h.receipt_id) return `rid:${h.receipt_id}`;
-  const store = String(h.store || '').toLowerCase().trim();
-  const dateISO = h.purchase_date || '';
-  return `sd:${store}|${dateISO}|${kind}`;
-}
+  const s = String(h.store || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const d = String(h.purchase_date || '');
+  return `sd:${s}|${d}|${kind}`;
+};
 
-/** Somma importi e costruisce una riga unica per gruppo */
-function groupRows(heads = [], kind, paymentMap = new Map()) {
+/** somma importi all’interno del gruppo */
+function groupRows(heads = [], kind) {
   const map = new Map();
-  for (const h of (heads || [])) {
+  for (const h of heads || []) {
     const key = groupKey(h, kind);
     const g = map.get(key) || {
       kind,
@@ -274,91 +248,81 @@ function groupRows(heads = [], kind, paymentMap = new Map()) {
       payment_method: h.payment_method || '',
       total: 0,
     };
-    // Mantieni store/data; prendi la prima link_label/path non vuota
     if (!g.store && h.store) g.store = h.store;
     if (!g.dateISO && h.purchase_date) g.dateISO = h.purchase_date;
     if (!g.link_label && h.link_label) g.link_label = h.link_label;
     if (!g.link_path && h.link_path) g.link_path = h.link_path;
     if (!g.payment_method && h.payment_method) g.payment_method = h.payment_method;
 
-    g.total += Math.abs(Number(h.price_total || 0)); // somma importi delle righe
+    g.total += Math.abs(Number(h.price_total || 0));
     map.set(key, g);
   }
 
-  // Converte i gruppi in righe renderizzabili
+  // output “riga unica per scontrino/store+data”
   return Array.from(map.values()).map(g => {
-    const pm = String(g.payment_method || (g.rid ? paymentMap.get(g.rid) : '') || '').toLowerCase();
-    const isCash = pm === 'cash' || pm === 'contanti';
-
-    const baseTxt =
-      g.kind === 'cene'    ? 'Cena/Aperitivo' :
-      g.kind === 'vestiti' ? 'Vestiti/Altro'  :
-      g.kind === 'varie'   ? 'Varie'         :
-                             'Spesa';
-
-    const dateIT  = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
+    const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
+    const baseTxt = g.kind === 'cene' ? 'Cena/Aperitivo'
+                  : g.kind === 'vestiti' ? 'Vestiti/Altro'
+                  : g.kind === 'varie'   ? 'Varie' : 'Spesa';
+    const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
     const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
-
-    const routeBase =
-      g.kind === 'cene'    ? '/cene-aperitivi' :
-      g.kind === 'vestiti' ? '/vestiti-altro'  :
-      g.kind === 'varie'   ? '/varie'          :
-                             '/spese-casa';
-
+    const routeBase = routeBaseOf(g.kind);
     const defaultPath = g.rid
       ? `${routeBase}?rid=${encodeURIComponent(g.rid)}`
       : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}`;
 
-    const totalRounded = Number(g.total.toFixed(2));
+    const tot = Number(g.total.toFixed(2));
     return {
       id: `${g.kind}-${g.rid || `${g.store}|${g.dateISO}`}`,
+      kind: 'expense-linked',
       dateISO: g.dateISO || '',
       label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
-      route: (g.link_path  && g.link_path.trim())  ? g.link_path  : defaultPath,
-      displayAmount: -totalRounded,                  // importo totale mostrato (negativo)
-      amount: isCash ? -totalRounded : 0,            // impatta "Soldi in tasca" solo se contanti
+      route: (g.link_path && g.link_path.trim()) ? g.link_path : defaultPath,
+      displayAmount: -tot,            // sempre mostrato
+      amount: isCash ? -tot : 0,      // impatta il pocket solo se contanti
       affectsPocket: isCash,
-      kind: 'expense-linked',
     };
   });
 }
 
-/* ------ Mappa payment_method da jarvis_finances (per i gruppi con rid) ------ */
-const allReceiptIds = Array.from(new Set([
-  ...(casaHeads    || []).map(h => h.receipt_id).filter(Boolean),
-  ...(ceneHeads    || []).map(h => h.receipt_id).filter(Boolean),
-  ...(vestitiHeads || []).map(h => h.receipt_id).filter(Boolean),
-  ...(varieHeads   || []).map(h => h.receipt_id).filter(Boolean),
-]));
-let paymentMap = new Map();
-if (allReceiptIds.length) {
-  const { data: pmRows } = await supabase
-    .from('jarvis_finances')
-    .select('receipt_id,payment_method')
-    .in('receipt_id', allReceiptIds);
-  if (Array.isArray(pmRows)) {
-    paymentMap = new Map(pmRows.map(r => [r.receipt_id, String(r.payment_method || '').toLowerCase()]));
+/** dedupe “di ferro”: unisce eventuali doppioni residui per route (o per kind+store+data) */
+function dedupByRoute(rows = []) {
+  const map = new Map();
+  for (const r of rows) {
+    // chiave robusta: preferisci il route (contiene rid), altrimenti kind+data+label normalizzata
+    const key = r.route
+      ? r.route.split('&').filter(Boolean)[0]   // normalizza: ignora filtri extra dopo il rid
+      : `${r.kind}|${r.dateISO}|${String(r.label||'').toLowerCase().replace(/\s+/g,' ').trim()}`;
+    const cur = map.get(key);
+    if (!cur) {
+      map.set(key, { ...r });
+    } else {
+      cur.displayAmount = Number((Number(cur.displayAmount||0) + Number(r.displayAmount||0)).toFixed(2));
+      cur.amount        = Number((Number(cur.amount||0)        + Number(r.amount||0)).toFixed(2));
+      cur.affectsPocket = cur.affectsPocket || r.affectsPocket;
+      // mantieni label/route/date della prima occorrenza
+    }
   }
+  return Array.from(map.values());
 }
 
-// Costruisco righe spesa raggruppate per ogni categoria
-const expenseRows = [
-  ...groupRows(casaHeads,    'spese',   paymentMap),
-  ...groupRows(ceneHeads,    'cene',    paymentMap),
-  ...groupRows(vestitiHeads, 'vestiti', paymentMap),
-  ...groupRows(varieHeads,   'varie',   paymentMap),
+/* === costruzione righe spesa raggruppate + dedupe === */
+const grouped = [
+  ...groupRows(casaHeads,    'spese'),
+  ...groupRows(ceneHeads,    'cene'),
+  ...groupRows(vestitiHeads, 'vestiti'),
+  ...groupRows(varieHeads,   'varie'),
 ];
+const expenseRows = dedupByRoute(grouped);
 
-/* ---------------------- Merge + totali periodo ---------------------- */
-// opzionale: filtro “Varie” dopo pulizia (coerente con tua UX)
+/* === merge finale con movimenti manuali === */
 const filteredManual = hideVarieCashAfterClear
   ? manualRows.filter(r => r.kind !== 'manual' || r.category_id !== CATEGORY_ID_VARIE)
   : manualRows;
 
-// Unisco: spese raggruppate + movimenti manuali (ordina per data)
 const rows = [...expenseRows, ...filteredManual]
   .filter(r => Number.isFinite(r.amount) || Number.isFinite(r.displayAmount))
-  .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+  .sort((a,b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 
 setPocketRows(rows);
 
