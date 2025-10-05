@@ -510,29 +510,85 @@ setMonthExpenses(totalExp);
       showError(setError, err);
     }
   }
+// ⬇️ Sostituisci tutta la tua funzione toggleRec con questa
+const toggleRec = async () => {
+  if (recBusy) { 
+    try { mediaRecRef.current?.stop(); } catch {}
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    recordedChunks.current = [];
+    mediaRecRef.current = new MediaRecorder(stream);
 
-  const toggleRec = async () => {
-    if (recBusy) { try { mediaRecRef.current?.stop(); } catch {} return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      mediaRecRef.current = new MediaRecorder(stream);
-      recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size) recordedChunks.current.push(e.data); };
-      mediaRecRef.current.onstop = async () => {
+    mediaRecRef.current.ondataavailable = (e) => {
+      if (e.data && e.data.size) recordedChunks.current.push(e.data);
+    };
+
+    mediaRecRef.current.onstop = async () => {
+      try {
         const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-        const fd = new FormData(); fd.append('audio', blob, 'voice.webm');
-        try {
-          const r = await fetch('/api/stt', { method:'POST', body:fd }); const j = await r.json();
-          const ok = await insertIncomeAssistant(j?.text || '');
-          if (ok) await loadAll(); else setError('Nessun dato riconosciuto dalla voce');
-        } catch (e) { showError(setError,e); }
+        const fd = new FormData(); 
+        fd.append('audio', blob, 'voice.webm');
+
+        const r = await fetch('/api/stt', { method:'POST', body: fd });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j?.text) throw new Error('STT fallito');
+
+        const spoken = String(j.text || '').trim();
+        if (!spoken) { setError('Trascrizione vuota'); return; }
+
+        // 1) Intent TASCA (ricarica/uscita contanti)
+        const pocket = detectPocketIntent(spoken);
+        if (pocket) {
+          await insertPocketQuick({
+            amount: Math.abs(pocket.delta),
+            date:   pocket.dateISO,
+            delta:  pocket.delta,
+            note:   pocket.note
+          });
+          await loadAll();
+          return; // ✅ niente entrata
+        }
+
+        // 2) Intent ENTRATE locale (incasso/stipendio/pagato da…)
+        const inc = detectIncomeIntent(spoken);
+        if (inc) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error('Sessione scaduta');
+          await supabase.from('incomes').insert({
+            user_id:     user.id,
+            source:      inc.source,
+            description: inc.description,
+            amount:      inc.amount,
+            received_at: `${inc.dateISO}T12:00:00Z`,
+          });
+          await loadAll();
+          return;
+        }
+
+        // 3) Fallback: Assistant (schema JSON "income")
+        const ok = await insertIncomeAssistant(spoken);
+        if (ok) await loadAll();
+        else setError('Nessun dato riconosciuto dalla voce');
+
+      } catch (e) {
+        showError(setError, e);
+      } finally {
         setRecBusy(false);
-        try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
-      };
-      mediaRecRef.current.start(); setRecBusy(true);
-    } catch { setError('Microfono non disponibile'); }
-  };
+        try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+        streamRef.current = null;
+      }
+    };
+
+    mediaRecRef.current.start();
+    setRecBusy(true);
+  } catch {
+    setError('Microfono non disponibile');
+  }
+};
+
 
   /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
