@@ -798,31 +798,42 @@ const Home = () => {
   }
 
   /* =================== Query testo =================== */
-  async function submitQuery(textParam) {
-    const raw = (textParam != null ? String(textParam) : queryText).trim();
-    if (!raw || busy) return;
-    if (textParam == null) setQueryText('');
-    // La modale si apre SOLO on-demand (qui sì, perché l’utente sta chiedendo)
-    if (!chatOpen) setChatOpen(true);
-    setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
-    lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
+async function submitQuery(textParam) {
+  const raw = (textParam != null ? String(textParam) : queryText).trim();
+  if (!raw || busy) return;
+  if (textParam == null) setQueryText('');
 
-    // Se “sommelier” e non abbiamo ancora memorizzato la carta → guida all’OCR (modale già aperta)
-    if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
-      setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b> (non verrà inserito nulla in Finanze/Spese/Scorte).' }]);
-      return;
+  if (!chatOpen) setChatOpen(true);
+  setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
+  lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
+
+  if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
+    setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }]);
+    return;
+  }
+
+  try {
+    setBusy(true);
+    // ⬇️ PASSA userId all’agente
+    const out = await runBrainQuery(raw, { first: chatMsgs.length === 0, userId: uid });
+
+    // ⬇️ Se l’agente restituisce {text, mono}, usalo direttamente
+    let msg;
+    if (out && typeof out === 'object' && 'text' in out) {
+      msg = { role: 'assistant', text: String(out.text ?? ''), mono: !!out.mono };
+    } else {
+      msg = renderBrainResponse(out); // fallback vecchio renderer
     }
 
-    try {
-      setBusy(true);
-      const out = await runBrainQuery(raw, { first: chatMsgs.length === 0 });
-      const msg = renderBrainResponse(out);
-      setChatMsgs(prev => [...prev, msg]);
-      maybeSpeakMessage(msg);
-    } catch (err) {
-      setChatMsgs(prev => [...prev, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
-    } finally { setBusy(false); }
+    setChatMsgs(prev => [...prev, msg]);
+    maybeSpeakMessage(msg);
+  } catch (err) {
+    setChatMsgs(prev => [...prev, { role:'assistant', text: `❌ Errore interrogazione dati: ${err?.message || err}` }]);
+  } finally {
+    setBusy(false);
   }
+}
+
 
   /* =================== UI bits =================== */
   const handleFileChange = (ev) => {
@@ -907,42 +918,49 @@ const Home = () => {
     })();
   }, [router.isReady]);
 
-  function renderBrainResponse(res) {
-    const payload = (res && typeof res === 'object' && 'result' in res) ? res.result : res;
-    const kind = payload?.kind;
+function renderBrainResponse(res) {
+  // ⬇️ Nuovo: supporta direttamente {text, mono}
+  if (res && typeof res === 'object' && 'text' in res) {
+    return { role: 'assistant', text: String(res.text ?? ''), mono: !!res.mono };
+  }
 
-    const looksLikeInventory =
-      kind === 'inventory.snapshot' ||
-      (payload && typeof payload === 'object' && Array.isArray(payload.elenco));
-    if (looksLikeInventory) {
-      const rendered = renderInventorySnapshot(payload);
-      return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
-    }
+  const payload = (res && typeof res === 'object' && 'result' in res) ? res.result : res;
+  const kind = payload?.kind;
 
-    const topList = payload?.top_negozi || payload?.top_stores;
-    const looksLikeMonthFinances =
-      kind === 'finances.month_summary' ||
-      (payload && typeof payload === 'object' &&
-        (payload.totale != null || payload.total != null) &&
-        Array.isArray(topList));
-    if (looksLikeMonthFinances) {
-      const totRaw = payload.total ?? payload.totale ?? 0;
-      const txs = payload.transactions ?? payload.transazioni ?? 0;
-      const top = Array.isArray(topList) ? topList : [];
-      const rows = top.map(r => ({ store: r.store || r.nome || r.name || '—', speso: fmtEuro(r.speso ?? r.amount ?? 0) }));
-      const header = rows.slice(0,10).map(r => `${r.store}: ${r.speso}`).join('\n');
-      const txt =
+  const looksLikeInventory =
+    kind === 'inventory.snapshot' ||
+    (payload && typeof payload === 'object' && Array.isArray(payload.elenco));
+  if (looksLikeInventory) {
+    const rendered = renderInventorySnapshot(payload);
+    return { role: 'assistant', text: rendered.text, mono: true, blocks: rendered.blocks };
+  }
+
+  const topList = payload?.top_negozi || payload?.top_stores;
+  const looksLikeMonthFinances =
+    kind === 'finances.month_summary' ||
+    (payload && typeof payload === 'object' &&
+      (payload.totale != null || payload.total != null) &&
+      Array.isArray(topList));
+  if (looksLikeMonthFinances) {
+    const totRaw = payload.total ?? payload.totale ?? 0;
+    const txs = payload.transactions ?? payload.transazioni ?? 0;
+    const top = Array.isArray(topList) ? topList : [];
+    const rows = top.map(r => ({ store: r.store || r.nome || r.name || '—', speso: fmtEuro(r.speso ?? r.amount ?? 0) }));
+    const header = rows.slice(0,10).map(r => `${r.store}: ${r.speso}`).join('\n');
+    const txt =
 `📊 Spese del mese
 Intervallo: ${payload.intervallo || 'mese corrente'}
 Totale: ${fmtEuro(totRaw)} • Transazioni: ${fmtInt(txs)}
 
 ${header}${rows.length>10?`\n…(+${rows.length-10})`:''}`;
-      return { role: 'assistant', text: txt, mono: true };
-    }
-
-    const text = formatResult(payload ?? res);
-    return { role: 'assistant', text, mono: typeof (payload ?? res) !== 'string' };
+    return { role: 'assistant', text: txt, mono: true };
   }
+
+  // fallback: stringify
+  const text = formatResult(payload ?? res);
+  return { role: 'assistant', text, mono: typeof (payload ?? res) !== 'string' };
+}
+
   function renderInventorySnapshot(payload) {
     const list = Array.isArray(payload?.elenco) ? payload.elenco : [];
     const rows = list.map(it => ({ nome: (it.name ?? '').trim() || '—', qty: (it.qty ?? it.quantity ?? it.qta ?? null), pct: clampPct(it.consumed_pct ?? it.consumo_pct ?? it.fill_pct ?? null) }));
