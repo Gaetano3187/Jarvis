@@ -61,8 +61,7 @@ function svgBars(items, { max = 100, unit = '%', bg = '#0b0f14' } = {}) {
     ${svgRows}
   </svg>`;
 }
-
-/*/* ======================================================================================
+/* ======================================================================================
    INTERROGAZIONI: bounds + somma autoritativa (HEAD)
 ====================================================================================== */
 
@@ -102,10 +101,10 @@ const refLabel = (ref) =>
                     'questo mese';
 
 // Somma *autoritativa* per periodo: SOLO "testa scontrino" (HEAD)
-// 1) ledger (jarvis_finances) filtrando le HEAD (link_label/link_path non null)
+// 1) ledger (jarvis_finances) filtrando le HEAD (link_label/link_path valorizzati)
 // 2) fallback tabelle categoria (spese-casa/cene/vestiti/varie) solo HEAD
 async function fetchSpendTotal(uid, { start, end }) {
-  // a) HEAD dal ledger
+  // ---- a) HEAD dal ledger
   const { data: fin } = await supabase
     .from('jarvis_finances')
     .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
@@ -116,16 +115,19 @@ async function fetchSpendTotal(uid, { start, end }) {
 
   let headRows = Array.isArray(fin) ? fin : [];
 
-  // b) Fallback: HEAD dalle tabelle di categoria
+  // ---- b) Fallback: HEAD dalle tabelle di categoria
   if (!headRows.length) {
     const readHeadCat = async (table) => {
-      const { data } = await supabase
+      // tenta con il filtro HEAD (link_* non null)
+      let { data } = await supabase
         .from(table)
         .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
         .eq('user_id', uid)
         .gte('purchase_date', start)
         .lte('purchase_date', end)
         .or('not.link_label.is.null,not.link_path.is.null');
+
+      // se la tabella non ha link_* o non ci sono HEAD, ritorna []
       return Array.isArray(data) ? data : [];
     };
 
@@ -139,7 +141,7 @@ async function fetchSpendTotal(uid, { start, end }) {
     headRows = [...sc, ...ca, ...va, ...vr];
   }
 
-  // c) Dedupe: 1 testa per scontrino (o per store+data se manca receipt_id)
+  // ---- c) Dedupe: 1 testa per scontrino (o per store+data se manca receipt_id)
   const byKey = new Map(); // key -> { store, total }
   for (const r of headRows) {
     const st  = (r.store || 'Punto vendita').trim();
@@ -150,13 +152,13 @@ async function fetchSpendTotal(uid, { start, end }) {
     const cur = byKey.get(key) || { store: st, total: 0 };
     const val = Number(r.price_total || 0);
 
-    // Se arrivano più HEAD per lo stesso scontrino, tieni la più grande
+    // se arrivano più HEAD per lo stesso scontrino, tieni la più grande
     if (val > cur.total) cur.total = val;
 
     byKey.set(key, cur);
   }
 
-  // d) Totale autoritativo e top store dalle teste
+  // ---- d) Totale autoritativo e top store
   let total = 0;
   const perStore = new Map();
   for (const { store, total: t } of byKey.values()) {
@@ -171,7 +173,6 @@ async function fetchSpendTotal(uid, { start, end }) {
 
   return { total, txs: byKey.size, top };
 }
-
 
 /* ======================================================================================
    OCR & normalizzazione: utilità robuste (anti-pesi, dedupe)
@@ -810,33 +811,62 @@ const Home = () => {
     }
   }
 
-  /* =================== Query testo =================== */
+  //* =================== Query testo =================== */
 async function submitQuery(textParam) {
   const raw = (textParam != null ? String(textParam) : queryText).trim();
   if (!raw || busy) return;
   if (textParam == null) setQueryText('');
 
+  // apri la modale on-demand e logga la domanda
   if (!chatOpen) setChatOpen(true);
   setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
-  lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
 
+  // ── INTENTO RAPIDO: "quanto ho speso ..." → usa SOLO le HEAD (totale scontrino)
+  const spentRe = /(quanto\s+ho\s+spes[oa]|totale\s+spes[ea]|spes[ae]\s+(di|del)\s+(oggi|questa settimana|questo mese|quest’anno|questo anno))/i;
+  if (uid && spentRe.test(raw.toLowerCase())) {
+    let ref = 'month';
+    if (/oggi\b/i.test(raw)) ref = 'today';
+    else if (/questa\s+settimana/i.test(raw)) ref = 'week';
+    else if (/quest['o]?\s*anno/i.test(raw)) ref = 'year';
+
+    setBusy(true);
+    try {
+      const { start, end } = boundsFromRef(ref);
+      const { total, txs, top } = await fetchSpendTotal(uid, { start, end });
+
+      const txt =
+`📊 Spese — ${refLabel(ref)}
+Intervallo: ${formatIT(start)} – ${formatIT(end)}
+Totale: ${fmtEuro(total)} • Transazioni: ${fmtInt(txs)}
+
+${top.map(r => `${r.store}: ${fmtEuro(r.amount)}`).join('\n') || ''}`;
+
+      const msg = { role: 'assistant', text: txt, mono: true };
+      setChatMsgs(prev => [...prev, msg]);
+      maybeSpeakMessage(msg);
+    } catch (e) {
+      setChatMsgs(prev => [...prev, { role: 'assistant', text: `❌ Errore somma spese: ${e.message}`, mono: true }]);
+    } finally {
+      setBusy(false);
+    }
+    return; // non passare al brain per questa domanda
+  }
+
+  // ── Sommelier: guida a scattare la carta se non c'è memoria
+  lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
   if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
     setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }]);
     return;
   }
 
+  // ── Fallback: agente/brain
   try {
     setBusy(true);
-    // ⬇️ PASSA userId all’agente
     const out = await runBrainQuery(raw, { first: chatMsgs.length === 0, userId: uid });
 
-    // ⬇️ Se l’agente restituisce {text, mono}, usalo direttamente
-    let msg;
-    if (out && typeof out === 'object' && 'text' in out) {
-      msg = { role: 'assistant', text: String(out.text ?? ''), mono: !!out.mono };
-    } else {
-      msg = renderBrainResponse(out); // fallback vecchio renderer
-    }
+    const msg = (out && typeof out === 'object' && 'text' in out)
+      ? { role: 'assistant', text: String(out.text ?? ''), mono: !!out.mono }
+      : renderBrainResponse(out);
 
     setChatMsgs(prev => [...prev, msg]);
     maybeSpeakMessage(msg);
