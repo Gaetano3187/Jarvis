@@ -62,40 +62,61 @@ function svgBars(items, { max = 100, unit = '%', bg = '#0b0f14' } = {}) {
   </svg>`;
 }
 
-/* ======================================================================================
+/*/* ======================================================================================
    INTERROGAZIONI: bounds + somma autoritativa (HEAD)
 ====================================================================================== */
+
 // Bounds rapidi (oggi / settimana / mese / anno)
-function boundsFromRef(ref) {
+function boundsFromRef(ref = 'month') {
   const now = new Date();
-  const iso = d => d.toISOString().slice(0,10);
-  if (ref === 'today')   { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); return { start: iso(d), end: iso(d) }; }
-  if (ref === 'week')    { const day=now.getDay(); const delta=(day===0?-6:1-day); const s=new Date(now.getFullYear(),now.getMonth(),now.getDate()+delta); const e=new Date(s.getFullYear(),s.getMonth(),s.getDate()+6); return { start: iso(s), end: iso(e) }; }
-  if (ref === 'year')    { const s=new Date(now.getFullYear(),0,1), e=new Date(now.getFullYear(),11,31); return { start: iso(s), end: iso(e) }; }
-  const s=new Date(now.getFullYear(),now.getMonth(),1), e=new Date(now.getFullYear(),now.getMonth()+1,0);
+  const iso = d => d.toISOString().slice(0, 10);
+
+  if (ref === 'today') {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return { start: iso(d), end: iso(d) };
+  }
+  if (ref === 'week') {
+    // Lunedì della settimana corrente
+    const day = now.getDay(); // 0=dom ... 6=sab
+    const delta = (day === 0 ? -6 : 1 - day);
+    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() + delta);
+    const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6);
+    return { start: iso(s), end: iso(e) };
+  }
+  if (ref === 'year') {
+    const s = new Date(now.getFullYear(), 0, 1);
+    const e = new Date(now.getFullYear(), 11, 31);
+    return { start: iso(s), end: iso(e) };
+  }
+
+  // Default: mese corrente
+  const s = new Date(now.getFullYear(), now.getMonth(), 1);
+  const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return { start: iso(s), end: iso(e) };
 }
+
 const refLabel = (ref) =>
-  ref==='today' ? 'oggi' :
-  ref==='week'  ? 'questa settimana' :
-  ref==='year'  ? "quest'anno" : 'questo mese';
+  ref === 'today' ? 'oggi' :
+  ref === 'week'  ? 'questa settimana' :
+  ref === 'year'  ? "quest'anno" :
+                    'questo mese';
 
 // Somma *autoritativa* per periodo: SOLO "testa scontrino" (HEAD)
 // 1) ledger (jarvis_finances) filtrando le HEAD (link_label/link_path non null)
 // 2) fallback tabelle categoria (spese-casa/cene/vestiti/varie) solo HEAD
 async function fetchSpendTotal(uid, { start, end }) {
-  // ledger
+  // a) HEAD dal ledger
   const { data: fin } = await supabase
     .from('jarvis_finances')
     .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
     .eq('user_id', uid)
     .gte('purchase_date', start)
     .lte('purchase_date', end)
-    .or('link_label.not.is.null,link_path.not.is.null');
+    .or('not.link_label.is.null,not.link_path.is.null');
 
   let headRows = Array.isArray(fin) ? fin : [];
 
-  // fallback categorie
+  // b) Fallback: HEAD dalle tabelle di categoria
   if (!headRows.length) {
     const readHeadCat = async (table) => {
       const { data } = await supabase
@@ -104,37 +125,45 @@ async function fetchSpendTotal(uid, { start, end }) {
         .eq('user_id', uid)
         .gte('purchase_date', start)
         .lte('purchase_date', end)
-        .or('link_label.not.is.null,link_path.not.is.null');
+        .or('not.link_label.is.null,not.link_path.is.null');
       return Array.isArray(data) ? data : [];
     };
+
     const [sc, ca, va, vr] = await Promise.all([
       readHeadCat('jarvis_spese_casa'),
       readHeadCat('jarvis_cene_aperitivi'),
       readHeadCat('jarvis_vestiti_altro'),
       readHeadCat('jarvis_varie'),
     ]);
+
     headRows = [...sc, ...ca, ...va, ...vr];
   }
 
-  // dedupe per scontrino (o per store+data se manca receipt_id)
-  const byKey = new Map(); // key -> {store,total}
+  // c) Dedupe: 1 testa per scontrino (o per store+data se manca receipt_id)
+  const byKey = new Map(); // key -> { store, total }
   for (const r of headRows) {
     const st  = (r.store || 'Punto vendita').trim();
     const dt  = String(r.purchase_date || '');
     const rid = r.receipt_id ? String(r.receipt_id) : null;
     const key = rid ? `rid:${rid}` : `sd:${st.toLowerCase()}|${dt}`;
+
     const cur = byKey.get(key) || { store: st, total: 0 };
     const val = Number(r.price_total || 0);
-    if (val > cur.total) cur.total = val; // tieni la HEAD più grande
+
+    // Se arrivano più HEAD per lo stesso scontrino, tieni la più grande
+    if (val > cur.total) cur.total = val;
+
     byKey.set(key, cur);
   }
 
+  // d) Totale autoritativo e top store dalle teste
   let total = 0;
   const perStore = new Map();
   for (const { store, total: t } of byKey.values()) {
     total += t;
     perStore.set(store, (perStore.get(store) || 0) + t);
   }
+
   const top = [...perStore.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -142,6 +171,7 @@ async function fetchSpendTotal(uid, { start, end }) {
 
   return { total, txs: byKey.size, top };
 }
+
 
 /* ======================================================================================
    OCR & normalizzazione: utilità robuste (anti-pesi, dedupe)
