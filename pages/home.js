@@ -358,19 +358,45 @@ const Home = () => {
   }, []);
 
  async function runBrainQuery(text) {
-  const r = await fetch('/api/assistant-ask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text,
-      userId: uid,   // ⚠️ passa sempre l'utente per filtrare Supabase
-      sommelierMemory: (wineListsRef.current || []).join('\n---\n').slice(0, 200000)
-    })
-  });
-  const out = await r.json();
-  // l'API restituisce { text, mono }
-  return out;
+  try {
+    const res = await fetch('/api/assistant-ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        userId: uid,
+        sommelierMemory: (wineListsRef.current || []).join('\n---\n').slice(0, 200000)
+      })
+    });
+
+    // parse robusto
+    const raw = await res.text();          // <-- MAI .json() diretto
+    if (!raw) {
+      return { text: `❌ assistant-ask: risposta vuota (HTTP ${res.status})`, mono: true };
+    }
+
+    let payload = null;
+    try { payload = JSON.parse(raw); }
+    catch (e) {
+      return { text: `❌ assistant-ask: body non JSON (HTTP ${res.status}).\n${raw.slice(0, 500)}`, mono: true };
+    }
+
+    if (!res.ok) {
+      // l'API ha risposto JSON ma con status errore
+      const msg = payload?.error || raw;
+      return { text: `❌ assistant-ask ${res.status}: ${msg}`, mono: true };
+    }
+
+    // OK: payload dovrebbe essere { text, mono }
+    if (payload && typeof payload === 'object' && 'text' in payload) return payload;
+
+    // fallback: rendi stampabile qualsiasi cosa
+    return { text: String(payload), mono: true };
+  } catch (e) {
+    return { text: `❌ assistant-ask fetch error: ${e.message}`, mono: true };
+  }
 }
+
 
 
   /* =================== TTS (opzionale) =================== */
