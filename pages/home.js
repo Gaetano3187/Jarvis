@@ -357,13 +357,21 @@ const Home = () => {
     })();
   }, []);
 
-  async function runBrainQuery(text, opts = {}) {
-    const mod = await getBrain().catch(() => null);
-    const fn = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
-    if (typeof fn !== 'function') throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
-    const sommelierMemory = (wineListsRef.current || []).join('\n---\n').slice(0, 200000);
-    return await fn(text, { ...opts, sommelierMemory });
-  }
+ async function runBrainQuery(text) {
+  const r = await fetch('/api/assistant-ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text,
+      userId: uid,   // ⚠️ passa sempre l'utente per filtrare Supabase
+      sommelierMemory: (wineListsRef.current || []).join('\n---\n').slice(0, 200000)
+    })
+  });
+  const out = await r.json();
+  // l'API restituisce { text, mono }
+  return out;
+}
+
 
   /* =================== TTS (opzionale) =================== */
   const [ttsEnabled, setTtsEnabled] = useState(false);
