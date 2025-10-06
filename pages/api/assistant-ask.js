@@ -5,6 +5,72 @@ import { createClient } from '@supabase/supabase-js';
 // (hoisted) così è disponibile ovunque, anche dentro oaPost/oaGet
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function safeParse(s) { try { return JSON.parse(s || '{}'); } catch { return {}; } }
+/* ---------- Pretty-print helper (render testo bello dalla risposta tool) ---------- */
+function itDate(iso) {
+  if (!iso) return '—';
+  const [y,m,d] = String(iso).split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m-1, d).toLocaleDateString('it-IT');
+}
+function eur(n) { return Number(n||0).toLocaleString('it-IT', { style:'currency', currency:'EUR' }); }
+
+function extractJsonCandidate(raw) {
+  const s = String(raw || '').trim();
+
+  // 1) blocco ```json ... ```
+  const fence = s.match(/```json\s*([\s\S]*?)```/i);
+  if (fence && fence[1]) return fence[1].trim();
+
+  // 2) prima { ... } bilanciata (grezza)
+  const first = s.indexOf('{');
+  const last  = s.lastIndexOf('}');
+  if (first !== -1 && last !== -1 && last > first) {
+    return s.slice(first, last+1).trim();
+  }
+
+  // 3) fallback: tutto
+  return s;
+}
+
+function tryPrettify(text) {
+  const candidate = extractJsonCandidate(text);
+  let j = null; try { j = JSON.parse(candidate); } catch { /* non JSON: torna raw */ }
+
+  if (!j || typeof j !== 'object') return String(text || '');
+
+  // Caso 1: spend_sum
+  if ('start' in j && 'end' in j && 'total' in j) {
+    const top = Array.isArray(j.top_stores) && j.top_stores.length
+      ? '\n\n' + j.top_stores.map(r => `${r.store}: ${eur(r.amount)}`).join('\n')
+      : '';
+    return `📊 Spese — ${j.label || 'periodo'}\nIntervallo: ${itDate(j.start)} – ${itDate(j.end)}\nTotale: ${eur(j.total)} • Transazioni: ${j.transactions || 0}${top}`;
+  }
+
+  // Caso 2: spend_top_products
+  if (Array.isArray(j.items)) {
+    const list = j.items.slice(0,10).map(x => `• ${x.name}: ${eur(x.amount)}`).join('\n');
+    return `🏷️ Prodotti su cui spendi di più\n${list || '—'}`;
+  }
+
+  // Caso 3: stock_snapshot
+  if (Array.isArray(j.items) && j.items.length && ('qty' in j.items[0] || 'expiry_date' in j.items[0])) {
+    const lines = j.items.slice(0,30).map(x => {
+      const qty = (x.qty != null ? ` × ${x.qty}` : '');
+      const exp = (x.expiry_date ? ` — scade ${itDate(x.expiry_date)}` : '');
+      return `• ${x.name}${qty}${exp}`;
+    }).join('\n');
+    return `🏠 Scorte (snapshot)\n${lines || '—'}`;
+  }
+
+  // Caso 4: price_trend con svg
+  if (j.term && j.svg) {
+    return `📈 Andamento prezzi “${j.term}”\n\n${j.svg}`;
+  }
+
+  // altrimenti lascia il JSON (o testo) così com'è
+  return candidate || String(text || '');
+}
+
 
 /* ─────────────────────────── ENV / CLIENT ─────────────────────────── */
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -132,12 +198,17 @@ export default async function handler(req, res) {
         continue;
       }
 
-      if (run.status === 'completed') {
-        const msgs = await oaGet(`/v1/threads/${thread.id}/messages?order=desc&limit=1`, OPENAI_API_KEY);
-        const last = msgs.data?.[0];
-        const textOut = (last?.content || [])
-          .map(p => p?.text?.value).filter(Boolean).join('\n') || '(nessuna risposta)';
-        console.log('[assistant-ask] final message:', textOut?.slice?.(0,500));
+     if (run.status === 'completed') {
+  const msgs = await oaGet(`/v1/threads/${thread.id}/messages?order=desc&limit=1`, OPENAI_API_KEY);
+  const last = msgs.data?.[0];
+  const textOut = (last?.content || [])
+    .map(p => p?.text?.value)
+    .filter(Boolean)
+    .join('\n') || '(nessuna risposta)';
+
+  const pretty = tryPrettify(textOut);
+  return res.status(200).json({ text: pretty, mono: true });
+
         // --- Pretty renderer opzionale ---
 function tryPrettify(text) {
   const raw = String(text || '').trim();
