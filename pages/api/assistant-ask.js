@@ -198,53 +198,28 @@ export default async function handler(req, res) {
         continue;
       }
 
-     if (run.status === 'completed') {
-  const msgs = await oaGet(`/v1/threads/${thread.id}/messages?order=desc&limit=1`, OPENAI_API_KEY);
-  const last = msgs.data?.[0];
-  const textOut = (last?.content || [])
+    if (run.status === 'completed') {
+  // prendi più messaggi per sicurezza e filtra il primo assistant
+  const msgs = await oaGet(`/v1/threads/${thread.id}/messages?order=desc&limit=20`, OPENAI_API_KEY);
+
+  // 1) il più recente con ruolo assistant
+  const lastAssistant = Array.isArray(msgs?.data)
+    ? msgs.data.find(m => m.role === 'assistant')
+    : null;
+
+  // 2) fallback: altrimenti prendi comunque il primo elemento
+  const chosen = lastAssistant || (Array.isArray(msgs?.data) ? msgs.data[0] : null);
+
+  const textOut = (chosen?.content || [])
     .map(p => p?.text?.value)
     .filter(Boolean)
     .join('\n') || '(nessuna risposta)';
 
-  const pretty = tryPrettify(textOut);
+  // pretty print (se presente il formatter)
+  const pretty = (typeof tryPrettify === 'function') ? tryPrettify(textOut) : textOut;
+
   return res.status(200).json({ text: pretty, mono: true });
 
-        // --- Pretty renderer opzionale ---
-function tryPrettify(text) {
-  const raw = String(text || '').trim();
-  // prova a intercettare JSON stampato dal tool
-  const s = raw.replace(/^[\s\n]+|[\s\n]+$/g, '');
-  try {
-    const j = JSON.parse(s);
-    // spend_sum
-    if (j && typeof j === 'object' && 'start' in j && 'end' in j && 'total' in j) {
-      const it = (iso) => {
-        const [y,m,d] = String(iso).split('-').map(Number);
-        return (y&&m&&d) ? new Date(y,m-1,d).toLocaleDateString('it-IT') : iso;
-      };
-      const eur = (n) => Number(n||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'});
-      const top = Array.isArray(j.top_stores) && j.top_stores.length
-        ? '\n\n' + j.top_stores.map(r => `${r.store}: ${eur(r.amount)}`).join('\n')
-        : '';
-      return `📊 Spese — ${j.label || 'periodo'}\nIntervallo: ${it(j.start)} – ${it(j.end)}\nTotale: ${eur(j.total)} • Transazioni: ${j.transactions||0}${top}`;
-    }
-    // top prodotti
-    if (j && j.items && Array.isArray(j.items)) {
-      const eur = (n) => Number(n||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'});
-      const list = j.items.slice(0,10).map(x => `• ${x.name}: ${eur(x.amount)}`).join('\n');
-      return `🏷️ Prodotti su cui spendi di più\n${list || '—'}`;
-    }
-    // trend prezzi (se il tool ha messo svg)
-    if (j && j.term && (j.svg || j.series)) {
-      if (j.svg) return `📈 Andamento prezzi “${j.term}”\n\n${j.svg}`;
-      return `📈 Andamento prezzi “${j.term}” (dati disponibili)`;
-    }
-    // altrimenti lascia testo così com'è
-  } catch {}
-  return raw;
-}
-
-        return res.status(200).json({ text: textOut, mono: true });
       }
 
       if (['failed','expired','cancelled'].includes(run.status)) {
