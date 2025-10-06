@@ -301,16 +301,16 @@ function Entrate() {
         };
       });
 
- /* ===================== helpers ===================== */
+/* ===================== heads ledger + fallback categorie ===================== */
 const CAT_TO_ROUTE = {
-  'spese-casa':     '/spese-casa',
+  'spese-casa': '/spese-casa',
   'cene-aperitivi': '/cene-aperitivi',
-  'vestiti-altro':  '/vestiti-altro',
-  'varie':          '/varie',
+  'vestiti-altro': '/vestiti-altro',
+  'varie': '/varie',
 };
 
-/* ======== HEADS dal ledger unico ======== */
-const { data: finHeads, error: finErr } = await supabase
+let finHeads = [];
+const { data: finHeadsLedger } = await supabase
   .from('jarvis_finances')
   .select('receipt_id, category, store, purchase_date, price_total, payment_method, link_label, link_path, created_at')
   .eq('user_id', user.id)
@@ -319,19 +319,49 @@ const { data: finHeads, error: finErr } = await supabase
   .lte('purchase_date', endDate)
   .order('purchase_date', { ascending: false })
   .order('created_at', { ascending: false });
-if (finErr) throw finErr;
 
-/** raggruppa: 1 riga per receipt_id (oppure store+data+categoria) evitando DOPPIO CONTEGGIO
- *  - se esiste la "testa scontrino" (link_label/link_path) usa il suo totale (headTotal)
- *  - altrimenti somma le righe analitiche (linesSum)
- */
-function groupFinHeads(heads = []) {
+if (Array.isArray(finHeadsLedger)) finHeads = [...finHeadsLedger];
+
+// Fallback: se il ledger non ha nulla, leggo le tabelle categoria e normalizzo
+const readCat = async (table, category) => {
+  const { data } = await supabase
+    .from(table)
+    .select('*')
+    .eq('user_id', user.id)
+    .gte('purchase_date', startDate)
+    .lte('purchase_date', endDate);
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map(r => ({
+    receipt_id:     r.receipt_id ?? r.rid ?? null,
+    category,
+    store:          r.store ?? r.merchant ?? r.name ?? 'Punto vendita',
+    purchase_date:  r.purchase_date ?? (r.created_at || '').slice(0,10),
+    price_total:    Number(r.price_total ?? r.total_paid ?? r.total ?? 0),
+    payment_method: r.payment_method ?? null,
+    link_label:     r.link_label ?? null,
+    link_path:      r.link_path  ?? null,
+    created_at:     r.created_at ?? null,
+  }));
+};
+
+if (!finHeads.length) {
+  const [sc, ca, va, vr] = await Promise.all([
+    readCat('jarvis_spese_casa',     'spese-casa'),
+    readCat('jarvis_cene_aperitivi', 'cene-aperitivi'),
+    readCat('jarvis_vestiti_altro',  'vestiti-altro'),
+    readCat('jarvis_varie',          'varie'),
+  ]);
+  finHeads = [...sc, ...ca, ...va, ...vr];
+}
+
+// Raggruppa: 1 riga per receipt_id (o store+data+categoria), usando headTotal oppure linesSum
+const groupFinHeads = (heads = []) => {
   const map = new Map();
   for (const h of heads) {
     const dateISO = h.purchase_date || '';
     const key = h.receipt_id
       ? `rid:${h.receipt_id}`
-      : `sd:${String(h.store || '').toLowerCase().trim()}|${dateISO}|${h.category || 'spese-casa'}`;
+      : `sd:${String(h.store||'').toLowerCase().trim()}|${dateISO}|${h.category||'spese-casa'}`;
 
     const isHead = Boolean(
       (h.link_label && String(h.link_label).trim()) ||
@@ -339,9 +369,9 @@ function groupFinHeads(heads = []) {
     );
 
     const g = map.get(key) || {
-      receipt_id: h.receipt_id || null,
-      category:   h.category   || 'spese-casa',
-      store:      h.store      || '',
+      receipt_id:     h.receipt_id || null,
+      category:       h.category   || 'spese-casa',
+      store:          h.store      || '',
       dateISO,
       payment_method: h.payment_method || '',
       link_label:     h.link_label     || '',
@@ -364,16 +394,14 @@ function groupFinHeads(heads = []) {
 
   return Array.from(map.values()).map(g => {
     const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
-    const monthParam = (g.dateISO || '').slice(0, 7);
+    const monthParam = (g.dateISO || '').slice(0,7);
     const baseTxt =
       g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
       g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
       g.category === 'varie'          ? 'Varie'          : 'Spesa';
 
-    // usa headTotal se presente, altrimenti somma righe
     const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
     const tot = Number((total || 0).toFixed(2));
-
     const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
     const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
 
@@ -392,37 +420,36 @@ function groupFinHeads(heads = []) {
       dateISO: g.dateISO,
       label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
       route,
-      displayAmount: -tot,          // mostrato sempre
-      amount: isCash ? -tot : 0,    // impatta “Soldi in tasca” solo se contanti
+      displayAmount: -tot,
+      amount: isCash ? -tot : 0,
       affectsPocket: isCash,
     };
   });
-}
+};
 
-/* === righe spesa dal ledger raggruppate === */
 const expenseRows = groupFinHeads(finHeads);
 
-/* === merge finale con movimenti manuali === */
+// Merge + ordine
 const filteredManual = hideVarieCashAfterClear
   ? manualRows.filter(r => r.kind !== 'manual' || r.category_id !== CATEGORY_ID_VARIE)
   : manualRows;
-
 const rows = [...expenseRows, ...filteredManual]
   .filter(r => Number.isFinite(r.amount) || Number.isFinite(r.displayAmount))
   .sort((a,b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
-
 setPocketRows(rows);
 
-/* === Totale spese periodo (dal ledger completo) === */
+// Totale spese periodo (ledger)
 const { data: exp, error: expErr } = await supabase
   .from('jarvis_finances')
   .select('price_total,purchase_date')
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
-if (expErr) throw expErr;
-const totalExp = (exp || []).reduce((t, r) => t + Number(r.price_total || 0), 0);
-setMonthExpenses(totalExp);
+if (!expErr && Array.isArray(exp)) {
+  const totalExp = exp.reduce((t, r) => t + Number(r.price_total || 0), 0);
+  setMonthExpenses(totalExp);
+}
+
 
     } catch (err) {
       showError(setError, err);
