@@ -163,7 +163,8 @@ function bounds(ref = 'month') {
   return { start: iso(s), end: iso(e), label:'questo mese' };
 }
 
-/// ledger (HEAD) → categorie (HEAD/doc_total) → SE VUOTO: categorie TUTTE LE RIGHE → dedupe (rid | store+date) MAX
+// ledger (HEAD) → categorie (HEAD/doc_total) → categorie TUTTE LE RIGHE (dedupe MAX)
+// → Fallback legacy: jarvis_finanze → Fallback generico: finances
 async function getHeads(uid, start, end) {
   // 1) HEAD dal ledger (link_* non null)
   const { data: led } = await sb
@@ -229,7 +230,49 @@ async function getHeads(uid, start, end) {
     rows = [...scAll, ...caAll, ...vaAll, ...vrAll];
   }
 
-  // 4) DEDUPE: receipt_id oppure (store+date) → tieni il MAX come testa
+  // 4) FALLBACK LEGACY: jarvis_finanze (un movimento = una “testa”)
+  if (!rows.length) {
+    const { data: jf } = await sb
+      .from('jarvis_finanze')
+      .select('id, date, amount, description')
+      .eq('user_id', uid)
+      .gte('date', start)
+      .lte('date', end);
+    if (Array.isArray(jf) && jf.length) {
+      const mapped = jf
+        .filter(r => Number(r.amount || 0) > 0)
+        .map(r => ({
+          receipt_id: `finz:${r.id}`,                       // chiave univoca → non collide in dedupe
+          store: (r.description || 'Finanze').trim(),       // etichetta di comodo
+          purchase_date: r.date,
+          price_total: Number(r.amount || 0)
+        }));
+      rows = mapped;
+    }
+  }
+
+  // 5) FALLBACK GENERICO: finances (registro generico)
+  if (!rows.length) {
+    const { data: fin } = await sb
+      .from('finances')
+      .select('id, amount, spent_date, spent_at, store_name, categoria')
+      .eq('user_id', uid)
+      .or(`and(spent_date.gte.${start},spent_date.lte.${end}),and(spent_at.gte.${start},spent_at.lte.${end})`);
+    if (Array.isArray(fin) && fin.length) {
+      const mapped = fin
+        .filter(r => Number(r.amount || 0) > 0) // somma solo uscite
+        .map(r => ({
+          receipt_id: `fin:${r.id}`,                        // chiave univoca → non collide in dedupe
+          store: (r.store_name || r.categoria || 'Finanze').trim(),
+          purchase_date: r.spent_date || (r.spent_at ? String(r.spent_at).slice(0,10) : null),
+          price_total: Number(r.amount || 0)
+        }))
+        .filter(r => !!r.purchase_date && r.purchase_date >= start && r.purchase_date <= end);
+      rows = mapped;
+    }
+  }
+
+  // 6) DEDUPE: receipt_id oppure (store+date) → tieni il MAX come “testa”
   const byKey = new Map();
   for (const r of rows) {
     const st  = (r.store || 'Punto vendita').trim();
@@ -244,6 +287,7 @@ async function getHeads(uid, start, end) {
 
   return [...byKey.values()];
 }
+
 
 /* ─────────────────────────── TOOL ROUTER ─────────────────────────── */
 async function resolveTool(name, args, userId) {
