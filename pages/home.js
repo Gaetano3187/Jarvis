@@ -924,32 +924,6 @@ async function submitQuery(textParam) {
   if (!chatOpen) setChatOpen(true);
   setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
 
-  // INTENTO: "quanto ho speso ..."
-  const spentRe = /(quanto\s+ho\s+spes[oa]|totale\s+spes[ea]|spes[ae]\s+(di|del)\s+(oggi|questa settimana|questo mese|quest’anno|questo anno))/i;
-  if (uid && spentRe.test(raw.toLowerCase())) {
-    let ref = 'month';
-    if (/oggi\b/i.test(raw)) ref = 'today';
-    else if (/questa\s+settimana/i.test(raw)) ref = 'week';
-    else if (/quest['o]?\s*anno/i.test(raw)) ref = 'year';
-
-    setBusy(true);
-    try {
-      const { start, end } = boundsFromRef(ref);
-      const { total, txs, top } = await fetchSpendTotal(uid, { start, end });
-      const txt =
-`📊 Spese — ${refLabel(ref)}
-Intervallo: ${formatIT(start)} – ${formatIT(end)}
-Totale: ${fmtEuro(total)} • Transazioni: ${fmtInt(txs)}
-
-${top.map(r => `${r.store}: ${fmtEuro(r.amount)}`).join('\n') || ''}`;
-      setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
-    } catch (e) {
-      setChatMsgs(prev => [...prev, { role:'assistant', text:`❌ Errore somma spese: ${e.message}`, mono:true }]);
-    } finally {
-      setBusy(false);
-    }
-    return; // non passare al brain per questa domanda
-  }
 
   // Sommelier: guida a scattare la carta se non c'è memoria
   lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
@@ -985,33 +959,6 @@ async function submitQuery(textParam) {
   // apri modale e logga la domanda
   if (!chatOpen) setChatOpen(true);
   setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
-
-  // INTENTO: "quanto ho speso ..."
-  const spentRe = /(quanto\s+ho\s+spes[oa]|totale\s+spes[ea]|spes[ae]\s+(di|del)\s+(oggi|questa settimana|questo mese|quest’anno|questo anno))/i;
-  if (uid && spentRe.test(raw.toLowerCase())) {
-    let ref = 'month';
-    if (/oggi\b/i.test(raw)) ref = 'today';
-    else if (/questa\s+settimana/i.test(raw)) ref = 'week';
-    else if (/quest['o]?\s*anno/i.test(raw)) ref = 'year';
-
-    setBusy(true);
-    try {
-      const { start, end } = boundsFromRef(ref);
-      const { total, txs, top } = await fetchSpendTotal(uid, { start, end });
-      const txt =
-`📊 Spese — ${refLabel(ref)}
-Intervallo: ${formatIT(start)} – ${formatIT(end)}
-Totale: ${fmtEuro(total)} • Transazioni: ${fmtInt(txs)}
-
-${top.map(r => `${r.store}: ${fmtEuro(r.amount)}`).join('\n') || ''}`;
-      setChatMsgs(prev => [...prev, { role:'assistant', text: txt, mono: true }]);
-    } catch (e) {
-      setChatMsgs(prev => [...prev, { role:'assistant', text:`❌ Errore somma spese: ${e.message}`, mono:true }]);
-    } finally {
-      setBusy(false);
-    }
-    return; // non passare al brain per questa domanda
-  }
 
   // Sommelier: guida a scattare la carta se non c'è memoria
   lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
