@@ -795,6 +795,83 @@ const Home = () => {
     } finally {
       setBusy(false);
     }
+    // ===== Somma autoritativa per periodo: SOLO "testa scontrino" (HEAD) =====
+// 1) prova dal ledger (jarvis_finances) filtrando le HEAD
+// 2) fallback: tabelle categoria (spese-casa/cene/vestiti/varie) filtrando le HEAD
+async function fetchSpendTotal(uid, { start, end }) {
+  // a) ledger: prendo solo HEAD (link_label o link_path valorizzati)
+  const { data: fin } = await supabase
+    .from('jarvis_finances')
+    .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
+    .eq('user_id', uid)
+    .gte('purchase_date', start)
+    .lte('purchase_date', end)
+    .or('not.link_label.is.null,not.link_path.is.null');
+
+  let headRows = Array.isArray(fin) ? fin : [];
+
+  // b) fallback categorie: solo HEAD
+  if (!headRows.length) {
+    const readHeadCat = async (table) => {
+      const { data } = await supabase
+        .from(table)
+        .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
+        .eq('user_id', uid)
+        .gte('purchase_date', start)
+        .lte('purchase_date', end)
+        .or('not.link_label.is.null,not.link_path.is.null');
+      return Array.isArray(data) ? data : [];
+    };
+    const [sc, ca, va, vr] = await Promise.all([
+      readHeadCat('jarvis_spese_casa'),
+      readHeadCat('jarvis_cene_aperitivi'),
+      readHeadCat('jarvis_vestiti_altro'),
+      readHeadCat('jarvis_varie'),
+    ]);
+    headRows = [...sc, ...ca, ...va, ...vr];
+  }
+
+  // c) dedupe per scontrino (o per store+data se manca receipt_id)
+  const byKey = new Map(); // key -> {store,total}
+  for (const r of headRows) {
+    const st  = (r.store || 'Punto vendita').trim();
+    const dt  = String(r.purchase_date || '');
+    const rid = r.receipt_id ? String(r.receipt_id) : null;
+    const key = rid ? `rid:${rid}` : `sd:${st.toLowerCase()}|${dt}`;
+    const cur = byKey.get(key) || { store: st, total: 0 };
+    const val = Number(r.price_total || 0);
+    // se arrivano più "head" per lo stesso scontrino, tengo la più grande
+    if (val > cur.total) cur.total = val;
+    byKey.set(key, cur);
+  }
+
+  // totale autoritativo e top store
+  let total = 0;
+  const perStore = new Map();
+  for (const { store, total: t } of byKey.values()) {
+    total += t;
+    perStore.set(store, (perStore.get(store) || 0) + t);
+  }
+  const top = [...perStore.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([store, amount]) => ({ store, amount }));
+
+  return { total, txs: byKey.size, top };
+}
+
+// Bounds rapidi (oggi / settimana / mese / anno)
+function boundsFromRef(ref) {
+  const now = new Date();
+  const iso = d => d.toISOString().slice(0,10);
+  if (ref === 'today')   { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); return { start: iso(d), end: iso(d) }; }
+  if (ref === 'week')    { const day=now.getDay(); const delta=(day===0?-6:1-day); const s=new Date(now.getFullYear(),now.getMonth(),now.getDate()+delta); const e=new Date(s.getFullYear(),s.getMonth(),s.getDate()+6); return { start: iso(s), end: iso(e) }; }
+  if (ref === 'year')    { const s=new Date(now.getFullYear(),0,1), e=new Date(now.getFullYear(),11,31); return { start: iso(s), end: iso(e) }; }
+  const s=new Date(now.getFullYear(),now.getMonth(),1), e=new Date(now.getFullYear(),now.getMonth()+1,0);
+  return { start: iso(s), end: iso(e) };
+}
+const refLabel = (ref) => ref==='today'?'oggi':ref==='week'?'questa settimana':ref==='year'?"quest'anno":'questo mese';
+
   }
 
   /* =================== Query testo =================== */
@@ -806,6 +883,36 @@ async function submitQuery(textParam) {
   if (!chatOpen) setChatOpen(true);
   setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
   lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
+
+  // ── Intent rapido "quanto ho speso ..." ───────────────────────────────
+const spentRe = /(quanto\s+ho\s+spes[oa]|totale\s+spes[ea]|spes[ae]\s+(di|del)\s+(oggi|questa settimana|questo mese|quest’anno|questo anno))/i;
+if (uid && spentRe.test(raw.toLowerCase())) {
+  let ref = 'month';
+  if (/oggi\b/i.test(raw))                 ref = 'today';
+  else if (/questa\s+settimana/i.test(raw))ref = 'week';
+  else if (/quest['o]?\s*anno/i.test(raw)) ref = 'year';
+
+  setBusy(true);
+  try {
+    const { start, end } = boundsFromRef(ref);
+    const { total, txs, top } = await fetchSpendTotal(uid, { start, end });
+    const txt =
+`📊 Spese — ${refLabel(ref)}
+Intervallo: ${formatIT(start)} – ${formatIT(end)}
+Totale: ${fmtEuro(total)} • Transazioni: ${fmtInt(txs)}
+
+${top.map(r => `${r.store}: ${fmtEuro(r.amount)}`).join('\n') || ''}`;
+    const msg = { role:'assistant', text: txt, mono: true };
+    setChatMsgs(prev => [...prev, msg]);
+    maybeSpeakMessage(msg);
+  } catch (e) {
+    setChatMsgs(prev => [...prev, { role:'assistant', text:`❌ Errore somma spese: ${e.message}`, mono:true }]);
+  } finally {
+    setBusy(false);
+  }
+  return; // ⬅️ non passare al brain
+}
+
 
   if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
     setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }]);
