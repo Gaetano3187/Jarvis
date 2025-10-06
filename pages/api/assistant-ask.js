@@ -163,44 +163,85 @@ function bounds(ref = 'month') {
   return { start: iso(s), end: iso(e), label:'questo mese' };
 }
 
-// ledger (HEAD) → categorie (HEAD/doc_total) → dedupe (rid | store+date) MAX
+/// ledger (HEAD) → categorie (HEAD/doc_total) → SE VUOTO: categorie TUTTE LE RIGHE → dedupe (rid | store+date) MAX
 async function getHeads(uid, start, end) {
+  // 1) HEAD dal ledger (link_* non null)
   const { data: led } = await sb
     .from('jarvis_finances')
     .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
-    .eq('user_id', uid).gte('purchase_date', start).lte('purchase_date', end)
+    .eq('user_id', uid)
+    .gte('purchase_date', start)
+    .lte('purchase_date', end)
     .or('not.link_label.is.null,not.link_path.is.null');
+
   let rows = Array.isArray(led) ? led : [];
+
+  // 2) HEAD dalle categorie (preferisci doc_total)
   if (!rows.length) {
-    const getCat = async (table, hasDoc) => {
+    const getCatHead = async (table, hasDoc) => {
       const sel = hasDoc
         ? 'receipt_id, store, purchase_date, doc_total, price_total, link_label, link_path'
         : 'receipt_id, store, purchase_date, price_total, link_label, link_path';
       const { data } = await sb
         .from(table)
         .select(sel)
-        .eq('user_id', uid).gte('purchase_date', start).lte('purchase_date', end)
+        .eq('user_id', uid)
+        .gte('purchase_date', start)
+        .lte('purchase_date', end)
         .or('not.link_label.is.null,not.link_path.is.null');
       const arr = Array.isArray(data) ? data : [];
-      return arr.map(r => ({ ...r, price_total: Number((hasDoc ? (r.doc_total ?? r.price_total) : r.price_total) || 0) }));
+      return arr.map(r => ({
+        ...r,
+        price_total: Number((hasDoc ? (r.doc_total ?? r.price_total) : r.price_total) || 0)
+      }));
     };
-    const sc = await getCat('jarvis_spese_casa',     true);
-    const ca = await getCat('jarvis_cene_aperitivi', true);
-    const va = await getCat('jarvis_vestiti_altro',  false);
-    const vr = await getCat('jarvis_varie',          false);
+    const sc = await getCatHead('jarvis_spese_casa',     true);
+    const ca = await getCatHead('jarvis_cene_aperitivi', true);
+    const va = await getCatHead('jarvis_vestiti_altro',  false);
+    const vr = await getCatHead('jarvis_varie',          false);
     rows = [...sc, ...ca, ...va, ...vr];
   }
+
+  // 3) SE ANCORA VUOTO: categorie TUTTE LE RIGHE (no link_*), dedupe MAX per chiave
+  if (!rows.length) {
+    const getCatAll = async (table, hasDoc) => {
+      const sel = hasDoc
+        ? 'receipt_id, store, purchase_date, doc_total, price_total'
+        : 'receipt_id, store, purchase_date, price_total';
+      const { data } = await sb
+        .from(table)
+        .select(sel)
+        .eq('user_id', uid)
+        .gte('purchase_date', start)
+        .lte('purchase_date', end);
+      const arr = Array.isArray(data) ? data : [];
+      return arr.map(r => ({
+        receipt_id: r.receipt_id || null,
+        store: (r.store || '').trim(),
+        purchase_date: r.purchase_date,
+        price_total: Number((hasDoc ? (r.doc_total ?? r.price_total) : r.price_total) || 0)
+      }));
+    };
+    const scAll = await getCatAll('jarvis_spese_casa',     true);
+    const caAll = await getCatAll('jarvis_cene_aperitivi', true);
+    const vaAll = await getCatAll('jarvis_vestiti_altro',  false);
+    const vrAll = await getCatAll('jarvis_varie',          false);
+    rows = [...scAll, ...caAll, ...vaAll, ...vrAll];
+  }
+
+  // 4) DEDUPE: receipt_id oppure (store+date) → tieni il MAX come testa
   const byKey = new Map();
   for (const r of rows) {
-    const st=(r.store||'Punto vendita').trim();
-    const dt=String(r.purchase_date||'');
-    const rid=r.receipt_id ? String(r.receipt_id) : null;
+    const st  = (r.store || 'Punto vendita').trim();
+    const dt  = String(r.purchase_date || '');
+    const rid = r.receipt_id ? String(r.receipt_id) : null;
     const key = rid ? `rid:${rid}` : `sd:${st.toLowerCase()}|${dt}`;
     const cur = byKey.get(key) || { store: st, total: 0 };
     const val = Number(r.price_total || 0);
     if (val > cur.total) cur.total = val;
     byKey.set(key, cur);
   }
+
   return [...byKey.values()];
 }
 
