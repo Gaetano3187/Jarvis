@@ -583,6 +583,19 @@ const Home = () => {
         if (guess === 'receipt') receipts.push(n);
         else if (guess === 'wine_label') labels.push(n);
         else if (guess === 'wine_list') lists.push(n);
+        if (run.status === 'requires_action') {
+  const calls = run.required_action?.submit_tool_outputs?.tool_calls || [];
+  console.log('[assistant-ask] tool-calls:', calls.map(c => ({
+    name: c.function?.name, args: c.function?.arguments?.slice?.(0,200)
+  })));
+  // ... segue il submit_tool_outputs
+}
+
+if (run.status === 'completed') {
+  // ... prima di ritornare
+  console.log('[assistant-ask] final message:', textOut?.slice?.(0,500));
+}
+
       }
 
       // === SOMMELIER: carta vini (solo memoria; modale aperta) ===

@@ -102,26 +102,54 @@ export default async function handler(req, res) {
 }
 
 /* ─────────────────────────── OpenAI helpers ─────────────────────────── */
-async function oaPost(path, body, key) {
-  const r = await fetch(`${OA_BASE}${path}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      'OpenAI-Beta': 'assistants=v2'
-    },
-    body: JSON.stringify(body || {})
-  });
-  const j = await r.json(); if (!r.ok) throw new Error(j?.error?.message || r.statusText); return j;
+/* ───────── OpenAI helpers ROBUSTI (text+retry) ───────── */
+async function oaPost(path, body, key, tries = 3) {
+  for (let i=0; i<tries; i++) {
+    try {
+      const r = await fetch(`${OA_BASE}${path}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'assistants=v2'
+        },
+        body: JSON.stringify(body || {})
+      });
+      const raw = await r.text();
+      let j = null; try { j = JSON.parse(raw); } catch {}
+      if (!r.ok) {
+        const msg = j?.error?.message || raw?.slice(0,500) || r.statusText;
+        throw new Error(`OpenAI POST ${path} ${r.status}: ${msg}`);
+      }
+      if (!j) throw new Error(`OpenAI POST ${path}: risposta non JSON: ${raw?.slice(0,500)}`);
+      return j;
+    } catch (e) {
+      if (i === tries-1) throw e;
+      await sleep(400 * (i+1)); // backoff
+    }
+  }
 }
-async function oaGet(path, key) {
-  const r = await fetch(`${OA_BASE}${path}`, {
-    headers: { 'Authorization': `Bearer ${key}`, 'OpenAI-Beta': 'assistants=v2' }
-  });
-  const j = await r.json(); if (!r.ok) throw new Error(j?.error?.message || r.statusText); return j;
+
+async function oaGet(path, key, tries = 3) {
+  for (let i=0; i<tries; i++) {
+    try {
+      const r = await fetch(`${OA_BASE}${path}`, {
+        headers: { 'Authorization': `Bearer ${key}`, 'OpenAI-Beta': 'assistants=v2' }
+      });
+      const raw = await r.text();
+      let j = null; try { j = JSON.parse(raw); } catch {}
+      if (!r.ok) {
+        const msg = j?.error?.message || raw?.slice(0,500) || r.statusText;
+        throw new Error(`OpenAI GET ${path} ${r.status}: ${msg}`);
+      }
+      if (!j) throw new Error(`OpenAI GET ${path}: risposta non JSON: ${raw?.slice(0,500)}`);
+      return j;
+    } catch (e) {
+      if (i === tries-1) throw e;
+      await sleep(400 * (i+1));
+    }
+  }
 }
-const sleep     = (ms)=> new Promise(r=>setTimeout(r,ms));
-const safeParse = (s)=> { try { return JSON.parse(s || '{}'); } catch { return {}; } };
 
 /* ─────────────────────────── Helpers data ─────────────────────────── */
 function bounds(ref = 'month') {
