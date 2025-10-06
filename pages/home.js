@@ -5,7 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
 import { useRouter } from 'next/router';
-import { supabase } from '@/lib/supabaseClient'; // ⬅️ spostato in alto
+import { supabase } from '@/lib/supabaseClient';
 
 // Registratore (solo client)
 const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
@@ -63,11 +63,91 @@ function svgBars(items, { max = 100, unit = '%', bg = '#0b0f14' } = {}) {
 }
 
 /* ======================================================================================
+   INTERROGAZIONI: bounds + somma autoritativa (HEAD)
+====================================================================================== */
+// Bounds rapidi (oggi / settimana / mese / anno)
+function boundsFromRef(ref) {
+  const now = new Date();
+  const iso = d => d.toISOString().slice(0,10);
+  if (ref === 'today')   { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); return { start: iso(d), end: iso(d) }; }
+  if (ref === 'week')    { const day=now.getDay(); const delta=(day===0?-6:1-day); const s=new Date(now.getFullYear(),now.getMonth(),now.getDate()+delta); const e=new Date(s.getFullYear(),s.getMonth(),s.getDate()+6); return { start: iso(s), end: iso(e) }; }
+  if (ref === 'year')    { const s=new Date(now.getFullYear(),0,1), e=new Date(now.getFullYear(),11,31); return { start: iso(s), end: iso(e) }; }
+  const s=new Date(now.getFullYear(),now.getMonth(),1), e=new Date(now.getFullYear(),now.getMonth()+1,0);
+  return { start: iso(s), end: iso(e) };
+}
+const refLabel = (ref) =>
+  ref==='today' ? 'oggi' :
+  ref==='week'  ? 'questa settimana' :
+  ref==='year'  ? "quest'anno" : 'questo mese';
+
+// Somma *autoritativa* per periodo: SOLO "testa scontrino" (HEAD)
+// 1) ledger (jarvis_finances) filtrando le HEAD (link_label/link_path non null)
+// 2) fallback tabelle categoria (spese-casa/cene/vestiti/varie) solo HEAD
+async function fetchSpendTotal(uid, { start, end }) {
+  // ledger
+  const { data: fin } = await supabase
+    .from('jarvis_finances')
+    .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
+    .eq('user_id', uid)
+    .gte('purchase_date', start)
+    .lte('purchase_date', end)
+    .or('link_label.not.is.null,link_path.not.is.null');
+
+  let headRows = Array.isArray(fin) ? fin : [];
+
+  // fallback categorie
+  if (!headRows.length) {
+    const readHeadCat = async (table) => {
+      const { data } = await supabase
+        .from(table)
+        .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
+        .eq('user_id', uid)
+        .gte('purchase_date', start)
+        .lte('purchase_date', end)
+        .or('link_label.not.is.null,link_path.not.is.null');
+      return Array.isArray(data) ? data : [];
+    };
+    const [sc, ca, va, vr] = await Promise.all([
+      readHeadCat('jarvis_spese_casa'),
+      readHeadCat('jarvis_cene_aperitivi'),
+      readHeadCat('jarvis_vestiti_altro'),
+      readHeadCat('jarvis_varie'),
+    ]);
+    headRows = [...sc, ...ca, ...va, ...vr];
+  }
+
+  // dedupe per scontrino (o per store+data se manca receipt_id)
+  const byKey = new Map(); // key -> {store,total}
+  for (const r of headRows) {
+    const st  = (r.store || 'Punto vendita').trim();
+    const dt  = String(r.purchase_date || '');
+    const rid = r.receipt_id ? String(r.receipt_id) : null;
+    const key = rid ? `rid:${rid}` : `sd:${st.toLowerCase()}|${dt}`;
+    const cur = byKey.get(key) || { store: st, total: 0 };
+    const val = Number(r.price_total || 0);
+    if (val > cur.total) cur.total = val; // tieni la HEAD più grande
+    byKey.set(key, cur);
+  }
+
+  let total = 0;
+  const perStore = new Map();
+  for (const { store, total: t } of byKey.values()) {
+    total += t;
+    perStore.set(store, (perStore.get(store) || 0) + t);
+  }
+  const top = [...perStore.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([store, amount]) => ({ store, amount }));
+
+  return { total, txs: byKey.size, top };
+}
+
+/* ======================================================================================
    OCR & normalizzazione: utilità robuste (anti-pesi, dedupe)
 ====================================================================================== */
 const NON_PRODUCT_RE = /\b(carta\s+\*{2,}|bancomat|pos|resto|sconto|arrotondamento|pagamento|totale|imponibile|ventilazione|iva)\b/i;
 function shouldDropName(name=''){ return NON_PRODUCT_RE.test(String(name||'')); }
-
 function toISODate(any) {
   const s = String(any || '').trim();
   if (!s) return '';
@@ -153,8 +233,6 @@ function canonicalKey(p) {
   const milk = /latte\b/.test(base) ? ('|' + milkAttrs(p.name || '')) : '';
   return `${brand}|${base}|${fam}${milk}`;
 }
-
-// neutralizza pesi/volumi; correzioni famiglie
 function sanitizeUnits(item) {
   const out = { ...item };
   out.brand = canonBrand(out.brand || '');
@@ -222,95 +300,6 @@ function enforceHybridUnitPrice(p) {
 }
 
 /* ======================================================================================
-   Fast image downscale (client) + concurrency limit
-====================================================================================== */
-async function downscaleImageFile(file, { maxSide = 1400, quality = 0.72 } = {}) {
-  try {
-    if (!file || !/^image\//i.test(file.type) || file.type === 'application/pdf') return file;
-    const bitmap = await (async () => {
-      if ('createImageBitmap' in window) return await createImageBitmap(file);
-      const dataUrl = await new Promise((ok, ko) => {
-        const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(file);
-      });
-      const img = new Image(); await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-      return img;
-    })();
-    const w0 = bitmap.width || bitmap.naturalWidth, h0 = bitmap.height || bitmap.naturalHeight;
-    const scale = Math.min(1, maxSide / Math.max(w0, h0));
-    if (scale === 1 && file.size <= 1_200_000) return file;
-    const w = Math.max(1, Math.round(w0 * scale));
-    const h = Math.max(1, Math.round(h0 * scale));
-    const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0, w, h);
-    const blob = await new Promise(ok => canvas.toBlob(ok, 'image/jpeg', quality));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], (file.name || 'upload').replace(/\.\w+$/,'') + '.jpg', { type: 'image/jpeg' });
-  } catch { return file; }
-}
-async function mapWithLimit(arr, limit, worker) {
-  const out = new Array(arr.length);
-  let i = 0; const running = new Set();
-  async function run(k) { running.add(k); try { out[k] = await worker(arr[k], k); } finally { running.delete(k); if (i < arr.length) await run(i++); } }
-  const n = Math.min(limit, arr.length);
-  for (; i < n; i++) run(i);
-  while (running.size) await new Promise(r => setTimeout(r, 10));
-  return out;
-}
-
-/* ======================================================================================
-   Unified AI helpers
-====================================================================================== */
-function classifyOcrText(raw='') {
-  const s = String(raw || '').toLowerCase();
-  const score = (keys) => keys.reduce((n,k)=> n + (s.includes(k) ? 1 : 0), 0);
-  const receiptScore = score(['documento commerciale','scontrino','totale','subtotale','iva','resto','contanti','pagamento','euro','€','cassa','rt','cassiere','p.iva']);
-  const wineLabelScore = score(['docg','doc','igt','denominazione','imbottigliato da','% vol','alc']);
-  const rows = s.split(/\r?\n/).filter(l => l.trim());
-  const yearRows = rows.filter(l => /\b(19|20)\d{2}\b/.test(l)).length;
-  const euroRows = rows.filter(l => /€\s?\d/.test(l)).length;
-  const wineWords = rows.filter(l => /\b(barolo|nebbiolo|chianti|amarone|etna|franciacorta|vermentino|greco|fiano|sagrantino|montepulciano|nero d'avola)\b/.test(l)).length;
-  const wineListScore = (yearRows + euroRows + wineWords);
-  if (wineListScore >= 6) return 'wine_list';
-  if (wineLabelScore >= 3 && wineLabelScore > receiptScore) return 'wine_label';
-  if (receiptScore >= 3) return 'receipt';
-  return 'unknown';
-}
-function guessExpenseBucket(store='') {
-  const s = String(store).toLowerCase();
-  if (/\b(bar|ristorante|pizzeria|pub|bistrot|trattoria|enoteca|aperi)\b/.test(s)) return 'cene-aperitivi';
-  return 'spese-casa';
-}
-
-async function postJSON(url, body, timeoutMs = 30000) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const accessToken = session?.access_token || '';
-
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-      credentials: 'same-origin',
-    });
-
-    const text = await r.text();
-    let json = null; try { json = JSON.parse(text); } catch {}
-    if (!r.ok) throw new Error(json?.error || json?.message || `${r.status} ${text?.slice(0,180)}`);
-    return json ?? { data: text };
-  } finally {
-    clearTimeout(t);
-  }
-  
-}
-
-/* ======================================================================================
    Home component
 ====================================================================================== */
 const Home = () => {
@@ -318,7 +307,7 @@ const Home = () => {
   const [queryText, setQueryText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // 🔕 Modale/Chat on-demand (non si apre mai per OCR silenzioso)
+  // Modale/Chat on-demand
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
 
@@ -331,17 +320,16 @@ const Home = () => {
 
   const [uid, setUid] = useState(null);
   useEffect(() => {
-   (async () => {
+    (async () => {
       const { data:{ user } } = await supabase.auth.getUser();
-     setUid(user?.id || null);
-   })();
+      setUid(user?.id || null);
+    })();
   }, []);
 
   async function runBrainQuery(text, opts = {}) {
     const mod = await getBrain().catch(() => null);
     const fn = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
     if (typeof fn !== 'function') throw new Error('runQueryFromTextLocal non disponibile (brainHub)');
-    // Se ho carte vini acquisite, passale come contesto
     const sommelierMemory = (wineListsRef.current || []).join('\n---\n').slice(0, 200000);
     return await fn(text, { ...opts, sommelierMemory });
   }
@@ -457,8 +445,6 @@ const Home = () => {
     }));
     return { kind: 'receipt', text, meta, purchases: purchases.map(normalizeItemForPipelines), wine: null, entries: null };
   }
-
-  // fast path: items-only
   async function fastItemsOnly(file) {
     const fd = new FormData(); fd.append('images', file, file.name || 'receipt.jpg');
     const r = await fetch('/api/ocrHome?mode=items-only', { method:'POST', body: fd });
@@ -478,14 +464,11 @@ const Home = () => {
     }
     return null;
   }
-
   async function fetchOcrUnified(file) {
-    // 0) fast attempt
     const quick = await fastItemsOnly(file);
     if (quick && quick.length) {
       return { kind:'receipt', text:'', meta:{}, purchases: quick.map(normalizeItemForPipelines) };
     }
-    // 1) ocrHome full
     const fd = new FormData(); fd.append('images', file, file.name || 'upload.jpg');
     let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
     let j = null; try { j = await r.json(); } catch {}
@@ -493,11 +476,11 @@ const Home = () => {
       const n = normFromOcrHome(j);
       if (!(n.kind === 'receipt' && n.purchases.length === 0)) return n;
     }
-    // 2) legacy
     r = await fetch('/api/ocr', { method: 'POST', body: fd });
     j = await r.json().catch(()=> ({}));
     return normFromLegacyOcr(j);
   }
+
 
   /* =================== Toast leggero =================== */
   const [toasts, setToasts] = useState([]);
@@ -795,83 +778,6 @@ const Home = () => {
     } finally {
       setBusy(false);
     }
-    // ===== Somma autoritativa per periodo: SOLO "testa scontrino" (HEAD) =====
-// 1) prova dal ledger (jarvis_finances) filtrando le HEAD
-// 2) fallback: tabelle categoria (spese-casa/cene/vestiti/varie) filtrando le HEAD
-async function fetchSpendTotal(uid, { start, end }) {
-  // a) ledger: prendo solo HEAD (link_label o link_path valorizzati)
-  const { data: fin } = await supabase
-    .from('jarvis_finances')
-    .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
-    .eq('user_id', uid)
-    .gte('purchase_date', start)
-    .lte('purchase_date', end)
-    .or('not.link_label.is.null,not.link_path.is.null');
-
-  let headRows = Array.isArray(fin) ? fin : [];
-
-  // b) fallback categorie: solo HEAD
-  if (!headRows.length) {
-    const readHeadCat = async (table) => {
-      const { data } = await supabase
-        .from(table)
-        .select('receipt_id, store, purchase_date, price_total, link_label, link_path')
-        .eq('user_id', uid)
-        .gte('purchase_date', start)
-        .lte('purchase_date', end)
-        .or('not.link_label.is.null,not.link_path.is.null');
-      return Array.isArray(data) ? data : [];
-    };
-    const [sc, ca, va, vr] = await Promise.all([
-      readHeadCat('jarvis_spese_casa'),
-      readHeadCat('jarvis_cene_aperitivi'),
-      readHeadCat('jarvis_vestiti_altro'),
-      readHeadCat('jarvis_varie'),
-    ]);
-    headRows = [...sc, ...ca, ...va, ...vr];
-  }
-
-  // c) dedupe per scontrino (o per store+data se manca receipt_id)
-  const byKey = new Map(); // key -> {store,total}
-  for (const r of headRows) {
-    const st  = (r.store || 'Punto vendita').trim();
-    const dt  = String(r.purchase_date || '');
-    const rid = r.receipt_id ? String(r.receipt_id) : null;
-    const key = rid ? `rid:${rid}` : `sd:${st.toLowerCase()}|${dt}`;
-    const cur = byKey.get(key) || { store: st, total: 0 };
-    const val = Number(r.price_total || 0);
-    // se arrivano più "head" per lo stesso scontrino, tengo la più grande
-    if (val > cur.total) cur.total = val;
-    byKey.set(key, cur);
-  }
-
-  // totale autoritativo e top store
-  let total = 0;
-  const perStore = new Map();
-  for (const { store, total: t } of byKey.values()) {
-    total += t;
-    perStore.set(store, (perStore.get(store) || 0) + t);
-  }
-  const top = [...perStore.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([store, amount]) => ({ store, amount }));
-
-  return { total, txs: byKey.size, top };
-}
-
-// Bounds rapidi (oggi / settimana / mese / anno)
-function boundsFromRef(ref) {
-  const now = new Date();
-  const iso = d => d.toISOString().slice(0,10);
-  if (ref === 'today')   { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); return { start: iso(d), end: iso(d) }; }
-  if (ref === 'week')    { const day=now.getDay(); const delta=(day===0?-6:1-day); const s=new Date(now.getFullYear(),now.getMonth(),now.getDate()+delta); const e=new Date(s.getFullYear(),s.getMonth(),s.getDate()+6); return { start: iso(s), end: iso(e) }; }
-  if (ref === 'year')    { const s=new Date(now.getFullYear(),0,1), e=new Date(now.getFullYear(),11,31); return { start: iso(s), end: iso(e) }; }
-  const s=new Date(now.getFullYear(),now.getMonth(),1), e=new Date(now.getFullYear(),now.getMonth()+1,0);
-  return { start: iso(s), end: iso(e) };
-}
-const refLabel = (ref) => ref==='today'?'oggi':ref==='week'?'questa settimana':ref==='year'?"quest'anno":'questo mese';
-
   }
 
   /* =================== Query testo =================== */
@@ -883,36 +789,6 @@ async function submitQuery(textParam) {
   if (!chatOpen) setChatOpen(true);
   setChatMsgs(prev => [...prev, { role: 'user', text: raw }]);
   lastUserIntentRef.current = { text: raw, sommelier: /\b(sommelier|carta (dei )?vini)\b/i.test(raw) };
-
-  // ── Intent rapido "quanto ho speso ..." ───────────────────────────────
-const spentRe = /(quanto\s+ho\s+spes[oa]|totale\s+spes[ea]|spes[ae]\s+(di|del)\s+(oggi|questa settimana|questo mese|quest’anno|questo anno))/i;
-if (uid && spentRe.test(raw.toLowerCase())) {
-  let ref = 'month';
-  if (/oggi\b/i.test(raw))                 ref = 'today';
-  else if (/questa\s+settimana/i.test(raw))ref = 'week';
-  else if (/quest['o]?\s*anno/i.test(raw)) ref = 'year';
-
-  setBusy(true);
-  try {
-    const { start, end } = boundsFromRef(ref);
-    const { total, txs, top } = await fetchSpendTotal(uid, { start, end });
-    const txt =
-`📊 Spese — ${refLabel(ref)}
-Intervallo: ${formatIT(start)} – ${formatIT(end)}
-Totale: ${fmtEuro(total)} • Transazioni: ${fmtInt(txs)}
-
-${top.map(r => `${r.store}: ${fmtEuro(r.amount)}`).join('\n') || ''}`;
-    const msg = { role:'assistant', text: txt, mono: true };
-    setChatMsgs(prev => [...prev, msg]);
-    maybeSpeakMessage(msg);
-  } catch (e) {
-    setChatMsgs(prev => [...prev, { role:'assistant', text:`❌ Errore somma spese: ${e.message}`, mono:true }]);
-  } finally {
-    setBusy(false);
-  }
-  return; // ⬅️ non passare al brain
-}
-
 
   if (lastUserIntentRef.current.sommelier && wineListsRef.current.length === 0) {
     setChatMsgs(prev => [...prev, { role:'assistant', text: 'Per consigli mirati, premi <b>OCR</b> e fotografa la <b>carta dei vini</b>.' }]);
