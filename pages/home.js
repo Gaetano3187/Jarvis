@@ -555,6 +555,32 @@ const Home = () => {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ms);
     try { window.dispatchEvent(new CustomEvent('app:toast', { detail: { text, kind, at: Date.now() } })); } catch {}
   }
+  // Concurrency helper: esegue worker su arr con al massimo "limit" job in parallelo
+async function mapWithLimit(arr, limit, worker) {
+  const list = Array.from(arr || []);
+  const out = new Array(list.length);
+  let i = 0;
+  const running = new Set();
+
+  async function run(k) {
+    running.add(k);
+    try {
+      out[k] = await worker(list[k], k);
+    } finally {
+      running.delete(k);
+      if (i < list.length) run(i++);
+    }
+  }
+
+  const n = Math.min(Number(limit) || 1, list.length);
+  for (; i < n; i++) run(i);
+
+  while (running.size) {
+    await new Promise(r => setTimeout(r, 10));
+  }
+  return out;
+}
+
 
   /* =================== OCR Smart handler =================== */
   // options: { silent: true|false } — per OCR scontrini deve essere true; per sommelier carta, false (modale aperta)
