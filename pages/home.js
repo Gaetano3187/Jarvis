@@ -330,7 +330,7 @@ function enforceHybridUnitPrice(p) {
   return { ...p, packs, unitsPerPack: upp, priceEach, priceTotal, currency: p.currency || 'EUR' };
 }
 
-/* =====/* ======================================================================================
+/* ======================================================================================
    Home component
 ====================================================================================== */
 const Home = () => {
@@ -357,41 +357,47 @@ const Home = () => {
     })();
   }, []);
 
-  /** Chiamata all'agente con parse robusto */
-  async function runBrainQuery(text) {
-    try {
-      const res = await fetch('/api/assistant-ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          userId: uid, // IMPORTANTISSIMO per i tool
-          sommelierMemory: (wineListsRef.current || []).join('\n---\n').slice(0, 200000)
-        })
-      });
+ async function runBrainQuery(text) {
+  try {
+    const res = await fetch('/api/assistant-ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        userId: uid,
+        sommelierMemory: (wineListsRef.current || []).join('\n---\n').slice(0, 200000)
+      })
+    });
 
-      const raw = await res.text();          // <-- MAI .json() diretto
-      if (!raw) {
-        return { text: `❌ assistant-ask: risposta vuota (HTTP ${res.status})`, mono: true };
-      }
-
-      let payload = null;
-      try { payload = JSON.parse(raw); }
-      catch {
-        return { text: `❌ assistant-ask: body non JSON (HTTP ${res.status}).\n${raw.slice(0, 500)}`, mono: true };
-      }
-
-      if (!res.ok) {
-        const msg = payload?.error || raw;
-        return { text: `❌ assistant-ask ${res.status}: ${msg}`, mono: true };
-      }
-
-      if (payload && typeof payload === 'object' && 'text' in payload) return payload;
-      return { text: String(payload), mono: true };
-    } catch (e) {
-      return { text: `❌ assistant-ask fetch error: ${e.message}`, mono: true };
+    // parse robusto
+    const raw = await res.text();          // <-- MAI .json() diretto
+    if (!raw) {
+      return { text: `❌ assistant-ask: risposta vuota (HTTP ${res.status})`, mono: true };
     }
+
+    let payload = null;
+    try { payload = JSON.parse(raw); }
+    catch (e) {
+      return { text: `❌ assistant-ask: body non JSON (HTTP ${res.status}).\n${raw.slice(0, 500)}`, mono: true };
+    }
+
+    if (!res.ok) {
+      // l'API ha risposto JSON ma con status errore
+      const msg = payload?.error || raw;
+      return { text: `❌ assistant-ask ${res.status}: ${msg}`, mono: true };
+    }
+
+    // OK: payload dovrebbe essere { text, mono }
+    if (payload && typeof payload === 'object' && 'text' in payload) return payload;
+
+    // fallback: rendi stampabile qualsiasi cosa
+    return { text: String(payload), mono: true };
+  } catch (e) {
+    return { text: `❌ assistant-ask fetch error: ${e.message}`, mono: true };
   }
+}
+
+
 
   /* =================== TTS (opzionale) =================== */
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -505,8 +511,7 @@ const Home = () => {
     return { kind: 'receipt', text, meta, purchases: purchases.map(normalizeItemForPipelines), wine: null, entries: null };
   }
   async function fastItemsOnly(file) {
-    const safeName = (file && file.name) ? file.name : 'receipt.jpg';
-    const fd = new FormData(); fd.append('images', file, safeName);
+    const fd = new FormData(); fd.append('images', file, file.name || 'receipt.jpg');
     const r = await fetch('/api/ocrHome?mode=items-only', { method:'POST', body: fd });
     const j = await r.json().catch(()=> ({}));
     if (r.ok && j?.ok && Array.isArray(j.purchases) && j.purchases.length) {
@@ -529,8 +534,7 @@ const Home = () => {
     if (quick && quick.length) {
       return { kind:'receipt', text:'', meta:{}, purchases: quick.map(normalizeItemForPipelines) };
     }
-    const safeName = (file && file.name) ? file.name : 'upload.jpg';
-    const fd = new FormData(); fd.append('images', file, safeName);
+    const fd = new FormData(); fd.append('images', file, file.name || 'upload.jpg');
     let r = await fetch('/api/ocrHome', { method: 'POST', body: fd });
     let j = null; try { j = await r.json(); } catch {}
     if (r.ok && j && !j.error) {
@@ -542,6 +546,7 @@ const Home = () => {
     return normFromLegacyOcr(j);
   }
 
+
   /* =================== Toast leggero =================== */
   const [toasts, setToasts] = useState([]);
   function showToast(text, kind='info', ms=2500) {
@@ -550,98 +555,6 @@ const Home = () => {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ms);
     try { window.dispatchEvent(new CustomEvent('app:toast', { detail: { text, kind, at: Date.now() } })); } catch {}
   }
-
-  /* ========== helpers mancanti (concurrency + downscale + classifier + file sanitizer) ========== */
-  async function mapWithLimit(arr, limit, worker) {
-    const list = Array.from(arr || []).filter(Boolean);
-    const out = new Array(list.length);
-    let i = 0;
-    const running = new Set();
-
-    async function run(k) {
-      running.add(k);
-      try { out[k] = await worker(list[k], k); }
-      finally {
-        running.delete(k);
-        if (i < list.length) run(i++);
-      }
-    }
-
-    const n = Math.min(Number(limit) || 1, list.length);
-    for (; i < n; i++) run(i);
-    while (running.size) await new Promise(r => setTimeout(r, 10));
-    return out;
-  }
-
-  async function downscaleImageFile(file, { maxSide = 1400, quality = 0.72 } = {}) {
-    try {
-      if (!file || !file.type || !/^image\//i.test(file.type) || file.type === 'application/pdf') return file;
-
-      const createBitmap = async () => {
-        if ('createImageBitmap' in window) return await createImageBitmap(file);
-        const dataUrl = await new Promise((ok, ko) => {
-          const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(file);
-        });
-        const img = new Image();
-        await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = dataUrl; });
-        return img;
-      };
-
-      const bitmap = await createBitmap();
-      const w0 = bitmap.width || bitmap.naturalWidth;
-      const h0 = bitmap.height || bitmap.naturalHeight;
-      if (!w0 || !h0) return file;
-
-      const scale = Math.min(1, maxSide / Math.max(w0, h0));
-      if (scale === 1 && file.size <= 1_200_000) return file;
-
-      const w = Math.max(1, Math.round(w0 * scale));
-      const h = Math.max(1, Math.round(h0 * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(bitmap, 0, 0, w, h);
-
-      const blob = await new Promise(ok => canvas.toBlob(ok, 'image/jpeg', quality));
-      if (!blob || blob.size >= file.size) return file;
-
-      const safeName = (file && file.name) ? file.name.replace(/\.\w+$/,'') : 'upload';
-      return new File([blob], `${safeName}.jpg`, { type: 'image/jpeg' });
-    } catch {
-      return file;
-    }
-  }
-
-  function classifyOcrText(raw = '') {
-    const s = String(raw || '').toLowerCase();
-    const score = (keys) => keys.reduce((n,k)=> n + (s.includes(k) ? 1 : 0), 0);
-    const receiptScore = score([
-      'documento commerciale','scontrino','totale','subtotale','iva',
-      'resto','contanti','pagamento','euro','€','cassa','rt','cassiere','p.iva'
-    ]);
-    const wineLabelScore = score(['docg','doc','igt','denominazione','imbottigliato da','% vol','alc']);
-
-    const rows = s.split(/\r?\n/).filter(l => l.trim());
-    const yearRows = rows.filter(l => /\b(19|20)\d{2}\b/.test(l)).length;
-    const euroRows = rows.filter(l => /€\s?\d/.test(l)).length;
-    const wineWords = rows.filter(l =>
-      /\b(barolo|nebbiolo|chianti|amarone|etna|franciacorta|vermentino|greco|fiano|sagrantino|montepulciano|nero d'avola)\b/.test(l)
-    ).length;
-    const wineListScore = (yearRows + euroRows + wineWords);
-
-    if (wineListScore >= 6) return 'wine_list';
-    if (wineLabelScore >= 3 && wineLabelScore > receiptScore) return 'wine_label';
-    if (receiptScore >= 3) return 'receipt';
-    return 'unknown';
-  }
-
-  function normalizeFiles(input) {
-    return Array.from(input || []).filter(f => f && typeof f.size === 'number');
-  }
-
-
-
-
 
   /* =================== OCR Smart handler =================== */
   // options: { silent: true|false } — per OCR scontrini deve essere true; per sommelier carta, false (modale aperta)
