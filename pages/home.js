@@ -186,6 +186,18 @@ async function postJSON(url, body, timeoutMs=30000){
     if(!r.ok) throw new Error(j?.error||j?.message||`${r.status} ${txt?.slice(0,180)}`);
     return j ?? { data: txt };
   } finally { clearTimeout(t); }
+  async function ensureUid(timeoutMs = 5000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) return user.id;
+    } catch {}
+    await new Promise(r => setTimeout(r, 120));
+  }
+  return null;
+}
+
 }
 
 async function downscaleImageFile(file,{maxSide=1400,quality=.72}={}){
@@ -416,36 +428,61 @@ const Home = () => {
 
           const receiptId = (crypto?.randomUUID?.() || `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`);
           const linkLabel = `${bucket==='cene-aperitivi'?'Cena/Aperitivo':'Spesa'} ${store||''} (${date})`.trim();
-// Se nel menu usi "Cene" (pagina /cene) e "Spese Casa" (pagina /spese-casa):
- const linkPath  = `${
-   bucket==='cene-aperitivi' ? '/cene' : '/spese-casa'
- }?rid=${encodeURIComponent(receiptId)}`;
 
           // a) Finanze
           try{
-            await postJSON('/api/finances/ingest_v2',{
-              ...(uid?{user_id:uid}:{ }),
-              store, purchaseDate:date, payment_method:'cash', card_label:null,
-              receipt_id:receiptId, link_label:linkLabel, link_path:linkPath,
-              totalPaid, items, insert_lines:true, receiptTotalAuthoritative:true
-            });
+           await postJSON('/api/finances/ingest_v2',{
+  user_id: userId,
+  store,
+  purchaseDate: date,   purchase_date: date,   // <<< aggiunte snake_case
+  payment_method: 'cash',
+  card_label: null,
+  receipt_id: receiptId,
+  link_label: linkLabel,
+  link_path: linkPath,
+  totalPaid: totalPaid, total_paid: totalPaid, // <<< aggiunte snake_case
+  items,
+  insert_lines: true,
+  receiptTotalAuthoritative: true
+});
+
           }catch(e){ console.warn('Finanze insert',e); }
 
           // b) Spese Casa / Cene & Aperitivi
           try{
-const endpoint = bucket === 'cene-aperitivi'
- ? '/api/ceneAperitivi/ingest_v1'
-   : '/api/speseCasa/ingest_v1';
-            await postJSON(endpoint,{
-              ...(uid?{user_id:uid}:{ }),
-              store, purchaseDate:date, totalPaid, items,
-              receipt_id:receiptId, link_label:linkLabel, link_path:linkPath, receiptTotalAuthoritative:true
-            });
+const isCene = bucket === 'cene-aperitivi';
+const endpoints = isCene
+  ? ['/api/ceneAperitivi/ingest_v1', '/api/cene-aperitivi/ingest']   // fallback kebab-case
+  : ['/api/speseCasa/ingest_v1',     '/api/spese-casa/ingest'];
+
+let sent = false, lastErr = null;
+for (const ep of endpoints) {
+  try {
+    await postJSON(ep, {
+      user_id: userId,
+      store,
+      purchaseDate: date,   purchase_date: date,
+      totalPaid: totalPaid, total_paid: totalPaid,
+      items,
+      receipt_id: receiptId,
+      link_label: linkLabel,
+      link_path: linkPath,
+      receiptTotalAuthoritative: true
+    });
+    sent = true;
+    break;
+  } catch (e) {
+    lastErr = e;
+  }
+}
+if (!sent) throw lastErr || new Error('Nessun endpoint categoria disponibile');
+
           }catch(e){ console.warn('Categoria insert',e); }
 
           // c) Scorte (solo non-ristorante)
           if(bucket!=='cene-aperitivi' && uid){
-            try{ await postJSON('/api/stock/apply',{ user_id:uid, items }); }catch(e){ console.warn('Scorte',e); }
+            try{await postJSON('/api/stock/apply',{ user_id: userId, items });
+ }catch(e){ console.warn('Scorte',e); }
           }
 
           insCount++;
@@ -510,6 +547,9 @@ const endpoint = bucket === 'cene-aperitivi'
           }catch{}
         }
         if(files.length) await handleSmartOCR(files,{silent:true});
+        const userId = uid || await ensureUid(5000);
+if (!userId) { showToast('Login non pronto: riprova tra 2s', 'warn'); return; }
+
       } else if(q){ if(!chatOpen) openChatWithSystem(); await askInModal(q); }
       try{ const url=new URL(window.location.href); ['q','img'].forEach(p=>url.searchParams.delete(p)); window.history.replaceState({},'',url.pathname+(url.searchParams.toString()?`?${url.searchParams.toString()}`:'')); }catch{}
     })();
