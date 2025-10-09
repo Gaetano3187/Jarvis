@@ -416,7 +416,10 @@ const Home = () => {
 
           const receiptId = (crypto?.randomUUID?.() || `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`);
           const linkLabel = `${bucket==='cene-aperitivi'?'Cena/Aperitivo':'Spesa'} ${store||''} (${date})`.trim();
-          const linkPath  = `/${bucket==='cene-aperitivi'?'cene-aperitivi':'spese-casa'}?rid=${encodeURIComponent(receiptId)}`;
+// Se nel menu usi "Cene" (pagina /cene) e "Spese Casa" (pagina /spese-casa):
+ const linkPath  = `${
+   bucket==='cene-aperitivi' ? '/cene' : '/spese-casa'
+ }?rid=${encodeURIComponent(receiptId)}`;
 
           // a) Finanze
           try{
@@ -430,7 +433,9 @@ const Home = () => {
 
           // b) Spese Casa / Cene & Aperitivi
           try{
-            const endpoint = bucket==='cene-aperitivi'? '/api/cene-aperitivi/ingest' : '/api/spese-casa/ingest';
+const endpoint = bucket === 'cene-aperitivi'
+ ? '/api/ceneAperitivi/ingest_v1'
+   : '/api/speseCasa/ingest_v1';
             await postJSON(endpoint,{
               ...(uid?{user_id:uid}:{ }),
               store, purchaseDate:date, totalPaid, items,
