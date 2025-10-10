@@ -173,20 +173,8 @@ function enforceHybridUnitPrice(p){
   else { if(rawUnit){ priceEach=rawUnit; priceTotal=rawUnit*totalUnits; } else { priceEach=totalUnits?(rawTotal/totalUnits):0; priceTotal=rawTotal; } }
   return {...p,packs,unitsPerPack:upp,priceEach,priceTotal,currency:p.currency||'EUR'};
 }
-
-/* ===================================================================
-   Rete fetch helper + downscale + concurrency
-=================================================================== */
-async function postJSON(url, body, timeoutMs=30000){
-  const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),timeoutMs);
-  try{
-    const { data:{ session } } = await supabase.auth.getSession();
-    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...(session?.access_token?{Authorization:`Bearer ${session.access_token}`}:{})},body:JSON.stringify(body),signal:ctrl.signal,credentials:'same-origin'});
-    const txt=await r.text(); let j=null; try{ j=JSON.parse(txt);}catch{}
-    if(!r.ok) throw new Error(j?.error||j?.message||`${r.status} ${txt?.slice(0,180)}`);
-    return j ?? { data: txt };
-  } finally { clearTimeout(t); }
-  async function ensureUid(timeoutMs = 5000) {
+// ⬇️ SUBITO DOPO GLI IMPORT
+async function ensureUid(timeoutMs = 5000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     try {
@@ -198,7 +186,31 @@ async function postJSON(url, body, timeoutMs=30000){
   return null;
 }
 
+
+/* ===================================================================
+   Rete fetch helper + downscale + concurrency
+=================================================================== */
+async function postJSON(url, body, timeoutMs=30000){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(),timeoutMs);
+  try{
+    const { data:{ session } } = await supabase.auth.getSession();
+    const r=await fetch(url,{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        ...(session?.access_token ? { Authorization:`Bearer ${session.access_token}` } : {})
+      },
+      body:JSON.stringify(body),
+      signal:ctrl.signal,
+      credentials:'same-origin'
+    });
+    const txt=await r.text(); let j=null; try{ j=JSON.parse(txt);}catch{}
+    if(!r.ok) throw new Error(j?.error||j?.message||`${r.status} ${txt?.slice(0,180)}`);
+    return j ?? { data: txt };
+  } finally { clearTimeout(t); }
 }
+
 
 async function downscaleImageFile(file,{maxSide=1400,quality=.72}={}){
   try{
@@ -401,95 +413,106 @@ const Home = () => {
         return;
       }
 
-      // === Scontrini: workflow SILENZIOSO ===
-    // === Scontrini: workflow SILENZIOSO ===
+   // === Scontrini: workflow SILENZIOSO ===
 if (receipts.length) {
-  // ⬇️ PRENDI SEMPRE UN userId VALIDO PRIMA DEGLI INSERIMENTI
+  // Prendi SEMPRE un userId valido prima degli insert
   const userId = uid || await ensureUid(5000);
-  if (!userId) { showToast('Login non pronto: riprova tra 2s', 'warn'); return; }
+  if (!userId) { 
+    showToast('Login non pronto: riprova tra 2s', 'warn'); 
+    return; 
+  }
 
   let insCount = 0;
+
   for (const n of receipts) {
-  
-    // meta
-          const textsLocal=texts;
-          const store=String(n?.meta?.store||n?.store||'').trim();
-          const date=toISODate(n?.meta?.purchaseDate||'') || pickDateFromTexts(textsLocal) || new Date().toISOString().slice(0,10);
-          const bucket=guessExpenseBucket(store);
-          const itemsRaw = Array.isArray(n?.purchases)? n.purchases: [];
-          // normalizza
-          const cleaned = itemsRaw.map(normalizeItemForPipelines).filter(p=>p.name && !shouldDropName(p.name))
-            .map(p=>{
-              let upp=Math.max(1,Number(p.unitsPerPack||1));
-              let ul=String(p.unitLabel||'').trim()||'unità';
-              if(SUSPECT_UPP.has(upp)||isWeightOrVolumeLabel(ul)) { upp=1; ul='unità'; }
-              return {...p,unitsPerPack:upp,unitLabel:ul};
-            })
-            .map(enforceHybridUnitPrice);
-          const items = dedupeAndFix(cleaned);
-          if(!items.length) continue;
+    // --- meta e classificazione bucket ---
+    const textsLocal = texts; // usa i testi OCR aggregati già raccolti sopra
+    const store = String(n?.meta?.store || n?.store || '').trim();
+    const date =
+      toISODate(n?.meta?.purchaseDate || '') ||
+      pickDateFromTexts(textsLocal) ||
+      new Date().toISOString().slice(0,10);
 
-          const totalFromLines = Number(items.reduce((s,x)=>s+(Number(x.priceTotal)||0),0).toFixed(2));
-          const totalPaid = Number(n?.meta?.totalPaid||0) || totalFromLines;
+    const bucket = guessExpenseBucket(store);
 
-          const receiptId = (crypto?.randomUUID?.() || `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`);
-          const linkLabel = `${bucket==='cene-aperitivi'?'Cena/Aperitivo':'Spesa'} ${store||''} (${date})`.trim();
+    // --- normalizzazione articoli ---
+    const itemsRaw = Array.isArray(n?.purchases) ? n.purchases : [];
+    const cleaned = itemsRaw
+      .map(normalizeItemForPipelines)
+      .filter(p => p.name && !shouldDropName(p.name))
+      .map(p => {
+        let upp = Math.max(1, Number(p.unitsPerPack || 1));
+        let ul  = String(p.unitLabel || '').trim() || 'unità';
+        if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(ul)) { upp = 1; ul = 'unità'; }
+        return { ...p, unitsPerPack: upp, unitLabel: ul };
+      })
+      .map(enforceHybridUnitPrice);
 
+    const items = dedupeAndFix(cleaned);
+    if (!items.length) continue;
+
+    const totalFromLines = Number(items.reduce((s,x)=> s + (Number(x.priceTotal)||0), 0).toFixed(2));
+    const totalPaid = Number(n?.meta?.totalPaid || 0) || totalFromLines;
+
+    // --- id/link “traccia” ---
+    const receiptId = (crypto?.randomUUID?.() || `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`);
+    const linkLabel = `${bucket === 'cene-aperitivi' ? 'Cena/Aperitivo' : 'Spesa'} ${store || ''} (${date})`.trim();
+    const linkPath  = `/finanze?rid=${encodeURIComponent(receiptId)}`;
           // a) Finanze
           try{
-           await postJSON('/api/finances/ingest_v2',{
-  user_id: userId,
-  store,
-  purchaseDate: date,   purchase_date: date,   // <<< aggiunte snake_case
-  payment_method: 'cash',
-  card_label: null,
-  receipt_id: receiptId,
-  link_label: linkLabel,
-  link_path: linkPath,
-  totalPaid: totalPaid, total_paid: totalPaid, // <<< aggiunte snake_case
-  items,
-  insert_lines: true,
-  receiptTotalAuthoritative: true
-});
+  await postJSON('/api/finances/ingest_v2',{
+    user_id: userId,
+    store,
+    purchaseDate: date,   purchase_date: date,
+    payment_method: 'cash',
+    card_label: null,
+    receipt_id: receiptId,
+    link_label: linkLabel,
+    link_path: linkPath,
+    totalPaid: totalPaid, total_paid: totalPaid,
+    items,
+    insert_lines: true,
+    receiptTotalAuthoritative: true
+  });
+}catch(e){ console.warn('Finanze insert',e); }
 
-          }catch(e){ console.warn('Finanze insert',e); }
 
           // b) Spese Casa / Cene & Aperitivi
-          try{
-const isCene = bucket === 'cene-aperitivi';
-const endpoints = isCene
-  ? ['/api/ceneAperitivi/ingest_v1', '/api/cene-aperitivi/ingest']   // fallback kebab-case
-  : ['/api/speseCasa/ingest_v1',     '/api/spese-casa/ingest'];
+      try{
+  const isCene = bucket === 'cene-aperitivi';
+  const endpoints = isCene
+    ? ['/api/ceneAperitivi/ingest_v1', '/api/cene-aperitivi/ingest']
+    : ['/api/speseCasa/ingest_v1',     '/api/spese-casa/ingest'];
 
-let sent = false, lastErr = null;
-for (const ep of endpoints) {
-  try {
-    await postJSON(ep, {
-      user_id: userId,
-      store,
-      purchaseDate: date,   purchase_date: date,
-      totalPaid: totalPaid, total_paid: totalPaid,
-      items,
-      receipt_id: receiptId,
-      link_label: linkLabel,
-      link_path: linkPath,
-      receiptTotalAuthoritative: true
-    });
-    sent = true;
-    break;
-  } catch (e) {
-    lastErr = e;
+  let sent = false, lastErr = null;
+  for (const ep of endpoints) {
+    try {
+      await postJSON(ep, {
+        user_id: userId,
+        store,
+        purchaseDate: date,   purchase_date: date,
+        totalPaid: totalPaid, total_paid: totalPaid,
+        items,
+        receipt_id: receiptId,
+        link_label: linkLabel,
+        link_path: linkPath,
+        receiptTotalAuthoritative: true
+      });
+      sent = true;
+      break;
+    } catch (e) { lastErr = e; }
   }
-}
-if (!sent) throw lastErr || new Error('Nessun endpoint categoria disponibile');
-
-          }catch(e){ console.warn('Categoria insert',e); }
+  if (!sent) throw lastErr || new Error('Nessun endpoint categoria disponibile');
+}catch(e){ console.warn('Categoria insert',e); }
 
           // c) Scorte (solo non-ristorante)
-          if(bucket!=='cene-aperitivi' && uid){
-            try{await postJSON('/api/stock/apply',{ user_id: userId, items });
- }catch(e){ console.warn('Scorte',e); }
-          }
+         // c) Scorte (solo non-ristorante)
+if (bucket !== 'cene-aperitivi' && userId) {
+  try{
+    await postJSON('/api/stock/apply', { user_id: userId, items });
+  }catch(e){ console.warn('Scorte', e); }
+}
+
 
           insCount++;
         }
@@ -553,9 +576,6 @@ if (!sent) throw lastErr || new Error('Nessun endpoint categoria disponibile');
           }catch{}
         }
         if(files.length) await handleSmartOCR(files,{silent:true});
-        const userId = uid || await ensureUid(5000);
-if (!userId) { showToast('Login non pronto: riprova tra 2s', 'warn'); return; }
-
       } else if(q){ if(!chatOpen) openChatWithSystem(); await askInModal(q); }
       try{ const url=new URL(window.location.href); ['q','img'].forEach(p=>url.searchParams.delete(p)); window.history.replaceState({},'',url.pathname+(url.searchParams.toString()?`?${url.searchParams.toString()}`:'')); }catch{}
     })();
