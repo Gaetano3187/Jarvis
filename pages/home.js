@@ -402,10 +402,16 @@ const Home = () => {
       }
 
       // === Scontrini: workflow SILENZIOSO ===
-      if(receipts.length){
-        let insCount=0;
-        for(const n of receipts){
-          // meta
+    // === Scontrini: workflow SILENZIOSO ===
+if (receipts.length) {
+  // ⬇️ PRENDI SEMPRE UN userId VALIDO PRIMA DEGLI INSERIMENTI
+  const userId = uid || await ensureUid(5000);
+  if (!userId) { showToast('Login non pronto: riprova tra 2s', 'warn'); return; }
+
+  let insCount = 0;
+  for (const n of receipts) {
+  
+    // meta
           const textsLocal=texts;
           const store=String(n?.meta?.store||n?.store||'').trim();
           const date=toISODate(n?.meta?.purchaseDate||'') || pickDateFromTexts(textsLocal) || new Date().toISOString().slice(0,10);
