@@ -413,113 +413,165 @@ const Home = () => {
         return;
       }
 
-   // === Scontrini: workflow SILENZIOSO ===
+ // === Scontrini: workflow SILENZIOSO ===
 if (receipts.length) {
-  // Prendi SEMPRE un userId valido prima degli insert
+  // 1) Prendi SEMPRE un userId valido prima degli insert
   const userId = uid || await ensureUid(5000);
-  if (!userId) { 
-    showToast('Login non pronto: riprova tra 2s', 'warn'); 
-    return; 
+  if (!userId) {
+    showToast('Login non pronto: riprova tra 2s', 'warn');
+    return;
   }
+
+  // Helper: date → ISO (YYYY-MM-DD) o null
+  const toISOorNull = (s) => {
+    const iso = toISODate(s || '');
+    return iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  };
+
+  // Helper: risolvi data acquisto con fallback sicuro (mai stringa vuota)
+  const resolvePurchaseDate = (metaPurchase, textsLocal) => {
+    const a = toISOorNull(metaPurchase);
+    if (a) return a;
+    const b = toISOorNull(pickDateFromTexts(textsLocal || []));
+    if (b) return b;
+    return new Date().toISOString().slice(0, 10);
+  };
 
   let insCount = 0;
 
   for (const n of receipts) {
-    // --- meta e classificazione bucket ---
-    const textsLocal = texts; // usa i testi OCR aggregati già raccolti sopra
+    // --- meta e bucket ---
+    const textsLocal = Array.isArray(texts) ? texts : [];
     const store = String(n?.meta?.store || n?.store || '').trim();
-    const date =
-      toISODate(n?.meta?.purchaseDate || '') ||
-      pickDateFromTexts(textsLocal) ||
-      new Date().toISOString().slice(0,10);
+    const date = resolvePurchaseDate(n?.meta?.purchaseDate || '', textsLocal); // <-- mai ""
 
     const bucket = guessExpenseBucket(store);
 
     // --- normalizzazione articoli ---
     const itemsRaw = Array.isArray(n?.purchases) ? n.purchases : [];
     const cleaned = itemsRaw
-      .map(normalizeItemForPipelines)
+      .map(normalizeItemForPipelines) // questa mette expiresAt='' se non valida
       .filter(p => p.name && !shouldDropName(p.name))
       .map(p => {
+        // ripulisci UPP/unità sospette
         let upp = Math.max(1, Number(p.unitsPerPack || 1));
         let ul  = String(p.unitLabel || '').trim() || 'unità';
         if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(ul)) { upp = 1; ul = 'unità'; }
-        return { ...p, unitsPerPack: upp, unitLabel: ul };
+
+        // *** EVITA "" SU DATE: convertilo a null ***
+        const safeExp = toISOorNull(p.expiresAt);
+
+        return { ...p, unitsPerPack: upp, unitLabel: ul, expiresAt: safeExp };
       })
       .map(enforceHybridUnitPrice);
 
-    const items = dedupeAndFix(cleaned);
+    const items = dedupeAndFix(cleaned).map(p => ({
+      ...p,
+      // doppia sicurezza: se per qualche motivo c'è ancora "", metti null
+      expiresAt: p.expiresAt || null
+    }));
+
     if (!items.length) continue;
 
-    const totalFromLines = Number(items.reduce((s,x)=> s + (Number(x.priceTotal)||0), 0).toFixed(2));
-    const totalPaid = Number(n?.meta?.totalPaid || 0) || totalFromLines;
+    const totalFromLines = Number(
+      items.reduce((s, x) => s + (Number(x.priceTotal) || 0), 0).toFixed(2)
+    );
+    const totalPaid =
+      Number(n?.meta?.totalPaid || 0) > 0 ? Number(n.meta.totalPaid) : totalFromLines;
 
     // --- id/link “traccia” ---
-    const receiptId = (crypto?.randomUUID?.() || `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`);
+    const receiptId =
+      crypto?.randomUUID?.() ||
+      `rcpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const linkLabel = `${bucket === 'cene-aperitivi' ? 'Cena/Aperitivo' : 'Spesa'} ${store || ''} (${date})`.trim();
     const linkPath  = `/finanze?rid=${encodeURIComponent(receiptId)}`;
-          // a) Finanze
-          try{
-  await postJSON('/api/finances/ingest_v2',{
-    user_id: userId,
-    store,
-    purchaseDate: date,   purchase_date: date,
-    payment_method: 'cash',
-    card_label: null,
-    receipt_id: receiptId,
-    link_label: linkLabel,
-    link_path: linkPath,
-    totalPaid: totalPaid, total_paid: totalPaid,
-    items,
-    insert_lines: true,
-    receiptTotalAuthoritative: true
-  });
-}catch(e){ console.warn('Finanze insert',e); }
 
-
-          // b) Spese Casa / Cene & Aperitivi
-      try{
-  const isCene = bucket === 'cene-aperitivi';
-  const endpoints = isCene
-    ? ['/api/ceneAperitivi/ingest_v1', '/api/cene-aperitivi/ingest']
-    : ['/api/speseCasa/ingest_v1',     '/api/spese-casa/ingest'];
-
-  let sent = false, lastErr = null;
-  for (const ep of endpoints) {
+    // a) FINANZE
     try {
-      await postJSON(ep, {
+      await postJSON('/api/finances/ingest_v2', {
         user_id: userId,
         store,
-        purchaseDate: date,   purchase_date: date,
-        totalPaid: totalPaid, total_paid: totalPaid,
-        items,
+        purchaseDate: date,     // per eventuale compat
+        purchase_date: date,    // snake_case per backend
+        payment_method: 'cash',
+        card_label: null,
         receipt_id: receiptId,
         link_label: linkLabel,
         link_path: linkPath,
+        totalPaid: totalPaid,   // compat
+        total_paid: totalPaid,  // snake_case
+        items: items.map(it => ({
+          ...it,
+          // blindatura finale date item
+          expiresAt: it.expiresAt || null
+        })),
+        insert_lines: true,
         receiptTotalAuthoritative: true
       });
-      sent = true;
-      break;
-    } catch (e) { lastErr = e; }
-  }
-  if (!sent) throw lastErr || new Error('Nessun endpoint categoria disponibile');
-}catch(e){ console.warn('Categoria insert',e); }
+    } catch (e) {
+      console.warn('Finanze insert', e);
+    }
 
-          // c) Scorte (solo non-ristorante)
-         // c) Scorte (solo non-ristorante)
-if (bucket !== 'cene-aperitivi' && userId) {
-  try{
-    await postJSON('/api/stock/apply', { user_id: userId, items });
-  }catch(e){ console.warn('Scorte', e); }
-}
+    // b) CATEGORIA (Spese Casa / Cene & Aperitivi)
+    try {
+      const isCene = bucket === 'cene-aperitivi';
+      // prova PRIMA la kebab-case (più probabile esista), poi la camelCase
+      const endpoints = isCene
+        ? ['/api/cene-aperitivi/ingest', '/api/ceneAperitivi/ingest_v1']
+        : ['/api/spese-casa/ingest',     '/api/speseCasa/ingest_v1'];
 
-
-          insCount++;
+      let sent = false, lastErr = null;
+      for (const ep of endpoints) {
+        try {
+          await postJSON(ep, {
+            user_id: userId,
+            store,
+            purchaseDate: date,
+            purchase_date: date,
+            totalPaid: totalPaid,
+            total_paid: totalPaid,
+            items: items.map(it => ({ ...it, expiresAt: it.expiresAt || null })),
+            receipt_id: receiptId,
+            link_label: linkLabel,
+            link_path: linkPath,
+            receiptTotalAuthoritative: true
+          });
+          sent = true;
+          break;
+        } catch (e) {
+          lastErr = e;
+          // continua a provare il prossimo endpoint
         }
-        showToast(insCount?`Scontrino importato (${insCount}) ✓`:'Nessun articolo valido','success');
-        window.dispatchEvent(new CustomEvent('jarvis:ocr:done',{detail:{type:'receipt',count:receipts.length}}));
-        return;
       }
+      if (!sent) throw lastErr || new Error('Nessun endpoint categoria disponibile');
+    } catch (e) {
+      console.warn('Categoria insert', e);
+    }
+
+    // c) SCORTE (solo se NON ristorante)
+    if (bucket !== 'cene-aperitivi' && userId) {
+      try {
+        await postJSON('/api/stock/apply', {
+          user_id: userId,
+          items: items.map(it => ({ ...it, expiresAt: it.expiresAt || null }))
+        });
+      } catch (e) {
+        console.warn('Scorte', e);
+      }
+    }
+
+    insCount++;
+  }
+
+  showToast(
+    insCount ? `Scontrino importato (${insCount}) ✓` : 'Nessun articolo valido',
+    'success'
+  );
+  window.dispatchEvent(
+    new CustomEvent('jarvis:ocr:done', { detail: { type: 'receipt', count: receipts.length } })
+  );
+  return;
+}
 
       showToast('OCR completato: nessun tipo riconosciuto','info');
     }catch(err){
