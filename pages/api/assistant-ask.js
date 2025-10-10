@@ -450,25 +450,26 @@ async function toolPriceBestStore(uid, { term, days_back = 120 } = {}) {
 }
 
 /* ─────────────── SCORTE ─────────────── */
-async function toolStockSnapshot(uid) {
-  const out = [];
-  const { data: scorte } = await sb.from('scorte')
-    .select('prodotto, quantita_attuale, data_scadenza').eq('utente_id', uid);
-  if (Array.isArray(scorte)) for (const r of scorte)
-    out.push({ name: r.prodotto || 'Articolo', qty: r.quantita_attuale ?? null, unit: 'pz', expiry_date: r.data_scadenza || null });
+async function toolStockSnapshot({ userId }) {
+  const uid = await getUserIdOrThrow(userId);
 
-  const { data: inv } = await sb.from('inventory')
-    .select('product_id, qty, unit, expiry_date').eq('user_id', uid);
-  if (Array.isArray(inv)) for (const r of inv)
-    out.push({ name: r.product_id || 'Item', qty: r.qty ?? null, unit: r.unit || null, expiry_date: r.expiry_date || null });
+  // usa la route interna: eredita l'auth Bearer dal client
+  const r = await fetch('/api/inventory/snapshot', {
+    method: 'GET',
+    headers: { 'Content-Type':'application/json' },
+    credentials: 'same-origin'
+  });
 
-  const { data: exp } = await sb.from('expiring_items')
-    .select('product_id, qty, unit, expiry_date').eq('user_id', uid);
-  if (Array.isArray(exp)) for (const r of exp)
-    out.push({ name: r.product_id || 'Item', qty: r.qty ?? null, unit: r.unit || null, expiry_date: r.expiry_date || null });
+  let j = null;
+  try { j = await r.json(); } catch {}
+  if (!r.ok || !j?.ok) {
+    return { kind:'inventory.snapshot', elenco: [] };
+  }
 
-  return { items: out.slice(0, 50) };
+  const items = Array.isArray(j.items) ? j.items : [];
+  return { kind:'inventory.snapshot', elenco: items };
 }
+
 
 async function toolStockExpiring(uid, { days_ahead = 7 } = {}) {
   const today = new Date(); const lim = new Date(today); lim.setDate(lim.getDate() + Math.max(1, days_ahead));
