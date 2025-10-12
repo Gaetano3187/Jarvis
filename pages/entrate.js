@@ -485,40 +485,48 @@ const groupFinHeads = (heads = []) => {
     map.set(key, g);
   }
 
-  return Array.from(map.values()).map(g => {
-    const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
-    const monthParam = (g.dateISO || '').slice(0,7);
-    const baseTxt =
-      g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
-      g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
-      g.category === 'varie'          ? 'Varie'          : 'Spesa';
+return Array.from(map.values()).map(g => {
+  const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
+  const monthParam = (g.dateISO || '').slice(0,7);
+  const baseTxt =
+    g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
+    g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
+    g.category === 'varie'          ? 'Varie'          : 'Spesa';
 
-    const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
-    const tot = Number((total || 0).toFixed(2));
-    const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
-    const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
+  const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
+  const tot = Number((total || 0).toFixed(2));
+  const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
+  const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
 
-    const routeBase = CAT_TO_ROUTE[g.category] || '/spese-casa';
-    const defaultPath = g.receipt_id
-      ? `${routeBase}?rid=${encodeURIComponent(g.receipt_id)}&month=${monthParam}`
-      : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}&month=${monthParam}`;
+  const routeBase = CAT_TO_ROUTE[g.category] || '/spese-casa';
+  const defaultPath = g.receipt_id
+    ? `${routeBase}?rid=${encodeURIComponent(g.receipt_id)}&month=${monthParam}`
+    : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}&month=${monthParam}`;
 
-    const route = (g.link_path && g.link_path.trim())
-      ? `${g.link_path}${g.link_path.includes('?') ? '&' : '?'}month=${monthParam}`
-      : defaultPath;
+  const route = (g.link_path && g.link_path.trim())
+    ? `${g.link_path}${g.link_path.includes('?') ? '&' : '?'}month=${monthParam}`
+    : defaultPath;
 
-    return {
-      id: `${g.category}-${g.receipt_id || `${g.store}|${g.dateISO}`}`,
-      kind: 'expense-linked',
-      dateISO: g.dateISO,
-      label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
-      route,
-      displayAmount: -tot,
-      amount: isCash ? -tot : 0,
-      affectsPocket: isCash,
+  return {
+    id: `${g.category}-${g.receipt_id || `${g.store}|${g.dateISO}`}`,
+    kind: 'expense-linked',
+    dateISO: g.dateISO,
+    label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
+    route,
+    displayAmount: -tot,
+    amount: isCash ? -tot : 0,
+    affectsPocket: isCash,
+    // ⬇️ metadati per eliminare
+    meta: {
+      receipt_id: g.receipt_id || null,
+      category: g.category || 'spese-casa',
+      store: g.store || '',
+      dateISO: g.dateISO || '',
+    },
+  };
+});
+
     };
-  });
-};
 
 const expenseRows = groupFinHeads(finHeads);
 
@@ -788,6 +796,51 @@ const toggleRec = async () => {
       setIncomes(incomes.filter((i) => i.id !== id));
     } catch (err) { showError(setError, err); }
   }
+  async function handleDeletePocketRow(row) {
+  if (!row) return;
+  const ok = confirm('Eliminare definitivamente questa spesa?');
+  if (!ok) return;
+
+  try {
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!user) throw new Error('Sessione scaduta');
+
+    if (row.kind === 'manual') {
+      // Riga pocket_cash: id formattato "pc-<uuid>"
+      const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
+      if (!pid) throw new Error('ID pocket non valido');
+      const { error } = await supabase.from('pocket_cash').delete().eq('id', pid).eq('user_id', user.id);
+      if (error) throw error;
+    } else {
+      // Riga ledger unificata: cancello tutte le voci della spesa
+      const m = row.meta || {};
+      if (m.receipt_id) {
+        const { error } = await supabase
+          .from('jarvis_finances')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('receipt_id', m.receipt_id);
+        if (error) throw error;
+      } else {
+        // fallback per gruppo store+data+categoria
+        const { error } = await supabase
+          .from('jarvis_finances')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('category', m.category || 'spese-casa')
+          .eq('store', m.store || '')
+          .eq('purchase_date', m.dateISO || '');
+        if (error) throw error;
+      }
+    }
+
+    await loadAll();
+  } catch (err) {
+    showError(setError, err);
+  }
+}
+
   async function handleSaveCarryover(e) {
     e.preventDefault(); setError(null);
     try {
@@ -965,36 +1018,52 @@ const toggleRec = async () => {
             </form>
           </details>
 
-          {loading ? <p>Caricamento…</p> : (
-            <div className="table-wrap">
-              <table className="custom-table">
-                <thead><tr><th>Data</th><th>Descrizione</th><th style={{ textAlign: 'right' }}>Importo €</th></tr></thead>
-                <tbody>
-                  {pocketRows.map((m) => (
-                    <tr key={m.id}>
-                      <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
-                      <td>
-                        {m.route
-                          ? <Link href={m.route} className="row-link">{m.label}</Link>
-                          : <span>{m.label}</span>}
-                      </td>
-                   <td style={{ textAlign: 'right' }}>
-  {(m.displayAmount ?? m.amount) >= 0 ? '+' : '-'}{' '}
-  {Math.abs(m.displayAmount ?? m.amount).toFixed(2)}
-</td>
+{loading ? <p>Caricamento…</p> : (
+  <div className="table-wrap">
+    <table className="custom-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Descrizione</th>
+          <th style={{ textAlign: 'right' }}>Importo €</th>
+          <th style={{ width: '1%', whiteSpace: 'nowrap' }}>Azioni</th>
+        </tr>
+      </thead>
+      <tbody>
+        {pocketRows.map((m) => (
+          <tr key={m.id}>
+            <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+            <td>
+              {m.route
+                ? <Link href={m.route} className="row-link">{m.label}</Link>
+                : <span>{m.label}</span>}
+            </td>
+            <td style={{ textAlign: 'right' }}>
+              {(m.displayAmount ?? m.amount) >= 0 ? '+' : '-'}{' '}
+              {Math.abs(m.displayAmount ?? m.amount).toFixed(2)}
+            </td>
+            <td>
+              <button
+                className="btn-danger-outline"
+                onClick={() => handleDeletePocketRow(m)}
+                title="Elimina questa spesa"
+              >
+                Elimina
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
 
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+{error && <p className="error">{error}</p>}
 
-          {error && <p className="error">{error}</p>}
+<Link href="/home"><button className="btn-vocale" style={{ marginTop: '1rem' }}>Home</button></Link>
+</div>
+</div>
 
-          <Link href="/home"><button className="btn-vocale" style={{ marginTop: '1rem' }}>Home</button></Link>
-        </div>
-      </div>
 
       <style jsx global>{`
         /* pagina più larga */
