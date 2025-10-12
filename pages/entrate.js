@@ -630,92 +630,134 @@ if (!expErr && Array.isArray(exp)) {
       showError(setError, err);
     }
   }
-// ⬇️ Sostituisci tutta la tua funzione toggleRec con questa
+// ⬇️ Sostituisci tutta la tua funzione toggleRec con questa versione robusta
 const toggleRec = async () => {
-  if (recBusy) { 
-    try { mediaRecRef.current?.stop(); } catch {}
+  // Se sto registrando → STOP sicuro
+  if (recBusy) {
+    try {
+      // chiamo stop solo se esiste e sta registrando
+      const mr = mediaRecRef.current;
+      if (mr && mr.state === 'recording') {
+        mr.requestData?.(); // chiedi l'ultimo chunk
+        mr.stop();
+      }
+    } catch (e) {
+      console.warn('Stop recorder error:', e);
+    }
     return;
   }
+
+  // Altrimenti → START
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     streamRef.current = stream;
     recordedChunks.current = [];
-    mediaRecRef.current = new MediaRecorder(stream);
 
+    // Scegli un mime supportato dal browser
+    let mimeType = '';
+    if (typeof MediaRecorder !== 'undefined') {
+      if (MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+      else if (MediaRecorder.isTypeSupported?.('audio/webm')) mimeType = 'audio/webm';
+      else if (MediaRecorder.isTypeSupported?.('audio/ogg;codecs=opus')) mimeType = 'audio/ogg;codecs=opus';
+      else mimeType = ''; // lascia decidere al browser
+    }
+
+    mediaRecRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+    // Arrivo dei chunk
     mediaRecRef.current.ondataavailable = (e) => {
       if (e.data && e.data.size) recordedChunks.current.push(e.data);
     };
 
-    mediaRecRef.current.onstop = async () => {
-      mediaRecRef.current.onstop = async () => {
-  try {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData();
-    fd.append('audio', blob, 'voice.webm');
+    // Funzione che attende il primo chunk dopo lo stop (max ~1s) e invia
+    const finalizeAfterStop = async () => {
+      try {
+        // attendo finché ho almeno un chunk o scade il timeout
+        const started = Date.now();
+        while (recordedChunks.current.length === 0 && Date.now() - started < 1200) {
+          await new Promise(r => setTimeout(r, 50));
+        }
 
-    const r = await fetch('/api/stt', { method:'POST', body: fd });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.text) throw new Error('STT fallito');
+        if (!recordedChunks.current.length) {
+          throw new Error('Nessun audio ricevuto dal microfono');
+        }
 
-    const spoken = String(j.text || '').trim();
-    if (!spoken) { setError('Trascrizione vuota'); return; }
+        // Costruisci il Blob dal miglior tipo disponibile
+        const firstType = recordedChunks.current[0].type || 'audio/webm';
+        const blob = new Blob(recordedChunks.current, { type: firstType });
 
-    // ✅ 1) PRIMA: spesa in contanti (“ho speso …”)
-    const exp = detectCashExpenseIntent(spoken);
-    if (exp) {
-      await insertFinanceExpenseByVoice(exp);
-      await loadAll();
-      return;
-    }
+        const fd = new FormData();
+        fd.append('audio', blob, firstType.includes('ogg') ? 'voice.ogg' : 'voice.webm');
 
-    // 2) Intent TASCA manuale (ricarica/uscita contanti)
-    const pocket = detectPocketIntent(spoken);
-    if (pocket) {
-      await insertPocketQuick({
-        amount: Math.abs(pocket.delta),
-        date:   pocket.dateISO,
-        delta:  pocket.delta,
-        note:   pocket.note
-      });
-      await loadAll();
-      return;
-    }
+        const r = await fetch('/api/stt', { method: 'POST', body: fd });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j?.text) throw new Error('STT fallito');
 
-    // 3) Entrate locali (incasso/stipendio/pagato da…)
-    const inc = detectIncomeIntent(spoken);
-    if (inc) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Sessione scaduta');
-      await supabase.from('incomes').insert({
-        user_id:     user.id,
-        source:      inc.source,
-        description: inc.description,
-        amount:      inc.amount,
-        received_at: `${inc.dateISO}T12:00:00Z`,
-      });
-      await loadAll();
-      return;
-    }
+        const spoken = String(j.text || '').trim();
+        if (!spoken) { setError('Trascrizione vuota'); return; }
 
-    // 4) Fallback Assistant (schema JSON "income")
-    const ok = await insertIncomeAssistant(spoken);
-    if (ok) await loadAll();
-    else setError('Nessun dato riconosciuto dalla voce');
+        // ✅ 1) Spesa in contanti dal parlato
+        const exp = detectCashExpenseIntent(spoken);
+        if (exp) {
+          await insertFinanceExpenseByVoice(exp);
+          await loadAll();
+          return;
+        }
 
-  } catch (e) {
-    showError(setError, e);
-  } finally {
-    setRecBusy(false);
-    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-    streamRef.current = null;
-  }
-};
+        // 2) Tasca (ricarica/uscita)
+        const pocket = detectPocketIntent(spoken);
+        if (pocket) {
+          await insertPocketQuick({
+            amount: Math.abs(pocket.delta),
+            date:   pocket.dateISO,
+            delta:  pocket.delta,
+            note:   pocket.note
+          });
+          await loadAll();
+          return;
+        }
+
+        // 3) Entrate locali
+        const inc = detectIncomeIntent(spoken);
+        if (inc) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error('Sessione scaduta');
+          await supabase.from('incomes').insert({
+            user_id:     user.id,
+            source:      inc.source,
+            description: inc.description,
+            amount:      inc.amount,
+            received_at: `${inc.dateISO}T12:00:00Z`,
+          });
+          await loadAll();
+          return;
+        }
+
+        // 4) Fallback Assistant
+        const ok = await insertIncomeAssistant(spoken);
+        if (ok) await loadAll();
+        else setError('Nessun dato riconosciuto dalla voce');
+
+      } catch (e) {
+        showError(setError, e);
+      } finally {
+        setRecBusy(false);
+        try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+        streamRef.current = null;
+      }
     };
 
-    mediaRecRef.current.start();
+    mediaRecRef.current.onstop = finalizeAfterStop;
+
+    // Avvio: uso timeslice così arrivano chunk mentre registro (importante per onstop)
+    mediaRecRef.current.start(250);
     setRecBusy(true);
-  } catch {
+
+  } catch (err) {
+    setRecBusy(false);
     setError('Microfono non disponibile');
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    streamRef.current = null;
   }
 };
 
