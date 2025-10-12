@@ -834,21 +834,29 @@ function normStore(s='') {
 }
 
 // normalizza lo store per confronti affidabili
-function normStore(s='') {
+function normStore(s = '') {
   return String(s)
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // accenti
-    .replace(/\s+/g,' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accenti
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function normStore(s='') {
-  return String(s)
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-    .replace(/\s+/g,' ')
-    .trim();
+const NUM_RE  = /^\d+$/;
+
+// elimina in blocchi per evitare URL troppo lunghi
+async function deleteInBatches({ table, userId, ids }) {
+  if (!ids?.length) return;
+  const chunk = (arr, n) => arr.reduce((a, _, i) => (i % n ? a : [...a, arr.slice(i, i + n)]), []);
+  for (const part of chunk(ids, 100)) {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('user_id', userId)
+      .in('id', part);
+    if (error) throw error;
+  }
 }
 
 async function handleDeletePocketRow(row) {
@@ -860,7 +868,7 @@ async function handleDeletePocketRow(row) {
     if (userErr) throw userErr;
     if (!user) throw new Error('Sessione scaduta');
 
-    // A) pocket_cash (manuale)
+    // A) Movimenti manuali: pocket_cash
     if (row.kind === 'manual') {
       const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
       if (!pid) throw new Error('ID pocket non valido');
@@ -876,37 +884,37 @@ async function handleDeletePocketRow(row) {
       return;
     }
 
-    // B) ledger + legacy
+    // B) Spesa ledger + legacy
     const m = row.meta || {};
-    const dateISO = (m.dateISO || row.dateISO || '').slice(0,10);
-    const rawStore = m.store || row.label || '';
+    const dateISO   = (m.dateISO || row.dateISO || '').slice(0, 10);
+    const rawStore  = m.store || row.label || '';
     const storeNorm = normStore(rawStore);
-    const category = m.category || 'spese-casa';
+    const category  = m.category || 'spese-casa';
 
-    // 1) ID reali dal ledger (filtrati a UUID)
-    let ids = Array.isArray(m.ids) ? m.ids.filter(id => typeof id === 'string' && UUID_RE.test(id)) : [];
-    if (ids.length > 0) {
-      // chunk in blocchi da 100 (evita URL troppo lunghi)
-      const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
-      for (const part of chunk(ids, 100)) {
-        const { error } = await supabase
-          .from('jarvis_finances')
-          .delete()
-          .eq('user_id', user.id)
-          .in('id', part);
-        if (error) throw error;
-      }
-    } else if (m.receipt_id && UUID_RE.test(String(m.receipt_id))) {
-      // 2) receipt_id
+    // 1) Prova eliminazione per ID reali (accetta sia UUID sia numerici)
+    let ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
+    const uuidIds = ids.filter(id => UUID_RE.test(String(id)));
+    const numIds  = ids.filter(id => NUM_RE.test(String(id))).map(n => Number(n));
+
+    if (uuidIds.length) {
+      await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: uuidIds });
+    }
+    if (numIds.length) {
+      await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: numIds });
+    }
+
+    // 2) Se non avevamo ID, prova per receipt_id
+    if (!uuidIds.length && !numIds.length && m.receipt_id) {
       const { error } = await supabase
         .from('jarvis_finances')
         .delete()
         .eq('user_id', user.id)
         .eq('receipt_id', m.receipt_id);
       if (error) throw error;
-    } else {
-      // 3) Fallback: stessa data + store (ilike) + categoria
-      // Leggo i candidati del giorno/categoria e filtro per store normalizzato
+    }
+
+    // 3) Fallback: stessa data+categoria, filtro per store normalizzato
+    if (!uuidIds.length && !numIds.length && !m.receipt_id) {
       const { data: candidates, error: qErr } = await supabase
         .from('jarvis_finances')
         .select('id, store')
@@ -915,75 +923,53 @@ async function handleDeletePocketRow(row) {
         .eq('purchase_date', dateISO);
       if (qErr) throw qErr;
 
-      const toDel = (candidates || [])
+      const idsFound = (candidates || [])
         .filter(r => normStore(r.store) === storeNorm)
-        .map(r => r.id)
-        .filter(id => UUID_RE.test(String(id)));
+        .map(r => r.id);
 
-      if (toDel.length > 0) {
-        const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
-        for (const part of chunk(toDel, 100)) {
-          const { error } = await supabase
-            .from('jarvis_finances')
-            .delete()
-            .eq('user_id', user.id)
-            .in('id', part);
-          if (error) throw error;
+      const foundUUID = idsFound.filter(id => UUID_RE.test(String(id)));
+      const foundNUM  = idsFound.filter(id => NUM_RE.test(String(id))).map(n => Number(n));
+
+      if (foundUUID.length) {
+        await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: foundUUID });
+      }
+      if (foundNUM.length) {
+        await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: foundNUM });
+      }
+    }
+
+    // 4) Legacy: schema-agnostico (select *), stesso giorno + store normalizzato
+    const legacyTables = ['jarvis_spese_casa', 'jarvis_cene_aperitivi', 'jarvis_vestiti_altro', 'jarvis_varie'];
+    const pickStore = (r) => r.store ?? r.merchant ?? r.name ?? r.punto_vendita ?? '';
+    const sameDay   = (r) => (r.purchase_date || (r.created_at || '').slice(0, 10) || '').slice(0, 10) === dateISO;
+
+    for (const t of legacyTables) {
+      const { data: legRows, error: lErr } = await supabase
+        .from(t)
+        .select('*')
+        .eq('user_id', user.id);
+      if (lErr) throw lErr;
+
+      const idsLegacy = (legRows || [])
+        .filter(sameDay)
+        .filter(r => normStore(pickStore(r)) === storeNorm)
+        .map(r => r.id)
+        .filter(Boolean);
+
+      if (idsLegacy.length) {
+        const legacyUUID = idsLegacy.filter(id => UUID_RE.test(String(id)));
+        const legacyNUM  = idsLegacy.filter(id => NUM_RE.test(String(id))).map(n => Number(n));
+
+        if (legacyUUID.length) {
+          await deleteInBatches({ table: t, userId: user.id, ids: legacyUUID });
+        }
+        if (legacyNUM.length) {
+          await deleteInBatches({ table: t, userId: user.id, ids: legacyNUM });
         }
       }
     }
 
-    // 4) Pulisci anche le legacy (alcune pagine potrebbero leggerle ancora)
-const legacyMap = {
-  'spese-casa': 'jarvis_spese_casa',
-  'cene-aperitivi': 'jarvis_cene_aperitivi',
-  'vestiti-altro': 'jarvis_vestiti_altro',
-  'varie': 'jarvis_varie',
-};
-const tables = ['jarvis_spese_casa','jarvis_cene_aperitivi','jarvis_vestiti_altro','jarvis_varie'];
-const primaryLegacy = legacyMap[category];
-if (primaryLegacy && !tables.includes(primaryLegacy)) tables.unshift(primaryLegacy);
-
-// helper per ricavare lo store reale dalla riga (schema-agnostico)
-const pickStore = (r) =>
-  r.store ?? r.merchant ?? r.name ?? r.punto_vendita ?? '';
-
-// filtra per data ISO (usa purchase_date, altrimenti created_at)
-const sameDay = (r) => {
-  const d = (r.purchase_date || (r.created_at || '').slice(0,10)) || '';
-  return d.slice(0,10) === dateISO;
-};
-
-for (const t of tables) {
-  // ⚠️ niente colonne specifiche qui: seleziono * per evitare 42703
-  const { data: legRows, error: lErr } = await supabase
-    .from(t)
-    .select('*')
-    .eq('user_id', user.id);
-  if (lErr) throw lErr;
-
-  const idsLegacy = (legRows || [])
-    .filter(sameDay)
-    .filter(r => normStore(pickStore(r)) === storeNorm)
-    .map(r => r.id)
-    .filter(Boolean);
-
-  if (idsLegacy.length > 0) {
-    // cancella in blocchi per sicurezza
-    const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
-    for (const part of chunk(idsLegacy, 100)) {
-      const { error } = await supabase
-        .from(t)
-        .delete()
-        .eq('user_id', user.id)
-        .in('id', part);
-      if (error) throw error;
-    }
-  }
-}
-
-
-    // Aggiorna subito UI e ricarica
+    // UI immediata + reload
     setPocketRows(prev => prev.filter(r => r.id !== row.id));
     await loadAll();
 
@@ -991,7 +977,6 @@ for (const t of tables) {
     showError(setError, err);
   }
 }
-
 
 
   async function handleSaveCarryover(e) {
