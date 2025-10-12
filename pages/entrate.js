@@ -933,42 +933,55 @@ async function handleDeletePocketRow(row) {
       }
     }
 
-    // 4) Pulisci anche le legacy (se qualche pagina le usa ancora)
-    const legacyMap = {
-      'spese-casa': 'jarvis_spese_casa',
-      'cene-aperitivi': 'jarvis_cene_aperitivi',
-      'vestiti-altro': 'jarvis_vestiti_altro',
-      'varie': 'jarvis_varie',
-    };
-    const tables = ['jarvis_spese_casa','jarvis_cene_aperitivi','jarvis_vestiti_altro','jarvis_varie'];
-    const primaryLegacy = legacyMap[category];
-    if (primaryLegacy && !tables.includes(primaryLegacy)) tables.unshift(primaryLegacy);
+    // 4) Pulisci anche le legacy (alcune pagine potrebbero leggerle ancora)
+const legacyMap = {
+  'spese-casa': 'jarvis_spese_casa',
+  'cene-aperitivi': 'jarvis_cene_aperitivi',
+  'vestiti-altro': 'jarvis_vestiti_altro',
+  'varie': 'jarvis_varie',
+};
+const tables = ['jarvis_spese_casa','jarvis_cene_aperitivi','jarvis_vestiti_altro','jarvis_varie'];
+const primaryLegacy = legacyMap[category];
+if (primaryLegacy && !tables.includes(primaryLegacy)) tables.unshift(primaryLegacy);
 
-    for (const t of tables) {
-      // Seleziono del giorno e confronto store normalizzato
-      const { data: legRows, error: lErr } = await supabase
+// helper per ricavare lo store reale dalla riga (schema-agnostico)
+const pickStore = (r) =>
+  r.store ?? r.merchant ?? r.name ?? r.punto_vendita ?? '';
+
+// filtra per data ISO (usa purchase_date, altrimenti created_at)
+const sameDay = (r) => {
+  const d = (r.purchase_date || (r.created_at || '').slice(0,10)) || '';
+  return d.slice(0,10) === dateISO;
+};
+
+for (const t of tables) {
+  // ⚠️ niente colonne specifiche qui: seleziono * per evitare 42703
+  const { data: legRows, error: lErr } = await supabase
+    .from(t)
+    .select('*')
+    .eq('user_id', user.id);
+  if (lErr) throw lErr;
+
+  const idsLegacy = (legRows || [])
+    .filter(sameDay)
+    .filter(r => normStore(pickStore(r)) === storeNorm)
+    .map(r => r.id)
+    .filter(Boolean);
+
+  if (idsLegacy.length > 0) {
+    // cancella in blocchi per sicurezza
+    const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
+    for (const part of chunk(idsLegacy, 100)) {
+      const { error } = await supabase
         .from(t)
-        .select('id, store, merchant, name, purchase_date')
+        .delete()
         .eq('user_id', user.id)
-        .eq('purchase_date', dateISO);
-      if (lErr) throw lErr;
-
-      const idsLegacy = (legRows || [])
-        .filter(r => normStore(r.store || r.merchant || r.name || '') === storeNorm)
-        .map(r => r.id);
-
-      if (idsLegacy.length > 0) {
-        const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
-        for (const part of chunk(idsLegacy, 100)) {
-          const { error } = await supabase
-            .from(t)
-            .delete()
-            .eq('user_id', user.id)
-            .in('id', part);
-          if (error) throw error;
-        }
-      }
+        .in('id', part);
+      if (error) throw error;
     }
+  }
+}
+
 
     // Aggiorna subito UI e ricarica
     setPocketRows(prev => prev.filter(r => r.id !== row.id));
