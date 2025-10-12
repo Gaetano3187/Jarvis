@@ -1332,6 +1332,19 @@ body.lp-route .lp-sec1 {
 }
 
 }
+.icon-btn {
+  background: transparent;
+  border: 1px solid rgba(239,68,68,.9);
+  color: #ef4444;
+  border-radius: .5rem;
+  padding: .35rem .45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.icon-btn:hover { background: rgba(239,68,68,.08); }
+
 
 
 

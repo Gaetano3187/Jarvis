@@ -796,7 +796,7 @@ const toggleRec = async () => {
       setIncomes(incomes.filter((i) => i.id !== id));
     } catch (err) { showError(setError, err); }
   }
-  async function handleDeletePocketRow(row) {
+ async function handleDeletePocketRow(row) {
   if (!row) return;
   const ok = confirm('Eliminare definitivamente questa spesa?');
   if (!ok) return;
@@ -807,13 +807,17 @@ const toggleRec = async () => {
     if (!user) throw new Error('Sessione scaduta');
 
     if (row.kind === 'manual') {
-      // Riga pocket_cash: id formattato "pc-<uuid>"
+      // pocket_cash: id è "pc-<uuid>"
       const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
       if (!pid) throw new Error('ID pocket non valido');
-      const { error } = await supabase.from('pocket_cash').delete().eq('id', pid).eq('user_id', user.id);
+      const { error } = await supabase
+        .from('pocket_cash')
+        .delete()
+        .eq('id', pid)
+        .eq('user_id', user.id);
       if (error) throw error;
     } else {
-      // Riga ledger unificata: cancello tutte le voci della spesa
+      // ledger jarvis_finances: per receipt_id oppure per (category+store+date)
       const m = row.meta || {};
       if (m.receipt_id) {
         const { error } = await supabase
@@ -823,7 +827,6 @@ const toggleRec = async () => {
           .eq('receipt_id', m.receipt_id);
         if (error) throw error;
       } else {
-        // fallback per gruppo store+data+categoria
         const { error } = await supabase
           .from('jarvis_finances')
           .delete()
@@ -835,12 +838,14 @@ const toggleRec = async () => {
       }
     }
 
+    // ✅ rimuovi subito la riga dalla UI (ottimismo), poi ricalcola
+    setPocketRows(prev => prev.filter(r => r.id !== row.id));
     await loadAll();
+
   } catch (err) {
     showError(setError, err);
   }
 }
-
   async function handleSaveCarryover(e) {
     e.preventDefault(); setError(null);
     try {
@@ -1044,11 +1049,18 @@ const toggleRec = async () => {
             </td>
             <td>
               <button
-                className="btn-danger-outline"
+                className="icon-btn"
                 onClick={() => handleDeletePocketRow(m)}
                 title="Elimina questa spesa"
+                aria-label="Elimina"
               >
-                Elimina
+                {/* cestino inline, uguale ovunque */}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3 6h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
               </button>
             </td>
           </tr>
@@ -1057,6 +1069,7 @@ const toggleRec = async () => {
     </table>
   </div>
 )}
+
 
 {error && <p className="error">{error}</p>}
 
@@ -1113,7 +1126,7 @@ const toggleRec = async () => {
         .error { color:#f87171; margin-top: 1rem; }
       `}</style>
     </>
-  );
+      );
 }
 
 export default withAuth(Entrate);
