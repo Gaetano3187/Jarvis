@@ -796,49 +796,121 @@ const toggleRec = async () => {
       setIncomes(incomes.filter((i) => i.id !== id));
     } catch (err) { showError(setError, err); }
   }
- async function handleDeletePocketRow(row) {
+ // helper: normalizza store per confronti "elastici"
+function normStore(s='') {
+  return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+}
+
+async function handleDeletePocketRow(row) {
   if (!row) return;
-  const ok = confirm('Eliminare definitivamente questa spesa?');
-  if (!ok) return;
+  if (!confirm('Eliminare definitivamente questa spesa?')) return;
 
   try {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr) throw userErr;
     if (!user) throw new Error('Sessione scaduta');
 
+    // 1) Se movimento manuale "pocket_cash"
     if (row.kind === 'manual') {
-      // pocket_cash: id è "pc-<uuid>"
       const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
       if (!pid) throw new Error('ID pocket non valido');
       const { error } = await supabase
         .from('pocket_cash')
         .delete()
-        .eq('id', pid)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('id', pid);
       if (error) throw error;
-    } else {
-      // ledger jarvis_finances: per receipt_id oppure per (category+store+date)
-      const m = row.meta || {};
-      if (m.receipt_id) {
-        const { error } = await supabase
-          .from('jarvis_finances')
+
+      // Aggiorna subito la UI
+      setPocketRows(prev => prev.filter(r => r.id !== row.id));
+      await loadAll();
+      return;
+    }
+
+    // 2) Spesa "ledger" (expense-linked)
+    const m = row.meta || {};
+    const dateISO = (m.dateISO || row.dateISO || '').slice(0,10);
+    const category = m.category || 'spese-casa';
+    const storeRaw = m.store || row.label || '';
+    const storeNorm = normStore(storeRaw);
+
+    // ——— tentativo A: cancellazione per receipt_id
+    let deleted = 0;
+    if (m.receipt_id) {
+      const del1 = await supabase.from('jarvis_finances')
+        .delete().eq('user_id', user.id).eq('receipt_id', m.receipt_id);
+      if (del1.error) throw del1.error;
+      deleted += (del1.count || 0); // count potrebbe essere null se non abilitato; gestiamo fallback sotto
+
+      // legacy tables con rid/receipt_id
+      const legacyTables = [
+        'jarvis_spese_casa',
+        'jarvis_cene_aperitivi',
+        'jarvis_vestiti_altro',
+        'jarvis_varie'
+      ];
+      for (const t of legacyTables) {
+        const delL = await supabase.from(t)
           .delete()
           .eq('user_id', user.id)
-          .eq('receipt_id', m.receipt_id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('jarvis_finances')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('category', m.category || 'spese-casa')
-          .eq('store', m.store || '')
-          .eq('purchase_date', m.dateISO || '');
-        if (error) throw error;
+          .or(`receipt_id.eq.${m.receipt_id},rid.eq.${m.receipt_id}`);
+        if (delL.error) throw delL.error;
       }
     }
 
-    // ✅ rimuovi subito la riga dalla UI (ottimismo), poi ricalcola
+    // ——— tentativo B: se non c'era receipt_id (o non ha preso), usa chiave category+store+date
+    // NB: per sicurezza leggiamo prima cosa c’è con quella chiave, così usiamo lo "store" esatto salvato nel DB (no problemi di maiuscole/spazi)
+    if (!m.receipt_id) {
+      // trova righe esatte nel ledger per stessa data/categoria e store "simile"
+      const { data: candidates, error: qErr } = await supabase
+        .from('jarvis_finances')
+        .select('id, store')
+        .eq('user_id', user.id)
+        .eq('category', category)
+        .eq('purchase_date', dateISO);
+      if (qErr) throw qErr;
+
+      // filtra per store "simile"
+      const ids = (candidates || [])
+        .filter(r => normStore(r.store) === storeNorm)
+        .map(r => r.id);
+
+      if (ids.length) {
+        const delX = await supabase.from('jarvis_finances')
+          .delete()
+          .eq('user_id', user.id)
+          .in('id', ids);
+        if (delX.error) throw delX.error;
+      }
+
+      // legacy per stessa chiave
+      const legacyTables = {
+        'spese-casa': 'jarvis_spese_casa',
+        'cene-aperitivi': 'jarvis_cene_aperitivi',
+        'vestiti-altro': 'jarvis_vestiti_altro',
+        'varie': 'jarvis_varie'
+      };
+      const legacy = legacyTables[category] || 'jarvis_spese_casa';
+
+      // anche qui prendiamo prima lo "store" esatto come salvato
+      const { data: legRows } = await supabase
+        .from(legacy)
+        .select('id, store, merchant, name')
+        .eq('user_id', user.id)
+        .eq('purchase_date', dateISO);
+
+      const legIds = (legRows || []).filter(r => {
+        const st = r.store || r.merchant || r.name || '';
+        return normStore(st) === storeNorm;
+      }).map(r => r.id);
+
+      if (legIds.length) {
+        const delL = await supabase.from(legacy).delete().in('id', legIds).eq('user_id', user.id);
+        if (delL.error) throw delL.error;
+      }
+    }
+
+    // ✅ Aggiorna UI subito e ricarica
     setPocketRows(prev => prev.filter(r => r.id !== row.id));
     await loadAll();
 
@@ -846,6 +918,7 @@ const toggleRec = async () => {
     showError(setError, err);
   }
 }
+
   async function handleSaveCarryover(e) {
     e.preventDefault(); setError(null);
     try {
