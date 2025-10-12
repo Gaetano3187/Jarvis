@@ -134,6 +134,99 @@ function detectIncomeIntent(text='') {
   }
   return { source, description: source, amount: Math.abs(amount), dateISO };
 }
+/* ===== Spesa in contanti dal parlato ===== */
+function normalizeIT(s='') {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // togli accenti
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+/** Estrae il nome esercizio dopo "a/da/presso <nome>" fermandosi prima di "per/di/da/alle/alle ore/€..." */
+function extractStoreName(text='') {
+  const s = normalizeIT(text);
+  // esempi: "ho speso 10 euro a orsini market", "ho speso 20 euro da casacchia per le sigarette"
+  const m = s.match(/\b(?:a|da|presso)\s+([a-z0-9'.\-& ]{2,50})\b/);
+  if (!m) return null;
+  let store = m[1]
+    .replace(/\b(per|di|da|alle|all[ao]s?|ore|euro|€)\b.*$/,'') // tronca frasi successive
+    .replace(/\s{2,}/g,' ')
+    .trim();
+  // capitalizza
+  store = titleize(store);
+  return store || null;
+}
+
+/** Categoria rapida in base a parole chiave (puoi ampliare liberamente) */
+function inferCategory(text='') {
+  const s = normalizeIT(text);
+  if (/\b(tabac|sigarett|sifigarette|sigr|fum[oi])\b/.test(s)) return 'varie'; // tabaccheria -> "varie"
+  if (/\b(supermercat|market|spes[ae]|coop|conad|carrefour|esselunga|md|lid[li])\b/.test(s)) return 'spese-casa';
+  if (/\b(bar|caffe|aperitiv|pizzeria|ristorant|pub|bistrot|braceria|sushi|enoteca)\b/.test(s)) return 'cene-aperitivi';
+  if (/\b(scarp|maglion|pantalon|camici|indument|vestit)\b/.test(s)) return 'vestiti-altro';
+  return 'varie';
+}
+
+/** Se rileva "ho speso ..." o simili, ritorna una spesa in contanti */
+function detectCashExpenseIntent(text='') {
+  const raw = String(text || '');
+  const s = normalizeIT(raw);
+
+  // trigger di spesa
+  if (!/\b(ho\s+speso|abbiam|pagat[oa]|spes[ao]|mi\s+e'?|e'?\s+costat[oa])\b/.test(s)) return null;
+
+  const amount = parseMoneyFromText(s);
+  if (!amount) return null;
+
+  const dateISO = pickDateFromText(s);
+
+  // negozio/luogo
+  let store = extractStoreName(raw) || 'Punto vendita';
+  // prefisso "Tabaccheria" se parole chiave
+  if (/\b(tabac|sigarett|sifigarette|fum[oi])\b/.test(s) && !/^tabaccheria/i.test(store)) {
+    store = `Tabaccheria ${store}`;
+  }
+
+  const category = inferCategory(raw);
+
+  // descrizione libera (es. “sigarette” se presente)
+  let descr = 'Spesa contanti';
+  const md = s.match(/\bper\s+([a-z0-9'.\-& ]{2,60})$/i) || s.match(/\bper\s+([a-z0-9'.\-& ]{2,60})\b/i);
+  if (md) descr = titleize(md[1].trim());
+  else if (/\bsigar|tabac\b/.test(s)) descr = 'Sigarette';
+
+  return {
+    category,
+    store,
+    amount: Math.abs(amount),
+    dateISO,
+    description: descr,
+    payment_method: 'cash',
+  };
+}
+
+/** Inserisce velocemente una spesa nel ledger unificato (jarvis_finances) come pagamento in contanti */
+async function insertFinanceExpenseByVoice(exp) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sessione scaduta');
+
+  const payload = {
+    user_id: user.id,
+    category: exp.category || 'varie',
+    store: exp.store || 'Punto vendita',
+    purchase_date: exp.dateISO || isoLocal(new Date()),
+    price_total: Number(exp.amount || 0),
+    payment_method: 'cash',                 // ⚠️ fondamentale: così scala “Soldi in tasca”
+    link_label: null,                       // facoltativo (si auto-costruisce la route)
+    link_path: null,
+    created_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from('jarvis_finances').insert(payload);
+  if (error) throw error;
+}
+
 
 function formatIT(iso) {
   if (!iso) return '';
@@ -554,59 +647,69 @@ const toggleRec = async () => {
     };
 
     mediaRecRef.current.onstop = async () => {
-      try {
-        const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-        const fd = new FormData(); 
-        fd.append('audio', blob, 'voice.webm');
+      mediaRecRef.current.onstop = async () => {
+  try {
+    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
+    const fd = new FormData();
+    fd.append('audio', blob, 'voice.webm');
 
-        const r = await fetch('/api/stt', { method:'POST', body: fd });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j?.text) throw new Error('STT fallito');
+    const r = await fetch('/api/stt', { method:'POST', body: fd });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.text) throw new Error('STT fallito');
 
-        const spoken = String(j.text || '').trim();
-        if (!spoken) { setError('Trascrizione vuota'); return; }
+    const spoken = String(j.text || '').trim();
+    if (!spoken) { setError('Trascrizione vuota'); return; }
 
-        // 1) Intent TASCA (ricarica/uscita contanti)
-        const pocket = detectPocketIntent(spoken);
-        if (pocket) {
-          await insertPocketQuick({
-            amount: Math.abs(pocket.delta),
-            date:   pocket.dateISO,
-            delta:  pocket.delta,
-            note:   pocket.note
-          });
-          await loadAll();
-          return; // ✅ niente entrata
-        }
+    // ✅ 1) PRIMA: spesa in contanti (“ho speso …”)
+    const exp = detectCashExpenseIntent(spoken);
+    if (exp) {
+      await insertFinanceExpenseByVoice(exp);
+      await loadAll();
+      return;
+    }
 
-        // 2) Intent ENTRATE locale (incasso/stipendio/pagato da…)
-        const inc = detectIncomeIntent(spoken);
-        if (inc) {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) throw new Error('Sessione scaduta');
-          await supabase.from('incomes').insert({
-            user_id:     user.id,
-            source:      inc.source,
-            description: inc.description,
-            amount:      inc.amount,
-            received_at: `${inc.dateISO}T12:00:00Z`,
-          });
-          await loadAll();
-          return;
-        }
+    // 2) Intent TASCA manuale (ricarica/uscita contanti)
+    const pocket = detectPocketIntent(spoken);
+    if (pocket) {
+      await insertPocketQuick({
+        amount: Math.abs(pocket.delta),
+        date:   pocket.dateISO,
+        delta:  pocket.delta,
+        note:   pocket.note
+      });
+      await loadAll();
+      return;
+    }
 
-        // 3) Fallback: Assistant (schema JSON "income")
-        const ok = await insertIncomeAssistant(spoken);
-        if (ok) await loadAll();
-        else setError('Nessun dato riconosciuto dalla voce');
+    // 3) Entrate locali (incasso/stipendio/pagato da…)
+    const inc = detectIncomeIntent(spoken);
+    if (inc) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Sessione scaduta');
+      await supabase.from('incomes').insert({
+        user_id:     user.id,
+        source:      inc.source,
+        description: inc.description,
+        amount:      inc.amount,
+        received_at: `${inc.dateISO}T12:00:00Z`,
+      });
+      await loadAll();
+      return;
+    }
 
-      } catch (e) {
-        showError(setError, e);
-      } finally {
-        setRecBusy(false);
-        try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-        streamRef.current = null;
-      }
+    // 4) Fallback Assistant (schema JSON "income")
+    const ok = await insertIncomeAssistant(spoken);
+    if (ok) await loadAll();
+    else setError('Nessun dato riconosciuto dalla voce');
+
+  } catch (e) {
+    showError(setError, e);
+  } finally {
+    setRecBusy(false);
+    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+    streamRef.current = null;
+  }
+};
     };
 
     mediaRecRef.current.start();
