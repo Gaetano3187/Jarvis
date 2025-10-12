@@ -234,9 +234,22 @@ function formatIT(iso) {
   return new Date(y,(m??1)-1,d??1).toLocaleDateString('it-IT');
 }
 function showError(setter, err) {
-  const msg = err?.message || err?.error_description || err?.hint || (typeof err === 'string' ? err : JSON.stringify(err));
-  setter(msg); console.error('[SUPABASE ERROR]', err);
+  const msg = err?.message || err?.error_description || err?.hint || err?.details || (typeof err === 'string' ? err : JSON.stringify(err));
+  setter(msg);
+  // log esteso
+  try {
+    console.group('[SUPABASE ERROR]');
+    console.error(err);
+    if (err && typeof err === 'object') {
+      console.error('details:', err.details);
+      console.error('hint:', err.hint);
+      console.error('code:', err.code);
+      console.error('message:', err.message);
+    }
+    console.groupEnd();
+  } catch {}
 }
+
 function titleize(s='') {
   return String(s).toLowerCase().replace(/(^|\s|-)\p{L}/gu, m => m.toUpperCase());
 }
@@ -829,6 +842,15 @@ function normStore(s='') {
     .trim();
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function normStore(s='') {
+  return String(s)
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
 async function handleDeletePocketRow(row) {
   if (!row) return;
   if (!confirm('Eliminare definitivamente questa spesa?')) return;
@@ -838,7 +860,7 @@ async function handleDeletePocketRow(row) {
     if (userErr) throw userErr;
     if (!user) throw new Error('Sessione scaduta');
 
-    // A) Movimenti manuali: pocket_cash
+    // A) pocket_cash (manuale)
     if (row.kind === 'manual') {
       const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
       if (!pid) throw new Error('ID pocket non valido');
@@ -854,23 +876,28 @@ async function handleDeletePocketRow(row) {
       return;
     }
 
-    // B) Spese ledger/legacy
+    // B) ledger + legacy
     const m = row.meta || {};
     const dateISO = (m.dateISO || row.dateISO || '').slice(0,10);
-    const wantStore = normStore(m.store || row.label || '');
+    const rawStore = m.store || row.label || '';
+    const storeNorm = normStore(rawStore);
     const category = m.category || 'spese-casa';
 
-    // 1) Prova eliminazione diretta su jarvis_finances per ID reali (se presenti)
-    const ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
-    if (ids.length) {
-      const { error } = await supabase
-        .from('jarvis_finances')
-        .delete()
-        .eq('user_id', user.id)
-        .in('id', ids);
-      if (error) throw error;
-    } else if (m.receipt_id) {
-      // 2) Oppure per receipt_id
+    // 1) ID reali dal ledger (filtrati a UUID)
+    let ids = Array.isArray(m.ids) ? m.ids.filter(id => typeof id === 'string' && UUID_RE.test(id)) : [];
+    if (ids.length > 0) {
+      // chunk in blocchi da 100 (evita URL troppo lunghi)
+      const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
+      for (const part of chunk(ids, 100)) {
+        const { error } = await supabase
+          .from('jarvis_finances')
+          .delete()
+          .eq('user_id', user.id)
+          .in('id', part);
+        if (error) throw error;
+      }
+    } else if (m.receipt_id && UUID_RE.test(String(m.receipt_id))) {
+      // 2) receipt_id
       const { error } = await supabase
         .from('jarvis_finances')
         .delete()
@@ -878,7 +905,8 @@ async function handleDeletePocketRow(row) {
         .eq('receipt_id', m.receipt_id);
       if (error) throw error;
     } else {
-      // 3) Fallback: stessa data/categoria e store “simile”
+      // 3) Fallback: stessa data + store (ilike) + categoria
+      // Leggo i candidati del giorno/categoria e filtro per store normalizzato
       const { data: candidates, error: qErr } = await supabase
         .from('jarvis_finances')
         .select('id, store')
@@ -888,39 +916,36 @@ async function handleDeletePocketRow(row) {
       if (qErr) throw qErr;
 
       const toDel = (candidates || [])
-        .filter(r => normStore(r.store) === wantStore)
-        .map(r => r.id);
+        .filter(r => normStore(r.store) === storeNorm)
+        .map(r => r.id)
+        .filter(id => UUID_RE.test(String(id)));
 
-      if (toDel.length) {
-        const { error } = await supabase
-          .from('jarvis_finances')
-          .delete()
-          .eq('user_id', user.id)
-          .in('id', toDel);
-        if (error) throw error;
+      if (toDel.length > 0) {
+        const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
+        for (const part of chunk(toDel, 100)) {
+          const { error } = await supabase
+            .from('jarvis_finances')
+            .delete()
+            .eq('user_id', user.id)
+            .in('id', part);
+          if (error) throw error;
+        }
       }
     }
 
-    // 4) Pulisci SEMPRE anche le legacy (nel caso le pagine categoria le leggano ancora):
+    // 4) Pulisci anche le legacy (se qualche pagina le usa ancora)
     const legacyMap = {
       'spese-casa': 'jarvis_spese_casa',
       'cene-aperitivi': 'jarvis_cene_aperitivi',
       'vestiti-altro': 'jarvis_vestiti_altro',
       'varie': 'jarvis_varie',
     };
-    const legacyTables = [
-      legacyMap[category] || 'jarvis_spese_casa',
-      // e, per sicurezza, anche le altre (se il mapping categoria fosse cambiato):
-      'jarvis_spese_casa','jarvis_cene_aperitivi','jarvis_vestiti_altro','jarvis_varie'
-    ];
+    const tables = ['jarvis_spese_casa','jarvis_cene_aperitivi','jarvis_vestiti_altro','jarvis_varie'];
+    const primaryLegacy = legacyMap[category];
+    if (primaryLegacy && !tables.includes(primaryLegacy)) tables.unshift(primaryLegacy);
 
-    // usiamo un Set per non ripetere
-    const seen = new Set();
-    for (const t of legacyTables) {
-      if (!t || seen.has(t)) continue;
-      seen.add(t);
-
-      // trova le righe di quel giorno e confronta lo store normalizzato
+    for (const t of tables) {
+      // Seleziono del giorno e confronto store normalizzato
       const { data: legRows, error: lErr } = await supabase
         .from(t)
         .select('id, store, merchant, name, purchase_date')
@@ -928,22 +953,24 @@ async function handleDeletePocketRow(row) {
         .eq('purchase_date', dateISO);
       if (lErr) throw lErr;
 
-      const legIds = (legRows || []).filter(r => {
-        const s = r.store || r.merchant || r.name || '';
-        return normStore(s) === wantStore;
-      }).map(r => r.id);
+      const idsLegacy = (legRows || [])
+        .filter(r => normStore(r.store || r.merchant || r.name || '') === storeNorm)
+        .map(r => r.id);
 
-      if (legIds.length) {
-        const { error } = await supabase
-          .from(t)
-          .delete()
-          .eq('user_id', user.id)
-          .in('id', legIds);
-        if (error) throw error;
+      if (idsLegacy.length > 0) {
+        const chunk = (arr, n) => arr.reduce((a,_,i)=> (i % n ? a : [...a, arr.slice(i, i+n)]), []);
+        for (const part of chunk(idsLegacy, 100)) {
+          const { error } = await supabase
+            .from(t)
+            .delete()
+            .eq('user_id', user.id)
+            .in('id', part);
+          if (error) throw error;
+        }
       }
     }
 
-    // UI immediata + reload dati
+    // Aggiorna subito UI e ricarica
     setPocketRows(prev => prev.filter(r => r.id !== row.id));
     await loadAll();
 
@@ -951,6 +978,7 @@ async function handleDeletePocketRow(row) {
     showError(setError, err);
   }
 }
+
 
 
   async function handleSaveCarryover(e) {
