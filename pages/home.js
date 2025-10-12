@@ -140,155 +140,6 @@ function sanitizeUnits(item){
   if(/caseificio/i.test(out.name)){ out.brand='Caseificio S. Stefano'; out.name='Formaggio fresco'; }
   return out;
 }
-/* ===================================================================
-   Normalizzazione nomi via Brain con lookup WEB (+ cache locale)
-   - Dizionario locale vuoto (solo override mirati)
-   - Cache su localStorage per evitare richieste ripetute
-   - Batch con concorrenza limitata
-=================================================================== */
-
-const NAME_LOCAL_DICT = {
-  // opzionale: override puntuali (lascia vuoto se non serve)
-  // 'ondacolor': { name: 'Spugne ondulate', brand: 'Vileda', family: 'pulizia' },
-};
-
-function normLookupLocal(raw='') {
-  const k = normKey(raw);
-  if (!k) return null;
-  if (NAME_LOCAL_DICT[k]) return NAME_LOCAL_DICT[k];
-  for (const key of Object.keys(NAME_LOCAL_DICT)) {
-    if (k.includes(key)) return NAME_LOCAL_DICT[key];
-  }
-  return null;
-}
-
-const NAME_NORM_CACHE_KEY = '__name_norm_cache_v2';
-
-function getNameNormCache(){
-  try { return JSON.parse(localStorage.getItem(NAME_NORM_CACHE_KEY) || '{}'); }
-  catch { return {}; }
-}
-function setNameNormCache(cache){
-  try { localStorage.setItem(NAME_NORM_CACHE_KEY, JSON.stringify(cache)); }
-  catch {}
-}
-export function clearNameNormCache(){
-  try { localStorage.removeItem(NAME_NORM_CACHE_KEY); } catch {}
-}
-
-// Heuristic: vale la pena chiedere il web?
-function looksAmbiguousItem(p){
-  const s = normKey(p.name||''); if (!s) return false;
-  if (productFamily(p.name||'') === 'fam:?') return true;
-  const words = s.split(' ').filter(Boolean);
-  if (words.length <= 2) return true;
-  if (!/\b(ml|cl|l|g|gr|kg|pz|x|×|uova|500|250|1000|pack|conf)\b/.test(s) && !p.brand) return true;
-  return false;
-}
-
-// Heuristic: il nuovo nome è chiaramente migliore?
-function isBetterName(oldName, newName){
-  if (!newName || newName.length < 3) return false;
-  const sold = normKey(oldName), snew = normKey(newName);
-  if (snew === sold) return false;
-  if (snew.length >= sold.length && !/[\[\]{}]/.test(newName)) return true;
-  if (/\b(pasta|spugne|detersiv|snack|merend|latte|uova|olio|riso|tonno|caffe|biscott|sugo|passata|carta|igien|cucina|shampoo|bagnoschiuma)\b/.test(snew))
-    return true;
-  return false;
-}
-
-/**
- * Brain web lookup: chiede una normalizzazione “di mercato” usando conoscenza del web.
- * Ritorna { name, brand?, family? } oppure null.
- */
-async function normalizeNameViaBrain(rawName, maybeBrand, context={}){
-  const mod = await getBrain().catch(()=>null);
-  const ask = mod?.runQueryFromTextLocal || mod?.default?.runQueryFromTextLocal;
-  if (typeof ask !== 'function') return null;
-
-  const prompt = `
-Sei un normalizzatore di prodotti da scontrino. Usa la tua conoscenza del web (grande distribuzione in Italia, e-commerce, listini)
-per capire cosa sia il prodotto e restituisci SOLO un JSON con:
-- name: nome descrittivo generico e comprensibile (es. "Spugne ondulate", "Spaghetti 500g", "Caffè espresso in grani 1kg")
-- brand: marca se riconoscibile, altrimenti stringa vuota
-- family: categoria sintetica (es. "pulizia", "pasta", "latticini", "snack", "cura persona", "bevande", "caffè", "conserve")
-
-Regole:
-- Evita codici interni, sigle casse o abbreviazioni ambigue del POS.
-- Mantieni unità utili (es. "500g", "1kg", "6 uova") quando aiutano a distinguere il prodotto.
-- Se il brand è certo, valorizzalo, altrimenti lascia "".
-- Rispondi SOLO con JSON valido, senza testo extra.
-
-INPUT:
-name="${String(rawName||'')}"
-brand_hint="${String(maybeBrand||'')}"
-store_hint="${String(context?.store||'')}"
-`.trim();
-
-  try {
-    const res = await ask(prompt, { mode: 'tool' });
-    const text = typeof res === 'string' ? res : (res?.text ?? res?.result ?? '');
-    const j = String(text||'').trim();
-    if (!j.startsWith('{')) return null;
-    const obj = JSON.parse(j);
-    if (!obj || typeof obj !== 'object' || !obj.name) return null;
-    return {
-      name: String(obj.name||'').trim(),
-      brand: String(obj.brand||'').trim(),
-      family: String(obj.family||'').trim(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Normalizzazione batch: cache + (opzionale) locale + web/brain.
- * Accetta un contesto (es. store) per aiutare l’agente.
- */
-async function normalizeNamesWithWeb(items, context={}){
-  if (!Array.isArray(items) || !items.length) return items;
-  const cache = getNameNormCache();
-
-  const targets = [];
-  for (const it of items) {
-    if (!it?.name) continue;
-    if (!looksAmbiguousItem(it)) continue;
-    const key = normKey((it.name||'') + '|' + (it.brand||''));
-    if (!key || cache[key]) continue;
-    const local = normLookupLocal(it.name);
-    if (local) { cache[key] = local; continue; }
-    targets.push({ key, name: it.name, brand: it.brand||'' });
-  }
-
-  // Concorrenza limitata
-  const limit = 3;
-  for (let i=0; i<targets.length; i+=limit){
-    const slice = targets.slice(i, i+limit);
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.all(slice.map(async t => {
-      const best = await normalizeNameViaBrain(t.name, t.brand, context).catch(()=>null);
-      if (best && best.name) cache[t.key] = best;
-    }));
-  }
-  setNameNormCache(cache);
-
-  // Applica sostituzioni se migliorative
-  return items.map(it => {
-    const key = normKey((it.name||'') + '|' + (it.brand||''));
-    const hit = cache[key];
-    if (!hit) return it;
-    const newName = hit.name;
-    const newBrand = hit.brand || it.brand || '';
-    if (!isBetterName(it.name, newName)) return it;
-    let finalName = newName;
-    if (newBrand && !normKey(finalName).includes(normKey(newBrand))) {
-      finalName = `${finalName} (${newBrand})`;
-    }
-    return { ...it, name: finalName, brand: newBrand };
-  });
-}
-
 function dedupeAndFix(items=[]){
   const map=new Map();
   for(const r of items){
@@ -596,35 +447,29 @@ if (receipts.length) {
 
     const bucket = guessExpenseBucket(store);
 
- // --- normalizzazione articoli ---
-const itemsRaw = Array.isArray(n?.purchases) ? n.purchases : [];
+    // --- normalizzazione articoli ---
+    const itemsRaw = Array.isArray(n?.purchases) ? n.purchases : [];
+    const cleaned = itemsRaw
+      .map(normalizeItemForPipelines) // questa mette expiresAt='' se non valida
+      .filter(p => p.name && !shouldDropName(p.name))
+      .map(p => {
+        // ripulisci UPP/unità sospette
+        let upp = Math.max(1, Number(p.unitsPerPack || 1));
+        let ul  = String(p.unitLabel || '').trim() || 'unità';
+        if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(ul)) { upp = 1; ul = 'unità'; }
 
-const cleaned = itemsRaw
-  .map(normalizeItemForPipelines) // questa mette expiresAt='' se non valida
-  .filter(p => p.name && !shouldDropName(p.name))
-  .map(p => {
-    // ripulisci UPP/unità sospette
-    let upp = Math.max(1, Number(p.unitsPerPack || 1));
-    let ul  = String(p.unitLabel || '').trim() || 'unità';
-    if (SUSPECT_UPP.has(upp) || isWeightOrVolumeLabel(ul)) {
-      upp = 1; ul = 'unità';
-    }
+        // *** EVITA "" SU DATE: convertilo a null ***
+        const safeExp = toISOorNull(p.expiresAt);
 
-    // evita stringhe vuote sulle date
-    const safeExp = toISOorNull(p.expiresAt);
+        return { ...p, unitsPerPack: upp, unitLabel: ul, expiresAt: safeExp };
+      })
+      .map(enforceHybridUnitPrice);
 
-    return { ...p, unitsPerPack: upp, unitLabel: ul, expiresAt: safeExp };
-  })
-  .map(enforceHybridUnitPrice);
-
-// ⬇️ NORMALIZZAZIONE NOMI via Brain (web) con contesto negozio
-const cleanedWithNames = await normalizeNamesWithWeb(cleaned, { store });
-
-// dedupe & fix finale (e blindatura date)
-const items = dedupeAndFix(cleanedWithNames).map(p => ({
-  ...p,
-  expiresAt: p.expiresAt || null
-}));
+    const items = dedupeAndFix(cleaned).map(p => ({
+      ...p,
+      // doppia sicurezza: se per qualche motivo c'è ancora "", metti null
+      expiresAt: p.expiresAt || null
+    }));
 
     if (!items.length) continue;
 
