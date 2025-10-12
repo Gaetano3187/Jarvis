@@ -405,7 +405,7 @@ const CAT_TO_ROUTE = {
 let finHeads = [];
 const { data: finHeadsLedger } = await supabase
   .from('jarvis_finances')
-  .select('receipt_id, category, store, purchase_date, price_total, payment_method, link_label, link_path, created_at')
+  .select('id, receipt_id, category, store, purchase_date, price_total, payment_method, link_label, link_path, created_at')
   .eq('user_id', user.id)
   .in('category', ['spese-casa','cene-aperitivi','vestiti-altro','varie'])
   .gte('purchase_date', startDate)
@@ -425,6 +425,7 @@ const readCat = async (table, category) => {
     .lte('purchase_date', endDate);
   const rows = Array.isArray(data) ? data : [];
   return rows.map(r => ({
+    id:             r.id ?? null,                  // ⬅️ aggiunto
     receipt_id:     r.receipt_id ?? r.rid ?? null,
     category,
     store:          r.store ?? r.merchant ?? r.name ?? 'Punto vendita',
@@ -437,6 +438,7 @@ const readCat = async (table, category) => {
   }));
 };
 
+
 if (!finHeads.length) {
   const [sc, ca, va, vr] = await Promise.all([
     readCat('jarvis_spese_casa',     'spese-casa'),
@@ -448,13 +450,16 @@ if (!finHeads.length) {
 }
 
 // Raggruppa: 1 riga per receipt_id (o store+data+categoria), usando headTotal oppure linesSum
+// Raggruppa: 1 riga per receipt_id (o store+data+categoria), tenendo lista completa degli ID
 const groupFinHeads = (heads = []) => {
   const map = new Map();
-  for (const h of heads) {
+  for (const h of (heads || [])) {
     const dateISO = h.purchase_date || '';
+    const cat     = h.category || 'spese-casa';
+    const store   = h.store || '';
     const key = h.receipt_id
       ? `rid:${h.receipt_id}`
-      : `sd:${String(h.store||'').toLowerCase().trim()}|${dateISO}|${h.category||'spese-casa'}`;
+      : `sd:${String(store).toLowerCase().trim()}|${dateISO}|${cat}`;
 
     const isHead = Boolean(
       (h.link_label && String(h.link_label).trim()) ||
@@ -463,70 +468,80 @@ const groupFinHeads = (heads = []) => {
 
     const g = map.get(key) || {
       receipt_id:     h.receipt_id || null,
-      category:       h.category   || 'spese-casa',
-      store:          h.store      || '',
+      category:       cat,
+      store,
       dateISO,
       payment_method: h.payment_method || '',
       link_label:     h.link_label     || '',
       link_path:      h.link_path      || '',
       headTotal: 0,
       linesSum:  0,
+      ids: [], // ⬅️ accumulo id concreti
     };
 
-    if (!g.store && h.store) g.store = h.store;
+    // aggiorna metadati più “pieni”
+    if (!g.store && store) g.store = store;
     if (!g.link_label && h.link_label) g.link_label = h.link_label;
     if (!g.link_path  && h.link_path)  g.link_path  = h.link_path;
     if (!g.payment_method && h.payment_method) g.payment_method = h.payment_method;
 
+    // accumula importi
     const val = Number(h.price_total || 0);
-    if (isHead) g.headTotal = Math.max(g.headTotal, val);
-    else        g.linesSum  += val;
+    if (isHead) g.headTotal = Math.max(g.headTotal, val); else g.linesSum += val;
+
+    // accumula id se presente
+    if (h.id) g.ids.push(h.id);
 
     map.set(key, g);
   }
 
-return Array.from(map.values()).map(g => {
-  const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
-  const monthParam = (g.dateISO || '').slice(0,7);
-  const baseTxt =
-    g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
-    g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
-    g.category === 'varie'          ? 'Varie'          : 'Spesa';
+  return Array.from(map.values()).map(g => {
+    const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
+    const monthParam = (g.dateISO || '').slice(0,7);
+    const baseTxt =
+      g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
+      g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
+      g.category === 'varie'          ? 'Varie'          : 'Spesa';
 
-  const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
-  const tot = Number((total || 0).toFixed(2));
-  const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
-  const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
+    const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
+    const tot = Number((total || 0).toFixed(2));
+    const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
+    const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
 
-  const routeBase = CAT_TO_ROUTE[g.category] || '/spese-casa';
-  const defaultPath = g.receipt_id
-    ? `${routeBase}?rid=${encodeURIComponent(g.receipt_id)}&month=${monthParam}`
-    : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}&month=${monthParam}`;
-
-  const route = (g.link_path && g.link_path.trim())
-    ? `${g.link_path}${g.link_path.includes('?') ? '&' : '?'}month=${monthParam}`
-    : defaultPath;
-
-  return {
-    id: `${g.category}-${g.receipt_id || `${g.store}|${g.dateISO}`}`,
-    kind: 'expense-linked',
-    dateISO: g.dateISO,
-    label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
-    route,
-    displayAmount: -tot,
-    amount: isCash ? -tot : 0,
-    affectsPocket: isCash,
-    // ⬇️ metadati per eliminare
-    meta: {
-      receipt_id: g.receipt_id || null,
-      category: g.category || 'spese-casa',
-      store: g.store || '',
-      dateISO: g.dateISO || '',
-    },
-  };
-});
-
+    const CAT_TO_ROUTE = {
+      'spese-casa': '/spese-casa',
+      'cene-aperitivi': '/cene-aperitivi',
+      'vestiti-altro': '/vestiti-altro',
+      'varie': '/varie',
     };
+    const routeBase = CAT_TO_ROUTE[g.category] || '/spese-casa';
+    const defaultPath = g.receipt_id
+      ? `${routeBase}?rid=${encodeURIComponent(g.receipt_id)}&month=${monthParam}`
+      : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}&month=${monthParam}`;
+
+    const route = (g.link_path && g.link_path.trim())
+      ? `${g.link_path}${g.link_path.includes('?') ? '&' : '?'}month=${monthParam}`
+      : defaultPath;
+
+    return {
+      id: `${g.category}-${g.receipt_id || `${g.store}|${g.dateISO}`}`,
+      kind: 'expense-linked',
+      dateISO: g.dateISO,
+      label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
+      route,
+      displayAmount: -tot,
+      amount: isCash ? -tot : 0,
+      affectsPocket: isCash,
+      meta: {
+        receipt_id: g.receipt_id || null,
+        category: g.category || 'spese-casa',
+        store: g.store || '',
+        dateISO: g.dateISO || '',
+        ids: Array.from(new Set(g.ids)).filter(Boolean), // ⬅️ lista unica di id concreti
+      },
+    };
+  });
+};
 
 const expenseRows = groupFinHeads(finHeads);
 
@@ -801,6 +816,10 @@ function normStore(s='') {
   return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 }
 
+function normStore(s='') {
+  return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+}
+
 async function handleDeletePocketRow(row) {
   if (!row) return;
   if (!confirm('Eliminare definitivamente questa spesa?')) return;
@@ -810,107 +829,65 @@ async function handleDeletePocketRow(row) {
     if (userErr) throw userErr;
     if (!user) throw new Error('Sessione scaduta');
 
-    // 1) Se movimento manuale "pocket_cash"
     if (row.kind === 'manual') {
       const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
       if (!pid) throw new Error('ID pocket non valido');
-      const { error } = await supabase
-        .from('pocket_cash')
+      const { error } = await supabase.from('pocket_cash')
         .delete()
         .eq('user_id', user.id)
         .eq('id', pid);
       if (error) throw error;
 
-      // Aggiorna subito la UI
       setPocketRows(prev => prev.filter(r => r.id !== row.id));
       await loadAll();
       return;
     }
 
-    // 2) Spesa "ledger" (expense-linked)
+    // —— Spesa ledger
     const m = row.meta || {};
-    const dateISO = (m.dateISO || row.dateISO || '').slice(0,10);
-    const category = m.category || 'spese-casa';
-    const storeRaw = m.store || row.label || '';
-    const storeNorm = normStore(storeRaw);
+    const ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
 
-    // ——— tentativo A: cancellazione per receipt_id
-    let deleted = 0;
-    if (m.receipt_id) {
-      const del1 = await supabase.from('jarvis_finances')
-        .delete().eq('user_id', user.id).eq('receipt_id', m.receipt_id);
-      if (del1.error) throw del1.error;
-      deleted += (del1.count || 0); // count potrebbe essere null se non abilitato; gestiamo fallback sotto
-
-      // legacy tables con rid/receipt_id
-      const legacyTables = [
-        'jarvis_spese_casa',
-        'jarvis_cene_aperitivi',
-        'jarvis_vestiti_altro',
-        'jarvis_varie'
-      ];
-      for (const t of legacyTables) {
-        const delL = await supabase.from(t)
-          .delete()
-          .eq('user_id', user.id)
-          .or(`receipt_id.eq.${m.receipt_id},rid.eq.${m.receipt_id}`);
-        if (delL.error) throw delL.error;
-      }
-    }
-
-    // ——— tentativo B: se non c'era receipt_id (o non ha preso), usa chiave category+store+date
-    // NB: per sicurezza leggiamo prima cosa c’è con quella chiave, così usiamo lo "store" esatto salvato nel DB (no problemi di maiuscole/spazi)
-    if (!m.receipt_id) {
-      // trova righe esatte nel ledger per stessa data/categoria e store "simile"
+    if (ids.length) {
+      // ✅ eliminazione one-shot per ID reali
+      const { error } = await supabase
+        .from('jarvis_finances')
+        .delete()
+        .eq('user_id', user.id)
+        .in('id', ids);
+      if (error) throw error;
+    } else if (m.receipt_id) {
+      const { error } = await supabase
+        .from('jarvis_finances')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('receipt_id', m.receipt_id);
+      if (error) throw error;
+    } else {
+      // fallback: category + store + date
       const { data: candidates, error: qErr } = await supabase
         .from('jarvis_finances')
         .select('id, store')
         .eq('user_id', user.id)
-        .eq('category', category)
-        .eq('purchase_date', dateISO);
+        .eq('category', m.category || 'spese-casa')
+        .eq('purchase_date', (m.dateISO || row.dateISO || '').slice(0,10));
       if (qErr) throw qErr;
 
-      // filtra per store "simile"
-      const ids = (candidates || [])
-        .filter(r => normStore(r.store) === storeNorm)
+      const want = normStore(m.store || row.label || '');
+      const idList = (candidates || [])
+        .filter(r => normStore(r.store) === want)
         .map(r => r.id);
 
-      if (ids.length) {
-        const delX = await supabase.from('jarvis_finances')
+      if (idList.length) {
+        const { error } = await supabase
+          .from('jarvis_finances')
           .delete()
           .eq('user_id', user.id)
-          .in('id', ids);
-        if (delX.error) throw delX.error;
-      }
-
-      // legacy per stessa chiave
-      const legacyTables = {
-        'spese-casa': 'jarvis_spese_casa',
-        'cene-aperitivi': 'jarvis_cene_aperitivi',
-        'vestiti-altro': 'jarvis_vestiti_altro',
-        'varie': 'jarvis_varie'
-      };
-      const legacy = legacyTables[category] || 'jarvis_spese_casa';
-
-      // anche qui prendiamo prima lo "store" esatto come salvato
-      const { data: legRows } = await supabase
-        .from(legacy)
-        .select('id, store, merchant, name')
-        .eq('user_id', user.id)
-        .eq('purchase_date', dateISO);
-
-      const legIds = (legRows || []).filter(r => {
-        const st = r.store || r.merchant || r.name || '';
-        return normStore(st) === storeNorm;
-      }).map(r => r.id);
-
-      if (legIds.length) {
-        const delL = await supabase.from(legacy).delete().in('id', legIds).eq('user_id', user.id);
-        if (delL.error) throw delL.error;
+          .in('id', idList);
+        if (error) throw error;
       }
     }
 
-    // ✅ Aggiorna UI subito e ricarica
+    // UI immediata + reload
     setPocketRows(prev => prev.filter(r => r.id !== row.id));
     await loadAll();
 
