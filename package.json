@@ -1,56 +1,29 @@
 {
   "name": "jarvis-assistant",
   "version": "1.0.0",
-  "description": "Next.js 14 app con Supabase, OpenAI, Tailwind CSS e TeleportHQ UI",
-  "author": "TeleportHQ",
-  "license": "MIT",
+  "description": "Next.js 14 app with Supabase & OpenAI",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "export": "next export",
-    "lint": "next lint"
+    "start": "next start"
   },
+  "author": "TeleportHQ",
+  "license": "MIT",
   "dependencies": {
     "@lottiefiles/lottie-player": "1.6.0",
-    "@supabase/auth-helpers-nextjs": "^0.10.0",
-    "@supabase/ssr": "^0.6.1",
-    "@supabase/supabase-js": "^2.52.1",
-    "ajv": "^8.17.1",
-    "ajv-formats": "^2.1.1",
-    "d3-geo": "^3.1.1",
-    "dayjs": "^1.11.13",
+    "@supabase/supabase-js": "^2.50.3",
     "formidable": "^3.5.4",
-    "jsqr": "^1.4.0",
-    "leaflet": "^1.9.4",
-    "lucide-react": "^0.525.0",
-    "multer": "^1.4.5-lts.1",
-    "next": "^15.5.2",
+    "next": "14.2.30",
     "next-intl": "^3.9.0",
-    "openai": "^5.16.0",
-    "pdf-parse": "^1.1.1",
+    "openai": "^5.9.0",
     "prop-types": "15.7.2",
-    "qrcode": "^1.5.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-leaflet": "^4.2.1",
-    "react-simple-maps": "^3.0.0",
-    "react-sparklines": "^1.7.0",
-    "react-table": "^7.8.0",
-    "topojson-client": "^3.1.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@supabase/auth-helpers-react": "^0.5.0",
-    "@types/node": "^24.3.0",
-    "@types/react": "^19.1.12",
-    "@types/react-dom": "^19.1.8",
     "autoprefixer": "^10.4.21",
-    "eslint": "8.57.1",
-    "eslint-config-next": "15.4.3",
     "postcss": "^8.5.6",
-    "react-icons": "^4.12.0",
-    "tailwindcss": "^3.4.17",
-    "typescript": "^5.9.2"
+    "tailwindcss": "^3.4.17"
   },
   "engines": {
     "node": ">=18.x"
