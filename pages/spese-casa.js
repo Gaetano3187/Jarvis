@@ -580,3 +580,7 @@ function SpeseCasa() {
 }
 
 export default withAuth(SpeseCasa);
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

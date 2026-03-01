@@ -280,3 +280,7 @@ const Finanze = () => {
 };
 
 export default Finanze;
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

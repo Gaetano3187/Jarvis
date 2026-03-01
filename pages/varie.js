@@ -391,3 +391,7 @@ ${userText}
 }
 
 export default withAuth(Varie)
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

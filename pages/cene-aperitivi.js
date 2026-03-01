@@ -544,3 +544,7 @@ ${userText}
 }
 
 export default withAuth(CeneAperitivi);
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

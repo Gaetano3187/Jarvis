@@ -394,3 +394,7 @@ TESTO: ${text}`,
 }
 
 export default withAuth(Home)
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

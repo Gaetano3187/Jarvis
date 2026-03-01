@@ -405,3 +405,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
   )
 }
 export default withAuth(VestitiEdAltro)
+
+export async function getServerSideProps() {
+  return { props: {} }
+}
