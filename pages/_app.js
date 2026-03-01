@@ -454,6 +454,19 @@ export default function MyApp({ Component, pageProps }) {
     };
   }, [router.events, router.pathname]);
 
+  if (!supabaseClient) {
+    return (
+      <AuthProvider>
+        <div className={`${poppins.variable} app-shell`}>
+          {showNav && <NavBar />}
+          <main className="page-container">
+            <Component {...pageProps} />
+          </main>
+        </div>
+      </AuthProvider>
+    );
+  }
+
   return (
   <SessionContextProvider
     supabaseClient={supabaseClient}
