@@ -1263,3 +1263,7 @@ async function handleDeletePocketRow(row) {
 }
 
 export default withAuth(Entrate);
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

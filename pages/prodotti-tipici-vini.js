@@ -1241,3 +1241,7 @@ function simplePairing(wine) {
 }
 
 export default withAuth(ProdottiTipiciViniPage);
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

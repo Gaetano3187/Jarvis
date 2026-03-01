@@ -22,3 +22,7 @@ export default function Custom404() {
     </>
   );
 }
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

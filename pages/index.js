@@ -88,3 +88,7 @@ export default function Login() {
     </>
   );
 }
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

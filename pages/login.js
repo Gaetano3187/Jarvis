@@ -38,3 +38,7 @@ await signIn({ email, password });
 };
 
 export default Login;
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

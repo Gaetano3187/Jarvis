@@ -28,3 +28,7 @@ const Page = (props) => {
 }
 
 export default Page
+
+export async function getServerSideProps() {
+  return { props: {} }
+}
