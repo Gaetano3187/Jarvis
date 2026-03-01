@@ -399,8 +399,11 @@ export default function MyApp({ Component, pageProps }) {
   const showNav = !hideNavOn.includes(router.pathname);
 
   // Supabase client condiviso
-  const [supabaseClient] = useState(() =>
-    createBrowserClient(supabaseUrl, supabaseAnon)
+  // SSR-safe: init solo client-side
+  const [supabaseClient] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    return createBrowserClient(supabaseUrl, supabaseAnon);
+  });
   );
 
   // Etichetta rotta + classe per /liste-prodotti (per gli stili mirati)
