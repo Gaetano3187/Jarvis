@@ -38,3 +38,7 @@ const Spese = (props) => {
 }
 
 export default Spese
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

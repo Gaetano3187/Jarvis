@@ -243,3 +243,7 @@ const badge=(lbl,val,cls)=>\`
 }
 
 export default Dashboard1
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

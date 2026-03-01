@@ -36,3 +36,7 @@ const ReportSpese = (props) => {
 }
 
 export default ReportSpese
+
+export async function getServerSideProps() {
+  return { props: {} }
+}

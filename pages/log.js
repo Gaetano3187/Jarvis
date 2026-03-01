@@ -60,3 +60,7 @@ const Log = (props) => {
 }
 
 export default Log
+
+export async function getServerSideProps() {
+  return { props: {} }
+}
