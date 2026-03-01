@@ -23,8 +23,9 @@ Sei Jarvis. Devi rispondere ESCLUSIVAMENTE con JSON valido e ben formato.
 `.trim();
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       temperature: 0,
+      max_tokens: 2000,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
