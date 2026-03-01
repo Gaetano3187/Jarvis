@@ -21,6 +21,7 @@ function clampMonthKey(s) {
   return /^\d{4}-\d{2}$/.test(String(s || '')) ? s : toMonthKey(new Date());
 }
 function monthBounds(monthKey) {
+  if (monthKey === 'all') return { startISO: '2000-01-01', endISO: '2099-12-31' };
   const [y, m] = monthKey.split('-').map(Number);
   const start = new Date(y, m - 1, 1);
   const end = new Date(y, m, 0);
@@ -330,6 +331,7 @@ ${userText}
               const [y,m]=monthKey.split('-').map(Number);
               const d=new Date(y, m, 1); setMonthKey(toMonthKey(d));
             }}>»</button>
+            <button className="btn-manuale" onClick={()=>setMonthKey('all')} style={{marginLeft:'8px'}}>Tutti</button>
           </div>
 
           <div className="table-buttons">
