@@ -10,8 +10,6 @@ import NavBar from '../components/NavBar';
 import { useRouter } from 'next/router';
 
 // Supabase
-import { createBrowserClient } from '@supabase/ssr';
-import { SessionContextProvider } from '@supabase/auth-helpers-react';
 
 // Font Google con next/font
 import { Poppins } from 'next/font/google';
@@ -22,8 +20,6 @@ const poppins = Poppins({
   display: 'swap',
 });
 
-const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 /* ------------------------------------------------------------------ */
 /*                    BRIDGE + PROXY (LS + CLOUD SYNC)                */
@@ -398,12 +394,7 @@ export default function MyApp({ Component, pageProps }) {
   const hideNavOn = ['/', '/login', '/auth/login'];
   const showNav = !hideNavOn.includes(router.pathname);
 
-  // Supabase client condiviso
-  // SSR-safe: init solo client-side
-  const [supabaseClient] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    return createBrowserClient(supabaseUrl, supabaseAnon);
-  });
+
 
   // Etichetta rotta + classe per /liste-prodotti (per gli stili mirati)
   useEffect(() => {
@@ -420,8 +411,8 @@ export default function MyApp({ Component, pageProps }) {
 
   // Inizializza il proxy (cloud/lista → brain)
   useEffect(() => {
-    bootstrapBrainProxy(supabaseClient);
-  }, [supabaseClient]);
+    bootstrapBrainProxy(null);
+  }, []);
 
   // Flush aggressivo quando entri in /liste-prodotti e quando la finestra torna in focus
   useEffect(() => {
@@ -454,24 +445,7 @@ export default function MyApp({ Component, pageProps }) {
     };
   }, [router.events, router.pathname]);
 
-  if (!supabaseClient) {
-    return (
-      <AuthProvider>
-        <div className={`${poppins.variable} app-shell`}>
-          {showNav && <NavBar />}
-          <main className="page-container">
-            <Component {...pageProps} />
-          </main>
-        </div>
-      </AuthProvider>
-    );
-  }
-
   return (
-  <SessionContextProvider
-    supabaseClient={supabaseClient}
-    initialSession={pageProps.initialSession ?? null}
-  >
     <AuthProvider>
       <div className={`${poppins.variable} app-shell`}>
         {showNav && <NavBar />}
@@ -517,6 +491,5 @@ export default function MyApp({ Component, pageProps }) {
         `}</style>
       </div>
     </AuthProvider>
-  </SessionContextProvider>
 );
 }
