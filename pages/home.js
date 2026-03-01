@@ -159,8 +159,35 @@ TESTO: ${text}`,
     }])
     if (error) { setErr(error.message); return }
 
+    if (categoria === 'casa' && Array.isArray(ocrResult.items) && ocrResult.items.length) {
+      for (const item of ocrResult.items) {
+        if (!item.name) continue
+        const { data: existing } = await supabase
+          .from('inventory').select('id, qty').eq('user_id', user.id)
+          .ilike('product_name', item.name).maybeSingle()
+        if (existing) {
+          await supabase.from('inventory').update({
+            qty: Number(existing.qty || 0) + Number(item.qty || 1),
+            initial_qty: Number(existing.qty || 0) + Number(item.qty || 1),
+            consumed_pct: 0,
+            last_updated: new Date().toISOString(),
+          }).eq('id', existing.id)
+        } else {
+          await supabase.from('inventory').insert({
+            user_id: user.id,
+            product_name: item.name,
+            category: 'alimentari',
+            qty: Number(item.qty || 1),
+            initial_qty: Number(item.qty || 1),
+            unit: item.unit || 'pz',
+            avg_price: Number(item.price || 0),
+          })
+        }
+      }
+    }
+
     setOcrResult(null)
-    alert('✅ Spesa salvata')
+    alert('✅ Spesa salvata' + (ocrResult.items?.length ? ' con ' + ocrResult.items.length + ' prodotti' : ''))
   }
 
   /* ── CONTEGGI ── */
