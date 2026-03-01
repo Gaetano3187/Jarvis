@@ -84,9 +84,11 @@ const Home = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: `Analizza questo scontrino e restituisci SOLO un JSON con:
-{categoria: "casa"|"vestiti"|"cene"|"varie", store, purchase_date (YYYY-MM-DD), price_total (numero)}
-TESTO: ${text}`,
+          prompt: `Analizza questo scontrino. Rispondi SOLO con questo JSON (includi SEMPRE items):
+{"categoria":"casa","store":"Nome Negozio","purchase_date":"YYYY-MM-DD","price_total":0.00,"items":[{"name":"Nome Prodotto Normalizzato","qty":1,"unit":"pz","price":0.00}]}
+- categoria: "casa" alimentari/pulizie, "vestiti" abbigliamento, "cene" ristorante/bar, "varie" altro
+- items: ogni prodotto con nome leggibile (non abbreviazioni), qty, unit, price
+SCONTRINO: ${text}`,
         }),
       })
       const { answer } = await resp.json()
