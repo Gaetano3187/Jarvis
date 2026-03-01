@@ -759,6 +759,26 @@ export default function ListeProdotti() {
             [LIST_TYPES.ONLINE]: onlineItems,
           });
         }
+
+        // Carica scorte da inventory Supabase
+        const { data: invRows } = await __supabase
+          .from('inventory')
+          .select('id, product_name, category, qty, initial_qty, unit, expiry_date, avg_price, consumed_pct')
+          .eq('user_id', uid)
+          .order('product_name', { ascending: true });
+        if (Array.isArray(invRows) && invRows.length) {
+          setStock(invRows.map(r => ({
+            id: r.id,
+            name: r.product_name,
+            category: r.category || 'alimentari',
+            packs: Number(r.qty || 1),
+            initialPacks: Number(r.initial_qty || 1),
+            unitLabel: r.unit || 'pz',
+            expiresAt: r.expiry_date || '',
+            priceEach: Number(r.avg_price || 0),
+            consumedPct: Number(r.consumed_pct || 0),
+          })));
+        }
       } catch (e) { if (DEBUG) console.warn('[cloud init] skipped', e); }
     })();
     return () => { mounted = false; };
