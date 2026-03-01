@@ -750,7 +750,6 @@ export default function ListeProdotti() {
         if (mounted) userIdRef.current = uid;
         if (!uid) return;
         const { data: cloudRows } = await __supabase.from(CLOUD_TABLE).select('id, name, list_type, purchased').eq('user_id', uid).eq('purchased', false);
-        if (!cloudRows || !cloudRows.length) return;
         const superItems = cloudRows.filter(r => r.list_type === LIST_TYPES.SUPERMARKET).map(r => ({ id: r.id, name: r.name, list_type: r.list_type }));
         const onlineItems = cloudRows.filter(r => r.list_type === LIST_TYPES.ONLINE).map(r => ({ id: r.id, name: r.name, list_type: r.list_type }));
         if (superItems.length || onlineItems.length) {
