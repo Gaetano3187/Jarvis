@@ -404,7 +404,6 @@ export default function MyApp({ Component, pageProps }) {
     if (typeof window === 'undefined') return null;
     return createBrowserClient(supabaseUrl, supabaseAnon);
   });
-  );
 
   // Etichetta rotta + classe per /liste-prodotti (per gli stili mirati)
   useEffect(() => {
