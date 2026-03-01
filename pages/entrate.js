@@ -162,9 +162,9 @@ function extractStoreName(text='') {
 function inferCategory(text='') {
   const s = normalizeIT(text);
   if (/\b(tabac|sigarett|sifigarette|sigr|fum[oi])\b/.test(s)) return 'varie'; // tabaccheria -> "varie"
-  if (/\b(supermercat|market|spes[ae]|coop|conad|carrefour|esselunga|md|lid[li])\b/.test(s)) return 'spese-casa';
-  if (/\b(bar|caffe|aperitiv|pizzeria|ristorant|pub|bistrot|braceria|sushi|enoteca)\b/.test(s)) return 'cene-aperitivi';
-  if (/\b(scarp|maglion|pantalon|camici|indument|vestit)\b/.test(s)) return 'vestiti-altro';
+  if (/\b(supermercat|market|spes[ae]|coop|conad|carrefour|esselunga|md|lid[li])\b/.test(s)) return 'casa';
+  if (/\b(bar|caffe|aperitiv|pizzeria|ristorant|pub|bistrot|braceria|sushi|enoteca)\b/.test(s)) return 'cene';
+  if (/\b(scarp|maglion|pantalon|camici|indument|vestit)\b/.test(s)) return 'vestiti';
   return 'varie';
 }
 
@@ -206,24 +206,23 @@ function detectCashExpenseIntent(text='') {
   };
 }
 
-/** Inserisce velocemente una spesa nel ledger unificato (jarvis_finances) come pagamento in contanti */
+/** Inserisce velocemente una spesa contanti nella tabella expenses */
 async function insertFinanceExpenseByVoice(exp) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Sessione scaduta');
 
   const payload = {
-    user_id: user.id,
-    category: exp.category || 'varie',
-    store: exp.store || 'Punto vendita',
+    user_id:      user.id,
+    category:     exp.category || 'varie',
+    store:        exp.store || 'Punto vendita',
+    description:  exp.description || '',
     purchase_date: exp.dateISO || isoLocal(new Date()),
-    price_total: Number(exp.amount || 0),
-    payment_method: 'cash',                 // ⚠️ fondamentale: così scala “Soldi in tasca”
-    link_label: null,                       // facoltativo (si auto-costruisce la route)
-    link_path: null,
-    created_at: new Date().toISOString(),
+    amount:       Number(exp.amount || 0),
+    payment_method: 'cash',
+    source:       'voice',
   };
 
-  const { error } = await supabase.from('jarvis_finances').insert(payload);
+  const { error } = await supabase.from('expenses').insert(payload);
   if (error) throw error;
 }
 
@@ -289,8 +288,8 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
       `and(received_at.gte.${prevStartISO}T00:00:00,received_at.lte.${prevEndISO}T23:59:59)`
     );
 
-  const { data: expPrev } = await supabase.from('jarvis_finances')
-    .select('price_total, purchase_date')
+  const { data: expPrev } = await supabase.from('expenses')
+    .select('amount, purchase_date')
     .eq('user_id', userId)
     .gte('purchase_date', prevStartISO)
     .lte('purchase_date', prevEndISO);
@@ -299,7 +298,7 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .select('amount').eq('user_id', userId).eq('month_key', prevKey).maybeSingle();
 
   const totalInc = (incPrev||[]).reduce((t,r)=>t+Number(r.amount||0),0);
-  const totalExp = (expPrev||[]).reduce((t,r)=>t+Number(r.price_total||0),0);
+  const totalExp = (expPrev||[]).reduce((t,r)=>t+Number(r.amount||0),0);
   const prevCarry = Number(coPrev?.amount||0);
   const saldoPrevBase = totalInc + prevCarry - totalExp;
 
@@ -407,20 +406,13 @@ function Entrate() {
         };
       });
 
-/* ===================== heads ledger + fallback categorie ===================== */
-const CAT_TO_ROUTE = {
-  'spese-casa': '/spese-casa',
-  'cene-aperitivi': '/cene-aperitivi',
-  'vestiti-altro': '/vestiti-altro',
-  'varie': '/varie',
-};
-
+/* ===================== heads ledger ===================== */
 let finHeads = [];
 const { data: finHeadsLedger } = await supabase
-  .from('jarvis_finances')
-  .select('id, receipt_id, category, store, purchase_date, price_total, payment_method, link_label, link_path, created_at')
+  .from('expenses')
+  .select('id, category, store, description, purchase_date, amount, payment_method, created_at')
   .eq('user_id', user.id)
-  .in('category', ['spese-casa','cene-aperitivi','vestiti-altro','varie'])
+  .in('category', ['casa','cene','vestiti','varie'])
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate)
   .order('purchase_date', { ascending: false })
@@ -428,129 +420,40 @@ const { data: finHeadsLedger } = await supabase
 
 if (Array.isArray(finHeadsLedger)) finHeads = [...finHeadsLedger];
 
-// Fallback: se il ledger non ha nulla, leggo le tabelle categoria e normalizzo
-const readCat = async (table, category) => {
-  const { data } = await supabase
-    .from(table)
-    .select('*')
-    .eq('user_id', user.id)
-    .gte('purchase_date', startDate)
-    .lte('purchase_date', endDate);
-  const rows = Array.isArray(data) ? data : [];
-  return rows.map(r => ({
-    id:             r.id ?? null,                  // ⬅️ aggiunto
-    receipt_id:     r.receipt_id ?? r.rid ?? null,
-    category,
-    store:          r.store ?? r.merchant ?? r.name ?? 'Punto vendita',
-    purchase_date:  r.purchase_date ?? (r.created_at || '').slice(0,10),
-    price_total:    Number(r.price_total ?? r.total_paid ?? r.total ?? 0),
-    payment_method: r.payment_method ?? null,
-    link_label:     r.link_label ?? null,
-    link_path:      r.link_path  ?? null,
-    created_at:     r.created_at ?? null,
-  }));
+const CAT_TO_ROUTE = {
+  'casa':    '/spese-casa',
+  'cene':    '/cene-aperitivi',
+  'vestiti': '/vestiti-ed-altro',
+  'varie':   '/varie',
 };
 
-
-if (!finHeads.length) {
-  const [sc, ca, va, vr] = await Promise.all([
-    readCat('jarvis_spese_casa',     'spese-casa'),
-    readCat('jarvis_cene_aperitivi', 'cene-aperitivi'),
-    readCat('jarvis_vestiti_altro',  'vestiti-altro'),
-    readCat('jarvis_varie',          'varie'),
-  ]);
-  finHeads = [...sc, ...ca, ...va, ...vr];
-}
-
-// Raggruppa: 1 riga per receipt_id (o store+data+categoria), usando headTotal oppure linesSum
-// Raggruppa: 1 riga per receipt_id (o store+data+categoria), tenendo lista completa degli ID
 const groupFinHeads = (heads = []) => {
-  const map = new Map();
-  for (const h of (heads || [])) {
+  return (heads || []).map(h => {
     const dateISO = h.purchase_date || '';
-    const cat     = h.category || 'spese-casa';
-    const store   = h.store || '';
-    const key = h.receipt_id
-      ? `rid:${h.receipt_id}`
-      : `sd:${String(store).toLowerCase().trim()}|${dateISO}|${cat}`;
-
-    const isHead = Boolean(
-      (h.link_label && String(h.link_label).trim()) ||
-      (h.link_path  && String(h.link_path ).trim())
-    );
-
-    const g = map.get(key) || {
-      receipt_id:     h.receipt_id || null,
-      category:       cat,
-      store,
-      dateISO,
-      payment_method: h.payment_method || '',
-      link_label:     h.link_label     || '',
-      link_path:      h.link_path      || '',
-      headTotal: 0,
-      linesSum:  0,
-      ids: [], // ⬅️ accumulo id concreti
-    };
-
-    // aggiorna metadati più “pieni”
-    if (!g.store && store) g.store = store;
-    if (!g.link_label && h.link_label) g.link_label = h.link_label;
-    if (!g.link_path  && h.link_path)  g.link_path  = h.link_path;
-    if (!g.payment_method && h.payment_method) g.payment_method = h.payment_method;
-
-    // accumula importi
-    const val = Number(h.price_total || 0);
-    if (isHead) g.headTotal = Math.max(g.headTotal, val); else g.linesSum += val;
-
-    // accumula id se presente
-    if (h.id) g.ids.push(h.id);
-
-    map.set(key, g);
-  }
-
-  return Array.from(map.values()).map(g => {
-    const isCash = /^(cash|contanti)$/i.test(String(g.payment_method || ''));
-    const monthParam = (g.dateISO || '').slice(0,7);
-    const baseTxt =
-      g.category === 'cene-aperitivi' ? 'Cena/Aperitivo' :
-      g.category === 'vestiti-altro'  ? 'Vestiti/Altro'  :
-      g.category === 'varie'          ? 'Varie'          : 'Spesa';
-
-    const total = g.headTotal > 0 ? g.headTotal : g.linesSum;
-    const tot = Number((total || 0).toFixed(2));
-    const dateIT = g.dateISO ? new Date(g.dateISO).toLocaleDateString('it-IT') : '';
-    const defaultLabel = `${baseTxt} ${g.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
-
-    const CAT_TO_ROUTE = {
-      'spese-casa': '/spese-casa',
-      'cene-aperitivi': '/cene-aperitivi',
-      'vestiti-altro': '/vestiti-altro',
-      'varie': '/varie',
-    };
-    const routeBase = CAT_TO_ROUTE[g.category] || '/spese-casa';
-    const defaultPath = g.receipt_id
-      ? `${routeBase}?rid=${encodeURIComponent(g.receipt_id)}&month=${monthParam}`
-      : `${routeBase}?store=${encodeURIComponent(g.store||'')}&date=${encodeURIComponent(g.dateISO||'')}&month=${monthParam}`;
-
-    const route = (g.link_path && g.link_path.trim())
-      ? `${g.link_path}${g.link_path.includes('?') ? '&' : '?'}month=${monthParam}`
-      : defaultPath;
+    const cat = h.category || 'casa';
+    const isCash = /^(cash|contanti)$/i.test(String(h.payment_method || ''));
+    const monthParam = dateISO.slice(0, 7);
+    const baseTxt = cat === 'cene' ? 'Cena/Aperitivo' : cat === 'vestiti' ? 'Vestiti/Altro' : cat === 'varie' ? 'Varie' : 'Spesa';
+    const dateIT = dateISO ? new Date(dateISO).toLocaleDateString('it-IT') : '';
+    const defaultLabel = `${baseTxt} ${h.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
+    const routeBase = CAT_TO_ROUTE[cat] || '/spese-casa';
+    const route = `${routeBase}?month=${monthParam}`;
+    const tot = Number((Number(h.amount || 0)).toFixed(2));
 
     return {
-      id: `${g.category}-${g.receipt_id || `${g.store}|${g.dateISO}`}`,
+      id: `${cat}-${h.id}`,
       kind: 'expense-linked',
-      dateISO: g.dateISO,
-      label: (g.link_label && g.link_label.trim()) ? g.link_label : defaultLabel,
+      dateISO,
+      label: h.description || defaultLabel,
       route,
       displayAmount: -tot,
       amount: isCash ? -tot : 0,
       affectsPocket: isCash,
       meta: {
-        receipt_id: g.receipt_id || null,
-        category: g.category || 'spese-casa',
-        store: g.store || '',
-        dateISO: g.dateISO || '',
-        ids: Array.from(new Set(g.ids)).filter(Boolean), // ⬅️ lista unica di id concreti
+        category: cat,
+        store: h.store || '',
+        dateISO,
+        ids: [h.id].filter(Boolean),
       },
     };
   });
@@ -567,15 +470,15 @@ const rows = [...expenseRows, ...filteredManual]
   .sort((a,b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
 setPocketRows(rows);
 
-// Totale spese periodo (ledger)
+// Totale spese periodo
 const { data: exp, error: expErr } = await supabase
-  .from('jarvis_finances')
-  .select('price_total,purchase_date')
+  .from('expenses')
+  .select('amount,purchase_date')
   .eq('user_id', user.id)
   .gte('purchase_date', startDate)
   .lte('purchase_date', endDate);
 if (!expErr && Array.isArray(exp)) {
-  const totalExp = exp.reduce((t, r) => t + Number(r.price_total || 0), 0);
+  const totalExp = exp.reduce((t, r) => t + Number(r.amount || 0), 0);
   setMonthExpenses(totalExp);
 }
 
@@ -884,39 +787,23 @@ async function handleDeletePocketRow(row) {
       return;
     }
 
-    // B) Spesa ledger + legacy
+    // B) Spesa in expenses
     const m = row.meta || {};
     const dateISO   = (m.dateISO || row.dateISO || '').slice(0, 10);
     const rawStore  = m.store || row.label || '';
     const storeNorm = normStore(rawStore);
-    const category  = m.category || 'spese-casa';
+    const category  = m.category || 'casa';
 
-    // 1) Prova eliminazione per ID reali (accetta sia UUID sia numerici)
-    let ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
-    const uuidIds = ids.filter(id => UUID_RE.test(String(id)));
-    const numIds  = ids.filter(id => NUM_RE.test(String(id))).map(n => Number(n));
-
-    if (uuidIds.length) {
-      await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: uuidIds });
-    }
-    if (numIds.length) {
-      await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: numIds });
+    // 1) Prova eliminazione per ID reali
+    const ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
+    if (ids.length) {
+      await deleteInBatches({ table: 'expenses', userId: user.id, ids });
     }
 
-    // 2) Se non avevamo ID, prova per receipt_id
-    if (!uuidIds.length && !numIds.length && m.receipt_id) {
-      const { error } = await supabase
-        .from('jarvis_finances')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('receipt_id', m.receipt_id);
-      if (error) throw error;
-    }
-
-    // 3) Fallback: stessa data+categoria, filtro per store normalizzato
-    if (!uuidIds.length && !numIds.length && !m.receipt_id) {
+    // 2) Fallback: stessa data+categoria, filtro per store normalizzato
+    if (!ids.length) {
       const { data: candidates, error: qErr } = await supabase
-        .from('jarvis_finances')
+        .from('expenses')
         .select('id, store')
         .eq('user_id', user.id)
         .eq('category', category)
@@ -927,21 +814,15 @@ async function handleDeletePocketRow(row) {
         .filter(r => normStore(r.store) === storeNorm)
         .map(r => r.id);
 
-      const foundUUID = idsFound.filter(id => UUID_RE.test(String(id)));
-      const foundNUM  = idsFound.filter(id => NUM_RE.test(String(id))).map(n => Number(n));
-
-      if (foundUUID.length) {
-        await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: foundUUID });
-      }
-      if (foundNUM.length) {
-        await deleteInBatches({ table: 'jarvis_finances', userId: user.id, ids: foundNUM });
+      if (idsFound.length) {
+        await deleteInBatches({ table: 'expenses', userId: user.id, ids: idsFound });
       }
     }
 
-    // 4) Legacy: schema-agnostico (select *), stesso giorno + store normalizzato
-    const legacyTables = ['jarvis_spese_casa', 'jarvis_cene_aperitivi', 'jarvis_vestiti_altro', 'jarvis_varie'];
-    const pickStore = (r) => r.store ?? r.merchant ?? r.name ?? r.punto_vendita ?? '';
-    const sameDay   = (r) => (r.purchase_date || (r.created_at || '').slice(0, 10) || '').slice(0, 10) === dateISO;
+    // Legacy placeholder (non più necessario)
+    const legacyTables = [];
+    const pickStore = (r) => r.store ?? '';
+    const sameDay   = (r) => (r.purchase_date || '').slice(0, 10) === dateISO;
 
     for (const t of legacyTables) {
       const { data: legRows, error: lErr } = await supabase

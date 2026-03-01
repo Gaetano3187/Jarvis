@@ -5,10 +5,7 @@ import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '../lib/supabaseClient'
 
-const CATEGORY_ID_VESTITI = '89e223d4-1ec0-4631-b0d4-52472579a04a'
-
 function VestitiEdAltro() {
-  // ─────────────────────────────────────────────── Stati e refs
   const [spese, setSpese] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -26,62 +23,51 @@ function VestitiEdAltro() {
   const mediaRecRef = useRef(null)
   const recordedChunks = useRef([])
 
-  // ─────────────────────────────────────────────── Carica storico on mount
-  useEffect(() => {
-    fetchSpese()
-  }, [])
+  useEffect(() => { fetchSpese() }, [])
 
   async function fetchSpese() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const { data, error } = await supabase
-      .from('jarvis_vestiti_altro')
-      .select('id, store, purchase_date, price_total')
+      .from('expenses')
+      .select('id, store, purchase_date, amount')
       .eq('user_id', user.id)
+      .eq('category', 'vestiti')
       .order('purchase_date', { ascending: false })
     if (error) setError(error.message)
     else setSpese(data || [])
     setLoading(false)
   }
 
-  // ─────────────────────────────────────────────── Aggiungi manuale
   const handleAdd = async e => {
     e.preventDefault()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) return setError('Sessione scaduta')
 
     const row = {
       user_id:       user.id,
+      category:      'vestiti',
       store:         nuovaSpesa.puntoVendita,
+      description:   nuovaSpesa.dettaglio,
       purchase_date: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
-      price_total:   Number(nuovaSpesa.prezzoTotale),
+      amount:        Number(nuovaSpesa.prezzoTotale),
     }
 
-    const { error: insertError } = await supabase.from('jarvis_vestiti_altro').insert(row)
+    const { error: insertError } = await supabase.from('expenses').insert(row)
     if (insertError) setError(insertError.message)
     else {
-      setNuovaSpesa({
-        puntoVendita: '',
-        dettaglio: '',
-        quantita: '1',
-        prezzoTotale: '',
-        spentAt: '',
-      })
+      setNuovaSpesa({ puntoVendita: '', dettaglio: '', quantita: '1', prezzoTotale: '', spentAt: '' })
       fetchSpese()
     }
   }
 
-  // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
-    const { error } = await supabase.from('jarvis_vestiti_altro').delete().eq('id', id)
+    const { error } = await supabase.from('expenses').delete().eq('id', id)
     if (error) setError(error.message)
     else setSpese(spese.filter(r => r.id !== id))
   }
 
-  // ─────────────────────────────────────────────── OCR multiplo
   const handleOCR = async files => {
     if (!files?.length) return
     try {
@@ -96,7 +82,6 @@ function VestitiEdAltro() {
     }
   }
 
-  // ─────────────────────────────────────────────── Registrazione audio
   const toggleRec = async () => {
     if (recBusy) {
       mediaRecRef.current?.stop()
@@ -106,8 +91,7 @@ function VestitiEdAltro() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecRef.current = new MediaRecorder(stream)
       recordedChunks.current = []
-      mediaRecRef.current.ondataavailable = e =>
-        e.data.size && recordedChunks.current.push(e.data)
+      mediaRecRef.current.ondataavailable = e => e.data.size && recordedChunks.current.push(e.data)
       mediaRecRef.current.onstop = processVoice
       mediaRecRef.current.start()
       setRecBusy(true)
@@ -131,11 +115,10 @@ function VestitiEdAltro() {
     }
   }
 
-  // ─────────────────────────────────────────────── Costruisci prompt
   function buildSystemPrompt(source, userText) {
     if (source === 'ocr') {
       return `
-Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa, anche se ce ne sono più di una, **usando la data** presente sullo scontrino.
+Sei Jarvis. Da questo testo OCR estrai **tutte** le voci di spesa.
 
 Per ciascuna voce genera:
 - puntoVendita: string
@@ -151,12 +134,11 @@ Rispondi **solo** con JSON:
   "items":[
     {
       "puntoVendita":"abbigliamento",
-      "dettaglio":"un paio di pantaloni a fiocca",
+      "dettaglio":"un paio di pantaloni",
       "quantita":1,
       "prezzoTotale":100.00,
       "data":"2025-08-06"
     }
-    /* altre voci... */
   ]
 }
 \`\`\`
@@ -173,7 +155,6 @@ Ora estrai **solo** JSON spesa (stesso schema):
 `
   }
 
-  // ─────────────────────────────────────────────── Parsing AI & DB insert
   async function parseAssistantPrompt(prompt) {
     const res = await fetch('/api/assistant', {
       method: 'POST',
@@ -188,44 +169,41 @@ Ora estrai **solo** JSON spesa (stesso schema):
       throw new Error('Assistant response invalid')
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Sessione scaduta')
 
     const rows = data.items.map(it => {
-      let spentAt = it.data === 'oggi'
+      let purchaseDate = it.data === 'oggi'
         ? new Date().toISOString().slice(0, 10)
         : it.data === 'ieri'
           ? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10) })()
           : it.data
 
       return {
-        user_id:     user.id,
-        category_id: CATEGORY_ID_VESTITI,
-        description: `[${it.puntoVendita}] ${it.dettaglio}`,
-        amount:      Number(it.prezzoTotale) || 0,
-        spent_at:    spentAt,
-        qty:         parseFloat(it.quantita) || 1,
+        user_id:       user.id,
+        category:      'vestiti',
+        store:         it.puntoVendita || 'Generico',
+        description:   it.dettaglio || '',
+        amount:        Number(it.prezzoTotale) || 0,
+        purchase_date: purchaseDate || new Date().toISOString().slice(0, 10),
       }
     })
 
-    const { error: dbErr } = await supabase.from('finances').insert(rows)
+    const { error: dbErr } = await supabase.from('expenses').insert(rows)
     if (dbErr) throw dbErr
 
     await fetchSpese()
     const last = rows[0]
     setNuovaSpesa({
-      puntoVendita: last.description.match(/^\[(.*?)\]/)?.[1] || '',
-      dettaglio:    last.description.replace(/^\[.*?\]\s*/, ''),
-      quantita:     String(last.qty),
+      puntoVendita: last.store || '',
+      dettaglio:    last.description || '',
+      quantita:     '1',
       prezzoTotale: last.amount,
-      spentAt:      last.spent_at,
+      spentAt:      last.purchase_date,
     })
   }
 
-  // ─────────────────────────────────────────────── Render
-  const totale = spese.reduce((t, r) => t + Number(r.price_total || 0), 0)
+  const totale = spese.reduce((t, r) => t + Number(r.amount || 0), 0)
 
   return (
     <>
@@ -260,19 +238,10 @@ Ora estrai **solo** JSON spesa (stesso schema):
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
               required
             />
-            <label>Quantità</label>
-            <input
-              type="number"
-              min="1"
-              value={nuovaSpesa.quantita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-              required
-            />
             <label>Dettaglio della spesa</label>
             <textarea
               value={nuovaSpesa.dettaglio}
               onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
-              required
             />
             <label>Data di acquisto</label>
             <input
@@ -307,7 +276,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
                     <tr key={r.id}>
                       <td>{r.store ?? '-'}</td>
                       <td>{r.purchase_date ?? '-'}</td>
-                      <td>{Number(r.price_total || 0).toFixed(2)}</td>
+                      <td>{Number(r.amount || 0).toFixed(2)}</td>
                       <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
                     </tr>
                   ))}
@@ -325,7 +294,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
         </div>
       </div>
 
-               <style jsx>{`
+      <style jsx>{`
         .spese-casa-container1 {
           width: 100%;
           display: flex;
@@ -359,7 +328,6 @@ Ora estrai **solo** JSON spesa (stesso schema):
           text-decoration: none;
         }
         .btn-ocr { background: #f43f5e; }
-        .btn-vocale[disabled] { opacity: 0.6; cursor: not-allowed; }
         .input-section {
           display: flex;
           flex-direction: column;
@@ -394,6 +362,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
     </>
   )
 }
+
 export default withAuth(VestitiEdAltro)
 
 export async function getServerSideProps() {

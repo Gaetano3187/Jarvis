@@ -269,7 +269,7 @@ function dedupeAndFix(items = []) {
 const LS_VER = 1;
 const LS_KEY = 'jarvis_liste_prodotti@v1';
 const CLOUD_SYNC = true;
-const CLOUD_TABLE = 'jarvis_liste_state';
+const CLOUD_TABLE = 'shopping_list';
 let __supabase = null;
 
 function loadPersisted() {
@@ -749,15 +749,16 @@ export default function ListeProdotti() {
         const uid = userData?.user?.id || null;
         if (mounted) userIdRef.current = uid;
         if (!uid) return;
-        const { data: row } = await __supabase.from(CLOUD_TABLE).select('state').eq('user_id', uid).maybeSingle();
-        const st = row?.state;
-        if (!st) return;
-        setLists({
-          [LIST_TYPES.SUPERMARKET]: Array.isArray(st.lists?.[LIST_TYPES.SUPERMARKET]) ? st.lists[LIST_TYPES.SUPERMARKET] : [],
-          [LIST_TYPES.ONLINE]: Array.isArray(st.lists?.[LIST_TYPES.ONLINE]) ? st.lists[LIST_TYPES.ONLINE] : [],
-        });
-        if (Array.isArray(st.stock)) setStock(st.stock);
-        if ([LIST_TYPES.SUPERMARKET, LIST_TYPES.ONLINE].includes(st.currentList)) setCurrentList(st.currentList);
+        const { data: cloudRows } = await __supabase.from(CLOUD_TABLE).select('id, name, list_type, purchased').eq('user_id', uid).eq('purchased', false);
+        if (!cloudRows || !cloudRows.length) return;
+        const superItems = cloudRows.filter(r => r.list_type === LIST_TYPES.SUPERMARKET).map(r => ({ id: r.id, name: r.name, list_type: r.list_type }));
+        const onlineItems = cloudRows.filter(r => r.list_type === LIST_TYPES.ONLINE).map(r => ({ id: r.id, name: r.name, list_type: r.list_type }));
+        if (superItems.length || onlineItems.length) {
+          setLists({
+            [LIST_TYPES.SUPERMARKET]: superItems,
+            [LIST_TYPES.ONLINE]: onlineItems,
+          });
+        }
       } catch (e) { if (DEBUG) console.warn('[cloud init] skipped', e); }
     })();
     return () => { mounted = false; };
@@ -778,7 +779,14 @@ export default function ListeProdotti() {
     };
     cloudTimerRef.current = setTimeout(async () => {
       try {
-        await __supabase.from(CLOUD_TABLE).upsert({ user_id: userIdRef.current, state: cloudState }, { onConflict: 'user_id' });
+        const uid = userIdRef.current;
+        if (!uid) return;
+        await __supabase.from(CLOUD_TABLE).delete().eq('user_id', uid);
+        const allItems = [
+          ...(cloudState.lists?.[LIST_TYPES.SUPERMARKET] || []).map(r => ({ user_id: uid, name: r.name || '', list_type: LIST_TYPES.SUPERMARKET, purchased: false, added_at: new Date().toISOString() })),
+          ...(cloudState.lists?.[LIST_TYPES.ONLINE] || []).map(r => ({ user_id: uid, name: r.name || '', list_type: LIST_TYPES.ONLINE, purchased: false, added_at: new Date().toISOString() })),
+        ].filter(r => r.name);
+        if (allItems.length > 0) await __supabase.from(CLOUD_TABLE).insert(allItems);
       } catch (e) { if (DEBUG) console.warn('[cloud upsert] fail', e); }
     }, 5000);
     return () => clearTimeout(cloudTimerRef.current);

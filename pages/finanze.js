@@ -1,8 +1,9 @@
 // pages/finanze.js
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import VoiceRecorder from '../components/VoiceRecorder';
+import { supabase } from '../lib/supabaseClient';
 import {
   FaMoneyBillWave, FaHome, FaTshirt, FaUtensils,
   FaFolderOpen, FaChartPie, FaPlus, FaCamera, FaMicrophone
@@ -18,9 +19,35 @@ const categories = [
   { href: '/spese',            base: '#06b6d4', hover: '#0ea5e9', icon: <FaChartPie/>,      title: 'Report Spese',     subtitle: 'Tutte le spese per categoria' },
 ];
 
+const CAT_KEYS = { casa: '/spese-casa', vestiti: '/vestiti-ed-altro', cene: '/cene-aperitivi', varie: '/varie' };
+
 const Finanze = () => {
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
+  const [totals, setTotals] = useState({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const now = new Date();
+        const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
+        const startISO = `${y}-${m}-01`;
+        const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+        const endISO = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+        const { data } = await supabase
+          .from('expenses')
+          .select('category, amount')
+          .eq('user_id', user.id)
+          .gte('purchase_date', startISO)
+          .lte('purchase_date', endISO);
+        const map = {};
+        (data || []).forEach(r => { map[r.category] = (map[r.category] || 0) + Number(r.amount || 0); });
+        setTotals(map);
+      } catch {}
+    })();
+  }, []);
 
   // Evita media player su mobile (forza inline)
   useEffect(() => {
@@ -82,6 +109,9 @@ const Finanze = () => {
                     </span>
                   </h3>
                   <p className="sub">{c.subtitle}</p>
+                  {Object.entries(CAT_KEYS).map(([cat, route]) => route === c.href && totals[cat] != null ? (
+                    <p key={cat} className="cat-total">€ {Number(totals[cat]).toFixed(2)} questo mese</p>
+                  ) : null)}
                 </div>
               </Link>
             ))}
@@ -218,6 +248,7 @@ const Finanze = () => {
         }
 
         .sub{ margin:0; opacity:.95; font-size:clamp(1rem,2.4vw,1.2rem); }
+        .cat-total{ margin:.5rem 0 0; font-size:clamp(.85rem,2vw,1rem); font-weight:700; opacity:.9; background:rgba(0,0,0,.25); border-radius:.4rem; padding:.2rem .5rem; display:inline-block; }
 
         /* Barra strumenti compatta e in basso */
         .tools-sticky{ margin-top: 12px; align-self: end; position: sticky; bottom: 12px; }

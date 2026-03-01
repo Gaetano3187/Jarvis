@@ -134,50 +134,29 @@ TESTO: ${text}`,
   }
   function stopRec() { mediaRef.current?.stop(); setIsRec(false) }
 
-  /* ── SALVA RISULTATO OCR/VOCE nella tabella giusta ── */
-  const TABELLA = {
-    casa:    'jarvis_spese_casa',
-    vestiti: 'jarvis_vestiti_altro',
-    cene:    'jarvis_cene_aperitivi',
-    varie:   'jarvis_varie',
-  }
-  const CAMPO_IMPORTO = { casa: 'price_total', vestiti: 'price_total', cene: 'doc_total', varie: 'price_total' }
-  const CAMPO_STORE   = { casa: 'store', vestiti: 'store', cene: 'venue', varie: 'store' }
-
+  /* ── SALVA RISULTATO OCR/VOCE in expenses ── */
   async function salvaRisultato() {
     if (!ocrResult) return
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    const tab    = TABELLA[ocrResult.categoria]        ?? 'jarvis_varie'
-    const campo  = CAMPO_IMPORTO[ocrResult.categoria]  ?? 'price_total'
-    const store  = CAMPO_STORE[ocrResult.categoria]    ?? 'store'
     const purchaseDate = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
     const storeVal     = ocrResult.store ?? 'Generico'
     const importo      = parseFloat(ocrResult.price_total ?? 0)
+    const categoria    = ocrResult.categoria ?? 'varie'
 
-    // 1) Salva nella tabella categoria
-    const { error } = await supabase.from(tab).insert([{
-      user_id:       user.id,
-      [store]:       storeVal,
-      purchase_date: purchaseDate,
-      [campo]:       importo,
+    const { error } = await supabase.from('expenses').insert([{
+      user_id:        user.id,
+      category:       categoria,
+      store:          storeVal,
+      purchase_date:  purchaseDate,
+      amount:         importo,
+      payment_method: 'cash',
+      source:         'ocr',
     }])
     if (error) { setErr(error.message); return }
 
-    // 2) Salva nel ledger jarvis_finances (per Soldi in tasca)
-    const CAT_LEDGER = { casa: 'spese-casa', vestiti: 'vestiti-altro', cene: 'cene-aperitivi', varie: 'varie' }
-    const { error: errLedger } = await supabase.from('jarvis_finances').insert([{
-      user_id:        user.id,
-      category:       CAT_LEDGER[ocrResult.categoria] ?? 'varie',
-      store:          storeVal,
-      purchase_date:  purchaseDate,
-      price_total:    importo,
-      payment_method: 'cash',
-    }])
-    if (errLedger) console.warn('Ledger insert warning:', errLedger.message)
-
     setOcrResult(null)
-    alert('✅ Spesa salvata in ' + tab.replace('jarvis_', ''))
+    alert('✅ Spesa salvata')
   }
 
   /* ── CONTEGGI ── */

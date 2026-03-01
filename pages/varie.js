@@ -33,9 +33,10 @@ function Varie() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const { data, error } = await supabase
-      .from('jarvis_varie')
-      .select('id, store, purchase_date, price_total')
+      .from('expenses')
+      .select('id, store, purchase_date, amount')
       .eq('user_id', user.id)
+      .eq('category', 'varie')
       .order('purchase_date', { ascending: false })
     if (error) setErr(error.message)
     else setRows(data ?? [])
@@ -45,18 +46,19 @@ function Varie() {
     e.preventDefault()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    const { error } = await supabase.from('jarvis_varie').insert([{
+    const { error } = await supabase.from('expenses').insert([{
       user_id: user.id,
+      category: 'varie',
       store: form.store,
       purchase_date: form.purchase_date || new Date().toISOString().slice(0, 10),
-      price_total: parseFloat(form.price_total),
+      amount: parseFloat(form.price_total),
     }])
     if (error) setErr(error.message)
     else { setForm({ store: '', purchase_date: '', price_total: '' }); fetchRows() }
   }
 
   async function onDelete(id) {
-    const { error } = await supabase.from('jarvis_varie').delete().eq('id', id)
+    const { error } = await supabase.from('expenses').delete().eq('id', id)
     if (error) setErr(error.message)
     else setRows(rows.filter(r => r.id !== id))
   }
@@ -71,12 +73,13 @@ function Varie() {
       const items = Array.isArray(parsed) ? parsed : [parsed]
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { error } = await supabase.from('jarvis_varie').insert(
+      const { error } = await supabase.from('expenses').insert(
         items.map(i => ({
           user_id: user.id,
+          category: 'varie',
           store: i.store ?? 'Generico',
           purchase_date: i.purchase_date ?? new Date().toISOString().slice(0, 10),
-          price_total: parseFloat(i.price_total ?? 0),
+          amount: parseFloat(i.price_total ?? 0),
         }))
       )
       if (error) setErr(error.message)
@@ -118,7 +121,7 @@ function Varie() {
   }
   function stopRec() { mediaRef.current?.stop(); setIsRec(false) }
 
-  const totale = rows.reduce((s, r) => s + Number(r.price_total || 0), 0)
+  const totale = rows.reduce((s, r) => s + Number(r.amount || 0), 0)
 
   return (
     <>
@@ -148,7 +151,7 @@ function Varie() {
                 <tr key={r.id}>
                   <td>{r.store ?? '-'}</td>
                   <td>{r.purchase_date ?? '-'}</td>
-                  <td>{Number(r.price_total).toFixed(2)}</td>
+                  <td>{Number(r.amount).toFixed(2)}</td>
                   <td><button onClick={() => onDelete(r.id)}>🗑</button></td>
                 </tr>
               ))}

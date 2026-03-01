@@ -5,8 +5,6 @@ import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
 import { supabase } from '../lib/supabaseClient';
 
-const CATEGORY_ID_CENE = '0f8eb04a-8a1a-4899-9f29-236a5be7e9db';
-
 /* -------------------- helpers data/tempo -------------------- */
 function isoLocal(date = new Date()) {
   const y = date.getFullYear();
@@ -35,7 +33,6 @@ function CeneAperitivi() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Recorder / OCR
   const [recBusy, setRecBusy] = useState(false);
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
@@ -49,22 +46,17 @@ function CeneAperitivi() {
     spentAt: '',
   });
 
-  // Query string (rid, month)
-  const { rid, initialMonth } = useMemo(() => {
-    if (typeof window === 'undefined') return { rid: '', initialMonth: null };
-    const sp = new URLSearchParams(window.location.search);
-    return {
-      rid: sp.get('rid') || '',
-      initialMonth: sp.get('month') || null,
-    };
+  const initialMonth = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('month') || null;
   }, []);
 
-  // Selettore mese
   const [monthKey, setMonthKey] = useState(() => {
     if (typeof window === 'undefined') return toMonthKey(new Date());
     const local = window.localStorage.getItem('__cene_month');
     return clampMonthKey(initialMonth || local || toMonthKey(new Date()));
   });
+
   useEffect(() => {
     try {
       window.localStorage.setItem('__cene_month', monthKey);
@@ -74,25 +66,6 @@ function CeneAperitivi() {
     } catch {}
   }, [monthKey]);
 
-  // Se arrivo con ?rid ma senza month → provo a dedurre il mese dalla testata (se esiste)
-  useEffect(() => {
-    if (!rid || initialMonth) return;
-    (async () => {
-      try {
-        const { data: head } = await supabase
-          .from('jarvis_cene_aperitivi')
-          .select('purchase_date')
-          .eq('receipt_id', rid)
-          .maybeSingle();
-        const mk = head?.purchase_date ? String(head.purchase_date).slice(0, 7) : null;
-        if (mk && mk !== monthKey) setMonthKey(mk);
-      } catch {
-        /* ignora: la tabella potrebbe non esistere in questo schema */
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rid]);
-
   const { startISO, endISO } = useMemo(() => monthBounds(monthKey), [monthKey]);
 
   /* -------------------- fetch elenco -------------------- */
@@ -100,22 +73,18 @@ function CeneAperitivi() {
     setLoading(true);
     setError(null);
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!user) throw new Error('Sessione scaduta');
 
-      // Leggo dal ledger "finances" filtrando per utente, categoria e mese selezionato
       const { data, error: qErr } = await supabase
-        .from('finances')
-        .select('id, description, amount, qty, spent_at, created_at')
+        .from('expenses')
+        .select('id, store, description, amount, purchase_date, created_at')
         .eq('user_id', user.id)
-        .eq('category_id', CATEGORY_ID_CENE)
-        .gte('spent_at', `${startISO}T00:00:00`)
-        .lte('spent_at', `${endISO}T23:59:59`)
-        .order('spent_at', { ascending: false })
+        .eq('category', 'cene')
+        .gte('purchase_date', startISO)
+        .lte('purchase_date', endISO)
+        .order('purchase_date', { ascending: false })
         .order('created_at', { ascending: false });
 
       if (qErr) throw qErr;
@@ -127,38 +96,28 @@ function CeneAperitivi() {
     }
   }, [startISO, endISO]);
 
-  useEffect(() => {
-    fetchSpese();
-  }, [fetchSpese]);
+  useEffect(() => { fetchSpese(); }, [fetchSpese]);
 
-  /* -------------------- add manuale (una riga) -------------------- */
+  /* -------------------- add manuale -------------------- */
   const handleAdd = async (e) => {
     e.preventDefault();
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sessione scaduta');
 
       const row = {
-        user_id: user.id,
-        category_id: CATEGORY_ID_CENE,
-        description: `[${nuovaSpesa.puntoVendita || 'Cena/Aperitivo'}] ${nuovaSpesa.dettaglio}`,
-        amount: Number(nuovaSpesa.prezzoTotale) || 0,
-        spent_at: (nuovaSpesa.spentAt || isoLocal(new Date())),
-        qty: parseInt(nuovaSpesa.quantita, 10) || 1,
+        user_id:      user.id,
+        category:     'cene',
+        store:        nuovaSpesa.puntoVendita || 'Cena/Aperitivo',
+        description:  nuovaSpesa.dettaglio,
+        amount:       Number(nuovaSpesa.prezzoTotale) || 0,
+        purchase_date: nuovaSpesa.spentAt || isoLocal(new Date()),
       };
 
-      const { error: insertError } = await supabase.from('finances').insert(row);
+      const { error: insertError } = await supabase.from('expenses').insert(row);
       if (insertError) throw insertError;
 
-      setNuovaSpesa({
-        puntoVendita: '',
-        dettaglio: '',
-        quantita: '1',
-        prezzoTotale: '',
-        spentAt: '',
-      });
+      setNuovaSpesa({ puntoVendita: '', dettaglio: '', quantita: '1', prezzoTotale: '', spentAt: '' });
       await fetchSpese();
     } catch (e) {
       setError(e?.message || String(e));
@@ -168,7 +127,7 @@ function CeneAperitivi() {
   /* -------------------- delete -------------------- */
   const handleDelete = async (id) => {
     try {
-      const { error } = await supabase.from('finances').delete().eq('id', id);
+      const { error } = await supabase.from('expenses').delete().eq('id', id);
       if (error) throw error;
       setSpese((prev) => prev.filter((r) => r.id !== id));
     } catch (e) {
@@ -230,7 +189,7 @@ function CeneAperitivi() {
     const header =
       source === 'ocr'
         ? 'Sei Jarvis. Dal testo OCR estrai uno scontrino unico.'
-        : 'Sei Jarvis. Dal dettato vocale estrai uno scontrino unico (ignora “ehm”, “ok”, ecc.).';
+        : 'Sei Jarvis. Dal dettato vocale estrai uno scontrino unico (ignora "ehm", "ok", ecc.).';
 
     return `
 ${header}
@@ -295,7 +254,6 @@ ${userText}
       total = Number(data.total || calc);
       descr = `${rows.join('; ')}; Totale scontrino: ${eurF(total)} €`;
     } else if (data.type === 'expense' && Array.isArray(data.items) && data.items.length) {
-      // Fallback compatibile
       const rows = [];
       total = 0;
       let candidatePV = '';
@@ -313,26 +271,23 @@ ${userText}
       throw new Error('Assistant response invalid');
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
 
     const row = {
-      user_id: user.id,
-      category_id: CATEGORY_ID_CENE,
-      description: `[${puntoVendita || 'Cena/Aperitivo'}] ${descr}`,
-      amount: Number(total) || 0,
-      spent_at: spentAt,
-      qty: 1,
+      user_id:      user.id,
+      category:     'cene',
+      store:        puntoVendita || 'Cena/Aperitivo',
+      description:  descr,
+      amount:       Number(total) || 0,
+      purchase_date: spentAt,
     };
 
-    const { error: dbErr } = await supabase.from('finances').insert(row);
+    const { error: dbErr } = await supabase.from('expenses').insert(row);
     if (dbErr) throw dbErr;
 
     await fetchSpese();
 
-    // aggiorna form con riepilogo ultima voce
     setNuovaSpesa({
       puntoVendita: puntoVendita || '',
       dettaglio: descr,
@@ -343,7 +298,7 @@ ${userText}
   }
 
   /* -------------------- render -------------------- */
-  const totale = spese.reduce((t, r) => t + Number(r.amount || 0) * (r.qty || 1), 0);
+  const totale = spese.reduce((t, r) => t + Number(r.amount || 0), 0);
 
   return (
     <>
@@ -411,17 +366,7 @@ ${userText}
               required
             />
 
-            <div className="row-3" style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'.75rem'}}>
-              <div>
-                <label>Quantità</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={nuovaSpesa.quantita}
-                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, quantita: e.target.value })}
-                  required
-                />
-              </div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'.75rem'}}>
               <div>
                 <label>Data</label>
                 <input
@@ -458,28 +403,23 @@ ${userText}
                   <tr>
                     <th>Punto vendita</th>
                     <th>Dettaglio</th>
-                    <th>Qtà</th>
                     <th>Data</th>
                     <th>Prezzo €</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {spese.map(r => {
-                    const m = (r.description || '').match(/^\[(.*?)\]\s*(.*)$/) || [];
-                    return (
-                      <tr key={r.id}>
-                        <td>{m[1] || 'Cena/Aperitivo'}</td>
-                        <td>{m[2] || r.description}</td>
-                        <td>{r.qty || 1}</td>
-                        <td>{new Date(r.spent_at || r.created_at).toLocaleDateString('it-IT')}</td>
-                        <td>{(Number(r.amount || 0)).toFixed(2)}</td>
-                        <td>
-                          <button onClick={() => handleDelete(r.id)} className="btn-danger" title="Elimina">🗑</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {spese.map(r => (
+                    <tr key={r.id}>
+                      <td>{r.store || 'Cena/Aperitivo'}</td>
+                      <td>{r.description || '-'}</td>
+                      <td>{new Date(r.purchase_date || r.created_at).toLocaleDateString('it-IT')}</td>
+                      <td>{(Number(r.amount || 0)).toFixed(2)}</td>
+                      <td>
+                        <button onClick={() => handleDelete(r.id)} className="btn-danger" title="Elimina">🗑</button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
@@ -492,7 +432,6 @@ ${userText}
         </div>
       </div>
 
-      {/* Stili */}
       <style jsx global>{`
         .spese-casa-container1 {
           width: 100%;
@@ -518,6 +457,7 @@ ${userText}
         .btn-vocale, .btn-ocr, .btn-manuale, .btn-danger {
           background: #10b981; color: #fff; border: none;
           padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer;
+          text-decoration: none;
         }
         .btn-ocr { background: #f43f5e; }
         .btn-danger { background: #ef4444; }
@@ -538,6 +478,7 @@ ${userText}
           padding: 1rem; border-radius: 0.5rem; text-align: right; font-weight: 600;
         }
         .month-toolbar .btn-manuale { background: rgba(99,102,241,.9); }
+        .error { color: #f87171; margin-top: 1rem; }
       `}</style>
     </>
   );
