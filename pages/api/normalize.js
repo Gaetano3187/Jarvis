@@ -1,5 +1,5 @@
 // pages/api/normalize.js
-import { openai, TEXT_MODEL as EXPORTED_MODEL } from '@/lib/openai';
+import { openai, TEXT_MODEL as EXPORTED_MODEL } from '../../lib/openai';
 
 const CSE_ID  = process.env.GOOGLE_CSE_ID || '';
 const CSE_KEY = process.env.GOOGLE_CSE_KEY || '';

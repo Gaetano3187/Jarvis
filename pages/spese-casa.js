@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Head from 'next/head';
 import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
-import { getJSON, postJSON } from '@/lib/http';
+import { getJSON, postJSON } from '../lib/http';
 
 /* ================= Helpers date & money ================= */
 function isoLocal(date = new Date()) {

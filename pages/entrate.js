@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 
 const PAYDAY_DAY = 10;
 const CATEGORY_ID_VARIE = '075ce548-15a9-467c-afc8-8b156064eeb6';

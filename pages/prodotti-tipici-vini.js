@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
 import withAuth from '../hoc/withAuth';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 
 // Endpoint OCR dedicato a questa pagina 
 const OCR_API_GENERIC = '/api/ocr-generic';

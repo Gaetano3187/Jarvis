@@ -4,7 +4,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 
 import withAuth from '../hoc/withAuth';
-import { insertExpense } from '@/lib/dbHelpers';
+import { insertExpense } from '../lib/dbHelpers';
 import { supabase } from '../lib/supabaseClient';
 // import { askAssistant } from '../lib/assistant';  // ← ora la chiamata passa da /api/assistant
 

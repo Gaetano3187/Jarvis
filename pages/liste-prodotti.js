@@ -742,7 +742,7 @@ export default function ListeProdotti() {
     let mounted = true;
     (async () => {
       try {
-        const mod = await import('@/lib/supabaseClient').catch(() => null);
+        const mod = await import('../lib/supabaseClient').catch(() => null);
         if (!mod?.supabase) return;
         __supabase = mod.supabase;
         const { data: userData } = await __supabase.auth.getUser();

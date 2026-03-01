@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import Head from 'next/head';
 import Link from 'next/link';
 import withAuth from '../hoc/withAuth';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 
 const CATEGORY_ID_CENE = '0f8eb04a-8a1a-4899-9f29-236a5be7e9db';
 
