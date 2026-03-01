@@ -1,6 +1,6 @@
 // pages/api/shortcuts/index.js
-import { supabase } from '../../lib/supabaseClient'
-import { runQueryFromTextLocal } from '../../lib/brainHub'   // riuso parser già fatto
+import { supabase } from '../../../lib/supabaseClient'
+import { runQueryFromTextLocal } from '../../../lib/brainHub'   // riuso parser già fatto
 
 // ------------------------ Utility di base ------------------------
 function ok(res, data) { return res.status(200).json(data) }
