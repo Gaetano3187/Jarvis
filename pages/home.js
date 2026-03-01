@@ -234,6 +234,18 @@ TESTO: ${text}`,
               <p>🏪 Negozio: <strong>{ocrResult.store ?? '—'}</strong></p>
               <p>📅 Data: <strong>{ocrResult.purchase_date ?? '—'}</strong></p>
               <p>💶 Importo: <strong>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></p>
+              {Array.isArray(ocrResult.items) && ocrResult.items.length > 0 && (
+                <div style={{marginTop:'.5rem'}}>
+                  <p style={{fontWeight:600}}>🛒 Prodotti ({ocrResult.items.length}):</p>
+                  <ul style={{margin:'4px 0',paddingLeft:'1.2rem',fontSize:'.9rem'}}>
+                    {ocrResult.items.map((it,i) => (
+                      <li key={i}>{it.name} — {it.qty} {it.unit} — € {Number(it.price||0).toFixed(2)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p>📅 Data: <strong>{ocrResult.purchase_date ?? '—'}</strong></p>
+              <p>💶 Importo: <strong>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></p>
               <div style={{ display: 'flex', gap: '.75rem', marginTop: '.75rem' }}>
                 <button className="ocr" onClick={salvaRisultato} style={{ flex: 1 }}>✅ Salva</button>
                 <button onClick={() => setOcrResult(null)} style={{ flex: 1, background: '#6b7280', color: '#fff', border: 'none', borderRadius: '.5rem', padding: '.6rem', cursor: 'pointer', fontWeight: 600 }}>✕ Annulla</button>
