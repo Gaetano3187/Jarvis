@@ -761,11 +761,13 @@ export default function ListeProdotti() {
         }
 
         // Carica scorte da inventory Supabase
+        console.log('Carico inventory da Supabase per uid:', uid)
         const { data: invRows } = await __supabase
           .from('inventory')
           .select('id, product_name, category, qty, initial_qty, unit, expiry_date, avg_price, consumed_pct')
           .eq('user_id', uid)
           .order('product_name', { ascending: true });
+        console.log('inventory rows:', invRows?.length, invRows)
         if (Array.isArray(invRows) && invRows.length) {
           setStock(invRows.map(r => ({
             id: r.id,
