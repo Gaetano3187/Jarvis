@@ -4,7 +4,17 @@ import Head from 'next/head'
 import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '../lib/supabaseClient'
-import { askAssistant } from '../lib/askAssistant'
+
+async function askAssistant(prompt) {
+  const res = await fetch('/api/assistant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  })
+  const { answer, error } = await res.json()
+  if (error) throw new Error(error)
+  return answer
+}
 
 function Varie() {
   const [rows, setRows]              = useState([])
@@ -51,13 +61,14 @@ function Varie() {
     else setRows(rows.filter(r => r.id !== id))
   }
 
-  async function parseAndInsert(prompt) {
+  async function parseAndInsert(text) {
     setErr(null)
     try {
       const sys = 'Estrai spese varie da testo/OCR. Rispondi SOLO con JSON array: [{store, purchase_date (YYYY-MM-DD), price_total (numero)}].'
-      const answer = await askAssistant(sys + '\n\nTESTO:\n' + prompt)
+      const answer = await askAssistant(sys + '\n\nTESTO:\n' + text)
       const clean = answer.replace(/```json|```/g, '').trim()
-      const items = Array.isArray(JSON.parse(clean)) ? JSON.parse(clean) : [JSON.parse(clean)]
+      const parsed = JSON.parse(clean)
+      const items = Array.isArray(parsed) ? parsed : [parsed]
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       const { error } = await supabase.from('jarvis_varie').insert(
