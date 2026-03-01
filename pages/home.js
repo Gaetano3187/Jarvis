@@ -90,8 +90,10 @@ TESTO: ${text}`,
         }),
       })
       const { answer } = await resp.json()
+      console.log('OCR ANSWER:', answer)
       const clean  = answer.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
+      console.log('OCR PARSED:', JSON.stringify(parsed))
       setOcrResult(parsed)
     } catch (e) { setErr('OCR: ' + e.message) }
     finally { setLoadOCR(false) }
