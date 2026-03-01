@@ -33,13 +33,15 @@ function VestitiEdAltro() {
 
   async function fetchSpese() {
     setLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     const { data, error } = await supabase
-      .from('finances')
-      .select('id, description, amount, qty, spent_at')
-      .eq('category_id', CATEGORY_ID_VESTITI)
-      .order('created_at', { ascending: false })
+      .from('jarvis_vestiti_altro')
+      .select('id, store, purchase_date, price_total')
+      .eq('user_id', user.id)
+      .order('purchase_date', { ascending: false })
     if (error) setError(error.message)
-    else setSpese(data)
+    else setSpese(data || [])
     setLoading(false)
   }
 
@@ -52,15 +54,13 @@ function VestitiEdAltro() {
     if (!user) return setError('Sessione scaduta')
 
     const row = {
-      user_id:     user.id,
-      category_id: CATEGORY_ID_VESTITI,
-      description: `[${nuovaSpesa.puntoVendita}] ${nuovaSpesa.dettaglio}`,
-      amount:      Number(nuovaSpesa.prezzoTotale),
-      spent_at:    nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
-      qty:         parseInt(nuovaSpesa.quantita, 10) || 1,
+      user_id:       user.id,
+      store:         nuovaSpesa.puntoVendita,
+      purchase_date: nuovaSpesa.spentAt || new Date().toISOString().slice(0, 10),
+      price_total:   Number(nuovaSpesa.prezzoTotale),
     }
 
-    const { error: insertError } = await supabase.from('finances').insert(row)
+    const { error: insertError } = await supabase.from('jarvis_vestiti_altro').insert(row)
     if (insertError) setError(insertError.message)
     else {
       setNuovaSpesa({
@@ -76,7 +76,7 @@ function VestitiEdAltro() {
 
   // ─────────────────────────────────────────────── Elimina voce
   const handleDelete = async id => {
-    const { error } = await supabase.from('finances').delete().eq('id', id)
+    const { error } = await supabase.from('jarvis_vestiti_altro').delete().eq('id', id)
     if (error) setError(error.message)
     else setSpese(spese.filter(r => r.id !== id))
   }
@@ -225,7 +225,7 @@ Ora estrai **solo** JSON spesa (stesso schema):
   }
 
   // ─────────────────────────────────────────────── Render
-  const totale = spese.reduce((t, r) => t + r.amount * (r.qty || 1), 0)
+  const totale = spese.reduce((t, r) => t + Number(r.price_total || 0), 0)
 
   return (
     <>
@@ -299,28 +299,18 @@ Ora estrai **solo** JSON spesa (stesso schema):
               <table className="custom-table">
                 <thead>
                   <tr>
-                    <th>Punto vendita</th>
-                    <th>Dettaglio</th>
-                    <th>Data</th>
-                    <th>Qtà</th>
-                    <th>Prezzo €</th>
-                    <th></th>
+                    <th>Negozio</th><th>Data</th><th>Importo €</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {spese.map(r => {
-                    const m = r.description.match(/^\[(.*?)\]\s*(.*)$/) || []
-                    return (
-                      <tr key={r.id}>
-                        <td>{m[1] || '-'}</td>
-                        <td>{m[2] || r.description}</td>
-                        <td>{new Date(r.spent_at).toLocaleDateString()}</td>
-                        <td>{r.qty}</td>
-                        <td>{r.amount.toFixed(2)}</td>
-                        <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
-                      </tr>
-                    )
-                  })}
+                  {spese.map(r => (
+                    <tr key={r.id}>
+                      <td>{r.store ?? '-'}</td>
+                      <td>{r.purchase_date ?? '-'}</td>
+                      <td>{Number(r.price_total || 0).toFixed(2)}</td>
+                      <td><button onClick={() => handleDelete(r.id)}>🗑</button></td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
