@@ -14,6 +14,7 @@
     "@supabase/auth-helpers-react": "^0.15.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.50.3",
+    "commit": "^0.0.4",
     "formidable": "^3.5.4",
     "jsqr": "^1.4.0",
     "leaflet": "^1.9.4",
