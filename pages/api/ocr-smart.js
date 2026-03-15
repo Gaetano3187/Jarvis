@@ -40,53 +40,84 @@ Restituisci ESCLUSIVAMENTE questo JSON (nessun testo prima o dopo):
 
 REGOLE CRITICHE:
 
-1. NOMI PRODOTTI: normalizza le abbreviazioni in nomi commerciali reali italiani.
+1. FORMATO QUANTITÀ — molti scontrini italiani stampano la quantità su una riga separata PRIMA del nome:
+   Esempio:
+     "2 x    1,95"        ← riga quantità: 2 pezzi a 1,95 l'uno
+     "UOVA GRANDI X6      3,90"  ← nome prodotto + prezzo totale
+   In questo caso: qty=2, unit_price=1.95, price=3.90, name="Uova grandi confezione da 6"
+   
+   Altri formati comuni:
+     "6 x    1,95"        +  "#LATTE ZYMIL 1 LT   11,70" → qty=6, unit_price=1.95, price=11.70
+     "4 x    1,00"        +  "#---ZUCCHERO 1KG    4,00"  → qty=4, unit_price=1.00, price=4.00
+     "2.840x"             +  "PANE PASTICCERIA    2,84"  → qty=2.840 kg, unit="kg", price=2.84
+     "1.00 / 33.370x"     +  "FORMAGGI SALUMI     33,37" → qty=33.370 kg al banco, unit="kg"
+   
+   REGOLA: se vedi una riga con formato "N x prezzo" o "N.NNNx" PRIMA di un nome prodotto,
+   quella riga definisce qty e unit_price del prodotto che segue. NON creare una voce separata per quella riga.
+
+2. PRODOTTI AL BANCO (peso variabile):
+   - Se qty ha 3 decimali (es. 2.840, 33.370, 0.450) → unit="kg"
+   - Il prezzo al kg è sulla riga "N x prezzo" sopra il nome
+   - Esempio: "1.00 / 33.370x" con "FORMAGGI SALUMI 33,37" → qty=33.370, unit="kg", unit_price=1.00, price=33.37
+
+3. SIMBOLI DA IGNORARE nel nome prodotto:
+   - "#" iniziale → promozionale, rimuovilo dal nome
+   - "---" → separatore, rimuovilo
+   - Esempio: "#LATTE ZYMIL 1 LT" → "Latte Zymil 1L"
+   - Esempio: "#---ZUCCHERO 1KG ERI" → "Zucchero 1kg"
+
+4. NOMI PRODOTTI: normalizza le abbreviazioni in nomi commerciali reali italiani.
    - "LTTE INT BIO 1L" → "Latte intero biologico 1L"
    - "PRSC CRUDO 100G" → "Prosciutto crudo 100g"
    - "DET LAVATRICE" → "Detersivo lavatrice"
    - "ACQ MINERALE" → "Acqua minerale"
    - "BISCOT INTEG" → "Biscotti integrali"
-   - "BNNA" → "Banane"
-   - "MOZZ BUFF" → "Mozzarella di bufala"
+   - "LIEVITAL LIEVITO X2" → "Lievito in polvere (confezione da 2)"
+   - "VANILLINA PANEAN" → "Vanillina Paneangeli"
+   - "FARINA DE CECCO" → "Farina De Cecco"
+   - "KINDER BUENO X2" → "Kinder Bueno (confezione da 2)"
    Usa il contesto (marca, reparto, prezzo) per inferire il nome corretto.
 
-2. CATEGORIA principale dello scontrino:
+5. CATEGORIA principale dello scontrino:
    - "casa" → supermercato, alimentari, pulizie, farmacia, ferramenta
    - "cene" → ristorante, bar, pizzeria, aperitivo, fast food
    - "vestiti" → abbigliamento, scarpe, accessori
    - "varie" → tabacchi, benzina, parcheggio, altro
 
-3. CATEGORIA ITEM per ogni prodotto:
+6. CATEGORIA ITEM per ogni prodotto:
    - "alimentari" → cibo, bevande
    - "pulizia" → detergenti, carta, pulizia casa
    - "igiene" → saponi, shampoo, cura persona
    - "farmaco" → medicine, integratori
    - "altro" → tutto il resto
 
-4. DATE:
+7. DATE:
    - purchase_date: leggi la data dallo scontrino, formato YYYY-MM-DD
    - expiry_date: solo se stampata esplicitamente sul prodotto (yogurt, latte fresco, ecc.)
      formato YYYY-MM-DD oppure null
 
-5. PREZZI: usa sempre il punto decimale (es. 12.50, non 12,50).
+8. PREZZI: usa sempre il punto decimale (es. 12.50, non 12,50).
    unit_price = prezzo per unità, price = prezzo riga totale (qty × unit_price).
    Se c'è sconto, usa il prezzo SCONTATO come price.
 
-6. QUANTITÀ E UNITÀ:
+9. QUANTITÀ E UNITÀ:
    - unit: "pz" pezzi, "kg" chilogrammi, "l" litri, "g" grammi, "ml" millilitri
    - qty: numero float (es. 0.350 per 350g di affettato al banco)
+   - Se la quantità non è specificata, usa qty=1
 
-7. METODO PAGAMENTO:
-   - "cash" se contanti, "card" se carta/bancomat/contactless, "unknown" se non leggibile
+10. METODO PAGAMENTO:
+    - "cash" se vedi "contante/i", "pagamento contante", "CONTANTI"
+    - "card" se vedi "carta", "bancomat", "contactless", "POS"
+    - "unknown" se non leggibile
 
-8. confidence:
-   - "high" → scontrino nitido, tutti i dati leggibili
-   - "medium" → qualche campo incerto ma struttura chiara
-   - "low" → immagine sfocata o scontrino parziale
+11. confidence:
+    - "high" → scontrino nitido, tutti i dati leggibili
+    - "medium" → qualche campo incerto ma struttura chiara
+    - "low" → immagine sfocata o scontrino parziale
 
-9. Se lo scontrino è di un ristorante/bar, items può essere vuoto [] o con le portate principali.
+12. Se lo scontrino è di un ristorante/bar, items può essere vuoto [] o con le portate principali.
 
-10. Non inventare dati. Se un campo non è leggibile, usa null.`
+13. Non inventare dati. Se un campo non è leggibile, usa null.`
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
