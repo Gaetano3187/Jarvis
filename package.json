@@ -24,8 +24,8 @@
     "openai": "^5.9.0",
     "pdf-parse": "^2.4.5",
     "prop-types": "15.7.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-icons": "^5.5.0",
     "react-leaflet": "^5.0.0"
   },
