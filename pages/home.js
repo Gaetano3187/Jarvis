@@ -17,7 +17,6 @@ const Home = () => {
 
   const mediaRef   = useRef(null)
   const chunksRef  = useRef([])
-  const fileRef    = useRef(null)
 
   /* ── FETCH DATI LIVE ── */
   useEffect(() => {
@@ -72,6 +71,33 @@ const Home = () => {
   }
 
   /* ── OCR SCONTRINO (GPT-4o Vision — singolo call) ── */
+
+  // Ridimensiona l'immagine lato client prima di inviarla
+  // Evita payload enormi che bloccano Chrome
+  function resizeImage(file, maxPx = 1500, quality = 0.88) {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        const { width: w, height: h } = img
+        const scale = Math.min(1, maxPx / Math.max(w, h))
+        const canvas = document.createElement('canvas')
+        canvas.width  = Math.round(w * scale)
+        canvas.height = Math.round(h * scale)
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        canvas.toBlob(
+          blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob fallito')),
+          'image/jpeg',
+          quality
+        )
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Immagine non leggibile')) }
+      img.src = url
+    })
+  }
+
   async function handleOCR(file) {
     if (!file) return
     setLoadOCR(true)
@@ -79,10 +105,33 @@ const Home = () => {
     setOcrResult(null)
 
     try {
-      const fd = new FormData()
-      fd.append('image', file)
+      // PDF: invia direttamente senza resize
+      let payload
+      if (file.type === 'application/pdf' || file.name?.endsWith('.pdf')) {
+        payload = file
+      } else {
+        // Ridimensiona a max 1500px — sufficiente per GPT-4o Vision sugli scontrini
+        payload = await resizeImage(file, 1500, 0.88)
+      }
 
-      const r = await fetch('/api/ocr-smart', { method: 'POST', body: fd })
+      const fd = new FormData()
+      fd.append('image', payload, file.name || 'scontrino.jpg')
+
+      // Timeout di 55 secondi — evita freeze infinito
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 55000)
+
+      let r
+      try {
+        r = await fetch('/api/ocr-smart', {
+          method: 'POST',
+          body: fd,
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timer)
+      }
+
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
         throw new Error(e.error || `Errore HTTP ${r.status}`)
@@ -97,7 +146,11 @@ const Home = () => {
 
       setOcrResult(data)
     } catch (e) {
-      setErr('OCR: ' + e.message)
+      if (e.name === 'AbortError') {
+        setErr('⏱ Timeout: analisi troppo lenta, riprova con un\'immagine più nitida')
+      } else {
+        setErr('OCR: ' + e.message)
+      }
     } finally {
       setLoadOCR(false)
     }
@@ -305,6 +358,30 @@ TESTO: ${text}`,
         poster="https://play.teleporthq.io/static/svg/videoposter.svg"
       />
 
+      {/* OVERLAY CARICAMENTO OCR */}
+      {loadingOCR && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          background: 'rgba(0,0,0,0.75)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          color: '#fff', gap: '1rem'
+        }}>
+          <div style={{ fontSize: '3rem' }}>📷</div>
+          <div style={{ fontSize: '1.2rem', fontWeight: 600 }}>Analisi scontrino in corso…</div>
+          <div style={{ fontSize: '.9rem', opacity: .7 }}>GPT-4o sta leggendo i prodotti (20–40 sec)</div>
+          <div style={{
+            width: '200px', height: '4px', background: 'rgba(255,255,255,.2)',
+            borderRadius: '2px', overflow: 'hidden', marginTop: '.5rem'
+          }}>
+            <div style={{
+              height: '100%', background: '#f59e0b', borderRadius: '2px',
+              animation: 'ocrProgress 35s linear forwards'
+            }}/>
+          </div>
+        </div>
+      )}
+
       <section className="sezione-home">
 
         {/* ── COLONNA SINISTRA ── */}
@@ -334,9 +411,21 @@ TESTO: ${text}`,
           <div className="funzionalita-box">
             <h2>Funzionalità Avanzate</h2>
 
-            <button className="ocr" onClick={() => fileRef.current?.click()} disabled={loadingOCR}>
-              {loadingOCR ? '⏳ Analisi…' : '📷 OCR Scontrino'}
-            </button>
+            {/* label nativo — più affidabile di button.click() su Windows */}
+            <label className={`ocr ocr-label${loadingOCR ? ' disabled' : ''}`}>
+              {loadingOCR ? '⏳ Analisi in corso… (20–40 sec)' : '📷 OCR Scontrino'}
+              {!loadingOCR && (
+                <input
+                  type="file"
+                  style={{ display:'none' }}
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    e.target.value = ''
+                    if (f) handleOCR(f)
+                  }}
+                />
+              )}
+            </label>
 
             <button className="voice" onClick={isRec ? stopRec : startRec} disabled={loadingVoice}>
               {loadingVoice ? '⏳ Elaborazione…' : isRec ? '⏹ Stop registrazione' : '🎤 Comando vocale'}
@@ -439,13 +528,7 @@ TESTO: ${text}`,
         </div>
       </section>
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*,application/pdf"
-        style={{ display:'none' }}
-        onChange={e => handleOCR(e.target.files?.[0])}
-      />
+      {/* input file ora è dentro il label OCR */}
 
       <style jsx global>{`
         .home-video {
@@ -491,6 +574,14 @@ TESTO: ${text}`,
         .funzionalita-box a:hover, .funzionalita-box button:hover { opacity: .8; }
         .funzionalita-box button:disabled { opacity: .5; cursor: not-allowed; }
         .ocr   { background: #f59e0b; color: #000; }
+        .ocr-label {
+          display: inline-block; padding: .75rem 1.5rem; border-radius: .75rem;
+          font-weight: 600; font-size: 1rem; cursor: pointer;
+          background: #f59e0b; color: #000;
+          transition: opacity .3s; text-align: center;
+        }
+        .ocr-label.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
+        .ocr-label:hover { opacity: .8; }
         .voice { background: #10b981; color: #fff; }
         .query { background: #6366f1; color: #fff; }
         .alert-box {
@@ -502,6 +593,10 @@ TESTO: ${text}`,
           .box-home { font-size: 1.3rem; padding: 2rem 1.25rem; }
           .funzionalita-box { padding: 1.5rem; }
           .funzionalita-box a, .funzionalita-box button { font-size: .9rem; padding: .6rem 1rem; }
+        }
+        @keyframes ocrProgress {
+          from { width: 0% }
+          to   { width: 100% }
         }
       `}</style>
     </>
