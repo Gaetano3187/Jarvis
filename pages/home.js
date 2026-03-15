@@ -226,11 +226,10 @@ TESTO: ${text}`,
       .single()
 
     if (expErr) { setErr(expErr.message); return }
-
     const expenseId = expenseRow?.id
 
-    // 2. Receipt (scontrino) per il link cliccabile
-    const { data: receiptRow, error: rcErr } = await supabase
+    // 2. Receipt per il link cliccabile
+    const { data: receiptRow } = await supabase
       .from('receipts')
       .insert([{
         user_id:        user.id,
@@ -246,33 +245,56 @@ TESTO: ${text}`,
       .select('id')
       .single()
 
-    const receiptId = rcErr ? null : receiptRow?.id
+    const receiptId = receiptRow?.id
 
-    // 3. Receipt items (dettaglio prodotti — alimenta DB prezzi)
+    // 3. Receipt items
     if (receiptId && items.length) {
-      const receiptItems = items.map(item => ({
-        receipt_id:    receiptId,
-        user_id:       user.id,
-        name:          item.name,
-        brand:         item.brand ?? null,
-        qty:           item.qty ?? 1,
-        unit:          item.unit ?? 'pz',
-        unit_price:    item.unit_price ?? item.price ?? 0,
-        price:         item.price ?? 0,
-        category_item: item.category_item ?? 'alimentari',
-        expiry_date:   item.expiry_date ?? null,
-        purchase_date: purchaseDate,
-      }))
-      await supabase.from('receipt_items').insert(receiptItems)
+      await supabase.from('receipt_items').insert(
+        items.map(item => ({
+          receipt_id:    receiptId,
+          user_id:       user.id,
+          name:          item.name,
+          brand:         item.brand ?? null,
+          qty:           item.qty ?? 1,
+          unit:          item.unit ?? 'pz',
+          unit_price:    item.unit_price ?? item.price ?? 0,
+          price:         item.price ?? 0,
+          category_item: item.category_item ?? 'alimentari',
+          expiry_date:   item.expiry_date ?? null,
+          purchase_date: purchaseDate,
+        }))
+      )
     }
 
-    // 4. Aggiorna inventory — solo categoria "casa"
+    // 4. Aggiorna inventory con quantità CORRETTE + immagini
     if (categoria === 'casa' && items.length) {
       for (const item of items) {
         if (!item.name) continue
-        const qtyNew = Number(item.qty || 1)
 
-        // match flessibile: cerca il primo termine del nome
+        // Fetch immagine prodotto in parallelo (non blocca il salvataggio)
+        let imageUrl = null
+        if (item.image_search_query || item.name) {
+          try {
+            const imgQuery = item.image_search_query || `${item.brand || ''} ${item.name}`.trim()
+            const imgResp = await fetch(
+              `/api/product-image?q=${encodeURIComponent(imgQuery)}&brand=${encodeURIComponent(item.brand || '')}`,
+              { signal: AbortSignal.timeout(4000) }
+            ).catch(() => null)
+            if (imgResp?.ok) {
+              const imgData = await imgResp.json().catch(() => null)
+              if (imgData?.ok && imgData.imageUrl) imageUrl = imgData.imageUrl
+            }
+          } catch {}
+        }
+
+        // qty in inventory = packs (confezioni fisiche acquistate)
+        // units_per_pack = unità dentro ogni confezione
+        // total_units = qty complessivo (per dispensa)
+        const packs        = Number(item.packs || item.qty || 1)
+        const unitsPerPack = Number(item.units_per_pack || 1)
+        const totalUnits   = Number(item.qty || packs * unitsPerPack)
+        const unitLabel    = item.unit_per_pack_label || item.unit || 'pz'
+
         const firstWord = item.name.split(' ')[0]
         const { data: existing } = await supabase
           .from('inventory')
@@ -281,59 +303,60 @@ TESTO: ${text}`,
           .ilike('product_name', `%${firstWord}%`)
           .maybeSingle()
 
+        const updatePayload = {
+          qty:          Number(existing?.qty || 0) + packs,
+          initial_qty:  Number(existing?.initial_qty || 0) + packs,
+          consumed_pct: 0,
+          avg_price:    item.unit_price || item.price || 0,
+          last_updated: new Date().toISOString(),
+          units_per_pack: unitsPerPack,
+          total_units:  Number(existing?.qty || 0) * unitsPerPack + totalUnits,
+          unit_label:   unitLabel,
+          ...(item.expiry_date  ? { expiry_date: item.expiry_date } : {}),
+          ...(imageUrl          ? { image_url: imageUrl }          : {}),
+        }
+
         if (existing) {
-          await supabase
-            .from('inventory')
-            .update({
-              qty:          Number(existing.qty || 0) + qtyNew,
-              initial_qty:  Number(existing.initial_qty || 0) + qtyNew,
-              consumed_pct: 0,
-              avg_price:    item.unit_price || item.price || 0,
-              last_updated: new Date().toISOString(),
-              ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
-            })
-            .eq('id', existing.id)
+          await supabase.from('inventory').update(updatePayload).eq('id', existing.id)
         } else {
-          await supabase
-            .from('inventory')
-            .insert({
-              user_id:       user.id,
-              product_name:  item.name,
-              brand:         item.brand ?? null,
-              category:      item.category_item ?? 'alimentari',
-              qty:           qtyNew,
-              initial_qty:   qtyNew,
-              unit:          item.unit ?? 'pz',
-              avg_price:     item.unit_price || item.price || 0,
-              purchase_date: purchaseDate,
-              expiry_date:   item.expiry_date ?? null,
-              consumed_pct:  0,
-            })
+          await supabase.from('inventory').insert({
+            user_id:        user.id,
+            product_name:   item.name,
+            brand:          item.brand ?? null,
+            category:       item.category_item ?? 'alimentari',
+            qty:            packs,
+            initial_qty:    packs,
+            unit:           item.unit ?? 'pz',
+            units_per_pack: unitsPerPack,
+            total_units:    totalUnits,
+            unit_label:     unitLabel,
+            avg_price:      item.unit_price || item.price || 0,
+            purchase_date:  purchaseDate,
+            expiry_date:    item.expiry_date ?? null,
+            consumed_pct:   0,
+            ...(imageUrl ? { image_url: imageUrl } : {}),
+          })
         }
       }
     }
 
     // 5. Sottrai dai soldi in tasca se pagamento cash
     if (paymentMethod === 'cash' && importo > 0) {
-      await supabase
-        .from('pocket_cash')
-        .insert({
-          user_id:  user.id,
-          note:     `Spesa ${storeVal} (${purchaseDate})`,
-          delta:    -importo,
-          moved_at: new Date().toISOString(),
-        })
+      await supabase.from('pocket_cash').insert({
+        user_id:  user.id,
+        note:     `Spesa ${storeVal} (${purchaseDate})`,
+        delta:    -importo,
+        moved_at: new Date().toISOString(),
+      })
     }
 
-    // 6. Ricarica UI
+    // 6. UI feedback
     setOcrResult(null)
     fetchScorte()
     fetchProdotti()
 
     alert(
-      `✅ Salvato!\n` +
-      `🏪 ${storeVal} — ${purchaseDate}\n` +
-      `💶 €${importo.toFixed(2)}\n` +
+      `✅ Salvato!\n🏪 ${storeVal} — ${purchaseDate}\n💶 €${importo.toFixed(2)}\n` +
       (items.length ? `🛒 ${items.length} prodotti in dispensa` : '')
     )
   }
@@ -477,7 +500,13 @@ TESTO: ${text}`,
                           {it.name}
                           {it.brand && <span style={{ opacity:.6 }}> · {it.brand}</span>}
                         </span>
-                        <span style={{ opacity:.7, whiteSpace:'nowrap' }}>{it.qty} {it.unit}</span>
+                        <span style={{ opacity:.7, whiteSpace:'nowrap' }}>
+                          {/* Mostra packs × units_per_pack se ha senso */}
+                          {it.packs && it.units_per_pack && it.units_per_pack > 1
+                            ? `${it.packs} conf. × ${it.units_per_pack} ${it.unit_per_pack_label || 'pz'}`
+                            : `${it.qty || it.packs || 1} ${it.unit || 'pz'}`
+                          }
+                        </span>
                         {it.expiry_date && (
                           <span style={{ color:'#fbbf24', fontSize:'.8rem', whiteSpace:'nowrap' }}>
                             ⏰ {it.expiry_date}

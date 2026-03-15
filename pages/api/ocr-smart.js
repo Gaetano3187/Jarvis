@@ -26,12 +26,16 @@ Restituisci ESCLUSIVAMENTE questo JSON (nessun testo prima o dopo):
     {
       "name": "Nome prodotto commerciale normalizzato e leggibile",
       "brand": "marca se leggibile oppure null",
+      "packs": 1,
+      "units_per_pack": 1,
+      "unit_per_pack_label": "pz",
       "qty": 1,
       "unit": "pz",
       "unit_price": 0.00,
       "price": 0.00,
       "category_item": "alimentari",
-      "expiry_date": null
+      "expiry_date": null,
+      "image_search_query": "nome prodotto marca per ricerca immagine"
     }
   ],
   "raw_text": "trascrizione fedele dell'intero scontrino",
@@ -54,6 +58,34 @@ REGOLE CRITICHE:
    
    REGOLA: se vedi una riga con formato "N x prezzo" o "N.NNNx" PRIMA di un nome prodotto,
    quella riga definisce qty e unit_price del prodotto che segue. NON creare una voce separata per quella riga.
+   
+   CAMPI QUANTITÀ — distinzione fondamentale:
+   - packs = numero di CONFEZIONI acquistate (la "N x" prima del nome)
+   - units_per_pack = unità dentro ogni confezione (il numero dopo "X" nel nome, es. "X6", "X2")
+   - unit_per_pack_label = etichetta delle unità dentro la confezione ("uova", "bottiglie", "pz", ecc.)
+   - qty = packs × units_per_pack (totale unità fisiche)
+   - unit = unità di misura base ("pz", "kg", "l", "g", "ml")
+   
+   Esempi concreti dallo scontrino Orsini:
+   "2 x 1,95 / UOVA GRANDI X6 / 3,90"
+     → packs=2, units_per_pack=6, unit_per_pack_label="uova", qty=12, unit="pz", unit_price=1.95, price=3.90
+   
+   "2 x 4,00 / #COCA COLA 6X150ML / 8,00"  
+     → packs=2, units_per_pack=6, unit_per_pack_label="lattine", qty=12, unit="pz", unit_price=4.00, price=8.00
+   
+   "2 x 1,20 / KINDER BUENO X2 / 2,40"
+     → packs=2, units_per_pack=2, unit_per_pack_label="pz", qty=4, unit="pz", unit_price=1.20, price=2.40
+   
+   "6 x 1,95 / #LATTE ZYMIL 1LT / 11,70"
+     → packs=6, units_per_pack=1, unit_per_pack_label="bottiglia", qty=6, unit="l", unit_price=1.95, price=11.70
+   
+   "1.00 / 33.370x / FORMAGGI SALUMI / 33,37"
+     → packs=1, units_per_pack=1, unit_per_pack_label="kg", qty=33.370, unit="kg", unit_price=1.00, price=33.37
+   
+   "2.840x / PANE PASTICCERIA / 2,84"
+     → packs=1, units_per_pack=1, unit_per_pack_label="kg", qty=2.840, unit="kg", unit_price=~1.00, price=2.84
+   
+   Se non c'è una riga "N x" prima del nome: packs=1, units_per_pack=1.
 
 2. PRODOTTI AL BANCO (peso variabile):
    - Se qty ha 3 decimali (es. 2.840, 33.370, 0.450) → unit="kg"
@@ -117,7 +149,16 @@ REGOLE CRITICHE:
 
 12. Se lo scontrino è di un ristorante/bar, items può essere vuoto [] o con le portate principali.
 
-13. Non inventare dati. Se un campo non è leggibile, usa null.`
+13. Non inventare dati. Se un campo non è leggibile, usa null.
+
+14. IMAGE SEARCH QUERY: per ogni prodotto genera una query di ricerca immagine in italiano
+    chiara e specifica per trovare la foto della confezione reale:
+    - "Latte Zymil intero 1L" → "Latte Zymil senza lattosio 1 litro"
+    - "Coca Cola 6x150ml" → "Coca Cola lattine 150ml multipack"
+    - "Kinder Bueno conf. 2" → "Kinder Bueno cioccolato confezione"
+    - "Uova grandi conf. da 6" → "uova fresche confezione 6 pezzi"
+    - "Farina De Cecco" → "Farina De Cecco tipo 00"
+    Usa marca + nome prodotto + formato quando utile. Massimo 6 parole.`
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -261,16 +302,25 @@ function sanitizeItems(items) {
   if (!Array.isArray(items)) return []
   return items
     .filter(i => i && typeof i === 'object')
-    .map(i => ({
-      name:          String(i.name || 'Prodotto').trim(),
-      brand:         i.brand ? String(i.brand).trim() : null,
-      qty:           sanitizeFloat(i.qty) || 1,
-      unit:          sanitizeUnit(i.unit),
-      unit_price:    sanitizeFloat(i.unit_price),
-      price:         sanitizeFloat(i.price),
-      category_item: sanitizeCategoryItem(i.category_item),
-      expiry_date:   sanitizeDate(i.expiry_date),
-    }))
+    .map(i => {
+      const packs         = sanitizeFloat(i.packs) || 1
+      const unitsPerPack  = sanitizeFloat(i.units_per_pack) || 1
+      const qty           = sanitizeFloat(i.qty) || (packs * unitsPerPack)
+      return {
+        name:               String(i.name || 'Prodotto').trim(),
+        brand:              i.brand ? String(i.brand).trim() : null,
+        packs,
+        units_per_pack:     unitsPerPack,
+        unit_per_pack_label:String(i.unit_per_pack_label || 'pz').trim(),
+        qty,
+        unit:               sanitizeUnit(i.unit),
+        unit_price:         sanitizeFloat(i.unit_price),
+        price:              sanitizeFloat(i.price),
+        category_item:      sanitizeCategoryItem(i.category_item),
+        expiry_date:        sanitizeDate(i.expiry_date),
+        image_search_query: i.image_search_query ? String(i.image_search_query).trim() : null,
+      }
+    })
     .filter(i => i.name && i.price >= 0)
 }
 function sanitizeUnit(v) {
