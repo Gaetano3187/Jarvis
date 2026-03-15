@@ -7,8 +7,8 @@ import { supabase } from '../lib/supabaseClient'
 
 const Home = () => {
   /* ── STATE ── */
-  const [prodottiDaAcquistare, setProdotti] = useState([])   // shopping_list non acquistati
-  const [scorteAlert, setScorte]            = useState([])   // inventory in esaurimento/scadenza
+  const [prodottiDaAcquistare, setProdotti] = useState([])
+  const [scorteAlert, setScorte]            = useState([])
   const [isRec, setIsRec]                   = useState(false)
   const [loadingVoice, setLoadV]            = useState(false)
   const [loadingOCR, setLoadOCR]            = useState(false)
@@ -71,34 +71,36 @@ const Home = () => {
     setScorte(alert)
   }
 
-  /* ── OCR SCONTRINO ── */
+  /* ── OCR SCONTRINO (GPT-4o Vision — singolo call) ── */
   async function handleOCR(file) {
     if (!file) return
-    setLoadOCR(true); setErr(null); setOcrResult(null)
-    const fd = new FormData(); fd.append('image', file)
+    setLoadOCR(true)
+    setErr(null)
+    setOcrResult(null)
+
     try {
-      const r    = await fetch('/api/ocr', { method: 'POST', body: fd })
-      const { text } = await r.json()
-      // Chiedi all'assistant di categorizzare e mostra il risultato
-      const resp = await fetch('/api/assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: `Analizza questo scontrino. Rispondi SOLO con questo JSON (includi SEMPRE items):
-{"categoria":"casa","store":"Nome Negozio","purchase_date":"YYYY-MM-DD","price_total":0.00,"items":[{"name":"Nome Prodotto Normalizzato","qty":1,"unit":"pz","price":0.00}]}
-- categoria: "casa" alimentari/pulizie, "vestiti" abbigliamento, "cene" ristorante/bar, "varie" altro
-- items: ogni prodotto con nome leggibile (non abbreviazioni), qty, unit, price
-SCONTRINO: ${text}`,
-        }),
-      })
-      const { answer } = await resp.json()
-      console.log('OCR ANSWER:', answer)
-      const clean  = answer.replace(/```json|```/g, '').trim()
-      const parsed = JSON.parse(clean)
-      console.log('OCR PARSED:', JSON.stringify(parsed))
-      setOcrResult(parsed)
-    } catch (e) { setErr('OCR: ' + e.message) }
-    finally { setLoadOCR(false) }
+      const fd = new FormData()
+      fd.append('image', file)
+
+      const r = await fetch('/api/ocr-smart', { method: 'POST', body: fd })
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `Errore HTTP ${r.status}`)
+      }
+
+      const data = await r.json()
+      if (!data.ok) throw new Error(data.error || 'OCR non riuscito')
+
+      if (data.confidence === 'low') {
+        setErr('⚠️ Immagine poco nitida — controlla i dati prima di salvare')
+      }
+
+      setOcrResult(data)
+    } catch (e) {
+      setErr('OCR: ' + e.message)
+    } finally {
+      setLoadOCR(false)
+    }
   }
 
   /* ── VOCE ── */
@@ -138,56 +140,149 @@ TESTO: ${text}`,
   }
   function stopRec() { mediaRef.current?.stop(); setIsRec(false) }
 
-  /* ── SALVA RISULTATO OCR/VOCE in expenses ── */
+  /* ── SALVA RISULTATO OCR/VOCE ── */
   async function salvaRisultato() {
     if (!ocrResult) return
+
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    const purchaseDate = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
-    const storeVal     = ocrResult.store ?? 'Generico'
-    const importo      = parseFloat(ocrResult.price_total ?? 0)
-    const categoria    = ocrResult.categoria ?? 'varie'
 
-    const { error } = await supabase.from('expenses').insert([{
-      user_id:        user.id,
-      category:       categoria,
-      store:          storeVal,
-      purchase_date:  purchaseDate,
-      amount:         importo,
-      payment_method: 'cash',
-      source:         'ocr',
-    }])
-    if (error) { setErr(error.message); return }
+    const purchaseDate  = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
+    const storeVal      = ocrResult.store ?? 'Generico'
+    const storeAddress  = ocrResult.store_address ?? null
+    const importo       = parseFloat(ocrResult.price_total ?? 0)
+    const categoria     = ocrResult.categoria ?? 'varie'
+    const paymentMethod = ocrResult.payment_method ?? 'unknown'
+    const items         = Array.isArray(ocrResult.items) ? ocrResult.items : []
 
-    if (categoria === 'casa' && Array.isArray(ocrResult.items) && ocrResult.items.length) {
-      for (const item of ocrResult.items) {
+    // 1. Spesa principale in expenses
+    const { data: expenseRow, error: expErr } = await supabase
+      .from('expenses')
+      .insert([{
+        user_id:        user.id,
+        category:       categoria,
+        store:          storeVal,
+        store_address:  storeAddress,
+        description:    `Spesa ${storeVal} — ${purchaseDate}`,
+        purchase_date:  purchaseDate,
+        amount:         importo,
+        payment_method: paymentMethod,
+        source:         'ocr',
+      }])
+      .select('id')
+      .single()
+
+    if (expErr) { setErr(expErr.message); return }
+
+    const expenseId = expenseRow?.id
+
+    // 2. Receipt (scontrino) per il link cliccabile
+    const { data: receiptRow, error: rcErr } = await supabase
+      .from('receipts')
+      .insert([{
+        user_id:        user.id,
+        expense_id:     expenseId,
+        store:          storeVal,
+        store_address:  storeAddress,
+        purchase_date:  purchaseDate,
+        price_total:    importo,
+        payment_method: paymentMethod,
+        raw_text:       ocrResult.raw_text ?? null,
+        confidence:     ocrResult.confidence ?? 'medium',
+      }])
+      .select('id')
+      .single()
+
+    const receiptId = rcErr ? null : receiptRow?.id
+
+    // 3. Receipt items (dettaglio prodotti — alimenta DB prezzi)
+    if (receiptId && items.length) {
+      const receiptItems = items.map(item => ({
+        receipt_id:    receiptId,
+        user_id:       user.id,
+        name:          item.name,
+        brand:         item.brand ?? null,
+        qty:           item.qty ?? 1,
+        unit:          item.unit ?? 'pz',
+        unit_price:    item.unit_price ?? item.price ?? 0,
+        price:         item.price ?? 0,
+        category_item: item.category_item ?? 'alimentari',
+        expiry_date:   item.expiry_date ?? null,
+        purchase_date: purchaseDate,
+      }))
+      await supabase.from('receipt_items').insert(receiptItems)
+    }
+
+    // 4. Aggiorna inventory — solo categoria "casa"
+    if (categoria === 'casa' && items.length) {
+      for (const item of items) {
         if (!item.name) continue
+        const qtyNew = Number(item.qty || 1)
+
+        // match flessibile: cerca il primo termine del nome
+        const firstWord = item.name.split(' ')[0]
         const { data: existing } = await supabase
-          .from('inventory').select('id, qty').eq('user_id', user.id)
-          .ilike('product_name', item.name).maybeSingle()
+          .from('inventory')
+          .select('id, qty, initial_qty')
+          .eq('user_id', user.id)
+          .ilike('product_name', `%${firstWord}%`)
+          .maybeSingle()
+
         if (existing) {
-          await supabase.from('inventory').update({
-            qty: Number(existing.qty || 0) + Number(item.qty || 1),
-            initial_qty: Number(existing.qty || 0) + Number(item.qty || 1),
-            consumed_pct: 0,
-            last_updated: new Date().toISOString(),
-          }).eq('id', existing.id)
+          await supabase
+            .from('inventory')
+            .update({
+              qty:          Number(existing.qty || 0) + qtyNew,
+              initial_qty:  Number(existing.initial_qty || 0) + qtyNew,
+              consumed_pct: 0,
+              avg_price:    item.unit_price || item.price || 0,
+              last_updated: new Date().toISOString(),
+              ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
+            })
+            .eq('id', existing.id)
         } else {
-          await supabase.from('inventory').insert({
-            user_id: user.id,
-            product_name: item.name,
-            category: 'alimentari',
-            qty: Number(item.qty || 1),
-            initial_qty: Number(item.qty || 1),
-            unit: item.unit || 'pz',
-            avg_price: Number(item.price || 0),
-          })
+          await supabase
+            .from('inventory')
+            .insert({
+              user_id:       user.id,
+              product_name:  item.name,
+              brand:         item.brand ?? null,
+              category:      item.category_item ?? 'alimentari',
+              qty:           qtyNew,
+              initial_qty:   qtyNew,
+              unit:          item.unit ?? 'pz',
+              avg_price:     item.unit_price || item.price || 0,
+              purchase_date: purchaseDate,
+              expiry_date:   item.expiry_date ?? null,
+              consumed_pct:  0,
+            })
         }
       }
     }
 
+    // 5. Sottrai dai soldi in tasca se pagamento cash
+    if (paymentMethod === 'cash' && importo > 0) {
+      await supabase
+        .from('pocket_cash')
+        .insert({
+          user_id:  user.id,
+          note:     `Spesa ${storeVal} (${purchaseDate})`,
+          delta:    -importo,
+          moved_at: new Date().toISOString(),
+        })
+    }
+
+    // 6. Ricarica UI
     setOcrResult(null)
-    alert('✅ Spesa salvata' + (ocrResult.items?.length ? ' con ' + ocrResult.items.length + ' prodotti' : ''))
+    fetchScorte()
+    fetchProdotti()
+
+    alert(
+      `✅ Salvato!\n` +
+      `🏪 ${storeVal} — ${purchaseDate}\n` +
+      `💶 €${importo.toFixed(2)}\n` +
+      (items.length ? `🛒 ${items.length} prodotti in dispensa` : '')
+    )
   }
 
   /* ── CONTEGGI ── */
@@ -203,7 +298,6 @@ TESTO: ${text}`,
         <meta property="og:title" content="Home – Jarvis" />
       </Head>
 
-      {/* VIDEO SFONDO */}
       <video
         className="home-video"
         src="/composizione%201.mp4"
@@ -211,13 +305,10 @@ TESTO: ${text}`,
         poster="https://play.teleporthq.io/static/svg/videoposter.svg"
       />
 
-      {/* GRIGLIA PRINCIPALE */}
       <section className="sezione-home">
 
         {/* ── COLONNA SINISTRA ── */}
         <div className="col-sinistra">
-
-          {/* Box Liste Prodotti con badge */}
           <Link href="/liste-prodotti" className="box-home box-prodotti">
             🛒 LISTE PRODOTTI
             {(nSuper + nOnline) > 0 && (
@@ -240,7 +331,6 @@ TESTO: ${text}`,
         {/* ── COLONNA DESTRA ── */}
         <div className="col-destra">
 
-          {/* Funzionalità Avanzate */}
           <div className="funzionalita-box">
             <h2>Funzionalità Avanzate</h2>
 
@@ -257,49 +347,90 @@ TESTO: ${text}`,
             </Link>
           </div>
 
-          {/* RISULTATO OCR/VOCE — mostra preview e chiede conferma */}
+          {/* PREVIEW OCR — con tutti i nuovi campi */}
           {ocrResult && (
             <div className="alert-box" style={{ borderColor: '#22c55e' }}>
-              <p style={{ marginBottom: '.5rem', fontWeight: 600 }}>📋 Spesa rilevata:</p>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'.5rem' }}>
+                <p style={{ fontWeight:600, margin:0 }}>📋 Spesa rilevata</p>
+                <span style={{
+                  fontSize:'.75rem', padding:'2px 8px', borderRadius:'999px', fontWeight:600,
+                  background: ocrResult.confidence==='high' ? '#166534' : ocrResult.confidence==='medium' ? '#92400e' : '#7f1d1d',
+                  color:'#fff'
+                }}>
+                  {ocrResult.confidence==='high' ? '✓ Alta precisione' : ocrResult.confidence==='medium' ? '~ Media' : '⚠ Bassa'}
+                </span>
+              </div>
+
               <p>📁 Categoria: <strong>{ocrResult.categoria}</strong></p>
-              <p>🏪 Negozio: <strong>{ocrResult.store ?? '—'}</strong></p>
+              <p>🏪 Negozio: <strong>{ocrResult.store ?? '—'}</strong>
+                {ocrResult.store_address && (
+                  <span style={{ opacity:.7, fontSize:'.85rem' }}> · {ocrResult.store_address}</span>
+                )}
+              </p>
               <p>📅 Data: <strong>{ocrResult.purchase_date ?? '—'}</strong></p>
-              <p>💶 Importo: <strong>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></p>
+              <p>💶 Totale: <strong>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></p>
+              <p>💳 Pagamento: <strong>
+                {ocrResult.payment_method === 'cash' ? '💵 Contanti' :
+                 ocrResult.payment_method === 'card' ? '💳 Carta' : '—'}
+              </strong></p>
+
               {Array.isArray(ocrResult.items) && ocrResult.items.length > 0 && (
-                <div style={{marginTop:'.5rem'}}>
-                  <p style={{fontWeight:600}}>🛒 Prodotti ({ocrResult.items.length}):</p>
-                  <ul style={{margin:'4px 0',paddingLeft:'1.2rem',fontSize:'.9rem'}}>
-                    {ocrResult.items.map((it,i) => (
-                      <li key={i}>{it.name} — {it.qty} {it.unit} — € {Number(it.price||0).toFixed(2)}</li>
+                <div style={{ marginTop:'.75rem' }}>
+                  <p style={{ fontWeight:600, marginBottom:'.4rem' }}>🛒 Prodotti ({ocrResult.items.length}):</p>
+                  <div style={{ maxHeight:'220px', overflowY:'auto' }}>
+                    {ocrResult.items.map((it, i) => (
+                      <div key={i} style={{
+                        display:'flex', justifyContent:'space-between', alignItems:'center',
+                        padding:'.3rem 0', borderBottom:'1px solid rgba(255,255,255,.08)',
+                        fontSize:'.88rem', gap:'8px', flexWrap:'wrap'
+                      }}>
+                        <span style={{ flex:1, minWidth:'120px' }}>
+                          {it.name}
+                          {it.brand && <span style={{ opacity:.6 }}> · {it.brand}</span>}
+                        </span>
+                        <span style={{ opacity:.7, whiteSpace:'nowrap' }}>{it.qty} {it.unit}</span>
+                        {it.expiry_date && (
+                          <span style={{ color:'#fbbf24', fontSize:'.8rem', whiteSpace:'nowrap' }}>
+                            ⏰ {it.expiry_date}
+                          </span>
+                        )}
+                        <span style={{ fontWeight:600, whiteSpace:'nowrap' }}>€ {Number(it.price||0).toFixed(2)}</span>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
-              <p>📅 Data: <strong>{ocrResult.purchase_date ?? '—'}</strong></p>
-              <p>💶 Importo: <strong>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></p>
-              <div style={{ display: 'flex', gap: '.75rem', marginTop: '.75rem' }}>
-                <button className="ocr" onClick={salvaRisultato} style={{ flex: 1 }}>✅ Salva</button>
-                <button onClick={() => setOcrResult(null)} style={{ flex: 1, background: '#6b7280', color: '#fff', border: 'none', borderRadius: '.5rem', padding: '.6rem', cursor: 'pointer', fontWeight: 600 }}>✕ Annulla</button>
+
+              <div style={{ display:'flex', gap:'.75rem', marginTop:'.75rem' }}>
+                <button className="ocr" onClick={salvaRisultato} style={{ flex:1 }}>✅ Conferma e salva</button>
+                <button onClick={() => setOcrResult(null)} style={{
+                  flex:1, background:'#6b7280', color:'#fff', border:'none',
+                  borderRadius:'.5rem', padding:'.6rem', cursor:'pointer', fontWeight:600
+                }}>✕ Annulla</button>
               </div>
             </div>
           )}
 
-          {err && <div className="alert-box" style={{ borderColor: '#ef4444' }}><p style={{ color: '#ef4444' }}>⚠️ {err}</p></div>}
+          {err && (
+            <div className="alert-box" style={{ borderColor: '#ef4444' }}>
+              <p style={{ color:'#ef4444' }}>⚠️ {err}</p>
+            </div>
+          )}
 
           {/* SCORTE IN ESAURIMENTO/SCADENZA */}
           {nScorte > 0 && (
             <div className="alert-box">
-              <p style={{ fontWeight: 600, marginBottom: '.5rem' }}>
+              <p style={{ fontWeight:600, marginBottom:'.5rem' }}>
                 ⚠️ Scorte da controllare ({nScorte})
               </p>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+              <ul style={{ margin:0, padding:0, listStyle:'none' }}>
                 {scorteAlert.map(s => (
-                  <li key={s.id} style={{ fontSize: '.9rem', padding: '.25rem 0', borderBottom: '1px solid rgba(255,255,255,.1)' }}>
+                  <li key={s.id} style={{ fontSize:'.9rem', padding:'.25rem 0', borderBottom:'1px solid rgba(255,255,255,.1)' }}>
                     <strong>{s.name}</strong> — {s.motivo}
                   </li>
                 ))}
               </ul>
-              <Link href="/liste-prodotti" style={{ display: 'block', marginTop: '.75rem', color: '#00e4ff', fontSize: '.85rem' }}>
+              <Link href="/liste-prodotti" style={{ display:'block', marginTop:'.75rem', color:'#00e4ff', fontSize:'.85rem' }}>
                 → Aggiungi alla lista spesa
               </Link>
             </div>
@@ -308,126 +439,69 @@ TESTO: ${text}`,
         </div>
       </section>
 
-      {/* input OCR nascosto */}
       <input
         ref={fileRef}
         type="file"
         accept="image/*,application/pdf"
-        style={{ display: 'none' }}
+        style={{ display:'none' }}
         onChange={e => handleOCR(e.target.files?.[0])}
       />
 
       <style jsx global>{`
         .home-video {
-          position: fixed;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          z-index: 0;
+          position: fixed; inset: 0; width: 100%; height: 100%;
+          object-fit: cover; z-index: 0;
         }
         .sezione-home {
-          position: relative;
-          z-index: 1;
-          min-height: 100vh;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 2rem;
-          justify-content: center;
-          align-items: flex-start;
-          padding: 5rem 1rem 3rem;
-          font-family: Inter, sans-serif;
+          position: relative; z-index: 1; min-height: 100vh;
+          display: flex; flex-wrap: wrap; gap: 2rem;
+          justify-content: center; align-items: flex-start;
+          padding: 5rem 1rem 3rem; font-family: Inter, sans-serif;
         }
-        .col-sinistra,
-        .col-destra {
-          flex: 1 1 320px;
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
+        .col-sinistra, .col-destra {
+          flex: 1 1 320px; display: flex; flex-direction: column; gap: 1.5rem;
         }
         .box-home {
-          position: relative;
-          background: #3b82f6;
-          color: #fff;
-          padding: 2.5rem 2rem;
-          border-radius: 1rem;
-          text-align: center;
-          font-size: 2rem;
-          font-weight: 700;
-          box-shadow: 0 8px 20px rgba(0,0,0,.35);
-          transition: opacity .3s, transform .2s;
-          text-decoration: none;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: .5rem;
+          position: relative; background: #3b82f6; color: #fff;
+          padding: 2.5rem 2rem; border-radius: 1rem; text-align: center;
+          font-size: 2rem; font-weight: 700; box-shadow: 0 8px 20px rgba(0,0,0,.35);
+          transition: opacity .3s, transform .2s; text-decoration: none;
+          display: flex; flex-direction: column; align-items: center; gap: .5rem;
         }
         .box-home:hover { opacity: .85; transform: translateY(-2px); }
         .box-prodotti   { background: #22c55e; }
         .box-sub { font-size: .85rem; font-weight: 400; opacity: .85; }
         .badge {
-          position: absolute;
-          top: .75rem;
-          right: .75rem;
-          background: #ef4444;
-          color: #fff;
-          font-size: .8rem;
-          font-weight: 700;
-          width: 1.6rem;
-          height: 1.6rem;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          position: absolute; top: .75rem; right: .75rem;
+          background: #ef4444; color: #fff; font-size: .8rem; font-weight: 700;
+          width: 1.6rem; height: 1.6rem; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
         }
-
         .funzionalita-box {
-          background: rgba(0,0,0,.6);
-          border-radius: 1rem;
-          padding: 2rem;
-          color: #fff;
-          box-shadow: 0 8px 20px rgba(0,0,0,.35);
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-          text-align: center;
+          background: rgba(0,0,0,.6); border-radius: 1rem; padding: 2rem;
+          color: #fff; box-shadow: 0 8px 20px rgba(0,0,0,.35);
+          display: flex; flex-direction: column; gap: 1rem; text-align: center;
         }
         .funzionalita-box h2 { font-size: 1.5rem; margin: 0 0 .5rem; }
-        .funzionalita-box a,
-        .funzionalita-box button {
-          display: inline-block;
-          padding: .75rem 1.5rem;
-          border-radius: .75rem;
-          font-weight: 600;
-          transition: opacity .3s;
-          font-size: 1rem;
-          cursor: pointer;
-          border: none;
-          text-decoration: none;
+        .funzionalita-box a, .funzionalita-box button {
+          display: inline-block; padding: .75rem 1.5rem; border-radius: .75rem;
+          font-weight: 600; transition: opacity .3s; font-size: 1rem;
+          cursor: pointer; border: none; text-decoration: none;
         }
-        .funzionalita-box a:hover,
-        .funzionalita-box button:hover { opacity: .8; }
+        .funzionalita-box a:hover, .funzionalita-box button:hover { opacity: .8; }
         .funzionalita-box button:disabled { opacity: .5; cursor: not-allowed; }
         .ocr   { background: #f59e0b; color: #000; }
         .voice { background: #10b981; color: #fff; }
         .query { background: #6366f1; color: #fff; }
-
         .alert-box {
-          background: rgba(0,0,0,.65);
-          border: 1px solid rgba(255,165,0,.5);
-          border-radius: 1rem;
-          padding: 1.25rem 1.5rem;
-          color: #fff;
-          font-size: .95rem;
-          box-shadow: 0 4px 16px rgba(0,0,0,.3);
-          line-height: 1.6;
+          background: rgba(0,0,0,.65); border: 1px solid rgba(255,165,0,.5);
+          border-radius: 1rem; padding: 1.25rem 1.5rem; color: #fff;
+          font-size: .95rem; box-shadow: 0 4px 16px rgba(0,0,0,.3); line-height: 1.6;
         }
-
         @media (max-width: 480px) {
           .box-home { font-size: 1.3rem; padding: 2rem 1.25rem; }
           .funzionalita-box { padding: 1.5rem; }
-          .funzionalita-box a,
-          .funzionalita-box button { font-size: .9rem; padding: .6rem 1rem; }
+          .funzionalita-box a, .funzionalita-box button { font-size: .9rem; padding: .6rem 1rem; }
         }
       `}</style>
     </>
