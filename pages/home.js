@@ -12,6 +12,7 @@ const Home = () => {
   const [isRec, setIsRec]                   = useState(false)
   const [loadingVoice, setLoadV]            = useState(false)
   const [loadingOCR, setLoadOCR]            = useState(false)
+  const [saving, setSaving]                 = useState(false)
   const [ocrResult, setOcrResult]           = useState(null)
   const [err, setErr]                       = useState(null)
 
@@ -196,169 +197,177 @@ TESTO: ${text}`,
   /* ── SALVA RISULTATO OCR/VOCE ── */
   async function salvaRisultato() {
     if (!ocrResult) return
+    if (saving) return
+    setSaving(true)
+    setErr(null)
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessione scaduta — rieffettua il login')
 
-    const purchaseDate  = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
-    const storeVal      = ocrResult.store ?? 'Generico'
-    const storeAddress  = ocrResult.store_address ?? null
-    const importo       = parseFloat(ocrResult.price_total ?? 0)
-    const categoria     = ocrResult.categoria ?? 'varie'
-    const paymentMethod = ocrResult.payment_method ?? 'unknown'
-    const items         = Array.isArray(ocrResult.items) ? ocrResult.items : []
+      const purchaseDate  = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
+      const storeVal      = ocrResult.store ?? 'Generico'
+      const storeAddress  = ocrResult.store_address ?? null
+      const importo       = parseFloat(ocrResult.price_total ?? 0)
+      const categoria     = ocrResult.categoria ?? 'varie'
+      const paymentMethod = ocrResult.payment_method ?? 'unknown'
+      const items         = Array.isArray(ocrResult.items) ? ocrResult.items : []
 
-    // 1. Spesa principale in expenses
-    const { data: expenseRow, error: expErr } = await supabase
-      .from('expenses')
-      .insert([{
-        user_id:        user.id,
-        category:       categoria,
-        store:          storeVal,
-        store_address:  storeAddress,
-        description:    `Spesa ${storeVal} — ${purchaseDate}`,
-        purchase_date:  purchaseDate,
-        amount:         importo,
-        payment_method: paymentMethod,
-        source:         'ocr',
-      }])
-      .select('id')
-      .single()
+      // 1. Spesa principale in expenses
+      const { data: expenseRow, error: expErr } = await supabase
+        .from('expenses')
+        .insert([{
+          user_id:        user.id,
+          category:       categoria,
+          store:          storeVal,
+          store_address:  storeAddress,
+          description:    `Spesa ${storeVal} — ${purchaseDate}`,
+          purchase_date:  purchaseDate,
+          amount:         importo,
+          payment_method: paymentMethod,
+          source:         'ocr',
+        }])
+        .select('id')
+        .single()
 
-    if (expErr) { setErr(expErr.message); return }
-    const expenseId = expenseRow?.id
+      if (expErr) throw new Error(`Expenses: ${expErr.message}`)
+      const expenseId = expenseRow?.id
 
-    // 2. Receipt per il link cliccabile
-    const { data: receiptRow } = await supabase
-      .from('receipts')
-      .insert([{
-        user_id:        user.id,
-        expense_id:     expenseId,
-        store:          storeVal,
-        store_address:  storeAddress,
-        purchase_date:  purchaseDate,
-        price_total:    importo,
-        payment_method: paymentMethod,
-        raw_text:       ocrResult.raw_text ?? null,
-        confidence:     ocrResult.confidence ?? 'medium',
-      }])
-      .select('id')
-      .single()
-
-    const receiptId = receiptRow?.id
-
-    // 3. Receipt items
-    if (receiptId && items.length) {
-      await supabase.from('receipt_items').insert(
-        items.map(item => ({
-          receipt_id:    receiptId,
-          user_id:       user.id,
-          name:          item.name,
-          brand:         item.brand ?? null,
-          qty:           item.qty ?? 1,
-          unit:          item.unit ?? 'pz',
-          unit_price:    item.unit_price ?? item.price ?? 0,
-          price:         item.price ?? 0,
-          category_item: item.category_item ?? 'alimentari',
-          expiry_date:   item.expiry_date ?? null,
-          purchase_date: purchaseDate,
-        }))
-      )
-    }
-
-    // 4. Aggiorna inventory con quantità CORRETTE + immagini
-    if (categoria === 'casa' && items.length) {
-      for (const item of items) {
-        if (!item.name) continue
-
-        // Fetch immagine prodotto in parallelo (non blocca il salvataggio)
-        let imageUrl = null
-        if (item.image_search_query || item.name) {
-          try {
-            const imgQuery = item.image_search_query || `${item.brand || ''} ${item.name}`.trim()
-            const imgResp = await fetch(
-              `/api/product-image?q=${encodeURIComponent(imgQuery)}&brand=${encodeURIComponent(item.brand || '')}`,
-              { signal: AbortSignal.timeout(4000) }
-            ).catch(() => null)
-            if (imgResp?.ok) {
-              const imgData = await imgResp.json().catch(() => null)
-              if (imgData?.ok && imgData.imageUrl) imageUrl = imgData.imageUrl
-            }
-          } catch {}
-        }
-
-        // qty in inventory = packs (confezioni fisiche acquistate)
-        // units_per_pack = unità dentro ogni confezione
-        // total_units = qty complessivo (per dispensa)
-        const packs        = Number(item.packs || item.qty || 1)
-        const unitsPerPack = Number(item.units_per_pack || 1)
-        const totalUnits   = Number(item.qty || packs * unitsPerPack)
-        const unitLabel    = item.unit_per_pack_label || item.unit || 'pz'
-
-        const firstWord = item.name.split(' ')[0]
-        const { data: existing } = await supabase
-          .from('inventory')
-          .select('id, qty, initial_qty')
-          .eq('user_id', user.id)
-          .ilike('product_name', `%${firstWord}%`)
-          .maybeSingle()
-
-        const updatePayload = {
-          qty:          Number(existing?.qty || 0) + packs,
-          initial_qty:  Number(existing?.initial_qty || 0) + packs,
-          consumed_pct: 0,
-          avg_price:    item.unit_price || item.price || 0,
-          last_updated: new Date().toISOString(),
-          units_per_pack: unitsPerPack,
-          total_units:  Number(existing?.qty || 0) * unitsPerPack + totalUnits,
-          unit_label:   unitLabel,
-          ...(item.expiry_date  ? { expiry_date: item.expiry_date } : {}),
-          ...(imageUrl          ? { image_url: imageUrl }          : {}),
-        }
-
-        if (existing) {
-          await supabase.from('inventory').update(updatePayload).eq('id', existing.id)
-        } else {
-          await supabase.from('inventory').insert({
+      // 2. Receipt — fallback silenzioso se la tabella non esiste ancora
+      let receiptId = null
+      try {
+        const { data: receiptRow } = await supabase
+          .from('receipts')
+          .insert([{
             user_id:        user.id,
-            product_name:   item.name,
-            brand:          item.brand ?? null,
-            category:       item.category_item ?? 'alimentari',
-            qty:            packs,
-            initial_qty:    packs,
-            unit:           item.unit ?? 'pz',
-            units_per_pack: unitsPerPack,
-            total_units:    totalUnits,
-            unit_label:     unitLabel,
-            avg_price:      item.unit_price || item.price || 0,
+            expense_id:     expenseId,
+            store:          storeVal,
+            store_address:  storeAddress,
             purchase_date:  purchaseDate,
-            expiry_date:    item.expiry_date ?? null,
-            consumed_pct:   0,
-            ...(imageUrl ? { image_url: imageUrl } : {}),
-          })
+            price_total:    importo,
+            payment_method: paymentMethod,
+            raw_text:       ocrResult.raw_text ?? null,
+            confidence:     ocrResult.confidence ?? 'medium',
+          }])
+          .select('id')
+          .single()
+        receiptId = receiptRow?.id ?? null
+      } catch {}
+
+      // 3. Receipt items — fallback silenzioso
+      if (receiptId && items.length) {
+        try {
+          await supabase.from('receipt_items').insert(
+            items.map(item => ({
+              receipt_id:    receiptId,
+              user_id:       user.id,
+              name:          item.name,
+              brand:         item.brand ?? null,
+              qty:           item.qty ?? 1,
+              unit:          item.unit ?? 'pz',
+              unit_price:    item.unit_price ?? item.price ?? 0,
+              price:         item.price ?? 0,
+              category_item: item.category_item ?? 'alimentari',
+              expiry_date:   item.expiry_date ?? null,
+              purchase_date: purchaseDate,
+            }))
+          )
+        } catch {}
+      }
+
+      // 4. Inventory — ogni prodotto è indipendente, errori non bloccano
+      if (categoria === 'casa' && items.length) {
+        for (const item of items) {
+          if (!item.name) continue
+          try {
+            // Immagine (timeout 4s, mai bloccante)
+            let imageUrl = null
+            try {
+              const q = encodeURIComponent(item.image_search_query || `${item.brand || ''} ${item.name}`.trim())
+              const b = encodeURIComponent(item.brand || '')
+              const imgResp = await fetch(`/api/product-image?q=${q}&brand=${b}`,
+                { signal: AbortSignal.timeout(4000) })
+              if (imgResp.ok) {
+                const imgData = await imgResp.json()
+                if (imgData?.ok && imgData.imageUrl) imageUrl = imgData.imageUrl
+              }
+            } catch {}
+
+            const packs        = Number(item.packs || item.qty || 1)
+            const unitsPerPack = Number(item.units_per_pack || 1)
+            const totalUnits   = Number(item.qty || packs * unitsPerPack)
+            const unitLabel    = item.unit_per_pack_label || item.unit || 'pz'
+            const firstWord    = item.name.split(' ')[0]
+
+            const { data: existing } = await supabase
+              .from('inventory')
+              .select('id, qty, initial_qty')
+              .eq('user_id', user.id)
+              .ilike('product_name', `%${firstWord}%`)
+              .maybeSingle()
+
+            if (existing) {
+              const patch = {
+                qty:          Number(existing.qty || 0) + packs,
+                initial_qty:  Number(existing.initial_qty || 0) + packs,
+                consumed_pct: 0,
+                avg_price:    item.unit_price || item.price || 0,
+                last_updated: new Date().toISOString(),
+                ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
+                ...(imageUrl         ? { image_url: imageUrl }           : {}),
+              }
+              // Aggiunge colonne extra solo se la migration è stata eseguita
+              try { patch.units_per_pack = unitsPerPack; patch.unit_label = unitLabel } catch {}
+              await supabase.from('inventory').update(patch).eq('id', existing.id)
+            } else {
+              await supabase.from('inventory').insert({
+                user_id:      user.id,
+                product_name: item.name,
+                brand:        item.brand ?? null,
+                category:     item.category_item ?? 'alimentari',
+                qty:          packs,
+                initial_qty:  packs,
+                unit:         item.unit ?? 'pz',
+                avg_price:    item.unit_price || item.price || 0,
+                purchase_date: purchaseDate,
+                expiry_date:  item.expiry_date ?? null,
+                consumed_pct: 0,
+                ...(imageUrl ? { image_url: imageUrl } : {}),
+              })
+            }
+          } catch (itemErr) {
+            console.warn(`[inventory] skip ${item.name}:`, itemErr)
+          }
         }
       }
+
+      // 5. Pocket cash se pagamento contanti
+      if (paymentMethod === 'cash' && importo > 0) {
+        try {
+          await supabase.from('pocket_cash').insert({
+            user_id:  user.id,
+            note:     `Spesa ${storeVal} (${purchaseDate})`,
+            delta:    -importo,
+            moved_at: new Date().toISOString(),
+          })
+        } catch {}
+      }
+
+      // 6. Successo
+      setOcrResult(null)
+      fetchScorte()
+      fetchProdotti()
+      alert(
+        `✅ Salvato!\n🏪 ${storeVal} — ${purchaseDate}\n💶 €${importo.toFixed(2)}` +
+        (items.length ? `\n🛒 ${items.length} prodotti in dispensa` : '')
+      )
+
+    } catch (e) {
+      console.error('[salvaRisultato]', e)
+      setErr('❌ ' + (e.message || 'Errore durante il salvataggio'))
+    } finally {
+      setSaving(false)
     }
-
-    // 5. Sottrai dai soldi in tasca se pagamento cash
-    if (paymentMethod === 'cash' && importo > 0) {
-      await supabase.from('pocket_cash').insert({
-        user_id:  user.id,
-        note:     `Spesa ${storeVal} (${purchaseDate})`,
-        delta:    -importo,
-        moved_at: new Date().toISOString(),
-      })
-    }
-
-    // 6. UI feedback
-    setOcrResult(null)
-    fetchScorte()
-    fetchProdotti()
-
-    alert(
-      `✅ Salvato!\n🏪 ${storeVal} — ${purchaseDate}\n💶 €${importo.toFixed(2)}\n` +
-      (items.length ? `🛒 ${items.length} prodotti in dispensa` : '')
-    )
   }
 
   /* ── CONTEGGI ── */
@@ -520,11 +529,23 @@ TESTO: ${text}`,
               )}
 
               <div style={{ display:'flex', gap:'.75rem', marginTop:'.75rem' }}>
-                <button className="ocr" onClick={salvaRisultato} style={{ flex:1 }}>✅ Conferma e salva</button>
-                <button onClick={() => setOcrResult(null)} style={{
-                  flex:1, background:'#6b7280', color:'#fff', border:'none',
-                  borderRadius:'.5rem', padding:'.6rem', cursor:'pointer', fontWeight:600
-                }}>✕ Annulla</button>
+                <button
+                  className="ocr"
+                  onClick={salvaRisultato}
+                  disabled={saving}
+                  style={{ flex:1, opacity: saving ? .6 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}
+                >
+                  {saving ? '⏳ Salvataggio…' : '✅ Conferma e salva'}
+                </button>
+                <button
+                  onClick={() => { if (!saving) setOcrResult(null) }}
+                  disabled={saving}
+                  style={{ flex:1, background:'#6b7280', color:'#fff', border:'none',
+                    borderRadius:'.5rem', padding:'.6rem', cursor: saving ? 'not-allowed' : 'pointer',
+                    fontWeight:600, opacity: saving ? .5 : 1 }}
+                >
+                  ✕ Annulla
+                </button>
               </div>
             </div>
           )}
