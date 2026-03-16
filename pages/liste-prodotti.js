@@ -637,7 +637,6 @@ Testo: ${text}` })
                         {it.brand ? <span style={S.rowBrand}> · {it.brand}</span> : null}
                       </div>
                       <div style={S.rowMeta}>
-                        {/* Mostra confezioni × unità/conf se disponibile */}
                         {Number(it.units_per_pack||it.unitsPerPack||1) > 1
                           ? `${it.qty} conf. × ${it.units_per_pack||it.unitsPerPack} ${it.unit_label||it.unitLabel||'pz'} = ${Number(it.qty) * Number(it.units_per_pack||it.unitsPerPack)} totali`
                           : `${it.qty} ${it.unit_label||it.unitLabel||'pz'}`
@@ -694,6 +693,8 @@ Testo: ${text}` })
                 const pct = s.initialPacks > 0 ? Math.round((s.packs/s.initialPacks)*100) : 100;
                 const upp = Number(s.unitsPerPack || 1);
                 const totUnits = s.packs * upp;
+                // Sanity check: se packs e totUnits sono uguali, unitsPerPack era 1
+                const showBreakdown = upp > 1 && totUnits !== s.packs;
                 return (
                   <div key={s.id || idx} style={{...(idx%2===0 ? S.stockZ1 : S.stockZ2)}}>
                     {editingRow === idx ? (
@@ -734,14 +735,10 @@ Testo: ${text}` })
                             <div style={{...S.progressInner, width:`${pct}%`, background:pct>60?'#16a34a':pct>30?'#f59e0b':'#ef4444'}}/>
                           </div>
                           <div style={S.stockMeta}>
-                            {/* Riga quantità: confezioni × unità = totale */}
-                            <span style={S.qtyBadge}>
-                              {upp > 1
-                                ? `${s.packs} conf. × ${upp} ${s.unitLabel} = `
-                                : `${s.packs} `
-                              }
-                              <strong>{totUnits} {s.unitLabel}</strong>
-                            </span>
+                            {showBreakdown
+                              ? <span style={S.qtyBadge}>{s.packs} conf. × {upp} {s.unitLabel} = <strong>{totUnits} {s.unitLabel}</strong></span>
+                              : <span style={S.qtyBadge}><strong>{s.packs} {s.unitLabel}</strong></span>
+                            }
                             {s.expiresAt && (
                               <span style={S.expiryChip}>
                                 ⏰ scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
