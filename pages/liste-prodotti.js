@@ -178,21 +178,24 @@ export default function ListeProdotti() {
         // Inventory / scorte
         const { data: invRows, error: invErr } = await __supabase
           .from('inventory')
-          .select('id, product_name, category, qty, initial_qty, unit, expiry_date, avg_price, consumed_pct')
+          .select('id, product_name, brand, category, qty, initial_qty, unit, units_per_pack, unit_label, expiry_date, avg_price, consumed_pct, image_url')
           .eq('user_id', uid)
           .order('product_name', { ascending: true });
 
         if (!invErr && Array.isArray(invRows) && mounted) {
           setStock(invRows.map(r => ({
-            id:          r.id,
-            name:        r.product_name,
-            category:    r.category || 'alimentari',
-            packs:       Number(r.qty || 1),
-            initialPacks:Number(r.initial_qty || 1),
-            unitLabel:   r.unit || 'pz',
-            expiresAt:   r.expiry_date || '',
-            priceEach:   Number(r.avg_price || 0),
-            consumedPct: Number(r.consumed_pct || 0),
+            id:           r.id,
+            name:         r.product_name,
+            brand:        r.brand || '',
+            category:     r.category || 'alimentari',
+            packs:        Number(r.qty || 1),
+            initialPacks: Number(r.initial_qty || 1),
+            unitsPerPack: Number(r.units_per_pack || 1),
+            unitLabel:    r.unit_label || r.unit || 'pz',
+            expiresAt:    r.expiry_date || '',
+            priceEach:    Number(r.avg_price || 0),
+            consumedPct:  Number(r.consumed_pct || 0),
+            imageUrl:     r.image_url || null,
           })));
         }
       } catch (e) { if (DEBUG) console.warn('[init] fail', e); }
@@ -342,8 +345,8 @@ export default function ListeProdotti() {
     setEditDraft({
       name:         row.name || '',
       brand:        row.brand || '',
-      packs:        String(row.packs ?? 0),
-      unitsPerPack: String(row.unitLabel === 'pz' ? 1 : row.packs ?? 1),
+      packs:        String(row.packs ?? 1),
+      unitsPerPack: String(row.unitsPerPack ?? 1),
       unitLabel:    row.unitLabel || 'pz',
       expiresAt:    row.expiresAt || '',
       residueUnits: String(row.packs ?? 0),
@@ -356,29 +359,30 @@ export default function ListeProdotti() {
   function cancelRowEdit() { setEditingRow(null); }
 
   async function saveRowEdit(index) {
-    const row  = stock[index];
-    const name = editDraft.name.trim();
-    const newQty = Math.max(0, Number(editDraft.packs) || 0);
-    const expiry = toISODate(editDraft.expiresAt || '');
+    const row        = stock[index];
+    const name       = editDraft.name.trim();
+    const newPacks   = Math.max(0, Number(editDraft.packs) || 0);
+    const newUpp     = Math.max(1, Number(editDraft.unitsPerPack) || 1);
+    const expiry     = toISODate(editDraft.expiresAt || '');
 
     setStock(prev => {
       const arr = [...prev];
-      arr[index] = { ...arr[index], name, brand: editDraft.brand.trim(), packs: newQty, unitLabel: editDraft.unitLabel, expiresAt: expiry };
+      arr[index] = { ...arr[index], name, brand: editDraft.brand.trim(),
+        packs: newPacks, unitsPerPack: newUpp, unitLabel: editDraft.unitLabel, expiresAt: expiry };
       return arr;
     });
 
-    // Aggiorna su Supabase se ha un id reale
     if (__supabase && userIdRef.current && row?.id) {
       try {
         await __supabase.from('inventory').update({
-          product_name: name,
-          qty:          newQty,
-          unit:         editDraft.unitLabel,
-          expiry_date:  expiry || null,
+          product_name:   name,
+          qty:            newPacks,
+          units_per_pack: newUpp,
+          unit:           editDraft.unitLabel,
+          expiry_date:    expiry || null,
         }).eq('id', row.id).eq('user_id', userIdRef.current);
       } catch (err) { if (DEBUG) console.warn('[saveRowEdit]', err); }
     }
-
     setEditingRow(null);
   }
 
@@ -628,8 +632,17 @@ Testo: ${text}` })
                 : (lists[currentList]||[]).map(it => (
                   <div key={it.id} style={S.listCard}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={S.rowName}>{it.name}{it.brand ? <span style={S.rowBrand}> · {it.brand}</span> : null}</div>
-                      <div style={S.rowMeta}>Qtà: {it.qty}</div>
+                      <div style={S.rowName}>
+                        {it.name}
+                        {it.brand ? <span style={S.rowBrand}> · {it.brand}</span> : null}
+                      </div>
+                      <div style={S.rowMeta}>
+                        {/* Mostra confezioni × unità/conf se disponibile */}
+                        {Number(it.units_per_pack||it.unitsPerPack||1) > 1
+                          ? `${it.qty} conf. × ${it.units_per_pack||it.unitsPerPack} ${it.unit_label||it.unitLabel||'pz'} = ${Number(it.qty) * Number(it.units_per_pack||it.unitsPerPack)} totali`
+                          : `${it.qty} ${it.unit_label||it.unitLabel||'pz'}`
+                        }
+                      </div>
                     </div>
                     <div style={S.rowActions}>
                       <button onClick={() => incQty(it.id,-1)} style={S.iconBtnSm}>−</button>
@@ -679,6 +692,8 @@ Testo: ${text}` })
               ? <p style={{opacity:.7}}>Nessuna scorta registrata.</p>
               : stock.map((s,idx) => {
                 const pct = s.initialPacks > 0 ? Math.round((s.packs/s.initialPacks)*100) : 100;
+                const upp = Number(s.unitsPerPack || 1);
+                const totUnits = s.packs * upp;
                 return (
                   <div key={s.id || idx} style={{...(idx%2===0 ? S.stockZ1 : S.stockZ2)}}>
                     {editingRow === idx ? (
@@ -686,7 +701,8 @@ Testo: ${text}` })
                         <div style={S.formRow}>
                           <input style={S.input} value={editDraft.name} onChange={e=>handleEditDraftChange('name',e.target.value)} placeholder="Nome" />
                           <input style={S.input} value={editDraft.brand} onChange={e=>handleEditDraftChange('brand',e.target.value)} placeholder="Marca" />
-                          <input style={{...S.input,width:100}} inputMode="decimal" value={editDraft.packs} onChange={e=>handleEditDraftChange('packs',e.target.value)} placeholder="Qtà" />
+                          <input style={{...S.input,width:100}} inputMode="decimal" value={editDraft.packs} onChange={e=>handleEditDraftChange('packs',e.target.value)} placeholder="N. confezioni" />
+                          <input style={{...S.input,width:130}} inputMode="decimal" value={editDraft.unitsPerPack} onChange={e=>handleEditDraftChange('unitsPerPack',e.target.value)} placeholder="Unità/conf." />
                           <input style={{...S.input,width:160}} value={editDraft.expiresAt} onChange={e=>handleEditDraftChange('expiresAt',e.target.value)} placeholder="YYYY-MM-DD" />
                         </div>
                         <div style={{display:'flex',gap:8,marginTop:6}}>
@@ -695,21 +711,51 @@ Testo: ${text}` })
                         </div>
                       </div>
                     ) : (
-                      <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:10,alignItems:'center'}}>
+                      <div style={{display:'grid', gridTemplateColumns:'56px 1fr auto', gap:12, alignItems:'center'}}>
+
+                        {/* Immagine prodotto */}
+                        <div style={S.imgBox} onClick={() => { setTargetImageIdx(idx); rowImageInputRef.current?.click(); }} title="Cambia immagine">
+                          {s.imageUrl || s.image
+                            ? <img src={s.imageUrl || s.image} alt={s.name} style={S.imgThumb}
+                                onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='grid'; }}
+                              />
+                            : null
+                          }
+                          <div style={{...S.imgPlaceholder, display: (s.imageUrl||s.image) ? 'none' : 'grid'}}>📦</div>
+                        </div>
+
+                        {/* Info prodotto */}
                         <div>
-                          <div style={S.stockTitle}>{s.name}{s.brand ? <span style={S.rowBrand}> · {s.brand}</span> : null}</div>
+                          <div style={S.stockTitle}>
+                            {s.name}
+                            {s.brand ? <span style={S.rowBrand}> · {s.brand}</span> : null}
+                          </div>
                           <div style={S.progressOuter}>
-                            <div style={{...S.progressInner,width:`${pct}%`,background:pct>60?'#16a34a':pct>30?'#f59e0b':'#ef4444'}}/>
+                            <div style={{...S.progressInner, width:`${pct}%`, background:pct>60?'#16a34a':pct>30?'#f59e0b':'#ef4444'}}/>
                           </div>
                           <div style={S.stockMeta}>
-                            {s.packs} {s.unitLabel}
-                            {s.expiresAt && <span style={S.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span>}
+                            {/* Riga quantità: confezioni × unità = totale */}
+                            <span style={S.qtyBadge}>
+                              {upp > 1
+                                ? `${s.packs} conf. × ${upp} ${s.unitLabel} = `
+                                : `${s.packs} `
+                              }
+                              <strong>{totUnits} {s.unitLabel}</strong>
+                            </span>
+                            {s.expiresAt && (
+                              <span style={S.expiryChip}>
+                                ⏰ scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}
+                              </span>
+                            )}
                           </div>
                         </div>
+
+                        {/* Azioni */}
                         <div style={S.rowActions}>
                           <button onClick={() => startRowEdit(idx,s)} style={S.iconCircle} title="Modifica"><Pencil size={16}/></button>
                           <button onClick={() => deleteStockRow(idx)} style={{...S.iconCircle,color:'#f87171'}} title="Elimina"><Trash2 size={16}/></button>
                         </div>
+
                       </div>
                     )}
                   </div>
@@ -783,6 +829,10 @@ const S = {
   stockMeta: { fontSize:'.82rem', opacity:.85, marginTop:4 },
   smallOkBtn: { padding:'6px 12px', borderRadius:8, background:'#16a34a', color:'#fff', fontWeight:700, border:'none', cursor:'pointer' },
   smallGhostBtn: { padding:'6px 12px', borderRadius:8, background:'transparent', border:'1px solid #475569', color:'#e2e8f0', cursor:'pointer' },
+  imgBox: { width:56, height:56, borderRadius:10, border:'1px dashed rgba(255,255,255,.25)', overflow:'hidden', cursor:'pointer', background:'rgba(255,255,255,.04)', position:'relative', flexShrink:0 },
+  imgThumb: { width:'100%', height:'100%', objectFit:'cover', display:'block' },
+  imgPlaceholder: { width:'100%', height:'100%', placeItems:'center', fontSize:'1.4rem', color:'rgba(255,255,255,.3)' },
+  qtyBadge: { fontSize:'.82rem', color:'rgba(255,255,255,.75)', marginRight:6 },
 };
 
 export async function getServerSideProps() { return { props:{} }; }
