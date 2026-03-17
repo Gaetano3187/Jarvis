@@ -178,7 +178,7 @@ export default function ListeProdotti() {
         // Inventory / scorte
         const { data: invRows, error: invErr } = await __supabase
           .from('inventory')
-          .select('id, product_name, brand, category, qty, initial_qty, unit, units_per_pack, unit_label, expiry_date, avg_price, consumed_pct, image_url')
+          .select('id, product_name, brand, category, qty, initial_qty, packs, unit, units_per_pack, unit_label, expiry_date, avg_price, consumed_pct, image_url')
           .eq('user_id', uid)
           .order('product_name', { ascending: true });
 
@@ -188,7 +188,9 @@ export default function ListeProdotti() {
             name:         r.product_name,
             brand:        r.brand || '',
             category:     r.category || 'alimentari',
-            packs:        Number(r.qty || 1),
+            // qty = unità totali, packs = confezioni fisiche
+            qty:          Number(r.qty || 1),
+            packs:        Number(r.packs || r.qty || 1),
             initialPacks: Number(r.initial_qty || 1),
             unitsPerPack: Number(r.units_per_pack || 1),
             unitLabel:    r.unit_label || r.unit || 'pz',
@@ -691,10 +693,11 @@ Testo: ${text}` })
               ? <p style={{opacity:.7}}>Nessuna scorta registrata.</p>
               : stock.map((s,idx) => {
                 const pct = s.initialPacks > 0 ? Math.round((s.packs/s.initialPacks)*100) : 100;
-                const upp = Number(s.unitsPerPack || 1);
-                const totUnits = s.packs * upp;
-                // Sanity check: se packs e totUnits sono uguali, unitsPerPack era 1
-                const showBreakdown = upp > 1 && totUnits !== s.packs;
+                const upp          = Number(s.unitsPerPack || 1);
+                const totalUnits   = Number(s.qty || s.packs || 1);
+                const packsCount   = Number(s.packs || 1);
+                const pct          = s.initialPacks > 0 ? Math.round((totalUnits / s.initialPacks) * 100) : 100;
+                const showBreakdown = upp > 1 && packsCount > 0 && totalUnits !== packsCount;
                 return (
                   <div key={s.id || idx} style={{...(idx%2===0 ? S.stockZ1 : S.stockZ2)}}>
                     {editingRow === idx ? (
@@ -736,8 +739,8 @@ Testo: ${text}` })
                           </div>
                           <div style={S.stockMeta}>
                             {showBreakdown
-                              ? <span style={S.qtyBadge}>{s.packs} conf. × {upp} {s.unitLabel} = <strong>{totUnits} {s.unitLabel}</strong></span>
-                              : <span style={S.qtyBadge}><strong>{s.packs} {s.unitLabel}</strong></span>
+                              ? <span style={S.qtyBadge}>{packsCount} conf. × {upp} {s.unitLabel} = <strong>{totalUnits} {s.unitLabel}</strong></span>
+                              : <span style={S.qtyBadge}><strong>{totalUnits} {s.unitLabel}</strong></span>
                             }
                             {s.expiresAt && (
                               <span style={S.expiryChip}>

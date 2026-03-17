@@ -293,9 +293,13 @@ TESTO: ${text}`,
               }
             } catch {}
 
-            const packs        = Number(item.packs || item.qty || 1)
+            const packs        = Number(item.packs || 1)
             const unitsPerPack = Number(item.units_per_pack || 1)
             const totalUnits   = Number(item.qty || packs * unitsPerPack)
+            // qty in DB = unità TOTALI (es. 12 uova, non 2 confezioni)
+            // packs separato per il display "N conf. × M pz"
+
+            const inventoryQty = totalUnits  // unità fisiche totali
             const unitLabel    = item.unit_per_pack_label || item.unit || 'pz'
             const firstWord    = item.name.split(' ')[0]
 
@@ -307,31 +311,34 @@ TESTO: ${text}`,
               .maybeSingle()
 
             if (existing) {
-              const patch = {
-                qty:          Number(existing.qty || 0) + packs,
-                initial_qty:  Number(existing.initial_qty || 0) + packs,
-                consumed_pct: 0,
-                avg_price:    item.unit_price || item.price || 0,
-                last_updated: new Date().toISOString(),
+              await supabase.from('inventory').update({
+                qty:            Number(existing.qty || 0) + inventoryQty,
+                initial_qty:    Number(existing.initial_qty || 0) + inventoryQty,
+                packs:          Number(existing.packs || 0) + packs,
+                units_per_pack: unitsPerPack,
+                unit_label:     unitLabel,
+                consumed_pct:   0,
+                avg_price:      item.unit_price || item.price || 0,
+                last_updated:   new Date().toISOString(),
                 ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
                 ...(imageUrl         ? { image_url: imageUrl }           : {}),
-              }
-              // Aggiunge colonne extra solo se la migration è stata eseguita
-              try { patch.units_per_pack = unitsPerPack; patch.unit_label = unitLabel } catch {}
-              await supabase.from('inventory').update(patch).eq('id', existing.id)
+              }).eq('id', existing.id)
             } else {
               await supabase.from('inventory').insert({
-                user_id:      user.id,
-                product_name: item.name,
-                brand:        item.brand ?? null,
-                category:     item.category_item ?? 'alimentari',
-                qty:          packs,
-                initial_qty:  packs,
-                unit:         item.unit ?? 'pz',
-                avg_price:    item.unit_price || item.price || 0,
-                purchase_date: purchaseDate,
-                expiry_date:  item.expiry_date ?? null,
-                consumed_pct: 0,
+                user_id:        user.id,
+                product_name:   item.name,
+                brand:          item.brand ?? null,
+                category:       item.category_item ?? 'alimentari',
+                qty:            inventoryQty,
+                initial_qty:    inventoryQty,
+                packs:          packs,
+                unit:           item.unit ?? 'pz',
+                units_per_pack: unitsPerPack,
+                unit_label:     unitLabel,
+                avg_price:      item.unit_price || item.price || 0,
+                purchase_date:  purchaseDate,
+                expiry_date:    item.expiry_date ?? null,
+                consumed_pct:   0,
                 ...(imageUrl ? { image_url: imageUrl } : {}),
               })
             }
