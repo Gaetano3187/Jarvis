@@ -692,7 +692,6 @@ Testo: ${text}` })
             {stock.length === 0
               ? <p style={{opacity:.7}}>Nessuna scorta registrata.</p>
               : stock.map((s,idx) => {
-                const pct = s.initialPacks > 0 ? Math.round((s.packs/s.initialPacks)*100) : 100;
                 const upp          = Number(s.unitsPerPack || 1);
                 const totalUnits   = Number(s.qty || s.packs || 1);
                 const packsCount   = Number(s.packs || 1);
