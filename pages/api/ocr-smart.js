@@ -11,154 +11,106 @@ export const config = { api: { bodyParser: false } }
 const SYSTEM_PROMPT = `Sei un motore di analisi scontrini italiano di precisione assoluta.
 Il tuo unico output è JSON valido. Zero testo aggiuntivo, zero markdown, zero commenti.`
 
-const USER_PROMPT = `Analizza questo scontrino italiano con la massima precisione.
+const USER_PROMPT = `Sei un parser di scontrini italiani. Restituisci SOLO JSON valido, zero testo aggiuntivo.
 
-Restituisci ESCLUSIVAMENTE questo JSON (nessun testo prima o dopo):
-
+━━━ SCHEMA OUTPUT ━━━
 {
-  "categoria": "casa",
-  "store": "Nome insegna del negozio",
-  "store_address": "indirizzo se leggibile oppure null",
+  "categoria": "casa|cene|vestiti|varie",
+  "store": "string",
+  "store_address": "string|null",
   "purchase_date": "YYYY-MM-DD",
   "price_total": 0.00,
   "payment_method": "cash|card|unknown",
-  "items": [
-    {
-      "name": "Nome prodotto commerciale normalizzato e leggibile",
-      "brand": "marca se leggibile oppure null",
-      "packs": 1,
-      "units_per_pack": 1,
-      "unit_per_pack_label": "pz",
-      "qty": 1,
-      "unit": "pz",
-      "unit_price": 0.00,
-      "price": 0.00,
-      "category_item": "alimentari",
-      "expiry_date": null,
-      "image_search_query": "nome prodotto marca per ricerca immagine"
-    }
-  ],
-  "raw_text": "trascrizione fedele dell'intero scontrino",
-  "confidence": "high"
+  "items": [{
+    "name": "string",
+    "brand": "string|null",
+    "packs": 1,
+    "units_per_pack": 1,
+    "unit_per_pack_label": "pz|uova|bottiglie|lattine|kg",
+    "qty": 1.0,
+    "unit": "pz|kg|l|g|ml",
+    "unit_price": 0.00,
+    "price": 0.00,
+    "category_item": "alimentari|pulizia|igiene|farmaco|altro",
+    "expiry_date": "YYYY-MM-DD|null",
+    "image_search_query": "string"
+  }],
+  "raw_text": "string",
+  "confidence": "high|medium|low"
 }
 
-REGOLE CRITICHE:
+━━━ REGOLA FONDAMENTALE: COME LEGGERE LE QUANTITÀ ━━━
 
-1. FORMATO QUANTITÀ — molti scontrini italiani stampano la quantità su una riga separata PRIMA del nome:
-   Esempio:
-     "2 x    1,95"        ← riga quantità: 2 pezzi a 1,95 l'uno
-     "UOVA GRANDI X6      3,90"  ← nome prodotto + prezzo totale
-   In questo caso: qty=2, unit_price=1.95, price=3.90, name="Uova grandi confezione da 6"
-   
-   Altri formati comuni:
-     "6 x    1,95"        +  "#LATTE ZYMIL 1 LT   11,70" → qty=6, unit_price=1.95, price=11.70
-     "4 x    1,00"        +  "#---ZUCCHERO 1KG    4,00"  → qty=4, unit_price=1.00, price=4.00
-     "2.840x"             +  "PANE PASTICCERIA    2,84"  → qty=2.840 kg, unit="kg", price=2.84
-     "1.00 / 33.370x"     +  "FORMAGGI SALUMI     33,37" → qty=33.370 kg al banco, unit="kg"
-   
-   REGOLA: se vedi una riga con formato "N x prezzo" o "N.NNNx" PRIMA di un nome prodotto,
-   quella riga definisce qty e unit_price del prodotto che segue. NON creare una voce separata per quella riga.
-   
-   CAMPI QUANTITÀ — distinzione fondamentale:
-   - packs = numero di CONFEZIONI acquistate (la "N x" prima del nome)
-   - units_per_pack = unità dentro ogni confezione (il numero dopo "X" nel nome, es. "X6", "X2")
-   - unit_per_pack_label = etichetta delle unità dentro la confezione ("uova", "bottiglie", "pz", ecc.)
-   - qty = packs × units_per_pack (totale unità fisiche)
-   - unit = unità di misura base ("pz", "kg", "l", "g", "ml")
-   
-   Esempi concreti dallo scontrino Orsini:
-   "2 x 1,95 / UOVA GRANDI X6 / 3,90"
-     → packs=2, units_per_pack=6, unit_per_pack_label="uova", qty=12, unit="pz", unit_price=1.95, price=3.90
-   
-   "2 x 4,00 / #COCA COLA 6X150ML / 8,00"  
-     → packs=2, units_per_pack=6, unit_per_pack_label="lattine", qty=12, unit="pz", unit_price=4.00, price=8.00
-   
-   "2 x 1,20 / KINDER BUENO X2 / 2,40"
-     → packs=2, units_per_pack=2, unit_per_pack_label="pz", qty=4, unit="pz", unit_price=1.20, price=2.40
-   
-   "6 x 1,95 / #LATTE ZYMIL 1LT / 11,70"
-     → packs=6, units_per_pack=1, unit_per_pack_label="bottiglia", qty=6, unit="l", unit_price=1.95, price=11.70
-   
-   "1.00 / 33.370x / FORMAGGI SALUMI / 33,37"
-     → packs=1, units_per_pack=1, unit_per_pack_label="kg", qty=33.370, unit="kg", unit_price=1.00, price=33.37
-   
-   "2.840x / PANE PASTICCERIA / 2,84"
-     → packs=1, units_per_pack=1, unit_per_pack_label="kg", qty=2.840, unit="kg", unit_price=~1.00, price=2.84
-   
-   Se non c'è una riga "N x" prima del nome: packs=1, units_per_pack=1.
+Gli scontrini italiani stampano la quantità su una riga SEPARATA prima del nome prodotto.
+Devi SEMPRE abbinare la riga quantità al prodotto che la segue immediatamente.
 
-2. PRODOTTI AL BANCO (peso variabile):
-   - Se qty ha 3 decimali (es. 2.840, 33.370, 0.450) → unit="kg"
-   - Il prezzo al kg è sulla riga "N x prezzo" sopra il nome
-   - Esempio: "1.00 / 33.370x" con "FORMAGGI SALUMI 33,37" → qty=33.370, unit="kg", unit_price=1.00, price=33.37
+FORMATO RIGA QUANTITÀ:
+  "N x  P,PP"          → N confezioni a P,PP ciascuna
+  "N.NNNx"             → N.NNN kg (prodotto al banco pesato)
+  "P,PP / N.NNNx"      → prezzo/kg P,PP × N.NNN kg al banco
 
-3. SIMBOLI DA IGNORARE nel nome prodotto:
-   - "#" iniziale → promozionale, rimuovilo dal nome
-   - "---" → separatore, rimuovilo
-   - Esempio: "#LATTE ZYMIL 1 LT" → "Latte Zymil 1L"
-   - Esempio: "#---ZUCCHERO 1KG ERI" → "Zucchero 1kg"
+COME LEGGERE packs, units_per_pack, qty:
+  - packs          = il numero N nella riga "N x P,PP" (confezioni fisiche acquistate)
+  - units_per_pack = il numero dopo "X" nel NOME del prodotto (es. "X6", "X2", "6X150ML")
+  - qty            = packs × units_per_pack (totale pezzi/unità)
+  - unit_price     = P,PP dalla riga quantità
+  - price          = prezzo totale riga (colonna destra dello scontrino)
 
-4. NOMI PRODOTTI: normalizza le abbreviazioni in nomi commerciali reali italiani.
-   - "LTTE INT BIO 1L" → "Latte intero biologico 1L"
-   - "PRSC CRUDO 100G" → "Prosciutto crudo 100g"
-   - "DET LAVATRICE" → "Detersivo lavatrice"
-   - "ACQ MINERALE" → "Acqua minerale"
-   - "BISCOT INTEG" → "Biscotti integrali"
-   - "LIEVITAL LIEVITO X2" → "Lievito in polvere (confezione da 2)"
-   - "VANILLINA PANEAN" → "Vanillina Paneangeli"
-   - "FARINA DE CECCO" → "Farina De Cecco"
-   - "KINDER BUENO X2" → "Kinder Bueno (confezione da 2)"
-   Usa il contesto (marca, reparto, prezzo) per inferire il nome corretto.
+━━━ ESEMPIO COMPLETO (scontrino Orsini reale → output atteso) ━━━
 
-5. CATEGORIA principale dello scontrino:
-   - "casa" → supermercato, alimentari, pulizie, farmacia, ferramenta
-   - "cene" → ristorante, bar, pizzeria, aperitivo, fast food
-   - "vestiti" → abbigliamento, scarpe, accessori
-   - "varie" → tabacchi, benzina, parcheggio, altro
+TESTO SCONTRINO:
+  2 x    1,95
+  UOVA GRANDI X6          10,00%    3,90
+  2 x    4,00
+  #COCA COLA 6X150ML      22,00%    8,00
+  2 x    1,20
+  KINDER BUENO X2         10,00%    2,40
+  2 x    0,50
+  LIEVITAL LIEVITO X2     10,00%    1,00
+  2 x    1,00
+  #FARINA DE CECCO         4,00%    2,00
+  VANILLINA PANEAN        22,00%    0,65
+  ZUCCHERO PANEANGEL      22,00%    0,90
+  4 x    1,00
+  #---ZUCCHERO 1KG ERI    10,00%    4,00
+  6 x    1,95
+  #LATTE ZYMIL 1 LT        4,00%   11,70
+  1.00
+  33.370x
+  FORMAGGI SALUMI         10,00%   33,37
+  2.840x
+  PANE PASTICCERIA         4,00%    2,84
 
-6. CATEGORIA ITEM per ogni prodotto:
-   - "alimentari" → cibo, bevande
-   - "pulizia" → detergenti, carta, pulizia casa
-   - "igiene" → saponi, shampoo, cura persona
-   - "farmaco" → medicine, integratori
-   - "altro" → tutto il resto
+OUTPUT JSON ATTESO:
+[
+  {"name":"Uova grandi","brand":null,"packs":2,"units_per_pack":6,"unit_per_pack_label":"uova","qty":12,"unit":"pz","unit_price":1.95,"price":3.90,"category_item":"alimentari","expiry_date":null,"image_search_query":"uova fresche confezione 6"},
+  {"name":"Coca Cola 150ml","brand":"Coca Cola","packs":2,"units_per_pack":6,"unit_per_pack_label":"lattine","qty":12,"unit":"pz","unit_price":4.00,"price":8.00,"category_item":"alimentari","expiry_date":null,"image_search_query":"Coca Cola lattine 150ml multipack"},
+  {"name":"Kinder Bueno","brand":"Kinder","packs":2,"units_per_pack":2,"unit_per_pack_label":"pz","qty":4,"unit":"pz","unit_price":1.20,"price":2.40,"category_item":"alimentari","expiry_date":null,"image_search_query":"Kinder Bueno confezione doppia"},
+  {"name":"Lievito in polvere","brand":"Lievital","packs":2,"units_per_pack":2,"unit_per_pack_label":"bustine","qty":4,"unit":"pz","unit_price":0.50,"price":1.00,"category_item":"alimentari","expiry_date":null,"image_search_query":"Lievital lievito bustine"},
+  {"name":"Farina","brand":"De Cecco","packs":2,"units_per_pack":1,"unit_per_pack_label":"pz","qty":2,"unit":"pz","unit_price":1.00,"price":2.00,"category_item":"alimentari","expiry_date":null,"image_search_query":"Farina De Cecco tipo 00"},
+  {"name":"Vanillina","brand":"Paneangeli","packs":1,"units_per_pack":1,"unit_per_pack_label":"bustine","qty":1,"unit":"pz","unit_price":0.65,"price":0.65,"category_item":"alimentari","expiry_date":null,"image_search_query":"Paneangeli vanillina bustine"},
+  {"name":"Zucchero semolato","brand":"Paneangeli","packs":1,"units_per_pack":1,"unit_per_pack_label":"pz","qty":1,"unit":"pz","unit_price":0.90,"price":0.90,"category_item":"alimentari","expiry_date":null,"image_search_query":"Paneangeli zucchero semolato"},
+  {"name":"Zucchero 1kg","brand":null,"packs":4,"units_per_pack":1,"unit_per_pack_label":"pz","qty":4,"unit":"pz","unit_price":1.00,"price":4.00,"category_item":"alimentari","expiry_date":null,"image_search_query":"zucchero semolato 1kg"},
+  {"name":"Latte Zymil 1L","brand":"Zymil","packs":6,"units_per_pack":1,"unit_per_pack_label":"bottiglia","qty":6,"unit":"l","unit_price":1.95,"price":11.70,"category_item":"alimentari","expiry_date":null,"image_search_query":"Latte Zymil senza lattosio 1 litro"},
+  {"name":"Formaggi e salumi","brand":null,"packs":1,"units_per_pack":1,"unit_per_pack_label":"kg","qty":33.370,"unit":"kg","unit_price":1.00,"price":33.37,"category_item":"alimentari","expiry_date":null,"image_search_query":"formaggi salumi banco taglio"},
+  {"name":"Pane pasticceria","brand":null,"packs":1,"units_per_pack":1,"unit_per_pack_label":"kg","qty":2.840,"unit":"kg","unit_price":1.00,"price":2.84,"category_item":"alimentari","expiry_date":null,"image_search_query":"pane pasticceria sfuso"}
+]
 
-7. DATE:
-   - purchase_date: leggi la data dallo scontrino, formato YYYY-MM-DD
-   - expiry_date: solo se stampata esplicitamente sul prodotto (yogurt, latte fresco, ecc.)
-     formato YYYY-MM-DD oppure null
+━━━ REGOLE AGGIUNTIVE ━━━
 
-8. PREZZI: usa sempre il punto decimale (es. 12.50, non 12,50).
-   unit_price = prezzo per unità, price = prezzo riga totale (qty × unit_price).
-   Se c'è sconto, usa il prezzo SCONTATO come price.
+PRODOTTI SENZA RIGA QUANTITÀ PRECEDENTE (es. VANILLINA, ZUCCHERO PANEANGEL):
+  → packs=1, units_per_pack=1, qty=1
 
-9. QUANTITÀ E UNITÀ:
-   - unit: "pz" pezzi, "kg" chilogrammi, "l" litri, "g" grammi, "ml" millilitri
-   - qty: numero float (es. 0.350 per 350g di affettato al banco)
-   - Se la quantità non è specificata, usa qty=1
+PRODOTTI AL BANCO con "N.NNNx":
+  → qty=N.NNN, unit="kg", unit_price=prezzo/kg dalla riga sopra
 
-10. METODO PAGAMENTO:
-    - "cash" se vedi "contante/i", "pagamento contante", "CONTANTI"
-    - "card" se vedi "carta", "bancomat", "contactless", "POS"
-    - "unknown" se non leggibile
+NOMI: rimuovi "#", "---" iniziali. Normalizza abbreviazioni in italiano leggibile.
 
-11. confidence:
-    - "high" → scontrino nitido, tutti i dati leggibili
-    - "medium" → qualche campo incerto ma struttura chiara
-    - "low" → immagine sfocata o scontrino parziale
+CATEGORIE scontrino: "casa"=supermercato/alimentari, "cene"=ristorante/bar, "vestiti"=abbigliamento, "varie"=altro
 
-12. Se lo scontrino è di un ristorante/bar, items può essere vuoto [] o con le portate principali.
+PAGAMENTO: "cash"=contanti/CONTANTI, "card"=carta/bancomat/POS, "unknown"=non leggibile
 
-13. Non inventare dati. Se un campo non è leggibile, usa null.
-
-14. IMAGE SEARCH QUERY: per ogni prodotto genera una query di ricerca immagine in italiano
-    chiara e specifica per trovare la foto della confezione reale:
-    - "Latte Zymil intero 1L" → "Latte Zymil senza lattosio 1 litro"
-    - "Coca Cola 6x150ml" → "Coca Cola lattine 150ml multipack"
-    - "Kinder Bueno conf. 2" → "Kinder Bueno cioccolato confezione"
-    - "Uova grandi conf. da 6" → "uova fresche confezione 6 pezzi"
-    - "Farina De Cecco" → "Farina De Cecco tipo 00"
-    Usa marca + nome prodotto + formato quando utile. Massimo 6 parole.`
+━━━ ORA ANALIZZA LO SCONTRINO ALLEGATO ━━━`
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
