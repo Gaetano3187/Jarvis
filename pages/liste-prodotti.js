@@ -184,20 +184,20 @@ export default function ListeProdotti() {
 
         if (!invErr && Array.isArray(invRows) && mounted) {
           setStock(invRows.map(r => ({
-            id:           r.id,
-            name:         r.product_name,
-            brand:        r.brand || '',
-            category:     r.category || 'alimentari',
-            // qty = unità totali, packs = confezioni fisiche
-            qty:          Number(r.qty || 1),
-            packs:        Number(r.packs || r.qty || 1),
-            initialPacks: Number(r.initial_qty || 1),
-            unitsPerPack: Number(r.units_per_pack || 1),
-            unitLabel:    r.unit_label || r.unit || 'pz',
-            expiresAt:    r.expiry_date || '',
-            priceEach:    Number(r.avg_price || 0),
-            consumedPct:  Number(r.consumed_pct || 0),
-            imageUrl:     r.image_url || null,
+            id:                 r.id,
+            name:               r.product_name,
+            brand:              r.brand || '',
+            category:           r.category || 'alimentari',
+            qty:                Number(r.qty || 1),
+            packs:              Number(r.packs || r.qty || 1),
+            initialPacks:       Number(r.initial_qty || 1),
+            unitsPerPack:       Number(r.units_per_pack || 1),
+            unitLabel:          r.unit_label || r.unit || 'pz',
+            expiresAt:          r.expiry_date || '',
+            priceEach:          Number(r.avg_price || 0),
+            consumedPct:        Number(r.consumed_pct || 0),
+            imageUrl:           r.image_url || null,
+            image_search_query: `${r.brand || ''} ${r.product_name}`.trim(),
           })));
         }
       } catch (e) { if (DEBUG) console.warn('[init] fail', e); }
@@ -215,6 +215,51 @@ export default function ListeProdotti() {
     cacheTimer.current = setTimeout(() => saveCache(lists, currentList), 500);
     return () => clearTimeout(cacheTimer.current);
   }, [lists, currentList]);
+
+  /* =====================================================================
+     LAZY LOAD IMMAGINI — cerca in background per prodotti senza foto
+     Non blocca il rendering, aggiorna uno alla volta con pausa
+  ===================================================================== */
+  useEffect(() => {
+    if (!stock.length) return;
+    const missing = stock.filter(s => !s.imageUrl && s.name);
+    if (!missing.length) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const item of missing) {
+        if (cancelled) break;
+        try {
+          const q = encodeURIComponent(item.image_search_query || `${item.brand || ''} ${item.name}`.trim())
+          const b = encodeURIComponent(item.brand || '')
+          const r = await fetch(`/api/product-image?q=${q}&brand=${b}`)
+          if (!r.ok || cancelled) continue
+          const data = await r.json()
+          if (!data?.ok || !data.imageUrl) continue
+
+          // Aggiorna state locale immediatamente
+          setStock(prev => prev.map(s =>
+            s.id === item.id ? { ...s, imageUrl: data.imageUrl } : s
+          ))
+
+          // Salva in Supabase in background
+          if (__supabase && userIdRef.current && item.id) {
+            __supabase.from('inventory')
+              .update({ image_url: data.imageUrl })
+              .eq('id', item.id)
+              .eq('user_id', userIdRef.current)
+              .then(() => {})
+              .catch(() => {})
+          }
+
+          // Pausa 300ms tra una ricerca e l'altra per non sovraccaricare
+          await new Promise(r => setTimeout(r, 300))
+        } catch {}
+      }
+    })()
+
+    return () => { cancelled = true; }
+  }, [stock.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* =====================================================================
      CRITICI
