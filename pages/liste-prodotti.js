@@ -220,15 +220,29 @@ export default function ListeProdotti() {
      CRITICI
   ===================================================================== */
   useEffect(() => {
+    const today = new Date();
     const crit = stock.filter(p => {
-      const pct = p.initialPacks > 0 ? p.packs / p.initialPacks : 1;
-      const lowResidue = pct < 0.20;
+      // Usa qty (unità totali) e initialPacks (unità iniziali) per la percentuale
+      const totalUnits   = Number(p.qty || p.packs || 0);
+      const initialUnits = Number(p.initialPacks || totalUnits || 1);
+      const pct          = initialUnits > 0 ? totalUnits / initialUnits : 1;
+      const lowResidue   = pct < 0.20;  // sotto 20% = in esaurimento
       const expSoon = (() => {
         if (!p?.expiresAt) return false;
-        const d = new Date(p.expiresAt); if (isNaN(d)) return false;
-        return Math.floor((d - new Date()) / 86400000) <= 10;
+        const d = new Date(p.expiresAt);
+        if (isNaN(d.getTime())) return false;
+        return Math.floor((d - today) / 86400000) <= 10;  // scade entro 10 giorni
       })();
       return lowResidue || expSoon;
+    }).map(p => {
+      // Arricchisce con il motivo per il render
+      const totalUnits   = Number(p.qty || p.packs || 0);
+      const initialUnits = Number(p.initialPacks || totalUnits || 1);
+      const pct          = initialUnits > 0 ? Math.round((totalUnits / initialUnits) * 100) : 0;
+      const giorni = p.expiresAt
+        ? Math.floor((new Date(p.expiresAt) - today) / 86400000)
+        : null;
+      return { ...p, _pct: pct, _giorni: giorni };
     });
     setCritical(crit);
   }, [stock]);
@@ -658,20 +672,47 @@ Testo: ${text}` })
 
           {/* ── SEZ 2: CRITICI ── */}
           {critical.length > 0 && (
-            <section style={S.sectionBox}>
-              <h3 style={S.h3}>⚠️ Scorte critiche ({critical.length})</h3>
+            <section style={{...S.sectionBox, borderColor:'rgba(239,68,68,.3)'}}>
+              <h3 style={{...S.h3, color:'#fca5a5'}}>⚠️ Scorte critiche ({critical.length})</h3>
               {critical.map((s,i) => {
-                const pct = s.initialPacks > 0 ? Math.round((s.packs/s.initialPacks)*100) : 0;
+                const pct     = s._pct ?? 0;
+                const giorni  = s._giorni;
+                const isExp   = giorni !== null && giorni <= 10;
+                const isLow   = pct < 20;
                 return (
                   <div key={i} style={S.critRow}>
-                    <div style={{flex:1}}>{s.name}{s.brand ? <span style={S.rowBrand}> · {s.brand}</span> : null}</div>
-                    <div style={{...S.progressOuter,flex:1}}>
-                      <div style={{...S.progressInner,width:`${pct}%`,background:pct>30?'#f59e0b':'#ef4444'}}/>
+                    {/* Nome */}
+                    <div style={{flex:1, minWidth:0}}>
+                      <div style={{fontWeight:600, fontSize:'.95rem', color:'#fff'}}>
+                        {s.name}
+                        {s.brand ? <span style={S.rowBrand}> · {s.brand}</span> : null}
+                      </div>
+                      <div style={{display:'flex', gap:6, marginTop:4, flexWrap:'wrap'}}>
+                        {isLow && (
+                          <span style={{...S.expiryChip, background:'rgba(239,68,68,.2)', color:'#fca5a5', border:'1px solid rgba(239,68,68,.3)'}}>
+                            📉 {pct}% rimasto
+                          </span>
+                        )}
+                        {isExp && giorni <= 0 && (
+                          <span style={{...S.expiryChip, background:'rgba(239,68,68,.3)', color:'#fca5a5', border:'1px solid rgba(239,68,68,.5)'}}>
+                            ❌ Scaduto
+                          </span>
+                        )}
+                        {isExp && giorni > 0 && (
+                          <span style={{...S.expiryChip, background:'rgba(245,158,11,.2)', color:'#fcd34d', border:'1px solid rgba(245,158,11,.3)'}}>
+                            ⏰ Scade in {giorni} {giorni === 1 ? 'giorno' : 'giorni'}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span style={{fontSize:'.8rem',opacity:.8,marginLeft:6}}>{pct}%</span>
-                    {s.expiresAt && <span style={S.expiryChip}>scade {new Date(s.expiresAt).toLocaleDateString('it-IT')}</span>}
+                    {/* Barra */}
+                    <div style={{...S.progressOuter, width:80, flexShrink:0}}>
+                      <div style={{...S.progressInner, width:`${Math.min(100,pct)}%`,
+                        background: pct <= 0 ? '#ef4444' : pct < 10 ? '#ef4444' : '#f59e0b'}}/>
+                    </div>
+                    {/* Elimina */}
                     <button onClick={() => { const idx=stock.findIndex(ss=>ss.id===s.id); if(idx>=0) deleteStockRow(idx); }}
-                      style={{...S.iconCircle,color:'#f87171',marginLeft:6}}>
+                      style={{...S.iconCircle, color:'#f87171', marginLeft:4, flexShrink:0}}>
                       <Trash2 size={16}/>
                     </button>
                   </div>
