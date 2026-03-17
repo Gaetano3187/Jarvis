@@ -220,6 +220,19 @@ function parseGptResponse(raw) {
   try { parsed = JSON.parse(clean) }
   catch { return { ok: false, error: 'Risposta GPT non parsabile', raw_text: raw } }
 
+  // LOG: stampa i primi 3 items per debug
+  if (Array.isArray(parsed.items)) {
+    console.log('[OCR-SMART] GPT items raw (primi 3):',
+      JSON.stringify(parsed.items.slice(0,3).map(i => ({
+        name: i.name,
+        packs: i.packs,
+        units_per_pack: i.units_per_pack,
+        qty: i.qty,
+        unit: i.unit
+      })), null, 2)
+    )
+  }
+
   const today = new Date().toISOString().slice(0, 10)
 
   const result = {
@@ -269,17 +282,33 @@ function sanitizeItems(items) {
   return items
     .filter(i => i && typeof i === 'object')
     .map(i => {
-      const packs         = sanitizeFloat(i.packs) || 1
-      const unitsPerPack  = sanitizeFloat(i.units_per_pack) || 1
-      const qty           = sanitizeFloat(i.qty) || (packs * unitsPerPack)
+      const packs        = Math.max(1, sanitizeFloat(i.packs) || 1)
+      const unitsPerPack = Math.max(1, sanitizeFloat(i.units_per_pack) || 1)
+
+      // qty: usa quello di GPT se valido, altrimenti calcola
+      // Preserva 3 decimali per prodotti al banco (es. 33.370 kg)
+      let qty
+      const rawQty = parseFloat(String(i.qty || '0').replace(',', '.'))
+      if (Number.isFinite(rawQty) && rawQty > 0) {
+        qty = rawQty  // GPT ha calcolato qty — fidarsi
+      } else {
+        qty = packs * unitsPerPack
+      }
+
+      const unit = sanitizeUnit(i.unit)
+
+      // Sanity check: se unit è kg e qty > 500, probabilmente è grammi
+      // Se unit è pz e qty è decimale (es. 33.370), forza kg
+      const finalUnit = (qty !== Math.round(qty) && qty > 1) ? 'kg' : unit
+
       return {
         name:               String(i.name || 'Prodotto').trim(),
         brand:              i.brand ? String(i.brand).trim() : null,
         packs,
         units_per_pack:     unitsPerPack,
         unit_per_pack_label:String(i.unit_per_pack_label || 'pz').trim(),
-        qty,
-        unit:               sanitizeUnit(i.unit),
+        qty:                parseFloat(qty.toFixed(3)),  // max 3 decimali
+        unit:               finalUnit,
         unit_price:         sanitizeFloat(i.unit_price),
         price:              sanitizeFloat(i.price),
         category_item:      sanitizeCategoryItem(i.category_item),
