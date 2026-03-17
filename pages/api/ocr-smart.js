@@ -161,23 +161,34 @@ export default async function handler(req, res) {
   }
 }
 
+// Prompt call 1: estrazione testo fedele dall'immagine
+const TRANSCRIBE_PROMPT = `Trascrivi ESATTAMENTE tutto il testo visibile in questo scontrino.
+Mantieni OGNI riga separata, incluse le righe con solo numeri come "2 x    1,95" o "33.370x".
+Queste righe numeriche sono fondamentali — NON ometterle.
+Nessuna interpretazione, nessun commento. Solo testo puro riga per riga.`
+
 async function callGptVision(client, dataUrl) {
-  const resp = await client.chat.completions.create({
+  // ── CALL 1: trascrizione fedele del testo grezzo ──────────────────────────
+  const transcribeResp = await client.chat.completions.create({
     model: process.env.OCR_VISION_MODEL || 'gpt-4o',
     temperature: 0,
-    max_tokens: 4000,
+    max_tokens: 2000,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
       {
         role: 'user',
         content: [
-          { type: 'text', text: USER_PROMPT },
-          { type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } },
+          { type: 'text', text: TRANSCRIBE_PROMPT },
+          { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
         ],
       },
     ],
   })
-  return parseGptResponse(resp?.choices?.[0]?.message?.content || '{}')
+
+  const rawText = String(transcribeResp?.choices?.[0]?.message?.content || '').trim()
+  if (!rawText) return { ok: false, error: 'Trascrizione vuota' }
+
+  // ── CALL 2: parsing strutturato sul testo (few-shot funziona bene su testo) ─
+  return callGptText(client, rawText)
 }
 
 async function callGptText(client, text) {
@@ -187,10 +198,13 @@ async function callGptText(client, text) {
     max_tokens: 4000,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: `${USER_PROMPT}\n\nSCONTRINO (testo estratto da PDF):\n${text}` },
+      { role: 'user', content: `${USER_PROMPT}\n\nSCONTRINO DA ANALIZZARE:\n${text}` },
     ],
   })
-  return parseGptResponse(resp?.choices?.[0]?.message?.content || '{}')
+  const result = parseGptResponse(resp?.choices?.[0]?.message?.content || '{}')
+  // Preserva il testo grezzo se non incluso nel JSON
+  if (result.ok && !result.raw_text) result.raw_text = text.slice(0, 2000)
+  return result
 }
 
 function parseGptResponse(raw) {
