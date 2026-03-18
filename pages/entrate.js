@@ -439,13 +439,13 @@ function Entrate() {
   }
 
   /* ─── Calcoli ─────────────────────────────────────────────────── */
-  const entratePeriodo   = incomes.reduce((t,r)=>t+Number(r.amount||0),0);
-  const prelievi         = pocketRows.filter(r=>r.kind==='manual'&&r.amount>0).reduce((t,r)=>t+r.amount,0);
-  const saldoDisponibile = Math.max(0, entratePeriodo+riserve-prelievi);
-  const pocketBalance    = pocketRows.reduce((t,r)=>t+Number(r.amount||0),0);
-  const totUsciteCash    = uscite.filter(u=>/cash|contanti/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
-  const totUsciteCard    = uscite.filter(u=>/card|bancomat/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
-  const totUscite        = totUsciteCash+totUsciteCard;
+  const entratePeriodo = incomes.reduce((t,r)=>t+Number(r.amount||0),0);
+  const prelievi       = pocketRows.filter(r=>r.kind==='manual'&&r.amount>0).reduce((t,r)=>t+r.amount,0);
+  const pocketBalance  = pocketRows.reduce((t,r)=>t+Number(r.amount||0),0);
+  const totUsciteCash  = uscite.filter(u=>/cash|contanti/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
+  const totUsciteCard  = uscite.filter(u=>/card|bancomat/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
+  // Carta NON impatta i saldi (va direttamente sul conto corrente) — solo cash scalato
+  const saldoDisponibile = Math.max(0, entratePeriodo+riserve-totUsciteCash-prelievi);
 
   const CAT_EMOJI = {casa:'🏠',cene:'🍽️',vestiti:'👔',varie:'📦'};
 
@@ -583,10 +583,27 @@ function Entrate() {
 
           {/* Totale di chiusura */}
           <div className="ledger-footer">
-            <span className="ledger-footer-label">Saldo periodo</span>
-            <span className={`ledger-footer-val ${entratePeriodo-totUscite>=0?'green':'red'}`}>
-              {entratePeriodo-totUscite>=0?'+':''}{(entratePeriodo-totUscite).toFixed(2)}
-            </span>
+            <div className="ledger-footer-breakdown">
+              {totUsciteCash>0 && (
+                <span className="footer-detail">
+                  <span className="badge-mini badge-cash">Cash</span>
+                  <span className="footer-detail-val red">−{totUsciteCash.toFixed(2)}</span>
+                </span>
+              )}
+              {totUsciteCard>0 && (
+                <span className="footer-detail">
+                  <span className="badge-mini badge-card">Carta</span>
+                  <span className="footer-detail-val muted">−{totUsciteCard.toFixed(2)}</span>
+                  <span className="footer-info">non conteggiata</span>
+                </span>
+              )}
+            </div>
+            <div className="ledger-footer-saldo">
+              <span className="ledger-footer-label">Saldo liquido</span>
+              <span className={`ledger-footer-val ${entratePeriodo-totUsciteCash>=0?'green':'red'}`}>
+                {entratePeriodo-totUsciteCash>=0?'+':''}{(entratePeriodo-totUsciteCash).toFixed(2)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -696,7 +713,14 @@ function Entrate() {
         .ledger-empty{font-size:.78rem;color:#334155;padding:1.25rem;text-align:center}
 
         /* Footer saldo */
-        .ledger-footer{display:flex;align-items:center;justify-content:space-between;padding:.65rem 1rem;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-top:none;border-radius:0 0 14px 14px;margin-top:-1px}
+        .ledger-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-top:none;border-radius:0 0 14px 14px;margin-top:-1px}
+        .ledger-footer-breakdown{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+        .footer-detail{display:flex;align-items:center;gap:.35rem}
+        .footer-detail-val{font-size:.82rem;font-weight:700}
+        .footer-detail-val.red{color:#f87171}
+        .footer-detail-val.muted{color:#475569}
+        .footer-info{font-size:.62rem;color:#334155;font-style:italic}
+        .ledger-footer-saldo{display:flex;align-items:center;gap:.6rem}
         .ledger-footer-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;font-weight:600}
         .ledger-footer-val{font-size:1rem;font-weight:800}
         .ledger-footer-val.green{color:#22c55e}
