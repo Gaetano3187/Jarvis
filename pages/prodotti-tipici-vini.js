@@ -518,63 +518,55 @@ function ProdottiTipiciViniPage() {
     setOcrBusy(true);
     try {
       const safeFile = await toJpegIfNeeded(file);
-      const fd = new FormData(); fd.append('images', safeFile, safeFile.name || 'label.jpg');
+      const fd = new FormData();
+      fd.append('images', safeFile, safeFile.name || 'label.jpg');
+      fd.append('mode', 'wine_label'); // estrazione strutturata via GPT Vision
+
       const r1 = await fetch('/api/ocr-generic', { method: 'POST', body: fd });
       if (!r1.ok) throw new Error('OCR fallito: ' + r1.status);
-      const { text } = await r1.json();
-      if (!text?.trim()) throw new Error('Nessun testo riconosciuto');
+      const ocrResult = await r1.json();
 
-      // Estrazione campi con heuristic sul testo grezzo
-      const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-      const vintageMatch = text.match(/\b(19|20)\d{2}\b/)?.[0] || '';
-      const alcoholMatch = text.match(/(\d+[.,]\d+)\s*%/)?.[1]?.replace(',', '.') || '';
-      const regionGuess  = guessRegionFromText(text);
+      // Usa i campi strutturati se disponibili (mode=wine_label)
+      const w = ocrResult.wine || {};
+      const wineName    = w.name    || ocrResult.text?.split('\n')[0] || 'Vino (da etichetta)';
+      const wineryName  = w.winery  || '';
+      const localityStr = w.locality || ''; // es. "Vasto (CH)"
+      const regionGuess = w.region  || guessRegionFromText(ocrResult.text || wineName);
 
-      // Chiama normalize per estrarre nome e cantina strutturati
-      let wineName = lines[0] || 'Vino (da etichetta)';
-      let wineryName = '';
-      try {
-        const r2 = await fetch('/api/normalize', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: [{ name: text.slice(0, 500), brand: '' }] }),
-        });
-        const norm = await r2.json();
-        const d = norm?.results?.[0]?.out || {};
-        if (d.normalizedName?.trim()) wineName  = d.normalizedName;
-        if (d.canonicalBrand?.trim()) wineryName = d.canonicalBrand;
-      } catch { /* fallback ai valori heuristic */ }
-
-      // Inserimento diretto in Supabase
+      // Inserimento diretto in Supabase con tutti i campi estratti
       const { data: newWine, error } = await supabase.from('wines').insert([{
-        user_id: userId,
-        name: wineName,
-        winery: wineryName || null,
-        region: regionGuess || null,
-        vintage: vintageMatch ? Number(vintageMatch) : null,
-        alcohol: alcoholMatch ? Number(alcoholMatch) : null,
-        style: 'rosso', // default, modificabile in seguito
-        source: 'ocr',
+        user_id:      userId,
+        name:         wineName,
+        winery:       wineryName  || null,
+        region:       regionGuess || null,
+        vintage:      w.vintage   || null,
+        alcohol:      w.alcohol   || null,
+        style:        w.style     || 'rosso',
+        denomination: w.denomination || null,
+        grapes:       w.grapes?.length ? w.grapes : null,
+        source:       'ocr',
       }]).select().single();
       if (error) throw error;
 
-      // 1) Origine: usa la regione/città d'origine (query mirata, più precisa)
-      // Cerca prima la città specifica (es. "Vasto CH"), poi la regione come fallback
+      // 1) Origine: cerca prima la città esatta (es. "Vasto CH"),
+      //    poi la regione, poi il nome vino come fallback
       const originQueries = [
-        // cantina + comune (es. "Jasci Donatello Vasto")
-        [wineryName, regionGuess].filter(Boolean).join(' '),
-        // solo regione (es. "Abruzzo PE" → cerca in Abruzzo)
+        localityStr,                          // "Vasto (CH)" — più preciso
+        [wineryName, localityStr].filter(Boolean).join(' '),
         regionGuess,
-        // denominazione (es. "Montepulciano d'Abruzzo")
         wineName,
-      ].filter(s => s?.trim());
+      ].map(s => s?.trim()).filter(Boolean);
 
       let origInserted = false;
       for (const q of originQueries) {
         const orig = await searchGeocode(q);
         if (orig) {
+          const label = localityStr
+            ? `${wineryName || wineName}${localityStr ? ', ' + localityStr : ''}`
+            : orig.name;
           await supabase.from('product_places').insert([{
             user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'origin',
-            place_name: orig.name, lat: orig.lat, lng: orig.lng, is_primary: true,
+            place_name: label, lat: orig.lat, lng: orig.lng, is_primary: true,
           }]);
           origInserted = true;
           break;
