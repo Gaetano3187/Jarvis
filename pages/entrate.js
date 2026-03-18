@@ -519,7 +519,6 @@ function Entrate() {
             <div className="ledger-col">
               <div className="ledger-head ledger-head--dare">
                 <span>INCASSI</span>
-                <span className="ledger-tot ledger-tot--green">+ {entratePeriodo.toFixed(2)}</span>
               </div>
               {loading ? <div className="loading">…</div> : (
                 incomes.length===0
