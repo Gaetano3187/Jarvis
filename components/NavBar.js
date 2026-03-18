@@ -2,6 +2,7 @@
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { supabase } from '../lib/supabaseClient';
 
 const links = [
   { href: '/home',             label: 'Home',           c1: '#5eead4', c2: '#22d3ee' },
@@ -13,11 +14,15 @@ const links = [
   { href: '/cene-aperitivi',   label: 'Cene',           c1: '#f59e0b', c2: '#fb923c' },
   { href: '/varie',            label: 'Varie',          c1: '#94a3b8', c2: '#d4d4d8' },
   { href: '/prodotti-tipici-vini', label: 'Prodotti & Vini', c1: '#60a5fa', c2: '#22d3ee' }
-
 ];
 
 export default function NavBar() {
-  const { pathname } = useRouter();
+  const { pathname, push } = useRouter();
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    push('/login');
+  };
 
   return (
     <>
@@ -32,18 +37,15 @@ export default function NavBar() {
 
       <nav className="nav" role="navigation" aria-label="Navigazione principale">
         <div className="inner">
-          {/* === LOGO: cielo in tempesta SOLO dietro JARVIS + fulmini === */}
+          {/* === LOGO === */}
           <Link href="/home" className="logoWrap" aria-label="Jarvis Home">
             <svg className="logoSvg" viewBox="0 0 900 200" preserveAspectRatio="xMidYMid meet">
               <defs>
-                {/* Gradiente testo */}
                 <linearGradient id="gradNeon" x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%"   stopColor="#5eead4" />
                   <stop offset="50%"  stopColor="#22d3ee" />
                   <stop offset="100%" stopColor="#0aa39a" />
                 </linearGradient>
-
-                {/* Glow elettrico */}
                 <filter id="electricGlow" x="-80%" y="-80%" width="260%" height="320%">
                   <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="g1" />
                   <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="g2" />
@@ -55,18 +57,13 @@ export default function NavBar() {
                     <feMergeNode in="SourceGraphic" />
                   </feMerge>
                 </filter>
-
-                {/* Saette glow */}
                 <filter id="boltGlow" x="-120%" y="-120%" width="340%" height="360%">
                   <feGaussianBlur stdDeviation="2" />
                 </filter>
-
-                {/* ===== CIELO IN TEMPESTA SOLO DIETRO TESTO ===== */}
                 <linearGradient id="stormBase" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%"   stopColor="#0b0f17"/>
                   <stop offset="100%" stopColor="#182335"/>
                 </linearGradient>
-
                 <filter id="stormNoise" x="-20%" y="-40%" width="140%" height="180%" colorInterpolationFilters="sRGB">
                   <feTurbulence type="fractalNoise" baseFrequency="0.015 0.028" numOctaves="3" seed="12" result="n">
                     <animate attributeName="baseFrequency"
@@ -84,8 +81,6 @@ export default function NavBar() {
                     <feFuncA type="table" tableValues="0 0.7"/>
                   </feComponentTransfer>
                 </filter>
-
-                {/* Maschera a bordi morbidi sul riquadro dietro al testo */}
                 <radialGradient id="stormMaskGrad" cx="50%" cy="50%" r="62%">
                   <stop offset="70%" stopColor="white"/>
                   <stop offset="100%" stopColor="black"/>
@@ -95,13 +90,11 @@ export default function NavBar() {
                 </mask>
               </defs>
 
-              {/* Riquadro “cielo in tempesta” limitato dietro al testo */}
               <g mask="url(#stormFeather)">
                 <rect x="110" y="32" width="680" height="136" rx="28" fill="url(#stormBase)"/>
                 <rect x="110" y="32" width="680" height="136" rx="28" filter="url(#stormNoise)" opacity=".65"/>
               </g>
 
-              {/* Testo JARVIS */}
               <text
                 x="50%" y="50%"
                 dominantBaseline="middle" textAnchor="middle"
@@ -124,7 +117,6 @@ export default function NavBar() {
                 JARVIS
               </text>
 
-              {/* Fulmini */}
               <g strokeLinecap="round" strokeLinejoin="round" filter="url(#boltGlow)">
                 <path className="bolt"
                   d="M 60 120 C 130 60, 220 140, 300 90 S 440 80, 520 120 S 660 100, 820 80">
@@ -168,6 +160,19 @@ export default function NavBar() {
                 </li>
               );
             })}
+
+            {/* === LOGOUT === */}
+            <li className="item item-logout">
+              <button
+                onClick={handleLogout}
+                className="link logout-btn"
+                style={{ '--c1': '#ff6b6b', '--c2': '#ff4444' }}
+                title="Esci"
+              >
+                <span className="label">⏻ Esci</span>
+                <span className="gloss" aria-hidden="true" />
+              </button>
+            </li>
           </ul>
         </div>
       </nav>
@@ -181,7 +186,6 @@ export default function NavBar() {
           --text: #eaf2ff;
         }
 
-        /* ====== NAV GLASS / VETRIFICATA ====== */
         .nav{
           position: sticky; top:0; z-index:60; width:100%;
           background:
@@ -192,10 +196,10 @@ export default function NavBar() {
           -webkit-backdrop-filter: blur(16px) saturate(1.35) contrast(1.08);
           border-bottom: 1px solid var(--nav-brd-2);
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.25),   /* bordo superiore lucido */
-            inset 0 -1px 0 rgba(255,255,255,.1),   /* bordo inferiore interno */
-            0 12px 30px rgba(0,0,0,.30),           /* ombra esterna */
-            0 1px 0 rgba(255,255,255,.08) inset;   /* lieve rilievo */
+            inset 0 1px 0 rgba(255,255,255,.25),
+            inset 0 -1px 0 rgba(255,255,255,.1),
+            0 12px 30px rgba(0,0,0,.30),
+            0 1px 0 rgba(255,255,255,.08) inset;
         }
         .nav:before{
           content:""; position:absolute; inset:0;
@@ -210,7 +214,6 @@ export default function NavBar() {
           gap:18px; padding:10px 16px; min-height:64px;
         }
 
-        /* ====== LOGO ====== */
         .logoWrap{
           position:relative; display:grid; place-items:center; text-decoration:none;
           flex:0 0 auto; isolation:isolate;
@@ -220,13 +223,15 @@ export default function NavBar() {
         .bolt.thin{ stroke-width:1.6; opacity:.85; }
         .bolt.micro{ stroke:#ffffff; stroke-width:2; }
 
-        /* ====== MENU ====== */
         .track{
           display:flex; flex-wrap:wrap; align-items:center;
           gap:12px; list-style:none; margin:0; padding:0;
           flex:1 1 auto; min-width:240px;
         }
         .item{ flex:0 1 auto; }
+
+        /* Logout separato visivamente a destra */
+        .item-logout{ margin-left: auto; }
 
         .link{
           --c1:#5eead4; --c2:#22d3ee;
@@ -247,6 +252,22 @@ export default function NavBar() {
             0 8px 20px rgba(0,0,0,.24);
           border-color: rgba(255,255,255,.18);
         }
+
+        /* Stile specifico bottone logout */
+        .logout-btn{
+          cursor: pointer;
+          font-family: inherit;
+          font-size: inherit;
+          border: 1px solid rgba(255, 100, 100, .30);
+          background: linear-gradient(180deg, rgba(255,80,80,.12), rgba(255,40,40,.06));
+        }
+        .logout-btn:hover{
+          border-color: rgba(255, 100, 100, .55);
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.20),
+            0 8px 20px rgba(255,60,60,.20);
+        }
+
         .label{
           font-weight:900; letter-spacing:.05rem;
           background: linear-gradient(90deg, var(--c1), var(--c2));
@@ -256,14 +277,12 @@ export default function NavBar() {
             0 0 12px rgba(255,255,255,.12);
           animation: pulseGlow 2.8s ease-in-out infinite;
         }
-        /* riflesso vetroso del pulsante */
         .gloss{
           content:""; position:absolute; inset:0; border-radius:16px; pointer-events:none;
           background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 40%);
           opacity:.55; mix-blend-mode:screen;
         }
 
-        /* ====== STATO ATTIVO ====== */
         .link.is-active{
           background:
             radial-gradient(120% 160% at 50% -20%, rgba(255,255,255,.18), transparent 60%),
@@ -282,7 +301,6 @@ export default function NavBar() {
           animation: activePulse 1.8s ease-in-out infinite;
         }
 
-        /* ====== ANIMAZIONI ====== */
         @keyframes pulseGlow{
           0%,100% { transform:scale(1); }
           50%     { transform:scale(1.035); }
@@ -292,25 +310,22 @@ export default function NavBar() {
           50%     { transform:scale(1.06); }
         }
 
-        /* ====== RESPONSIVE ====== */
         @media (max-width: 900px){
           .logoSvg{ height:44px; }
           .inner{ gap:12px; padding:8px 12px; }
           .link{ padding:9px 14px; border-radius:14px; }
         }
-        /* Smartphone: 2 colonne */
         @media (max-width: 560px){
           .logoSvg{ height:40px; }
           .track{ gap:10px; }
           .item{ flex:1 1 calc(50% - 10px); }
           .link{ width:100%; padding:10px 12px; }
+          .item-logout{ margin-left: 0; }
         }
-        /* Schermi molto stretti: 1 colonna */
         @media (max-width: 380px){
           .item{ flex:1 1 100%; }
         }
 
-        /* Accessibilità: riduci animazioni se richiesto */
         @media (prefers-reduced-motion: reduce){
           .label, .link.is-active .label { animation: none !important; }
         }
