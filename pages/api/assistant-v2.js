@@ -144,6 +144,11 @@ ${ctx.vini.slice(0, 10).map(v => `- ${v.name}${v.winery ? ' · ' + v.winery : ''
 ISTRUZIONI DI RISPOSTA:
 - Rispondi sempre in italiano, in modo conciso e utile
 - Per domande sui dati, usa i dati reali sopra
+- Per azioni add_expense: "category" deve essere SOLO uno di: "casa", "vestiti", "cene", "varie"
+  - casa: spesa alimentare, cibo, pulizia, detersivi, bollette, affitto, manutenzioni, arredo, elettrodomestici, ferramenta
+  - vestiti: abbigliamento, scarpe, accessori moda, borse, gioielli
+  - cene: ristoranti, bar, colazioni, aperitivi, pranzi/cene fuori, pizzerie, pub, gelato, pasticceria, delivery
+  - varie: TUTTO il resto — farmacia, parrucchiere, tabaccheria, benzinaio, carburante, regali, giocattoli, libri, elettronica, sport, palestra, teatro, cinema, trasporti, taxi, parcheggio, banca, assicurazione, veterinario, animali, hobby
 - Per azioni (aggiungi spesa, aggiungi entrata, ecc.) restituisci JSON strutturato
 - Per domande generali rispondi in linguaggio naturale
 - Per confronto prezzi usa lo storico prezzi per negozio
@@ -158,6 +163,16 @@ Sempre un JSON con:
   "navigate": null | "/percorso-pagina"
 }
 `
+}
+
+/* ─── Normalizza categoria spesa ──────────────────── */
+/* --- Normalizza categoria spesa --- */
+function normalizeCategory(raw) {
+  const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio)\b/.test(s)) return 'casa'
+  if (/\b(vestit|abbigliam|scarpe|camicia|pantalon|maglion|giacca|cappotto|borsa|cintura|cravatta|calze|intimo|pigiama|costume|sciarpa|guanti|cappello|gioiell|orologio|zaino|valigia|moda)\b/.test(s)) return 'vestiti'
+  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food|takeaway|asporto|deliveroo|glovo)\b/.test(s)) return 'cene'
+  return 'varie'
 }
 
 /* ─── Handler ───────────────────────────────────────────────────── */

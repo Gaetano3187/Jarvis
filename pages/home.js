@@ -6,6 +6,15 @@ import { useRouter } from 'next/router'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '../lib/supabaseClient'
 
+/* --- Normalizza categoria spesa --- */
+function normCat(raw) {
+  const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio)\b/.test(s)) return 'casa'
+  if (/\b(vestit|abbigliam|scarpe|camicia|pantalon|maglion|giacca|cappotto|borsa|cintura|cravatta|calze|intimo|pigiama|costume|sciarpa|guanti|cappello|gioiell|orologio|zaino|valigia|moda)\b/.test(s)) return 'vestiti'
+  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food|takeaway|asporto|deliveroo|glovo)\b/.test(s)) return 'cene'
+  return 'varie'
+}
+
 /* ─── Audio helpers ─────────────────────────────────────────────── */
 function getBestMimeType() {
   if (typeof MediaRecorder === 'undefined') return ''
@@ -27,7 +36,7 @@ async function executeAction(action, userId, router) {
     switch (action.type) {
       case 'add_expense': {
         const { error } = await supabase.from('expenses').insert({
-          user_id: userId, category: action.category || 'varie',
+          user_id: userId, category: normCat(action.category || 'varie'),
           store: action.store || null,
           description: action.description || action.store || 'Spesa vocale',
           amount: Number(action.amount || 0), purchase_date: action.date || today,
