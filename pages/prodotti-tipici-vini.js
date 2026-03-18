@@ -53,8 +53,20 @@ async function toJpegIfNeeded(file, { maxSide = 1800, quality = 0.82 } = {}) {
 
 async function reverseGeocode(lat, lng) {
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`);
-    return (await r.json())?.display_name || null;
+    // zoom=18 restituisce il nome del locale/esercizio se disponibile
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      { headers: { 'Accept-Language': 'it' } }
+    );
+    const j = await r.json();
+    if (!j) return null;
+    // Preferisci nome locale (bar, ristorante, enoteca...) + indirizzo breve
+    const addr = j.address || {};
+    const localName = j.name || addr.amenity || addr.shop || addr.tourism || addr.leisure || '';
+    const road   = addr.road || addr.pedestrian || '';
+    const city   = addr.city || addr.town || addr.village || addr.municipality || '';
+    const parts  = [localName, road, city].filter(Boolean);
+    return parts.length ? parts.join(', ') : (j.display_name || null);
   } catch { return null; }
 }
 async function searchGeocode(query) {
@@ -545,34 +557,47 @@ function ProdottiTipiciViniPage() {
       }]).select().single();
       if (error) throw error;
 
-      // 1) Origine: geocodifica dalla regione (silenzioso, no prompt)
-      const geoQuery = [regionGuess, wineName].filter(Boolean).join(' ');
-      if (geoQuery.trim()) {
-        const orig = await searchGeocode(geoQuery);
+      // 1) Origine: usa la regione/città d'origine (query mirata, più precisa)
+      // Cerca prima la città specifica (es. "Vasto CH"), poi la regione come fallback
+      const originQueries = [
+        // cantina + comune (es. "Jasci Donatello Vasto")
+        [wineryName, regionGuess].filter(Boolean).join(' '),
+        // solo regione (es. "Abruzzo PE" → cerca in Abruzzo)
+        regionGuess,
+        // denominazione (es. "Montepulciano d'Abruzzo")
+        wineName,
+      ].filter(s => s?.trim());
+
+      let origInserted = false;
+      for (const q of originQueries) {
+        const orig = await searchGeocode(q);
         if (orig) {
           await supabase.from('product_places').insert([{
             user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'origin',
             place_name: orig.name, lat: orig.lat, lng: orig.lng, is_primary: true,
           }]);
+          origInserted = true;
+          break;
         }
       }
 
-      // 2) Dove l'ho bevuto: GPS automatico al momento della scansione
+      // 2) Dove l'ho bevuto: GPS automatico + nome locale da Nominatim
       try {
         showToast('Rilevo posizione…');
         const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 8000 })
         );
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        // reverseGeocode ora restituisce "Nome locale, Via, Città" se disponibile
         const placeName = await reverseGeocode(lat, lng);
         await supabase.from('product_places').insert([{
           user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'purchase',
           place_name: placeName || `(${lat.toFixed(5)}, ${lng.toFixed(5)})`,
           lat, lng, is_primary: true,
         }]);
-        showToast(`✓ ${wineName} salvato — posizione acquisita`);
+        const localLabel = placeName?.split(',')[0] || 'posizione acquisita';
+        showToast(`✓ ${wineName} — ${localLabel}`);
       } catch {
-        // GPS non disponibile o negato: vino salvato senza posizione consumo
         showToast(`✓ ${wineName} inserito da OCR`);
       }
 
