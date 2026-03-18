@@ -550,7 +550,7 @@ function Entrate() {
                 <div style={{display:'flex',gap:'.3rem',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
                   {totUsciteCash>0 && <span className="badge-mini badge-cash">Cash {totUsciteCash.toFixed(0)}</span>}
                   {totUsciteCard>0 && <span className="badge-mini badge-card">Carta {totUsciteCard.toFixed(0)}</span>}
-                  <span className="ledger-tot ledger-tot--red">− {totUscite.toFixed(2)}</span>
+                  <span className="ledger-tot ledger-tot--red">− {(totUsciteCash+totUsciteCard).toFixed(2)}</span>
                 </div>
               </div>
               {loading ? <div className="loading">…</div> : (
