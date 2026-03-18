@@ -543,15 +543,10 @@ function Entrate() {
             {/* Divisore verticale */}
             <div className="ledger-divider"/>
 
-            {/* Colonna AVERE (uscite) */}
+            {/* Colonna SPESE (uscite) */}
             <div className="ledger-col">
               <div className="ledger-head ledger-head--avere">
                 <span>SPESE</span>
-                <div style={{display:'flex',gap:'.3rem',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                  {totUsciteCash>0 && <span className="badge-mini badge-cash">Cash {totUsciteCash.toFixed(0)}</span>}
-                  {totUsciteCard>0 && <span className="badge-mini badge-card">Carta {totUsciteCard.toFixed(0)}</span>}
-                  <span className="ledger-tot ledger-tot--red">− {(totUsciteCash+totUsciteCard).toFixed(2)}</span>
-                </div>
               </div>
               {loading ? <div className="loading">…</div> : (
                 uscite.length===0
@@ -578,31 +573,18 @@ function Entrate() {
                     );
                   })
               )}
-            </div>
-          </div>
-
-          {/* Totale di chiusura */}
-          <div className="ledger-footer">
-            <div className="ledger-footer-breakdown">
-              {totUsciteCash>0 && (
-                <span className="footer-detail">
-                  <span className="badge-mini badge-cash">Cash</span>
-                  <span className="footer-detail-val red">−{totUsciteCash.toFixed(2)}</span>
-                </span>
-              )}
-              {totUsciteCard>0 && (
-                <span className="footer-detail">
-                  <span className="badge-mini badge-card">Carta</span>
-                  <span className="footer-detail-val muted">−{totUsciteCard.toFixed(2)}</span>
-                  <span className="footer-info">non conteggiata</span>
-                </span>
-              )}
-            </div>
-            <div className="ledger-footer-saldo">
-              <span className="ledger-footer-label">Saldo liquido</span>
-              <span className={`ledger-footer-val ${entratePeriodo-totUsciteCash>=0?'green':'red'}`}>
-                {entratePeriodo-totUsciteCash>=0?'+':''}{(entratePeriodo-totUsciteCash).toFixed(2)}
-              </span>
+              {/* Totali in fondo alla colonna */}
+              <div className="ledger-col-footer">
+                <div className="col-footer-row">
+                  <span className="col-footer-label">Totale contanti</span>
+                  <span className="col-footer-val red">− {totUsciteCash.toFixed(2)}</span>
+                </div>
+                <div className="col-footer-row">
+                  <span className="col-footer-label">Totale carta</span>
+                  <span className="col-footer-val muted">− {totUsciteCard.toFixed(2)}</span>
+                  <span className="col-footer-note">non conteggiata</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -713,18 +695,13 @@ function Entrate() {
         .ledger-empty{font-size:.78rem;color:#334155;padding:1.25rem;text-align:center}
 
         /* Footer saldo */
-        .ledger-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;padding:.65rem 1rem;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-top:none;border-radius:0 0 14px 14px;margin-top:-1px}
-        .ledger-footer-breakdown{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
-        .footer-detail{display:flex;align-items:center;gap:.35rem}
-        .footer-detail-val{font-size:.82rem;font-weight:700}
-        .footer-detail-val.red{color:#f87171}
-        .footer-detail-val.muted{color:#475569}
-        .footer-info{font-size:.62rem;color:#334155;font-style:italic}
-        .ledger-footer-saldo{display:flex;align-items:center;gap:.6rem}
-        .ledger-footer-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;font-weight:600}
-        .ledger-footer-val{font-size:1rem;font-weight:800}
-        .ledger-footer-val.green{color:#22c55e}
-        .ledger-footer-val.red{color:#f87171}
+        .ledger-col-footer{border-top:1px solid rgba(255,255,255,.07);margin-top:auto;padding:.55rem .9rem;display:flex;flex-direction:column;gap:.3rem;background:rgba(255,255,255,.02)}
+        .col-footer-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+        .col-footer-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:#475569;font-weight:600;flex:1}
+        .col-footer-val{font-size:.85rem;font-weight:700;white-space:nowrap}
+        .col-footer-val.red{color:#f87171}
+        .col-footer-val.muted{color:#475569}
+        .col-footer-note{font-size:.62rem;color:#334155;font-style:italic;white-space:nowrap}
 
         /* Badge mini */
         .badge-mini{font-size:.62rem;font-weight:700;padding:.15rem .45rem;border-radius:4px;white-space:nowrap;flex-shrink:0}
