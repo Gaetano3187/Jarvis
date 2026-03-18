@@ -36,13 +36,12 @@ function parseAmountLoose(v) {
 }
 
 /* ===== Importi dal parlato ===== */
-// 1) numeri arabi (evita di “catturare” i giorni della data, preferisce il max ≥ 1)
 function parseMoneyFromDigits(text='') {
   const s = String(text || '').toLowerCase().replace(/\s+/g,' ').trim();
   const re = /[-+]?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d+)?|[-+]?\d+(?:[.,]\d+)?/g;
   const vals = [];
   for (const m of s.matchAll(re)) {
-    const raw = m[0].replace(/\s/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',', '.'); // “1.000,50” → “1000.50”
+    const raw = m[0].replace(/\s/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',', '.');
     const n = Number(raw);
     if (Number.isFinite(n)) vals.push(Math.abs(n));
   }
@@ -51,7 +50,6 @@ function parseMoneyFromDigits(text='') {
   return ge1.length ? Math.max(...ge1) : vals[0];
 }
 
-// 2) numeri ITA in lettere più comuni (duecento, cinquecento, mille, duemila, …)
 function parseMoneyFromWordsIT(text='') {
   const s = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const dict = new Map(Object.entries({
@@ -59,20 +57,14 @@ function parseMoneyFromWordsIT(text='') {
     cento:100, duecento:200, trecento:300, quattrocento:400, cinquecento:500, seicento:600, settecento:700, ottocento:800, novecento:900,
     mille:1000, duemila:2000, tremila:3000, quattromila:4000, cinquemila:5000
   }));
-  // prova pattern “… <word> euro …”
   const m = s.match(/\b([a-z]+)\s*euro\b/);
-  if (m) {
-    const w = m[1];
-    if (dict.has(w)) return dict.get(w);
-  }
-  // fallback: cerca qualsiasi parola nota
+  if (m) { const w = m[1]; if (dict.has(w)) return dict.get(w); }
   for (const [w, val] of dict.entries()) {
     if (s.includes(` ${w} `) || s.endsWith(` ${w}`) || s.startsWith(`${w} `)) return val;
   }
   return 0;
 }
 
-// wrapper: prima cifre, poi parole ITA
 function parseMoneyFromText(t='') {
   const n1 = parseMoneyFromDigits(t);
   if (n1 && n1 > 0) return n1;
@@ -80,29 +72,29 @@ function parseMoneyFromText(t='') {
   return n2 > 0 ? n2 : 0;
 }
 
-/* ===== Date dal parlato ===== */
+/* ===== Date dal parlato =====
+   Se non trova parole chiave di data → usa SEMPRE oggi automaticamente */
 function pickDateFromText(t='') {
   const s = String(t).toLowerCase();
-  if (/\boggi\b/.test(s))   return isoLocal(new Date());
-  if (/\bieri\b/.test(s))  { const d = new Date(); d.setDate(d.getDate()-1); return isoLocal(d); }
-  if (/\bdomani\b/.test(s)){ const d = new Date(); d.setDate(d.getDate()+1); return isoLocal(d); }
+  if (/\boggi\b/.test(s))    return isoLocal(new Date());
+  if (/\bieri\b/.test(s))   { const d = new Date(); d.setDate(d.getDate()-1); return isoLocal(d); }
+  if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate()+1); return isoLocal(d); }
   const m = s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
   if (m) {
     const dd = String(m[1]).padStart(2,'0'), mm = String(m[2]).padStart(2,'0');
     let yy = String(m[3]); if (yy.length===2) yy = (Number(yy)>=70?'19':'20')+yy;
     return `${yy}-${mm}-${dd}`;
   }
+  // Nessuna data specificata → oggi automaticamente
   return isoLocal(new Date());
 }
 
 /* ===== Intent dal parlato ===== */
-// Tasca: +ricarica / -uscita
 function detectPocketIntent(text='') {
   const s = String(text).toLowerCase();
   let amount = parseMoneyFromText(s);
   if (!amount) return null;
 
-  // molteplici sinonimi + flessioni
   const POS = /(in\s+tasca|in\s+portafogli\w*|borsell\w*|mess[ioae]\b|ricaric\w*|preliev\w*|cash\s*in|aggiunt[oa]\s+in\s+tasca|metti\w*\s+in\s+tasca)/i;
   const NEG = /(uscita\s+contanti|spes[ao]\s+in\s+contanti|pagat[oa]\s+in\s+contanti|tolto|pres[oa]\s+dalla\s+tasca|dato\s+contanti|cash\s*out|levat[oa]\s+in\s+contanti)/i;
 
@@ -115,12 +107,11 @@ function detectPocketIntent(text='') {
   return null;
 }
 
-// Entrate: “ho incassato 1000”, “mi ha pagato Rossi”, “stipendio 1500”
 function detectIncomeIntent(text='') {
   const s = String(text || '').toLowerCase();
   const amount = parseMoneyFromText(s);
   if (!amount) return null;
-  const dateISO = pickDateFromText(s);
+  const dateISO = pickDateFromText(s); // ← usa oggi se non specificato
 
   let source = 'Entrata';
   if (/\bstipendio|paga|salario|mensilit[àa]\b/.test(s)) source = 'Stipendio';
@@ -134,63 +125,54 @@ function detectIncomeIntent(text='') {
   }
   return { source, description: source, amount: Math.abs(amount), dateISO };
 }
-/* ===== Spesa in contanti dal parlato ===== */
+
 function normalizeIT(s='') {
   return String(s || '')
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // togli accenti
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g,' ')
     .trim();
 }
 
-/** Estrae il nome esercizio dopo "a/da/presso <nome>" fermandosi prima di "per/di/da/alle/alle ore/€..." */
 function extractStoreName(text='') {
   const s = normalizeIT(text);
-  // esempi: "ho speso 10 euro a orsini market", "ho speso 20 euro da casacchia per le sigarette"
   const m = s.match(/\b(?:a|da|presso)\s+([a-z0-9'.\-& ]{2,50})\b/);
   if (!m) return null;
   let store = m[1]
-    .replace(/\b(per|di|da|alle|all[ao]s?|ore|euro|€)\b.*$/,'') // tronca frasi successive
+    .replace(/\b(per|di|da|alle|all[ao]s?|ore|euro|€)\b.*$/,'')
     .replace(/\s{2,}/g,' ')
     .trim();
-  // capitalizza
   store = titleize(store);
   return store || null;
 }
 
-/** Categoria rapida in base a parole chiave (puoi ampliare liberamente) */
 function inferCategory(text='') {
   const s = normalizeIT(text);
-  if (/\b(tabac|sigarett|sifigarette|sigr|fum[oi])\b/.test(s)) return 'varie'; // tabaccheria -> "varie"
+  if (/\b(tabac|sigarett|sifigarette|sigr|fum[oi])\b/.test(s)) return 'varie';
   if (/\b(supermercat|market|spes[ae]|coop|conad|carrefour|esselunga|md|lid[li])\b/.test(s)) return 'casa';
   if (/\b(bar|caffe|aperitiv|pizzeria|ristorant|pub|bistrot|braceria|sushi|enoteca)\b/.test(s)) return 'cene';
   if (/\b(scarp|maglion|pantalon|camici|indument|vestit)\b/.test(s)) return 'vestiti';
   return 'varie';
 }
 
-/** Se rileva "ho speso ..." o simili, ritorna una spesa in contanti */
 function detectCashExpenseIntent(text='') {
   const raw = String(text || '');
   const s = normalizeIT(raw);
 
-  // trigger di spesa
   if (!/\b(ho\s+speso|abbiam|pagat[oa]|spes[ao]|mi\s+e'?|e'?\s+costat[oa])\b/.test(s)) return null;
 
   const amount = parseMoneyFromText(s);
   if (!amount) return null;
 
-  const dateISO = pickDateFromText(s);
+  const dateISO = pickDateFromText(s); // ← usa oggi se non specificato
 
-  // negozio/luogo
   let store = extractStoreName(raw) || 'Punto vendita';
-  // prefisso "Tabaccheria" se parole chiave
   if (/\b(tabac|sigarett|sifigarette|fum[oi])\b/.test(s) && !/^tabaccheria/i.test(store)) {
     store = `Tabaccheria ${store}`;
   }
 
   const category = inferCategory(raw);
 
-  // descrizione libera (es. “sigarette” se presente)
   let descr = 'Spesa contanti';
   const md = s.match(/\bper\s+([a-z0-9'.\-& ]{2,60})$/i) || s.match(/\bper\s+([a-z0-9'.\-& ]{2,60})\b/i);
   if (md) descr = titleize(md[1].trim());
@@ -206,7 +188,6 @@ function detectCashExpenseIntent(text='') {
   };
 }
 
-/** Inserisce velocemente una spesa contanti nella tabella expenses */
 async function insertFinanceExpenseByVoice(exp) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Sessione scaduta');
@@ -226,7 +207,6 @@ async function insertFinanceExpenseByVoice(exp) {
   if (error) throw error;
 }
 
-
 function formatIT(iso) {
   if (!iso) return '';
   const [y,m,d] = String(iso).split('-').map(Number);
@@ -235,7 +215,6 @@ function formatIT(iso) {
 function showError(setter, err) {
   const msg = err?.message || err?.error_description || err?.hint || err?.details || (typeof err === 'string' ? err : JSON.stringify(err));
   setter(msg);
-  // log esteso
   try {
     console.group('[SUPABASE ERROR]');
     console.error(err);
@@ -253,19 +232,37 @@ function titleize(s='') {
   return String(s).toLowerCase().replace(/(^|\s|-)\p{L}/gu, m => m.toUpperCase());
 }
 
-/* —— classificazione esercizio (solo per etichetta) —— */
-function isRestaurantBar(store='') {
-  const s = String(store).toLowerCase();
-  return /\b(ristorante|trattoria|pizzeria|bar|pub|bistrot|osteria|sushi|braceria|enoteca)\b/i.test(s);
-}
-// Evita virgole finali nei select Supabase
 function sbSelect(cols = []) {
   if (!Array.isArray(cols)) return '*';
   const list = cols.filter(Boolean).map(String).map((s) => s.trim()).filter((s) => s.length > 0);
   return list.length ? list.join(',') : '*';
 }
 
+/* ===== Scegli il miglior mimeType supportato dal browser =====
+   Ordine di preferenza: webm/opus → webm → mp4 (Safari/iOS) → ogg → default */
+function getBestMimeType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',              // ← Safari / iPhone
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ];
+  for (const t of types) {
+    try {
+      if (MediaRecorder.isTypeSupported(t)) return t;
+    } catch {}
+  }
+  return ''; // lascia decidere al browser
+}
 
+/* Estensione file corretta per il mimeType */
+function extForMime(mime='') {
+  if (mime.includes('mp4'))  return 'voice.mp4';
+  if (mime.includes('ogg'))  return 'voice.ogg';
+  return 'voice.webm';
+}
 
 /* —— carryover mese corrente —— */
 async function ensureCarryoverAuto(userId, monthKeyCurrent) {
@@ -320,7 +317,7 @@ function Entrate() {
   const [carryover, setCarryover] = useState(null);
   const [newCarry, setNewCarry] = useState({ amount: '', note: '' });
 
-  const [pocketRows, setPocketRows] = useState([]); // manual + spese con link
+  const [pocketRows, setPocketRows] = useState([]);
   const [pocketTopUp, setPocketTopUp] = useState('');
   const [monthExpenses, setMonthExpenses] = useState(0);
 
@@ -328,7 +325,6 @@ function Entrate() {
   const [showAddCarry, setShowAddCarry] = useState(false);
   const [showAddPocket, setShowAddPocket] = useState(false);
 
-  // OCR / VOCE
   const ocrInputRef = useRef(null);
   const mediaRecRef = useRef(null);
   const recordedChunks = useRef([]);
@@ -361,7 +357,6 @@ function Entrate() {
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // Entrate periodo
       const { data: inc, error: incErr } = await supabase
         .from('incomes')
         .select('id, source, description, amount, received_at, received_date')
@@ -375,7 +370,6 @@ function Entrate() {
       if (incErr) throw incErr;
       setIncomes(inc || []);
 
-      // Carryover mese
       const { data: co } = await supabase
         .from('carryovers')
         .select('id, month_key, amount, note')
@@ -384,7 +378,6 @@ function Entrate() {
         .maybeSingle();
       setCarryover(co || null);
 
-      // Movimenti contanti manuali
       const { data: pc } = await supabase
         .from('pocket_cash')
         .select('id, created_at, moved_at, moved_date, note, delta, amount, direction')
@@ -406,82 +399,78 @@ function Entrate() {
         };
       });
 
-/* ===================== heads ledger ===================== */
-let finHeads = [];
-const { data: finHeadsLedger } = await supabase
-  .from('expenses')
-  .select('id, category, store, description, purchase_date, amount, payment_method, created_at')
-  .eq('user_id', user.id)
-  .in('category', ['casa','cene','vestiti','varie'])
-  .gte('purchase_date', startDate)
-  .lte('purchase_date', endDate)
-  .order('purchase_date', { ascending: false })
-  .order('created_at', { ascending: false });
+      let finHeads = [];
+      const { data: finHeadsLedger } = await supabase
+        .from('expenses')
+        .select('id, category, store, description, purchase_date, amount, payment_method, created_at')
+        .eq('user_id', user.id)
+        .in('category', ['casa','cene','vestiti','varie'])
+        .gte('purchase_date', startDate)
+        .lte('purchase_date', endDate)
+        .order('purchase_date', { ascending: false })
+        .order('created_at', { ascending: false });
 
-if (Array.isArray(finHeadsLedger)) finHeads = [...finHeadsLedger];
+      if (Array.isArray(finHeadsLedger)) finHeads = [...finHeadsLedger];
 
-const CAT_TO_ROUTE = {
-  'casa':    '/spese-casa',
-  'cene':    '/cene-aperitivi',
-  'vestiti': '/vestiti-ed-altro',
-  'varie':   '/varie',
-};
+      const CAT_TO_ROUTE = {
+        'casa':    '/spese-casa',
+        'cene':    '/cene-aperitivi',
+        'vestiti': '/vestiti-ed-altro',
+        'varie':   '/varie',
+      };
 
-const groupFinHeads = (heads = []) => {
-  return (heads || []).map(h => {
-    const dateISO = h.purchase_date || '';
-    const cat = h.category || 'casa';
-    const isCash = /^(cash|contanti)$/i.test(String(h.payment_method || ''));
-    const monthParam = dateISO.slice(0, 7);
-    const baseTxt = cat === 'cene' ? 'Cena/Aperitivo' : cat === 'vestiti' ? 'Vestiti/Altro' : cat === 'varie' ? 'Varie' : 'Spesa';
-    const dateIT = dateISO ? new Date(dateISO).toLocaleDateString('it-IT') : '';
-    const defaultLabel = `${baseTxt} ${h.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
-    const routeBase = CAT_TO_ROUTE[cat] || '/spese-casa';
-    const route = `${routeBase}?month=${monthParam}`;
-    const tot = Number((Number(h.amount || 0)).toFixed(2));
+      const groupFinHeads = (heads = []) => {
+        return (heads || []).map(h => {
+          const dateISO = h.purchase_date || '';
+          const cat = h.category || 'casa';
+          const isCash = /^(cash|contanti)$/i.test(String(h.payment_method || ''));
+          const monthParam = dateISO.slice(0, 7);
+          const baseTxt = cat === 'cene' ? 'Cena/Aperitivo' : cat === 'vestiti' ? 'Vestiti/Altro' : cat === 'varie' ? 'Varie' : 'Spesa';
+          const dateIT = dateISO ? new Date(dateISO).toLocaleDateString('it-IT') : '';
+          const defaultLabel = `${baseTxt} ${h.store || 'Punto vendita'}${dateIT ? ` (${dateIT})` : ''}`;
+          const routeBase = CAT_TO_ROUTE[cat] || '/spese-casa';
+          const route = `${routeBase}?month=${monthParam}`;
+          const tot = Number((Number(h.amount || 0)).toFixed(2));
 
-    return {
-      id: `${cat}-${h.id}`,
-      kind: 'expense-linked',
-      dateISO,
-      label: h.description || defaultLabel,
-      route,
-      displayAmount: -tot,
-      amount: isCash ? -tot : 0,
-      affectsPocket: isCash,
-      meta: {
-        category: cat,
-        store: h.store || '',
-        dateISO,
-        ids: [h.id].filter(Boolean),
-      },
-    };
-  });
-};
+          return {
+            id: `${cat}-${h.id}`,
+            kind: 'expense-linked',
+            dateISO,
+            label: h.description || defaultLabel,
+            route,
+            displayAmount: -tot,
+            amount: isCash ? -tot : 0,
+            affectsPocket: isCash,
+            meta: {
+              category: cat,
+              store: h.store || '',
+              dateISO,
+              ids: [h.id].filter(Boolean),
+            },
+          };
+        });
+      };
 
-const expenseRows = groupFinHeads(finHeads);
+      const expenseRows = groupFinHeads(finHeads);
 
-// Merge + ordine
-const filteredManual = hideVarieCashAfterClear
-  ? manualRows.filter(r => r.kind !== 'manual' || r.category_id !== CATEGORY_ID_VARIE)
-  : manualRows;
-const rows = [...expenseRows, ...filteredManual]
-  .filter(r => Number.isFinite(r.amount) || Number.isFinite(r.displayAmount))
-  .sort((a,b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
-setPocketRows(rows);
+      const filteredManual = hideVarieCashAfterClear
+        ? manualRows.filter(r => r.kind !== 'manual' || r.category_id !== CATEGORY_ID_VARIE)
+        : manualRows;
+      const rows = [...expenseRows, ...filteredManual]
+        .filter(r => Number.isFinite(r.amount) || Number.isFinite(r.displayAmount))
+        .sort((a,b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+      setPocketRows(rows);
 
-// Totale spese periodo
-const { data: exp, error: expErr } = await supabase
-  .from('expenses')
-  .select('amount,purchase_date')
-  .eq('user_id', user.id)
-  .gte('purchase_date', startDate)
-  .lte('purchase_date', endDate);
-if (!expErr && Array.isArray(exp)) {
-  const totalExp = exp.reduce((t, r) => t + Number(r.amount || 0), 0);
-  setMonthExpenses(totalExp);
-}
-
+      const { data: exp, error: expErr } = await supabase
+        .from('expenses')
+        .select('amount,purchase_date')
+        .eq('user_id', user.id)
+        .gte('purchase_date', startDate)
+        .lte('purchase_date', endDate);
+      if (!expErr && Array.isArray(exp)) {
+        const totalExp = exp.reduce((t, r) => t + Number(r.amount || 0), 0);
+        setMonthExpenses(totalExp);
+      }
 
     } catch (err) {
       showError(setError, err);
@@ -499,6 +488,7 @@ if (!expErr && Array.isArray(exp)) {
     });
     return [
       'Sei Jarvis. Estrai ENTRATE economiche (stipendio, pagamenti, rimborsi).',
+      `Se non è specificata una data, usa SEMPRE oggi: ${today}`,
       'Rispondi SOLO con JSON:', example, '', 'Testo:', userText,
     ].join('\n');
   }
@@ -521,13 +511,14 @@ if (!expErr && Array.isArray(exp)) {
     const { error } = await supabase.from('pocket_cash').insert(payload);
     if (error) throw error;
   }
+
   async function insertIncomeAssistant(text) {
     const data = await callAssistant(buildIncomePrompt(text));
     if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Sessione scaduta');
     for (const it of data.items) {
-      const dataIncasso = it.receivedAt || isoLocal(new Date());
+      const dataIncasso = it.receivedAt || isoLocal(new Date()); // ← fallback oggi
       const amount = Math.abs(parseAmountLoose(it.amount));
       const payload = {
         user_id: user.id,
@@ -569,137 +560,154 @@ if (!expErr && Array.isArray(exp)) {
       showError(setError, err);
     }
   }
-// ⬇️ Sostituisci tutta la tua funzione toggleRec con questa versione robusta
-const toggleRec = async () => {
-  // Se sto registrando → STOP sicuro
-  if (recBusy) {
-    try {
-      // chiamo stop solo se esiste e sta registrando
-      const mr = mediaRecRef.current;
-      if (mr && mr.state === 'recording') {
-        mr.requestData?.(); // chiedi l'ultimo chunk
-        mr.stop();
-      }
-    } catch (e) {
-      console.warn('Stop recorder error:', e);
-    }
-    return;
-  }
 
-  // Altrimenti → START
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    streamRef.current = stream;
-    recordedChunks.current = [];
-
-    // Scegli un mime supportato dal browser
-    let mimeType = '';
-    if (typeof MediaRecorder !== 'undefined') {
-      if (MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
-      else if (MediaRecorder.isTypeSupported?.('audio/webm')) mimeType = 'audio/webm';
-      else if (MediaRecorder.isTypeSupported?.('audio/ogg;codecs=opus')) mimeType = 'audio/ogg;codecs=opus';
-      else mimeType = ''; // lascia decidere al browser
-    }
-
-    mediaRecRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
-    // Arrivo dei chunk
-    mediaRecRef.current.ondataavailable = (e) => {
-      if (e.data && e.data.size) recordedChunks.current.push(e.data);
-    };
-
-    // Funzione che attende il primo chunk dopo lo stop (max ~1s) e invia
-    const finalizeAfterStop = async () => {
+  /* ===== toggleRec — versione con pieno supporto iPhone/Safari ===== */
+  const toggleRec = async () => {
+    // STOP
+    if (recBusy) {
       try {
-        // attendo finché ho almeno un chunk o scade il timeout
-        const started = Date.now();
-        while (recordedChunks.current.length === 0 && Date.now() - started < 1200) {
-          await new Promise(r => setTimeout(r, 50));
+        const mr = mediaRecRef.current;
+        if (mr && mr.state === 'recording') {
+          mr.requestData?.();
+          mr.stop();
         }
+      } catch (e) { console.warn('Stop recorder error:', e); }
+      return;
+    }
 
-        if (!recordedChunks.current.length) {
-          throw new Error('Nessun audio ricevuto dal microfono');
+    // START
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      recordedChunks.current = [];
+
+      // ← Nuovo: scegli il miglior formato supportato (incluso mp4 per iPhone)
+      const mimeType = getBestMimeType();
+      console.log('[STT] mimeType scelto:', mimeType || '(browser default)');
+
+      mediaRecRef.current = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+
+      mediaRecRef.current.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedChunks.current.push(e.data);
+      };
+
+      const finalizeAfterStop = async () => {
+        try {
+          // Attendi chunk (max 1.5s — un po' più lungo per iOS che è più lento)
+          const started = Date.now();
+          while (recordedChunks.current.length === 0 && Date.now() - started < 1500) {
+            await new Promise(r => setTimeout(r, 60));
+          }
+
+          if (!recordedChunks.current.length) {
+            throw new Error('Nessun audio ricevuto dal microfono');
+          }
+
+          // Usa il mimeType reale del recorder (potrebbe differire da quello richiesto)
+          const actualMime =
+            mediaRecRef.current?.mimeType ||
+            recordedChunks.current[0]?.type ||
+            mimeType ||
+            'audio/webm';
+
+          const blob = new Blob(recordedChunks.current, { type: actualMime });
+          const filename = extForMime(actualMime); // voice.mp4 su iPhone, voice.webm altrove
+
+          console.log('[STT] blob size:', blob.size, 'type:', actualMime, 'file:', filename);
+
+          if (blob.size < 500) {
+            throw new Error('Audio troppo corto, riprova');
+          }
+
+          const fd = new FormData();
+          fd.append('audio', blob, filename);
+
+          const r = await fetch('/api/stt', { method: 'POST', body: fd });
+          const j = await r.json().catch(() => ({}));
+
+          if (!r.ok || !j?.text) {
+            console.error('[STT] risposta:', r.status, j);
+            throw new Error(j?.error || 'STT fallito — riprova');
+          }
+
+          const spoken = String(j.text || '').trim();
+          if (!spoken) { setError('Trascrizione vuota'); return; }
+
+          console.log('[STT] testo:', spoken);
+
+          // 1) Spesa in contanti
+          const exp = detectCashExpenseIntent(spoken);
+          if (exp) {
+            await insertFinanceExpenseByVoice(exp);
+            await loadAll();
+            return;
+          }
+
+          // 2) Tasca
+          const pocket = detectPocketIntent(spoken);
+          if (pocket) {
+            await insertPocketQuick({
+              amount: Math.abs(pocket.delta),
+              date:   pocket.dateISO,
+              delta:  pocket.delta,
+              note:   pocket.note
+            });
+            await loadAll();
+            return;
+          }
+
+          // 3) Entrate (locale)
+          const inc = detectIncomeIntent(spoken);
+          if (inc) {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Sessione scaduta');
+            await supabase.from('incomes').insert({
+              user_id:     user.id,
+              source:      inc.source,
+              description: inc.description,
+              amount:      inc.amount,
+              received_at: `${inc.dateISO}T12:00:00Z`, // ← dateISO è già "oggi" se non specificato
+            });
+            await loadAll();
+            return;
+          }
+
+          // 4) Fallback Assistant
+          const ok = await insertIncomeAssistant(spoken);
+          if (ok) await loadAll();
+          else setError('Nessun dato riconosciuto dalla voce');
+
+        } catch (e) {
+          showError(setError, e);
+        } finally {
+          setRecBusy(false);
+          try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+          streamRef.current = null;
         }
+      };
 
-        // Costruisci il Blob dal miglior tipo disponibile
-        const firstType = recordedChunks.current[0].type || 'audio/webm';
-        const blob = new Blob(recordedChunks.current, { type: firstType });
+      mediaRecRef.current.onstop = finalizeAfterStop;
 
-        const fd = new FormData();
-        fd.append('audio', blob, firstType.includes('ogg') ? 'voice.ogg' : 'voice.webm');
+      // timeslice 250ms: essenziale per iOS che altrimenti non emette chunk
+      mediaRecRef.current.start(250);
+      setRecBusy(true);
 
-        const r = await fetch('/api/stt', { method: 'POST', body: fd });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j?.text) throw new Error('STT fallito');
-
-        const spoken = String(j.text || '').trim();
-        if (!spoken) { setError('Trascrizione vuota'); return; }
-
-        // ✅ 1) Spesa in contanti dal parlato
-        const exp = detectCashExpenseIntent(spoken);
-        if (exp) {
-          await insertFinanceExpenseByVoice(exp);
-          await loadAll();
-          return;
-        }
-
-        // 2) Tasca (ricarica/uscita)
-        const pocket = detectPocketIntent(spoken);
-        if (pocket) {
-          await insertPocketQuick({
-            amount: Math.abs(pocket.delta),
-            date:   pocket.dateISO,
-            delta:  pocket.delta,
-            note:   pocket.note
-          });
-          await loadAll();
-          return;
-        }
-
-        // 3) Entrate locali
-        const inc = detectIncomeIntent(spoken);
-        if (inc) {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) throw new Error('Sessione scaduta');
-          await supabase.from('incomes').insert({
-            user_id:     user.id,
-            source:      inc.source,
-            description: inc.description,
-            amount:      inc.amount,
-            received_at: `${inc.dateISO}T12:00:00Z`,
-          });
-          await loadAll();
-          return;
-        }
-
-        // 4) Fallback Assistant
-        const ok = await insertIncomeAssistant(spoken);
-        if (ok) await loadAll();
-        else setError('Nessun dato riconosciuto dalla voce');
-
-      } catch (e) {
-        showError(setError, e);
-      } finally {
-        setRecBusy(false);
-        try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-        streamRef.current = null;
+    } catch (err) {
+      setRecBusy(false);
+      if (err?.name === 'NotAllowedError') {
+        setError('Microfono non autorizzato — controlla i permessi in Impostazioni > Safari');
+      } else if (err?.name === 'NotFoundError') {
+        setError('Microfono non trovato');
+      } else {
+        setError('Microfono non disponibile: ' + (err?.message || err));
       }
-    };
-
-    mediaRecRef.current.onstop = finalizeAfterStop;
-
-    // Avvio: uso timeslice così arrivano chunk mentre registro (importante per onstop)
-    mediaRecRef.current.start(250);
-    setRecBusy(true);
-
-  } catch (err) {
-    setRecBusy(false);
-    setError('Microfono non disponibile');
-    try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-    streamRef.current = null;
-  }
-};
-
+      try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+      streamRef.current = null;
+    }
+  };
 
   /* --------------------------------- CRUD ---------------------------------- */
   async function handleAddIncome(e) {
@@ -727,138 +735,91 @@ const toggleRec = async () => {
       setIncomes(incomes.filter((i) => i.id !== id));
     } catch (err) { showError(setError, err); }
   }
- // helper: normalizza store per confronti "elastici"
-function normStore(s='') {
-  return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
-}
 
-function normStore(s='') {
-  return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
-}
-
-// normalizza lo store per confronti affidabili
-function normStore(s = '') {
-  return String(s)
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accenti
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const NUM_RE  = /^\d+$/;
-
-// elimina in blocchi per evitare URL troppo lunghi
-async function deleteInBatches({ table, userId, ids }) {
-  if (!ids?.length) return;
-  const chunk = (arr, n) => arr.reduce((a, _, i) => (i % n ? a : [...a, arr.slice(i, i + n)]), []);
-  for (const part of chunk(ids, 100)) {
-    const { error } = await supabase
-      .from(table)
-      .delete()
-      .eq('user_id', userId)
-      .in('id', part);
-    if (error) throw error;
+  function normStore(s = '') {
+    return String(s)
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
-}
 
-async function handleDeletePocketRow(row) {
-  if (!row) return;
-  if (!confirm('Eliminare definitivamente questa spesa?')) return;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const NUM_RE  = /^\d+$/;
 
-  try {
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!user) throw new Error('Sessione scaduta');
-
-    // A) Movimenti manuali: pocket_cash
-    if (row.kind === 'manual') {
-      const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
-      if (!pid) throw new Error('ID pocket non valido');
+  async function deleteInBatches({ table, userId, ids }) {
+    if (!ids?.length) return;
+    const chunk = (arr, n) => arr.reduce((a, _, i) => (i % n ? a : [...a, arr.slice(i, i + n)]), []);
+    for (const part of chunk(ids, 100)) {
       const { error } = await supabase
-        .from('pocket_cash')
+        .from(table)
         .delete()
-        .eq('user_id', user.id)
-        .eq('id', pid);
+        .eq('user_id', userId)
+        .in('id', part);
       if (error) throw error;
+    }
+  }
+
+  async function handleDeletePocketRow(row) {
+    if (!row) return;
+    if (!confirm('Eliminare definitivamente questa spesa?')) return;
+
+    try {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!user) throw new Error('Sessione scaduta');
+
+      if (row.kind === 'manual') {
+        const pid = String(row.id || '').startsWith('pc-') ? row.id.slice(3) : null;
+        if (!pid) throw new Error('ID pocket non valido');
+        const { error } = await supabase
+          .from('pocket_cash')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('id', pid);
+        if (error) throw error;
+
+        setPocketRows(prev => prev.filter(r => r.id !== row.id));
+        await loadAll();
+        return;
+      }
+
+      const m = row.meta || {};
+      const dateISO   = (m.dateISO || row.dateISO || '').slice(0, 10);
+      const rawStore  = m.store || row.label || '';
+      const storeNorm = normStore(rawStore);
+      const category  = m.category || 'casa';
+
+      const ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
+      if (ids.length) {
+        await deleteInBatches({ table: 'expenses', userId: user.id, ids });
+      }
+
+      if (!ids.length) {
+        const { data: candidates, error: qErr } = await supabase
+          .from('expenses')
+          .select('id, store')
+          .eq('user_id', user.id)
+          .eq('category', category)
+          .eq('purchase_date', dateISO);
+        if (qErr) throw qErr;
+
+        const idsFound = (candidates || [])
+          .filter(r => normStore(r.store) === storeNorm)
+          .map(r => r.id);
+
+        if (idsFound.length) {
+          await deleteInBatches({ table: 'expenses', userId: user.id, ids: idsFound });
+        }
+      }
 
       setPocketRows(prev => prev.filter(r => r.id !== row.id));
       await loadAll();
-      return;
+
+    } catch (err) {
+      showError(setError, err);
     }
-
-    // B) Spesa in expenses
-    const m = row.meta || {};
-    const dateISO   = (m.dateISO || row.dateISO || '').slice(0, 10);
-    const rawStore  = m.store || row.label || '';
-    const storeNorm = normStore(rawStore);
-    const category  = m.category || 'casa';
-
-    // 1) Prova eliminazione per ID reali
-    const ids = Array.isArray(m.ids) ? m.ids.filter(Boolean) : [];
-    if (ids.length) {
-      await deleteInBatches({ table: 'expenses', userId: user.id, ids });
-    }
-
-    // 2) Fallback: stessa data+categoria, filtro per store normalizzato
-    if (!ids.length) {
-      const { data: candidates, error: qErr } = await supabase
-        .from('expenses')
-        .select('id, store')
-        .eq('user_id', user.id)
-        .eq('category', category)
-        .eq('purchase_date', dateISO);
-      if (qErr) throw qErr;
-
-      const idsFound = (candidates || [])
-        .filter(r => normStore(r.store) === storeNorm)
-        .map(r => r.id);
-
-      if (idsFound.length) {
-        await deleteInBatches({ table: 'expenses', userId: user.id, ids: idsFound });
-      }
-    }
-
-    // Legacy placeholder (non più necessario)
-    const legacyTables = [];
-    const pickStore = (r) => r.store ?? '';
-    const sameDay   = (r) => (r.purchase_date || '').slice(0, 10) === dateISO;
-
-    for (const t of legacyTables) {
-      const { data: legRows, error: lErr } = await supabase
-        .from(t)
-        .select('*')
-        .eq('user_id', user.id);
-      if (lErr) throw lErr;
-
-      const idsLegacy = (legRows || [])
-        .filter(sameDay)
-        .filter(r => normStore(pickStore(r)) === storeNorm)
-        .map(r => r.id)
-        .filter(Boolean);
-
-      if (idsLegacy.length) {
-        const legacyUUID = idsLegacy.filter(id => UUID_RE.test(String(id)));
-        const legacyNUM  = idsLegacy.filter(id => NUM_RE.test(String(id))).map(n => Number(n));
-
-        if (legacyUUID.length) {
-          await deleteInBatches({ table: t, userId: user.id, ids: legacyUUID });
-        }
-        if (legacyNUM.length) {
-          await deleteInBatches({ table: t, userId: user.id, ids: legacyNUM });
-        }
-      }
-    }
-
-    // UI immediata + reload
-    setPocketRows(prev => prev.filter(r => r.id !== row.id));
-    await loadAll();
-
-  } catch (err) {
-    showError(setError, err);
   }
-}
-
 
   async function handleSaveCarryover(e) {
     e.preventDefault(); setError(null);
@@ -876,6 +837,7 @@ async function handleDeletePocketRow(row) {
       setNewCarry({ amount:'', note:'' }); await loadAll();
     } catch (err) { showError(setError, err); }
   }
+
   async function handleTopUpPocket(e) {
     e.preventDefault(); setError(null);
     try {
@@ -887,6 +849,7 @@ async function handleDeletePocketRow(row) {
       if (error) throw error; setPocketTopUp(''); await loadAll();
     } catch (err) { showError(setError, err); }
   }
+
   async function handleClearPocket() {
     if (!confirm('Ripulisci: rimuove i movimenti manuali e nasconde qui le spese cash di Varie. Confermi?')) return;
     try {
@@ -914,11 +877,15 @@ async function handleDeletePocketRow(row) {
       <div className="spese-casa-container1">
         <div className="spese-casa-container2">
 
-          {/* Titolo + Voce/OCR */}
           <div className="title-row">
             <h2 className="title">Entrate &amp; Saldi</h2>
             <div className="title-actions">
-              <button className="btn-vocale" onClick={toggleRec}>{recBusy ? 'Stop' : 'Voce'}</button>
+              <button
+                className={`btn-vocale ${recBusy ? 'btn-vocale--rec' : ''}`}
+                onClick={toggleRec}
+              >
+                {recBusy ? '⏹ Stop' : '🎙 Voce'}
+              </button>
               <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>OCR</button>
               <input
                 ref={ocrInputRef}
@@ -932,12 +899,10 @@ async function handleDeletePocketRow(row) {
             </div>
           </div>
 
-          {/* Periodo */}
           <div className="periodo-row">
             <span>Periodo corrente:</span><b>{startDateIT}</b><span>–</span><b>{endDateIT}</b>
           </div>
 
-          {/* Box metriche */}
           <div className="total-box">
             <h3>Disponibilità</h3>
             <div className="metric-sub block">
@@ -954,7 +919,6 @@ async function handleDeletePocketRow(row) {
             </div>
           </div>
 
-          {/* 1) Entrate del periodo */}
           <h3>1) Entrate del periodo</h3>
           <details className="toggle-add">
             <summary className="btn-manuale">➕ Aggiungi manuale</summary>
@@ -986,7 +950,6 @@ async function handleDeletePocketRow(row) {
             </div>
           )}
 
-          {/* 2) Carryover */}
           <h3 style={{ marginTop: '1rem' }}>2) Rimanenze / Perdite mesi precedenti</h3>
           <details className="toggle-add">
             <summary className="btn-manuale">➕ Aggiungi manuale</summary>
@@ -1014,10 +977,9 @@ async function handleDeletePocketRow(row) {
             </div>
           )}
 
-          {/* 3) Soldi in tasca + Spese (con link a Spese Casa / Cene & Aperitivi) */}
           <div className="row-head">
             <h3 style={{ marginTop: '1rem' }}>3) Soldi in tasca</h3>
-            <button type="button" className="btn-danger" onClick={handleClearPocket} title="Elimina movimenti manuali e nascondi le spese cash di Varie in questa vista">
+            <button type="button" className="btn-danger" onClick={handleClearPocket}>
               Ripulisci
             </button>
           </div>
@@ -1031,69 +993,65 @@ async function handleDeletePocketRow(row) {
               <button className="btn-manuale">+ Aggiungi</button>
               {hideVarieCashAfterClear && (
                 <p style={{ opacity: 0.85, marginTop: '.5rem', flexBasis: '100%' }}>
-                  Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina (restano nelle rispettive sezioni).
+                  Vista filtrata: spese cash della categoria <b>Varie</b> nascoste in questa pagina.
                 </p>
               )}
             </form>
           </details>
 
-{loading ? <p>Caricamento…</p> : (
-  <div className="table-wrap">
-    <table className="custom-table">
-      <thead>
-        <tr>
-          <th>Data</th>
-          <th>Descrizione</th>
-          <th style={{ textAlign: 'right' }}>Importo €</th>
-          <th style={{ width: '1%', whiteSpace: 'nowrap' }}>Azioni</th>
-        </tr>
-      </thead>
-      <tbody>
-        {pocketRows.map((m) => (
-          <tr key={m.id}>
-            <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
-            <td>
-              {m.route
-                ? <Link href={m.route} className="row-link">{m.label}</Link>
-                : <span>{m.label}</span>}
-            </td>
-            <td style={{ textAlign: 'right' }}>
-              {(m.displayAmount ?? m.amount) >= 0 ? '+' : '-'}{' '}
-              {Math.abs(m.displayAmount ?? m.amount).toFixed(2)}
-            </td>
-            <td>
-              <button
-                className="icon-btn"
-                onClick={() => handleDeletePocketRow(m)}
-                title="Elimina questa spesa"
-                aria-label="Elimina"
-              >
-                {/* cestino inline, uguale ovunque */}
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M3 6h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-)}
+          {loading ? <p>Caricamento…</p> : (
+            <div className="table-wrap">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Descrizione</th>
+                    <th style={{ textAlign: 'right' }}>Importo €</th>
+                    <th style={{ width: '1%', whiteSpace: 'nowrap' }}>Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pocketRows.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.dateISO ? new Date(m.dateISO).toLocaleDateString('it-IT') : '-'}</td>
+                      <td>
+                        {m.route
+                          ? <Link href={m.route} className="row-link">{m.label}</Link>
+                          : <span>{m.label}</span>}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {(m.displayAmount ?? m.amount) >= 0 ? '+' : '-'}{' '}
+                        {Math.abs(m.displayAmount ?? m.amount).toFixed(2)}
+                      </td>
+                      <td>
+                        <button
+                          className="icon-btn"
+                          onClick={() => handleDeletePocketRow(m)}
+                          title="Elimina questa spesa"
+                          aria-label="Elimina"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M3 6h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" strokeWidth="2"/>
+                            <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" stroke="currentColor" strokeWidth="2"/>
+                            <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
+          {error && <p className="error">{error}</p>}
 
-{error && <p className="error">{error}</p>}
-
-<Link href="/home"><button className="btn-vocale" style={{ marginTop: '1rem' }}>Home</button></Link>
-</div>
-</div>
-
+          <Link href="/home"><button className="btn-vocale" style={{ marginTop: '1rem' }}>Home</button></Link>
+        </div>
+      </div>
 
       <style jsx global>{`
-        /* pagina più larga */
         .spese-casa-container1 { width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; min-height: 100vh; padding: 2rem; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
         .spese-casa-container2 { background: rgba(0, 0, 0, 0.6); padding: 2rem; border-radius: 1rem; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.3); max-width: 1280px; width: min(1280px, 96vw); }
         .title-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .25rem; }
@@ -1102,6 +1060,8 @@ async function handleDeletePocketRow(row) {
         .periodo-row { display:flex; gap:.4rem; align-items:center; margin: .25rem 0 .6rem; font-size: .95rem; opacity:.9; }
 
         .btn-vocale, .btn-ocr, .btn-manuale { background: #6366f1; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color: #fff; transition: transform .06s ease, opacity .12s ease; }
+        .btn-vocale--rec { background: #ef4444; animation: pulse-rec 1s ease-in-out infinite; }
+        @keyframes pulse-rec { 0%,100%{opacity:1;} 50%{opacity:.65;} }
         .btn-ocr { background: #06b6d4; }
         .btn-manuale:hover, .btn-vocale:hover, .btn-ocr:hover, .btn-danger:hover, .btn-danger-outline:hover { transform: translateY(-1px); opacity: .95; }
         .btn-danger { background: #ef4444; border: 0; padding: .45rem .7rem; border-radius: .55rem; cursor: pointer; color:#fff; }
@@ -1120,27 +1080,20 @@ async function handleDeletePocketRow(row) {
         .metric--pocket { color: #06b6d4; }
 
         .toggle-add { margin: .35rem 0 0.5rem; }
-        .toggle-add > summary {
-          list-style: none;
-          display: inline-block;
-          cursor: pointer;
-          background: #6366f1;
-          color: #fff;
-          border: 0;
-          padding: .45rem .7rem;
-          border-radius: .55rem;
-          user-select: none;
-        }
+        .toggle-add > summary { list-style: none; display: inline-block; cursor: pointer; background: #6366f1; color: #fff; border: 0; padding: .45rem .7rem; border-radius: .55rem; user-select: none; }
         .toggle-add > summary::-webkit-details-marker { display: none; }
 
         .row-head { display:flex; justify-content:space-between; align-items:center; gap:.75rem; }
         .row-link { color:#c7d2fe; text-decoration:underline; }
         .row-link:hover { opacity:.9; }
 
+        .icon-btn { background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: .3rem; border-radius: .35rem; transition: color .15s; }
+        .icon-btn:hover { color: #ef4444; }
+
         .error { color:#f87171; margin-top: 1rem; }
       `}</style>
     </>
-      );
+  );
 }
 
 export default withAuth(Entrate);
