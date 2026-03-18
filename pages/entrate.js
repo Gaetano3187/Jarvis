@@ -55,7 +55,7 @@ function extForMime(mime = '') {
   return 'voice.webm';
 }
 
-/* ─── Parsing testo parlato ─────────────────────────────────────── */
+/* ─── Parsing parlato ───────────────────────────────────────────── */
 function parseMoneyFromDigits(text = '') {
   const s = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const re = /[-+]?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d+)?|[-+]?\d+(?:[.,]\d+)?/g;
@@ -83,8 +83,7 @@ function parseMoneyFromWordsIT(text = '') {
   return 0;
 }
 function parseMoneyFromText(t = '') {
-  const n1 = parseMoneyFromDigits(t);
-  if (n1 > 0) return n1;
+  const n1 = parseMoneyFromDigits(t); if (n1 > 0) return n1;
   return parseMoneyFromWordsIT(t);
 }
 function pickDateFromText(t = '') {
@@ -94,25 +93,21 @@ function pickDateFromText(t = '') {
   if (/\bdomani\b/.test(s)) { const d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d); }
   const m = s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
   if (m) {
-    const dd = String(m[1]).padStart(2, '0'), mm = String(m[2]).padStart(2, '0');
-    let yy = String(m[3]); if (yy.length === 2) yy = (Number(yy) >= 70 ? '19' : '20') + yy;
+    const dd = String(m[1]).padStart(2,'0'), mm = String(m[2]).padStart(2,'0');
+    let yy = String(m[3]); if (yy.length===2) yy=(Number(yy)>=70?'19':'20')+yy;
     return `${yy}-${mm}-${dd}`;
   }
   return isoLocal(new Date());
 }
 function normalizeIT(s = '') {
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 }
-
-/* ─── Detect metodo pagamento ───────────────────────────────────── */
 function detectPaymentMethod(text = '') {
   const s = normalizeIT(text);
   if (/\b(carta|card|bancomat|pos|visa|mastercard|credito|debito|contactless|tap)\b/.test(s)) return 'card';
   if (/\b(contanti|cash|liquidi|banconot|spiccioli)\b/.test(s)) return 'cash';
   return null;
 }
-
-/* ─── Intent: spesa (cash o card) ──────────────────────────────── */
 function inferCategory(text = '') {
   const s = normalizeIT(text);
   if (/\b(tabac|sigarett|fum[oi])\b/.test(s)) return 'varie';
@@ -125,15 +120,14 @@ function extractStoreName(text = '') {
   const s = normalizeIT(text);
   const m = s.match(/\b(?:a|da|presso|al|alla)\s+([a-z0-9'.\-& ]{2,50})\b/);
   if (!m) return null;
-  let store = m[1].replace(/\b(per|di|da|alle|all[ao]s?|ore|euro|€|carta|contanti|cash)\b.*$/, '').replace(/\s{2,}/g, ' ').trim();
+  let store = m[1].replace(/\b(per|di|da|alle|all[ao]s?|ore|euro|€|carta|contanti|cash)\b.*$/,'').replace(/\s{2,}/g,' ').trim();
   return titleize(store) || null;
 }
 function detectExpenseIntent(text = '') {
   const raw = String(text || '');
   const s = normalizeIT(raw);
   if (!/\b(ho\s+speso|abbiam|pagat[oa]|spes[ao]|mi\s+e'?|e'?\s+costat[oa])\b/.test(s)) return null;
-  const amount = parseMoneyFromText(s);
-  if (!amount) return null;
+  const amount = parseMoneyFromText(s); if (!amount) return null;
   const dateISO = pickDateFromText(s);
   const paymentMethod = detectPaymentMethod(s) || 'cash';
   let store = extractStoreName(raw) || 'Punto vendita';
@@ -149,19 +143,15 @@ async function insertExpenseByVoice(exp) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Sessione scaduta');
   const { error } = await supabase.from('expenses').insert({
-    user_id: user.id, category: exp.category || 'varie',
-    store: exp.store || 'Punto vendita', description: exp.description || '',
-    purchase_date: exp.dateISO || isoLocal(new Date()),
-    amount: Number(exp.amount || 0), payment_method: exp.payment_method || 'cash', source: 'voice',
+    user_id: user.id, category: exp.category||'varie', store: exp.store||'Punto vendita',
+    description: exp.description||'', purchase_date: exp.dateISO||isoLocal(new Date()),
+    amount: Number(exp.amount||0), payment_method: exp.payment_method||'cash', source: 'voice',
   });
   if (error) throw error;
 }
-
-/* ─── Intent: tasca ─────────────────────────────────────────────── */
 function detectPocketIntent(text = '') {
   const s = String(text).toLowerCase();
-  const amount = parseMoneyFromText(s);
-  if (!amount) return null;
+  const amount = parseMoneyFromText(s); if (!amount) return null;
   const NEG = /(uscita\s+contanti|tolto|pres[oa]\s+dalla\s+tasca|cash\s*out)/i;
   const POS = /(in\s+tasca|in\s+portafogli\w*|borsell\w*|ricaric\w*|preliev\w*|cash\s*in|metti\w*\s+in\s+tasca)/i;
   const isNeg = NEG.test(s);
@@ -169,12 +159,9 @@ function detectPocketIntent(text = '') {
   if (!isPos && !isNeg) return null;
   return { delta: isNeg ? -Math.abs(amount) : Math.abs(amount), dateISO: pickDateFromText(s), note: isNeg ? 'Uscita contanti (voce)' : 'Ricarica contanti (voce)' };
 }
-
-/* ─── Intent: entrata ───────────────────────────────────────────── */
 function detectIncomeIntent(text = '') {
-  const s = String(text || '').toLowerCase();
-  const amount = parseMoneyFromText(s);
-  if (!amount) return null;
+  const s = String(text||'').toLowerCase();
+  const amount = parseMoneyFromText(s); if (!amount) return null;
   if (/\b(ho\s+speso|pagat[oa]|spes[ao])\b/.test(s)) return null;
   const dateISO = pickDateFromText(s);
   let source = 'Entrata';
@@ -183,8 +170,8 @@ function detectIncomeIntent(text = '') {
   else if (/\bmi ha pagato\b/.test(s)) source = 'Pagamento ricevuto';
   const payerMatch = s.match(/\b(?:da|dal|dalla)\s+([a-zà-ù' ]{2,40})/i);
   if (payerMatch) {
-    const name = titleize(payerMatch[1].replace(/\b(euro|€)\b/gi, '').trim());
-    source = source === 'Entrata' ? `Pagamento da ${name}` : `${source} da ${name}`;
+    const name = titleize(payerMatch[1].replace(/\b(euro|€)\b/gi,'').trim());
+    source = source==='Entrata' ? `Pagamento da ${name}` : `${source} da ${name}`;
   }
   return { source, description: source, amount: Math.abs(amount), dateISO };
 }
@@ -195,10 +182,10 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('user_id', userId).eq('month_key', monthKeyCurrent).maybeSingle();
   if (existing) return;
   const [yy, mm] = monthKeyCurrent.split('-').map(Number);
-  const prevEnd = new Date(yy, mm - 1, 0);
+  const prevEnd = new Date(yy, mm-1, 0);
   const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
   const prevStartISO = isoLocal(prevStart), prevEndISO = isoLocal(prevEnd);
-  const prevKey = prevEndISO.slice(0, 7);
+  const prevKey = prevEndISO.slice(0,7);
   const { data: incPrev } = await supabase.from('incomes').select('amount,received_date,received_at')
     .eq('user_id', userId)
     .or(`and(received_date.gte.${prevStartISO},received_date.lte.${prevEndISO}),and(received_at.gte.${prevStartISO}T00:00:00,received_at.lte.${prevEndISO}T23:59:59)`);
@@ -206,12 +193,12 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
     .eq('user_id', userId).gte('purchase_date', prevStartISO).lte('purchase_date', prevEndISO);
   const { data: coPrev } = await supabase.from('carryovers').select('amount')
     .eq('user_id', userId).eq('month_key', prevKey).maybeSingle();
-  const totalInc = (incPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-  const totalExp = (expPrev || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-  const prevCarry = Number(coPrev?.amount || 0);
+  const totalInc = (incPrev||[]).reduce((t,r)=>t+Number(r.amount||0),0);
+  const totalExp = (expPrev||[]).reduce((t,r)=>t+Number(r.amount||0),0);
+  const prevCarry = Number(coPrev?.amount||0);
   await supabase.from('carryovers').insert({
     user_id: userId, month_key: monthKeyCurrent,
-    amount: Number((totalInc + prevCarry - totalExp).toFixed(2)),
+    amount: Number((totalInc+prevCarry-totalExp).toFixed(2)),
     note: 'Auto-carryover da mese precedente',
   });
 }
@@ -220,28 +207,21 @@ async function ensureCarryoverAuto(userId, monthKeyCurrent) {
    COMPONENTE
 ══════════════════════════════════════════════════════════════════ */
 function Entrate() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const [incomes, setIncomes]   = useState([]);
-  const [newIncome, setNewIncome] = useState({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
-  const [showAddIncome, setShowAddIncome] = useState(false);
-
-  // Riserve = saldo netto di tutti i carryover storici, scalato se entrate <= 0
-  const [riserve, setRiserve] = useState(0);
-
-  // Tutte le spese del periodo (cash + card) per la sezione Uscite
-  const [uscite, setUscite] = useState([]);
-
-  // Movimenti tasca (solo cash)
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
+  const [incomes, setIncomes]     = useState([]);
+  const [uscite, setUscite]       = useState([]);
   const [pocketRows, setPocketRows] = useState([]);
+  const [riserve, setRiserve]     = useState(0);
   const [pocketTopUp, setPocketTopUp] = useState('');
+  const [showAddIncome, setShowAddIncome] = useState(false);
   const [showAddPocket, setShowAddPocket] = useState(false);
+  const [newIncome, setNewIncome] = useState({ source:'Stipendio', description:'', amount:'', receivedAt:'' });
 
-  const ocrInputRef   = useRef(null);
-  const mediaRecRef   = useRef(null);
+  const ocrInputRef    = useRef(null);
+  const mediaRecRef    = useRef(null);
   const recordedChunks = useRef([]);
-  const streamRef     = useRef(null);
+  const streamRef      = useRef(null);
   const [recBusy, setRecBusy] = useState(false);
 
   const { startDate, endDate, monthKey } = computeCurrentPayPeriod(new Date(), PAYDAY_DAY);
@@ -251,8 +231,8 @@ function Entrate() {
   useEffect(() => {
     loadAll();
     return () => {
-      try { if (mediaRecRef.current?.state === 'recording') mediaRecRef.current.stop(); } catch {}
-      try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+      try { if (mediaRecRef.current?.state==='recording') mediaRecRef.current.stop(); } catch {}
+      try { streamRef.current?.getTracks?.().forEach(t=>t.stop()); } catch {}
     };
   }, [monthKey]);
 
@@ -260,266 +240,214 @@ function Entrate() {
   async function loadAll() {
     setLoading(true); setError(null);
     try {
-      const { data: { user }, error: uErr } = await supabase.auth.getUser();
+      const { data:{ user }, error: uErr } = await supabase.auth.getUser();
       if (uErr) throw uErr;
       if (!user) throw new Error('Sessione scaduta');
 
       await ensureCarryoverAuto(user.id, monthKey);
 
-      // 1) Entrate periodo
+      // Entrate periodo
       const { data: inc, error: incErr } = await supabase
         .from('incomes').select('id,source,description,amount,received_at,received_date')
         .eq('user_id', user.id)
         .or(`and(received_date.gte.${startDate},received_date.lte.${endDate}),and(received_at.gte.${dateStartTS},received_at.lte.${dateEndTS})`)
-        .order('received_at', { ascending: false, nullsFirst: false });
+        .order('received_at', { ascending:false, nullsFirst:false });
       if (incErr) throw incErr;
-      setIncomes(inc || []);
+      setIncomes(inc||[]);
 
-      // 2) Riserve = somma netta di tutti i carryover storici
-      //    Se entrate periodo ≤ 0 → scala il deficit dalle riserve
+      // Riserve
       const { data: allCarry } = await supabase.from('carryovers').select('amount').eq('user_id', user.id);
-      const sumCarry = (allCarry || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-      const entratePeriodoRaw = (inc || []).reduce((t, r) => t + Number(r.amount || 0), 0);
-      const deficit = entratePeriodoRaw <= 0 ? Math.abs(entratePeriodoRaw) : 0;
-      setRiserve(Math.max(0, sumCarry - deficit));
+      const sumCarry = (allCarry||[]).reduce((t,r)=>t+Number(r.amount||0),0);
+      const entratePeriodoRaw = (inc||[]).reduce((t,r)=>t+Number(r.amount||0),0);
+      const deficit = entratePeriodoRaw<=0 ? Math.abs(entratePeriodoRaw) : 0;
+      setRiserve(Math.max(0, sumCarry-deficit));
 
-      // 3) Tutte le spese del periodo
+      // Spese periodo
       const { data: expenses } = await supabase
         .from('expenses').select('id,category,store,description,purchase_date,amount,payment_method,created_at')
         .eq('user_id', user.id)
         .gte('purchase_date', startDate).lte('purchase_date', endDate)
-        .order('purchase_date', { ascending: false }).order('created_at', { ascending: false });
+        .order('purchase_date',{ascending:false}).order('created_at',{ascending:false});
 
-      // Sezione Uscite: tutte (cash + card) con badge
-      setUscite((expenses || []).map(h => ({
+      setUscite((expenses||[]).map(h=>({
         id: h.id, dateISO: h.purchase_date,
-        label: h.description || h.store || h.category,
-        store: h.store || '', category: h.category,
-        amount: Number(h.amount || 0),
-        payment_method: h.payment_method || 'cash',
+        label: h.description||h.store||h.category,
+        store: h.store||'', category: h.category,
+        amount: Number(h.amount||0),
+        payment_method: h.payment_method||'cash',
       })));
 
-      // 4) Movimenti tasca manuali
+      // Movimenti tasca
       const { data: pc } = await supabase
         .from('pocket_cash').select('id,created_at,moved_at,moved_date,note,delta,amount,direction')
         .eq('user_id', user.id)
         .gte('moved_date', startDate).lte('moved_date', endDate)
-        .order('moved_at', { ascending: false }).order('created_at', { ascending: false });
+        .order('moved_at',{ascending:false}).order('created_at',{ascending:false});
 
-      const manualRows = (pc || []).map(row => {
-        const eff = row.delta != null ? Number(row.delta || 0)
-          : (row.amount != null ? (row.direction === 'in' ? 1 : -1) * Number(row.amount || 0) : 0);
-        return {
-          id: `pc-${row.id}`,
-          dateISO: row.moved_date || (row.moved_at || row.created_at || '').slice(0, 10),
-          label: row.note?.trim() || (eff >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-          amount: Number(eff || 0), kind: 'manual',
-        };
+      const manualRows = (pc||[]).map(row=>{
+        const eff = row.delta!=null ? Number(row.delta||0)
+          : (row.amount!=null ? (row.direction==='in'?1:-1)*Number(row.amount||0) : 0);
+        return { id:`pc-${row.id}`, dateISO: row.moved_date||(row.moved_at||row.created_at||'').slice(0,10), label: row.note?.trim()||(eff>=0?'Ricarica contanti':'Uscita contanti'), amount:Number(eff||0), kind:'manual' };
       });
+      const cashExpRows = (expenses||[])
+        .filter(h=>/^(cash|contanti)$/i.test(String(h.payment_method||'')))
+        .map(h=>({ id:`exp-${h.id}`, dateISO:h.purchase_date, label:h.description||h.store||h.category, amount:-Number(h.amount||0), kind:'expense-cash' }));
 
-      // Tasca: spese cash + movimenti manuali
-      const cashExpRows = (expenses || [])
-        .filter(h => /^(cash|contanti)$/i.test(String(h.payment_method || '')))
-        .map(h => ({
-          id: `exp-${h.id}`, dateISO: h.purchase_date,
-          label: h.description || h.store || h.category,
-          amount: -Number(h.amount || 0), kind: 'expense-cash',
-        }));
+      setPocketRows([...cashExpRows,...manualRows].filter(r=>Number.isFinite(r.amount)).sort((a,b)=>(b.dateISO||'').localeCompare(a.dateISO||'')));
 
-      setPocketRows([...cashExpRows, ...manualRows]
-        .filter(r => Number.isFinite(r.amount))
-        .sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || '')));
-
-    } catch (err) { showError(setError, err); }
+    } catch(err){ showError(setError,err); }
     finally { setLoading(false); }
   }
 
   /* ─── Voce ────────────────────────────────────────────────────── */
   function buildIncomePrompt(userText) {
     const today = isoLocal(new Date());
-    return [
-      'Sei Jarvis. Estrai ENTRATE economiche (stipendio, pagamenti, rimborsi).',
-      `Se non è specificata una data usa oggi: ${today}`,
-      'Rispondi SOLO con JSON: {"type":"income","items":[{"source":"Stipendio","description":"Stipendio","amount":1500,"receivedAt":"' + today + '"}]}',
-      '', 'Testo:', userText,
-    ].join('\n');
+    return ['Sei Jarvis. Estrai ENTRATE economiche.',`Usa oggi se manca data: ${today}`,
+      'Rispondi SOLO JSON: {"type":"income","items":[{"source":"Stipendio","description":"Stipendio","amount":1500,"receivedAt":"'+today+'"}]}','','Testo:',userText].join('\n');
   }
   async function callAssistant(prompt) {
-    const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
-    const { answer, error: apiErr } = await res.json();
-    if (!res.ok || apiErr) throw new Error(apiErr || String(res.status));
+    const res = await fetch('/api/assistant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
+    const {answer,error:apiErr}=await res.json();
+    if (!res.ok||apiErr) throw new Error(apiErr||String(res.status));
     return JSON.parse(answer);
   }
-  async function insertPocketQuick({ delta, date, note }) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-    const { error } = await supabase.from('pocket_cash').insert({
-      user_id: user.id, note: note || (delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti'),
-      delta, moved_at: `${date || isoLocal(new Date())}T12:00:00Z`,
-    });
-    if (error) throw error;
+  async function insertPocketQuick({delta,date,note}) {
+    const {data:{user}}=await supabase.auth.getUser(); if(!user) throw new Error('Sessione scaduta');
+    const {error}=await supabase.from('pocket_cash').insert({user_id:user.id,note:note||(delta>=0?'Ricarica contanti':'Uscita contanti'),delta,moved_at:`${date||isoLocal(new Date())}T12:00:00Z`});
+    if(error) throw error;
   }
   async function insertIncomeAssistant(text) {
-    const data = await callAssistant(buildIncomePrompt(text));
-    if (data.type !== 'income' || !Array.isArray(data.items) || !data.items.length) return false;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-    for (const it of data.items) {
-      const { error } = await supabase.from('incomes').insert({
-        user_id: user.id, source: it.source || 'Entrata',
-        description: it.description || it.source || 'Entrata',
-        amount: Math.abs(parseAmountLoose(it.amount)),
-        received_at: `${it.receivedAt || isoLocal(new Date())}T12:00:00Z`,
-      });
-      if (error) throw error;
+    const data=await callAssistant(buildIncomePrompt(text));
+    if(data.type!=='income'||!Array.isArray(data.items)||!data.items.length) return false;
+    const {data:{user}}=await supabase.auth.getUser(); if(!user) throw new Error('Sessione scaduta');
+    for(const it of data.items){
+      const {error}=await supabase.from('incomes').insert({user_id:user.id,source:it.source||'Entrata',description:it.description||it.source||'Entrata',amount:Math.abs(parseAmountLoose(it.amount)),received_at:`${it.receivedAt||isoLocal(new Date())}T12:00:00Z`});
+      if(error) throw error;
     }
     return true;
   }
 
   const toggleRec = async () => {
     if (recBusy) {
-      try { const mr = mediaRecRef.current; if (mr?.state === 'recording') { mr.requestData?.(); mr.stop(); } } catch {}
+      try { const mr=mediaRecRef.current; if(mr?.state==='recording'){mr.requestData?.();mr.stop();} } catch {}
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream; recordedChunks.current = [];
-      const mimeType = getBestMimeType();
-      mediaRecRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      mediaRecRef.current.ondataavailable = (e) => { if (e.data?.size > 0) recordedChunks.current.push(e.data); };
-      mediaRecRef.current.onstop = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      streamRef.current=stream; recordedChunks.current=[];
+      const mimeType=getBestMimeType();
+      mediaRecRef.current=new MediaRecorder(stream,mimeType?{mimeType}:undefined);
+      mediaRecRef.current.ondataavailable=(e)=>{if(e.data?.size>0)recordedChunks.current.push(e.data);};
+      mediaRecRef.current.onstop=async()=>{
         try {
-          const t0 = Date.now();
-          while (!recordedChunks.current.length && Date.now() - t0 < 1500) await new Promise(r => setTimeout(r, 60));
-          if (!recordedChunks.current.length) throw new Error('Nessun audio ricevuto');
-          const actualMime = mediaRecRef.current?.mimeType || recordedChunks.current[0]?.type || mimeType || 'audio/webm';
-          const blob = new Blob(recordedChunks.current, { type: actualMime });
-          if (blob.size < 500) throw new Error('Audio troppo corto, riprova');
-          const fd = new FormData();
-          fd.append('audio', blob, extForMime(actualMime));
-          const r = await fetch('/api/stt', { method: 'POST', body: fd });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok || !j?.text) throw new Error(j?.error || 'STT fallito');
-          const spoken = String(j.text || '').trim();
-          if (!spoken) { setError('Trascrizione vuota'); return; }
-
-          // 1) Spesa (cash o card) — "ho speso 100 euro con carta"
-          const exp = detectExpenseIntent(spoken);
-          if (exp) { await insertExpenseByVoice(exp); await loadAll(); return; }
-          // 2) Tasca
-          const pocket = detectPocketIntent(spoken);
-          if (pocket) { await insertPocketQuick(pocket); await loadAll(); return; }
-          // 3) Entrata locale
-          const inc = detectIncomeIntent(spoken);
-          if (inc) {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Sessione scaduta');
-            await supabase.from('incomes').insert({ user_id: user.id, source: inc.source, description: inc.description, amount: inc.amount, received_at: `${inc.dateISO}T12:00:00Z` });
-            await loadAll(); return;
+          const t0=Date.now();
+          while(!recordedChunks.current.length&&Date.now()-t0<1500) await new Promise(r=>setTimeout(r,60));
+          if(!recordedChunks.current.length) throw new Error('Nessun audio ricevuto');
+          const actualMime=mediaRecRef.current?.mimeType||recordedChunks.current[0]?.type||mimeType||'audio/webm';
+          const blob=new Blob(recordedChunks.current,{type:actualMime});
+          if(blob.size<500) throw new Error('Audio troppo corto, riprova');
+          const fd=new FormData(); fd.append('audio',blob,extForMime(actualMime));
+          const r=await fetch('/api/stt',{method:'POST',body:fd});
+          const j=await r.json().catch(()=>({}));
+          if(!r.ok||!j?.text) throw new Error(j?.error||'STT fallito');
+          const spoken=String(j.text||'').trim();
+          if(!spoken){setError('Trascrizione vuota');return;}
+          const exp=detectExpenseIntent(spoken);
+          if(exp){await insertExpenseByVoice(exp);await loadAll();return;}
+          const pocket=detectPocketIntent(spoken);
+          if(pocket){await insertPocketQuick(pocket);await loadAll();return;}
+          const inc=detectIncomeIntent(spoken);
+          if(inc){
+            const {data:{user}}=await supabase.auth.getUser(); if(!user) throw new Error('Sessione scaduta');
+            await supabase.from('incomes').insert({user_id:user.id,source:inc.source,description:inc.description,amount:inc.amount,received_at:`${inc.dateISO}T12:00:00Z`});
+            await loadAll();return;
           }
-          // 4) Fallback AI
-          const ok = await insertIncomeAssistant(spoken);
-          if (ok) await loadAll(); else setError('Nessun dato riconosciuto dalla voce');
-        } catch (e) { showError(setError, e); }
-        finally {
-          setRecBusy(false);
-          try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
-          streamRef.current = null;
-        }
+          const ok=await insertIncomeAssistant(spoken);
+          if(ok) await loadAll(); else setError('Nessun dato riconosciuto dalla voce');
+        } catch(e){showError(setError,e);}
+        finally{setRecBusy(false);try{streamRef.current?.getTracks?.().forEach(t=>t.stop());}catch{}streamRef.current=null;}
       };
       mediaRecRef.current.start(250);
       setRecBusy(true);
-    } catch (err) {
+    } catch(err){
       setRecBusy(false);
-      setError(err?.name === 'NotAllowedError'
-        ? 'Microfono non autorizzato — controlla Impostazioni > Safari'
-        : 'Microfono non disponibile: ' + (err?.message || err));
-      try { streamRef.current?.getTracks?.().forEach(t => t.stop()); } catch {}
+      setError(err?.name==='NotAllowedError'?'Microfono non autorizzato — controlla Impostazioni > Safari':'Microfono non disponibile: '+(err?.message||err));
+      try{streamRef.current?.getTracks?.().forEach(t=>t.stop());}catch{}
     }
   };
 
-  /* ─── OCR ─────────────────────────────────────────────────────── */
   async function handleOCR(files) {
-    if (!files?.length) return;
+    if(!files?.length) return;
     try {
-      const fd = new FormData(); files.forEach(f => fd.append('images', f));
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd });
-      const { text } = await res.json();
-      const ok = await insertIncomeAssistant(text);
-      if (ok) await loadAll(); else setError('Nessun dato riconosciuto da OCR');
-    } catch (err) { showError(setError, err); }
+      const fd=new FormData(); files.forEach(f=>fd.append('images',f));
+      const res=await fetch('/api/ocr',{method:'POST',body:fd});
+      const {text}=await res.json();
+      const ok=await insertIncomeAssistant(text);
+      if(ok) await loadAll(); else setError('Nessun dato riconosciuto da OCR');
+    } catch(err){showError(setError,err);}
   }
 
   /* ─── CRUD ────────────────────────────────────────────────────── */
   async function handleAddIncome(e) {
     e.preventDefault(); setError(null);
     try {
-      const { data: { user }, error: uErr } = await supabase.auth.getUser();
-      if (uErr) throw uErr; if (!user) throw new Error('Sessione scaduta');
-      const { error } = await supabase.from('incomes').insert({
-        user_id: user.id, source: newIncome.source || 'Entrata',
-        description: newIncome.description || newIncome.source || 'Entrata',
-        amount: Math.abs(parseAmountLoose(newIncome.amount)),
-        received_at: newIncome.receivedAt ? `${newIncome.receivedAt}T12:00:00Z` : new Date().toISOString(),
+      const {data:{user},error:uErr}=await supabase.auth.getUser();
+      if(uErr) throw uErr; if(!user) throw new Error('Sessione scaduta');
+      const {error}=await supabase.from('incomes').insert({
+        user_id:user.id, source:newIncome.source||'Entrata',
+        description:newIncome.description||newIncome.source||'Entrata',
+        amount:Math.abs(parseAmountLoose(newIncome.amount)),
+        received_at:newIncome.receivedAt?`${newIncome.receivedAt}T12:00:00Z`:new Date().toISOString(),
       });
-      if (error) throw error;
-      setNewIncome({ source: 'Stipendio', description: '', amount: '', receivedAt: '' });
+      if(error) throw error;
+      setNewIncome({source:'Stipendio',description:'',amount:'',receivedAt:''});
       setShowAddIncome(false); await loadAll();
-    } catch (err) { showError(setError, err); }
+    } catch(err){showError(setError,err);}
   }
   async function handleDeleteIncome(id) {
-    try {
-      const { error } = await supabase.from('incomes').delete().eq('id', id);
-      if (error) throw error; setIncomes(incomes.filter(i => i.id !== id));
-    } catch (err) { showError(setError, err); }
+    try{const{error}=await supabase.from('incomes').delete().eq('id',id);if(error)throw error;setIncomes(incomes.filter(i=>i.id!==id));}catch(err){showError(setError,err);}
   }
   async function handleDeleteUscita(id) {
-    try {
-      const { error } = await supabase.from('expenses').delete().eq('id', id);
-      if (error) throw error; await loadAll();
-    } catch (err) { showError(setError, err); }
+    try{const{error}=await supabase.from('expenses').delete().eq('id',id);if(error)throw error;await loadAll();}catch(err){showError(setError,err);}
   }
   async function handleTopUpPocket(e) {
     e.preventDefault(); setError(null);
     try {
-      const { data: { user }, error: uErr } = await supabase.auth.getUser();
-      if (uErr) throw uErr; if (!user) throw new Error('Sessione scaduta');
-      const delta = parseAmountLoose(pocketTopUp); if (!delta) return;
-      const { error } = await supabase.from('pocket_cash').insert({
-        user_id: user.id, note: delta >= 0 ? 'Ricarica contanti' : 'Uscita contanti',
-        delta, moved_at: new Date().toISOString(),
-      });
-      if (error) throw error; setPocketTopUp(''); setShowAddPocket(false); await loadAll();
-    } catch (err) { showError(setError, err); }
+      const {data:{user},error:uErr}=await supabase.auth.getUser();
+      if(uErr) throw uErr; if(!user) throw new Error('Sessione scaduta');
+      const delta=parseAmountLoose(pocketTopUp); if(!delta) return;
+      const {error}=await supabase.from('pocket_cash').insert({user_id:user.id,note:delta>=0?'Ricarica contanti':'Uscita contanti',delta,moved_at:new Date().toISOString()});
+      if(error) throw error; setPocketTopUp(''); setShowAddPocket(false); await loadAll();
+    } catch(err){showError(setError,err);}
   }
   async function handleDeletePocketRow(row) {
-    if (!confirm('Eliminare questo movimento?')) return;
+    if(!confirm('Eliminare questo movimento?')) return;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Sessione scaduta');
-      if (row.kind === 'manual') {
-        const pid = String(row.id).startsWith('pc-') ? row.id.slice(3) : null;
-        if (!pid) throw new Error('ID non valido');
-        const { error } = await supabase.from('pocket_cash').delete().eq('user_id', user.id).eq('id', pid);
-        if (error) throw error;
+      const {data:{user}}=await supabase.auth.getUser(); if(!user) throw new Error('Sessione scaduta');
+      if(row.kind==='manual'){
+        const pid=String(row.id).startsWith('pc-')?row.id.slice(3):null;
+        if(!pid) throw new Error('ID non valido');
+        const {error}=await supabase.from('pocket_cash').delete().eq('user_id',user.id).eq('id',pid);
+        if(error) throw error;
       } else {
-        const eid = String(row.id).startsWith('exp-') ? row.id.slice(4) : row.id;
-        const { error } = await supabase.from('expenses').delete().eq('id', eid);
-        if (error) throw error;
+        const eid=String(row.id).startsWith('exp-')?row.id.slice(4):row.id;
+        const {error}=await supabase.from('expenses').delete().eq('id',eid);
+        if(error) throw error;
       }
       await loadAll();
-    } catch (err) { showError(setError, err); }
+    } catch(err){showError(setError,err);}
   }
 
   /* ─── Calcoli ─────────────────────────────────────────────────── */
-  const entratePeriodo  = incomes.reduce((t, r) => t + Number(r.amount || 0), 0);
-  const prelievi        = pocketRows.filter(r => r.kind === 'manual' && r.amount > 0).reduce((t, r) => t + r.amount, 0);
-  const saldoDisponibile = Math.max(0, entratePeriodo + riserve - prelievi);
-  const pocketBalance   = pocketRows.reduce((t, r) => t + Number(r.amount || 0), 0);
-  const totUsciteCash   = uscite.filter(u => /cash|contanti/i.test(u.payment_method)).reduce((t, u) => t + u.amount, 0);
-  const totUsciteCard   = uscite.filter(u => /card|bancomat/i.test(u.payment_method)).reduce((t, u) => t + u.amount, 0);
+  const entratePeriodo   = incomes.reduce((t,r)=>t+Number(r.amount||0),0);
+  const prelievi         = pocketRows.filter(r=>r.kind==='manual'&&r.amount>0).reduce((t,r)=>t+r.amount,0);
+  const saldoDisponibile = Math.max(0, entratePeriodo+riserve-prelievi);
+  const pocketBalance    = pocketRows.reduce((t,r)=>t+Number(r.amount||0),0);
+  const totUsciteCash    = uscite.filter(u=>/cash|contanti/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
+  const totUsciteCard    = uscite.filter(u=>/card|bancomat/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
+  const totUscite        = totUsciteCash+totUsciteCard;
 
-  const CAT_EMOJI = { casa: '🏠', cene: '🍽️', vestiti: '👔', varie: '📦' };
+  const CAT_EMOJI = {casa:'🏠',cene:'🍽️',vestiti:'👔',varie:'📦'};
 
   /* ─── UI ──────────────────────────────────────────────────────── */
   return (
@@ -533,24 +461,21 @@ function Entrate() {
           <div className="periodo-badge">{formatIT(startDate)} — {formatIT(endDate)}</div>
         </div>
 
-        {/* AZIONI VOCE / OCR */}
+        {/* AZIONI */}
         <div className="fab-row">
-          <button className={`fab-voice ${recBusy ? 'fab-voice--rec' : ''}`} onClick={toggleRec}>
-            <span className="fab-dot" />
-            {recBusy ? 'Stop registrazione' : 'Voce'}
+          <button className={`fab-voice ${recBusy?'fab-voice--rec':''}`} onClick={toggleRec}>
+            <span className="fab-dot"/>{recBusy?'Stop':'Voce'}
           </button>
-          <button className="fab-ocr" onClick={() => ocrInputRef.current?.click()}>OCR</button>
+          <button className="fab-ocr" onClick={()=>ocrInputRef.current?.click()}>OCR</button>
           <input ref={ocrInputRef} type="file" accept="image/*" capture="environment" multiple hidden
-            onChange={e => handleOCR(Array.from(e.target.files || []))} />
+            onChange={e=>handleOCR(Array.from(e.target.files||[]))}/>
         </div>
 
-        {/* KPI — 4 metriche */}
+        {/* KPI */}
         <div className="kpi-grid">
           <div className="kpi">
             <div className="kpi-label">Entrate</div>
-            <div className={`kpi-value ${entratePeriodo >= 0 ? 'kpi-green' : 'kpi-red'}`}>
-              € {entratePeriodo.toFixed(2)}
-            </div>
+            <div className={`kpi-value ${entratePeriodo>=0?'kpi-green':'kpi-red'}`}>€ {entratePeriodo.toFixed(2)}</div>
           </div>
           <div className="kpi">
             <div className="kpi-label">Disponibile</div>
@@ -566,222 +491,265 @@ function Entrate() {
           </div>
         </div>
 
-        {/* ── SEZIONE: ENTRATE ── */}
+        {/* ══ SEZIONE PARTITA DOPPIA ══ */}
         <div className="section">
           <div className="section-header">
-            <span className="section-title">Entrate del periodo</span>
-            <button className="btn-add" onClick={() => setShowAddIncome(v => !v)}>
-              {showAddIncome ? '✕ Chiudi' : '+ Aggiungi'}
-            </button>
+            <span className="section-title">Entrate &amp; Uscite del periodo</span>
+            <div style={{display:'flex',gap:'.4rem',alignItems:'center'}}>
+              <button className="btn-add" onClick={()=>{setShowAddIncome(v=>!v);setShowAddPocket(false);}}>
+                {showAddIncome?'✕':'+ Entrata'}
+              </button>
+            </div>
           </div>
+
+          {/* Form aggiungi entrata */}
           {showAddIncome && (
             <form className="add-form" onSubmit={handleAddIncome}>
-              <input className="fi" value={newIncome.source} placeholder="Fonte" onChange={e => setNewIncome({ ...newIncome, source: e.target.value })} required />
-              <input className="fi" value={newIncome.description} placeholder="Descrizione" onChange={e => setNewIncome({ ...newIncome, description: e.target.value })} />
-              <input className="fi" type="date" value={newIncome.receivedAt} onChange={e => setNewIncome({ ...newIncome, receivedAt: e.target.value })} />
-              <input className="fi" type="text" inputMode="decimal" value={newIncome.amount} placeholder="Importo €" onChange={e => setNewIncome({ ...newIncome, amount: e.target.value })} required />
+              <input className="fi" value={newIncome.source} placeholder="Fonte" onChange={e=>setNewIncome({...newIncome,source:e.target.value})} required/>
+              <input className="fi" value={newIncome.description} placeholder="Descrizione" onChange={e=>setNewIncome({...newIncome,description:e.target.value})}/>
+              <input className="fi" type="date" value={newIncome.receivedAt} onChange={e=>setNewIncome({...newIncome,receivedAt:e.target.value})}/>
+              <input className="fi" type="text" inputMode="decimal" value={newIncome.amount} placeholder="Importo €" onChange={e=>setNewIncome({...newIncome,amount:e.target.value})} required/>
               <button className="btn-save" type="submit">Salva</button>
             </form>
           )}
-          {loading ? <div className="loading">Caricamento…</div> : (
-            <div className="card">
-              {incomes.length === 0 ? <div className="empty">Nessuna entrata questo periodo</div>
-                : incomes.map(i => (
-                  <div className="row" key={i.id}>
-                    <span className="row-dot dot-green" />
-                    <div className="row-body">
-                      <div className="row-label">{i.source || '-'}</div>
-                      <div className="row-sub">{i.description}</div>
-                    </div>
-                    <div className="row-amount pos">+ {Number(i.amount).toFixed(2)}</div>
-                    <div className="row-date">{i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}</div>
-                    <button className="del-btn" onClick={() => handleDeleteIncome(i.id)}>✕</button>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
 
-        {/* ── SEZIONE: USCITE DEL PERIODO ── */}
-        <div className="section">
-          <div className="section-header">
-            <span className="section-title">Uscite del periodo</span>
-            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
-              {totUsciteCash > 0 && <span className="badge badge-cash">Cash € {totUsciteCash.toFixed(2)}</span>}
-              {totUsciteCard > 0 && <span className="badge badge-card">Carta € {totUsciteCard.toFixed(2)}</span>}
+          {/* GRIGLIA PARTITA DOPPIA */}
+          <div className="ledger">
+            {/* Colonna DARE (entrate) */}
+            <div className="ledger-col">
+              <div className="ledger-head ledger-head--dare">
+                <span>INCASSI</span>
+                <span className="ledger-tot ledger-tot--green">+ {entratePeriodo.toFixed(2)}</span>
+              </div>
+              {loading ? <div className="loading">…</div> : (
+                incomes.length===0
+                  ? <div className="ledger-empty">Nessuna entrata</div>
+                  : incomes.map(i=>(
+                    <div className="ledger-row" key={i.id}>
+                      <div className="ledger-row-body">
+                        <div className="ledger-row-label">{i.source||'-'}</div>
+                        <div className="ledger-row-sub">
+                          {i.description && i.description!==i.source ? i.description+' · ' : ''}
+                          {i.received_at ? new Date(i.received_at).toLocaleDateString('it-IT') : '-'}
+                        </div>
+                      </div>
+                      <div className="ledger-row-amount green">+{Number(i.amount).toFixed(2)}</div>
+                      <button className="del-btn" onClick={()=>handleDeleteIncome(i.id)}>✕</button>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            {/* Divisore verticale */}
+            <div className="ledger-divider"/>
+
+            {/* Colonna AVERE (uscite) */}
+            <div className="ledger-col">
+              <div className="ledger-head ledger-head--avere">
+                <span>SPESE</span>
+                <div style={{display:'flex',gap:'.3rem',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  {totUsciteCash>0 && <span className="badge-mini badge-cash">Cash {totUsciteCash.toFixed(0)}</span>}
+                  {totUsciteCard>0 && <span className="badge-mini badge-card">Carta {totUsciteCard.toFixed(0)}</span>}
+                  <span className="ledger-tot ledger-tot--red">− {totUscite.toFixed(2)}</span>
+                </div>
+              </div>
+              {loading ? <div className="loading">…</div> : (
+                uscite.length===0
+                  ? <div className="ledger-empty">Nessuna uscita</div>
+                  : uscite.map(u=>{
+                    const isCash=/cash|contanti/i.test(u.payment_method);
+                    return (
+                      <div className="ledger-row" key={u.id}>
+                        <div className="ledger-row-body">
+                          <div className="ledger-row-label">
+                            {CAT_EMOJI[u.category]||'📦'} {u.label}
+                          </div>
+                          <div className="ledger-row-sub">
+                            {formatIT(u.dateISO)}
+                            {u.store && u.store!==u.label ? ' · '+u.store : ''}
+                          </div>
+                        </div>
+                        <span className={`badge-mini ${isCash?'badge-cash':'badge-card'}`}>
+                          {isCash?'Cash':'Carta'}
+                        </span>
+                        <div className="ledger-row-amount red">−{u.amount.toFixed(2)}</div>
+                        <button className="del-btn" onClick={()=>handleDeleteUscita(u.id)}>✕</button>
+                      </div>
+                    );
+                  })
+              )}
             </div>
           </div>
-          {loading ? <div className="loading">Caricamento…</div> : (
-            <div className="card">
-              {uscite.length === 0 ? <div className="empty">Nessuna uscita questo periodo</div>
-                : uscite.map(u => {
-                  const isCash = /cash|contanti/i.test(u.payment_method);
-                  return (
-                    <div className="row" key={u.id}>
-                      <span className="row-dot dot-red" />
-                      <div className="row-body">
-                        <div className="row-label">
-                          {CAT_EMOJI[u.category] || '📦'} {u.label}
-                          {u.store && u.store !== u.label && <span className="row-store"> · {u.store}</span>}
-                        </div>
-                        <div className="row-sub">{formatIT(u.dateISO)}</div>
-                      </div>
-                      <div className="row-amount neg">− {u.amount.toFixed(2)}</div>
-                      <span className={`badge-inline ${isCash ? 'badge-inline--cash' : 'badge-inline--card'}`}>
-                        {isCash ? 'Cash' : 'Carta'}
-                      </span>
-                      <button className="del-btn" onClick={() => handleDeleteUscita(u.id)}>✕</button>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
+
+          {/* Totale di chiusura */}
+          <div className="ledger-footer">
+            <span className="ledger-footer-label">Saldo periodo</span>
+            <span className={`ledger-footer-val ${entratePeriodo-totUscite>=0?'green':'red'}`}>
+              {entratePeriodo-totUscite>=0?'+':''}{(entratePeriodo-totUscite).toFixed(2)}
+            </span>
+          </div>
         </div>
 
-        {/* ── SEZIONE: SOLDI IN TASCA ── */}
+        {/* ── SOLDI IN TASCA ── */}
         <div className="section">
           <div className="section-header">
             <span className="section-title">Soldi in tasca</span>
-            <button className="btn-add" onClick={() => setShowAddPocket(v => !v)}>
-              {showAddPocket ? '✕ Chiudi' : '+ Aggiungi'}
+            <button className="btn-add" onClick={()=>setShowAddPocket(v=>!v)}>
+              {showAddPocket?'✕':'+ Aggiungi'}
             </button>
           </div>
           <div className="pocket-bar-wrap">
             <span className="pocket-bar-label">Bilancio contanti</span>
             <div className="pocket-bar-track">
-              <div className="pocket-bar-fill"
-                style={{ width: `${Math.min(100, Math.max(0, prelievi > 0 ? (pocketBalance / prelievi) * 100 : pocketBalance > 0 ? 100 : 0))}%` }} />
+              <div className="pocket-bar-fill" style={{width:`${Math.min(100,Math.max(0,prelievi>0?(pocketBalance/prelievi)*100:pocketBalance>0?100:0))}%`}}/>
             </div>
             <span className="pocket-bar-val">€ {pocketBalance.toFixed(2)}</span>
           </div>
           {showAddPocket && (
             <form className="add-form" onSubmit={handleTopUpPocket}>
               <input className="fi" type="text" inputMode="decimal" value={pocketTopUp}
-                onChange={e => setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required />
+                onChange={e=>setPocketTopUp(e.target.value)} placeholder="Ricarica (+) / Uscita (-) €" required/>
               <button className="btn-save" type="submit">Aggiungi</button>
             </form>
           )}
           {loading ? <div className="loading">Caricamento…</div> : (
             <div className="card">
-              {pocketRows.length === 0 ? <div className="empty">Nessun movimento contanti</div>
-                : pocketRows.map(m => (
+              {pocketRows.length===0
+                ? <div className="empty">Nessun movimento contanti</div>
+                : pocketRows.map(m=>(
                   <div className="row" key={m.id}>
-                    <span className={`row-dot ${m.amount >= 0 ? 'dot-cyan' : 'dot-red'}`} />
+                    <span className={`row-dot ${m.amount>=0?'dot-cyan':'dot-red'}`}/>
                     <div className="row-body">
                       <div className="row-label">{m.label}</div>
                       <div className="row-sub">{formatIT(m.dateISO)}</div>
                     </div>
-                    <div className={`row-amount ${m.amount >= 0 ? 'pos' : 'neg'}`}>
-                      {m.amount >= 0 ? '+' : '−'} {Math.abs(m.amount).toFixed(2)}
+                    <div className={`row-amount ${m.amount>=0?'pos':'neg'}`}>
+                      {m.amount>=0?'+':'−'} {Math.abs(m.amount).toFixed(2)}
                     </div>
-                    <button className="del-btn" onClick={() => handleDeletePocketRow(m)}>✕</button>
+                    <button className="del-btn" onClick={()=>handleDeletePocketRow(m)}>✕</button>
                   </div>
-                ))}
+                ))
+              }
             </div>
           )}
         </div>
 
         {error && <div className="error-box">{error}</div>}
-        <div style={{ marginTop: '1.5rem' }}>
+        <div style={{marginTop:'1.5rem'}}>
           <Link href="/home"><button className="btn-home">← Home</button></Link>
         </div>
-
       </div>
 
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        *{box-sizing:border-box;margin:0;padding:0}
 
-        .pg {
-          background: #0f172a; min-height: 100vh; padding: 1.5rem;
-          font-family: Inter, system-ui, -apple-system, sans-serif;
-          color: #e2e8f0; max-width: 860px; margin: 0 auto;
-        }
+        .pg{background:#0f172a;min-height:100vh;padding:1.5rem;font-family:Inter,system-ui,-apple-system,sans-serif;color:#e2e8f0;max-width:960px;margin:0 auto}
 
         /* Topbar */
-        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
-        .logo { font-family: 'Orbitron', sans-serif; font-size: 1.05rem; font-weight: 900; background: linear-gradient(90deg,#5eead4,#22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; letter-spacing: 4px; }
-        .periodo-badge { font-size: .72rem; color: #64748b; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; padding: .28rem .75rem; }
+        .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+        .logo{font-family:'Orbitron',sans-serif;font-size:1.05rem;font-weight:900;background:linear-gradient(90deg,#5eead4,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:4px}
+        .periodo-badge{font-size:.72rem;color:#64748b;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:.28rem .75rem}
 
         /* FAB */
-        .fab-row { display: flex; gap: .6rem; margin-bottom: 1.25rem; }
-        .fab-voice { display: flex; align-items: center; gap: .5rem; background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.3); border-radius: 12px; color: #818cf8; font-size: .82rem; font-weight: 600; padding: .55rem 1.1rem; cursor: pointer; letter-spacing: .03em; transition: background .15s; }
-        .fab-voice--rec { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.4); color: #f87171; animation: pulse-rec 1s ease-in-out infinite; }
-        @keyframes pulse-rec { 0%,100%{opacity:1} 50%{opacity:.5} }
-        .fab-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-        .fab-ocr { background: rgba(6,182,212,.1); border: 1px solid rgba(6,182,212,.3); border-radius: 12px; color: #22d3ee; font-size: .82rem; font-weight: 600; padding: .55rem 1rem; cursor: pointer; }
+        .fab-row{display:flex;gap:.6rem;margin-bottom:1.25rem}
+        .fab-voice{display:flex;align-items:center;gap:.5rem;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:12px;color:#818cf8;font-size:.82rem;font-weight:600;padding:.55rem 1.1rem;cursor:pointer;letter-spacing:.03em}
+        .fab-voice--rec{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#f87171;animation:pulse-rec 1s ease-in-out infinite}
+        @keyframes pulse-rec{0%,100%{opacity:1}50%{opacity:.5}}
+        .fab-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+        .fab-ocr{background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.3);border-radius:12px;color:#22d3ee;font-size:.82rem;font-weight:600;padding:.55rem 1rem;cursor:pointer}
 
         /* KPI */
-        .kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: .6rem; margin-bottom: 1.5rem; }
-        .kpi { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: .85rem 1rem; }
-        .kpi-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: #475569; margin-bottom: .35rem; }
-        .kpi-value { font-size: 1.15rem; font-weight: 700; line-height: 1; }
-        .kpi-green  { color: #22c55e; }
-        .kpi-red    { color: #f87171; }
-        .kpi-cyan   { color: #06b6d4; }
-        .kpi-purple { color: #a78bfa; }
-        .kpi-amber  { color: #fbbf24; }
+        .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-bottom:1.5rem}
+        .kpi{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:.85rem 1rem}
+        .kpi-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:.35rem}
+        .kpi-value{font-size:1.15rem;font-weight:700;line-height:1}
+        .kpi-green{color:#22c55e}.kpi-red{color:#f87171}.kpi-cyan{color:#06b6d4}.kpi-purple{color:#a78bfa}.kpi-amber{color:#fbbf24}
 
         /* Section */
-        .section { margin-bottom: 1.5rem; }
-        .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; flex-wrap: wrap; gap: .4rem; }
-        .section-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: #475569; font-weight: 600; }
-        .btn-add { font-size: .74rem; background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.25); color: #818cf8; border-radius: 8px; padding: .28rem .65rem; cursor: pointer; transition: background .15s; }
-        .btn-add:hover { background: rgba(99,102,241,.2); }
+        .section{margin-bottom:1.5rem}
+        .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;flex-wrap:wrap;gap:.4rem}
+        .section-title{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:#475569;font-weight:600}
+        .btn-add{font-size:.74rem;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#818cf8;border-radius:8px;padding:.28rem .65rem;cursor:pointer}
 
-        /* Card */
-        .card { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; overflow: hidden; }
-        .row { display: flex; align-items: center; gap: .65rem; padding: .7rem 1rem; border-bottom: 1px solid rgba(255,255,255,.05); }
-        .row:last-child { border-bottom: none; }
-        .row-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-        .dot-green { background: #22c55e; }
-        .dot-cyan  { background: #06b6d4; }
-        .dot-red   { background: #f87171; }
-        .row-body  { flex: 1; min-width: 0; }
-        .row-label { font-size: .84rem; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .row-store { color: #475569; }
-        .row-sub   { font-size: .7rem; color: #475569; margin-top: .1rem; }
-        .row-amount { font-size: .88rem; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
-        .row-amount.pos { color: #22c55e; }
-        .row-amount.neg { color: #f87171; }
-        .row-date  { font-size: .7rem; color: #334155; flex-shrink: 0; }
-        .del-btn   { background: none; border: none; color: #334155; cursor: pointer; font-size: .8rem; padding: .2rem .35rem; border-radius: 6px; flex-shrink: 0; transition: color .15s; }
-        .del-btn:hover { color: #f87171; }
+        /* ── PARTITA DOPPIA ── */
+        .ledger{display:grid;grid-template-columns:1fr 1px 1fr;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;overflow:hidden}
+        .ledger-divider{background:rgba(255,255,255,.07);width:1px}
+        .ledger-col{display:flex;flex-direction:column;min-width:0}
 
-        /* Badges */
-        .badge { font-size: .68rem; font-weight: 600; padding: .25rem .6rem; border-radius: 6px; white-space: nowrap; }
-        .badge-cash { background: rgba(251,191,36,.1); color: #fbbf24; border: 1px solid rgba(251,191,36,.2); }
-        .badge-card { background: rgba(99,102,241,.1);  color: #818cf8; border: 1px solid rgba(99,102,241,.2); }
-        .badge-inline { font-size: .66rem; font-weight: 700; padding: .18rem .5rem; border-radius: 5px; white-space: nowrap; flex-shrink: 0; }
-        .badge-inline--cash { background: rgba(251,191,36,.1); color: #fbbf24; }
-        .badge-inline--card { background: rgba(99,102,241,.1);  color: #818cf8; }
+        .ledger-head{display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;border-bottom:1px solid rgba(255,255,255,.07);font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;font-weight:700;flex-wrap:wrap;gap:.3rem}
+        .ledger-head--dare{color:#22c55e;background:rgba(34,197,94,.05)}
+        .ledger-head--avere{color:#f87171;background:rgba(248,113,113,.05)}
+
+        .ledger-tot{font-size:.82rem;font-weight:800}
+        .ledger-tot--green{color:#22c55e}
+        .ledger-tot--red{color:#f87171}
+
+        .ledger-row{display:flex;align-items:center;gap:.5rem;padding:.6rem .9rem;border-bottom:1px solid rgba(255,255,255,.04);min-width:0}
+        .ledger-row:last-child{border-bottom:none}
+        .ledger-row-body{flex:1;min-width:0}
+        .ledger-row-label{font-size:.8rem;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .ledger-row-sub{font-size:.68rem;color:#475569;margin-top:.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .ledger-row-amount{font-size:.82rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+        .ledger-row-amount.green{color:#22c55e}
+        .ledger-row-amount.red{color:#f87171}
+        .ledger-empty{font-size:.78rem;color:#334155;padding:1.25rem;text-align:center}
+
+        /* Footer saldo */
+        .ledger-footer{display:flex;align-items:center;justify-content:space-between;padding:.65rem 1rem;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-top:none;border-radius:0 0 14px 14px;margin-top:-1px}
+        .ledger-footer-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;font-weight:600}
+        .ledger-footer-val{font-size:1rem;font-weight:800}
+        .ledger-footer-val.green{color:#22c55e}
+        .ledger-footer-val.red{color:#f87171}
+
+        /* Badge mini */
+        .badge-mini{font-size:.62rem;font-weight:700;padding:.15rem .45rem;border-radius:4px;white-space:nowrap;flex-shrink:0}
+        .badge-cash{background:rgba(251,191,36,.12);color:#fbbf24}
+        .badge-card{background:rgba(99,102,241,.12);color:#818cf8}
 
         /* Pocket bar */
-        .pocket-bar-wrap  { display: flex; align-items: center; gap: .6rem; margin-bottom: .65rem; }
-        .pocket-bar-label { font-size: .7rem; color: #475569; white-space: nowrap; }
-        .pocket-bar-track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden; }
-        .pocket-bar-fill  { height: 100%; border-radius: 2px; background: linear-gradient(90deg,#06b6d4,#22d3ee); transition: width .4s ease; }
-        .pocket-bar-val   { font-size: .8rem; font-weight: 700; color: #06b6d4; white-space: nowrap; }
+        .pocket-bar-wrap{display:flex;align-items:center;gap:.6rem;margin-bottom:.65rem}
+        .pocket-bar-label{font-size:.7rem;color:#475569;white-space:nowrap}
+        .pocket-bar-track{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden}
+        .pocket-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#06b6d4,#22d3ee);transition:width .4s ease}
+        .pocket-bar-val{font-size:.8rem;font-weight:700;color:#06b6d4;white-space:nowrap}
+
+        /* Card / righe */
+        .card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;overflow:hidden}
+        .row{display:flex;align-items:center;gap:.65rem;padding:.7rem 1rem;border-bottom:1px solid rgba(255,255,255,.05)}
+        .row:last-child{border-bottom:none}
+        .row-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+        .dot-cyan{background:#06b6d4}.dot-red{background:#f87171}
+        .row-body{flex:1;min-width:0}
+        .row-label{font-size:.84rem;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .row-sub{font-size:.7rem;color:#475569;margin-top:.1rem}
+        .row-amount{font-size:.88rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+        .row-amount.pos{color:#22c55e}.row-amount.neg{color:#f87171}
+        .del-btn{background:none;border:none;color:#334155;cursor:pointer;font-size:.78rem;padding:.2rem .3rem;border-radius:5px;flex-shrink:0;transition:color .15s}
+        .del-btn:hover{color:#f87171}
 
         /* Add form */
-        .add-form { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .65rem; }
-        .fi { flex: 1 1 140px; padding: .45rem .7rem; border-radius: 9px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05); color: #e2e8f0; font-size: .82rem; outline: none; }
-        .fi:focus { border-color: rgba(99,102,241,.5); }
-        .btn-save { background: #6366f1; border: none; border-radius: 9px; color: #fff; font-size: .82rem; font-weight: 600; padding: .45rem 1rem; cursor: pointer; }
+        .add-form{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.65rem}
+        .fi{flex:1 1 130px;padding:.45rem .7rem;border-radius:9px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.82rem;outline:none}
+        .fi:focus{border-color:rgba(99,102,241,.5)}
+        .btn-save{background:#6366f1;border:none;border-radius:9px;color:#fff;font-size:.82rem;font-weight:600;padding:.45rem 1rem;cursor:pointer}
 
         /* Misc */
-        .loading   { font-size: .8rem; color: #334155; padding: 1rem; text-align: center; }
-        .empty     { font-size: .8rem; color: #334155; padding: 1.5rem; text-align: center; }
-        .error-box { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25); color: #f87171; border-radius: 10px; padding: .75rem 1rem; font-size: .82rem; margin-top: .5rem; }
-        .btn-home  { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); color: #94a3b8; border-radius: 9px; padding: .45rem .9rem; cursor: pointer; font-size: .82rem; }
+        .loading{font-size:.8rem;color:#334155;padding:1rem;text-align:center}
+        .empty{font-size:.8rem;color:#334155;padding:1.5rem;text-align:center}
+        .error-box{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;border-radius:10px;padding:.75rem 1rem;font-size:.82rem;margin-top:.5rem}
+        .btn-home{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:.45rem .9rem;cursor:pointer;font-size:.82rem}
 
         /* Responsive */
-        @media (max-width: 600px) {
-          .kpi-grid { grid-template-columns: repeat(2,1fr); }
-          .pg { padding: 1rem; }
+        @media(max-width:600px){
+          .kpi-grid{grid-template-columns:repeat(2,1fr)}
+          .pg{padding:1rem}
+          /* Su mobile la partita doppia va in colonna */
+          .ledger{grid-template-columns:1fr;grid-template-rows:auto 1px auto}
+          .ledger-divider{width:auto;height:1px}
         }
-        @media (max-width: 380px) {
-          .kpi-grid { grid-template-columns: repeat(2,1fr); }
+        @media(max-width:380px){
+          .kpi-grid{grid-template-columns:repeat(2,1fr)}
         }
       `}</style>
     </>
