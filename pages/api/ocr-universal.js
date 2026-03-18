@@ -1,15 +1,7 @@
 // pages/api/ocr-universal.js
-// OCR intelligente: riconosce il tipo di documento e restituisce
-// il dato strutturato corretto per ogni sezione dell'app
+// OCR intelligente: riconosce il tipo di documento e applica la logica corretta
 import multer from 'multer'
 import OpenAI from 'openai'
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
-import { promisify } from 'util'
-
-const writeFile = promisify(fs.writeFile)
-const unlink    = promisify(fs.unlink)
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -18,38 +10,33 @@ const upload = multer({
 
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
-    fn(req, res, result => result instanceof Error ? reject(result) : resolve(result))
+    fn(req, res, r => r instanceof Error ? reject(r) : resolve(r))
   })
 }
 
-export const config = {
-  api: { bodyParser: false, externalResolver: true },
-}
+export const config = { api: { bodyParser: false, externalResolver: true } }
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
 
 /* ─── Prompt universale ─────────────────────────────────────────── */
-const UNIVERSAL_PROMPT = `Sei Jarvis, un assistente AI per la gestione della casa e delle finanze personali.
-Analizza questa immagine e determina PRIMA di tutto che tipo di documento o oggetto è.
+const PROMPT = `Sei Jarvis, assistente AI per la gestione casa e finanze.
+Analizza l'immagine e determina il tipo di documento.
 
-TIPI RICONOSCIBILI:
-1. "receipt" — scontrino di cassa (supermercato, farmacia, negozio, bar, ristorante, benzinaio, tabaccheria, ecc.)
-2. "wine_label" — etichetta di bottiglia di vino
-3. "invoice" — fattura o ricevuta formale
-4. "product" — etichetta prodotto generico o confezione
-5. "unknown" — non riconoscibile
+TIPI:
+1. "receipt" — scontrino di cassa
+2. "wine_label" — etichetta bottiglia vino
+3. "invoice" — fattura/ricevuta formale
+4. "unknown" — non riconoscibile
 
-Rispondi SOLO con JSON valido nel formato seguente, scegliendo la struttura in base al tipo:
-
---- SE "receipt" ---
+FORMATO RISPOSTA per "receipt":
 {
   "doc_type": "receipt",
   "store": "nome negozio",
-  "store_type": "supermercato|farmacia|ristorante|bar|benzinaio|tabaccheria|abbigliamento|altro",
+  "store_type": "supermercato|farmacia|ristorante|bar|benzinaio|tabaccheria|abbigliamento|norcineria|macelleria|panetteria|pizzeria|altro",
   "store_address": "indirizzo o null",
-  "purchase_date": "YYYY-MM-DD o null",
+  "purchase_date": "YYYY-MM-DD",
   "price_total": 12.50,
   "payment_method": "cash|card|unknown",
   "categoria": "casa|vestiti|cene|varie",
@@ -60,67 +47,141 @@ Rispondi SOLO con JSON valido nel formato seguente, scegliendo la struttura in b
       "brand": "marca o null",
       "qty": 1,
       "unit": "pz|kg|l|g",
-      "packs": 1,
-      "units_per_pack": 1,
       "unit_price": 1.50,
       "price": 1.50,
       "category_item": "alimentari|pulizia|igiene|farmaco|altro",
       "expiry_date": "YYYY-MM-DD o null"
     }
   ],
-  "raw_text": "testo grezzo dello scontrino"
+  "raw_text": "testo grezzo"
 }
 
---- SE "wine_label" ---
+FORMATO per "wine_label":
 {
   "doc_type": "wine_label",
-  "name": "denominazione vino es. Montepulciano d'Abruzzo",
-  "winery": "nome cantina/azienda agricola",
-  "locality": "città e provincia es. Vasto (CH)",
+  "name": "es. Montepulciano d'Abruzzo",
+  "winery": "nome cantina",
+  "locality": "es. Vasto (CH)",
   "region": "regione italiana",
   "vintage": 2021,
   "alcohol": 13.5,
-  "denomination": "DOC|DOCG|IGT ecc.",
-  "grapes": ["vitigno1"],
+  "denomination": "DOC|DOCG|IGT",
+  "grapes": ["vitigno"],
   "style": "rosso|bianco|rosé|frizzante|fortificato",
   "volume_ml": 750,
-  "website": "url o null"
+  "website": null
 }
 
---- SE "invoice" ---
+FORMATO per "invoice":
 {
   "doc_type": "invoice",
   "store": "fornitore",
-  "store_address": "indirizzo o null",
-  "purchase_date": "YYYY-MM-DD o null",
+  "store_address": null,
+  "purchase_date": "YYYY-MM-DD",
   "price_total": 0.00,
   "payment_method": "cash|card|transfer|unknown",
   "categoria": "casa|vestiti|cene|varie",
-  "description": "descrizione servizio/prodotto",
-  "invoice_number": "numero fattura o null",
+  "description": "descrizione servizio",
   "confidence": "high|medium|low"
 }
 
---- SE "unknown" ---
-{
-  "doc_type": "unknown",
-  "raw_text": "tutto il testo leggibile"
+FORMATO per "unknown": { "doc_type": "unknown", "raw_text": "testo leggibile" }
+
+REGOLE CATEGORIA:
+- "casa": supermercato, cibo (INCLUSO pizza asporto, take-away, delivery a domicilio), pulizia, detersivi, bollette, affitto, manutenzioni, arredo, ferramenta, elettrodomestici, norcinerie, macellerie, panetterie per casa
+- "vestiti": abbigliamento, scarpe, accessori moda, gioielli
+- "cene": consumo fisico fuori casa — ristorante, bar al banco, pizzeria mangiata lì, aperitivo, colazione al bar
+- "varie": farmacia, parrucchiere, tabaccheria, benzinaio, regali, elettronica, sport, cinema, taxi, parcheggio, veterinario, tutto il resto
+
+REGOLE EXPIRY_DATE per prodotti freschi:
+- Affettati, salumi aperti, prosciutto cotto/crudo affettato, bresaola: oggi + 2 giorni
+- Formaggi freschi (mozzarella, ricotta, stracchino, crescenza, robiola): oggi + 2 giorni
+- Formaggi STAGIONATI (parmigiano, pecorino, caciocavallo, grana padano, camoscio d'oro, pecorino grattugiato, provolone, scamorza, emmental, fontina): expiry_date = null (si consumano gradualmente)
+- Carne fresca, pesce fresco: oggi + 1 giorno
+- Frutta e verdura fresca: oggi + 5 giorni
+- Pane fresco: oggi + 2 giorni
+- Prodotti confezionati chiusi: null (lunga conservazione)
+
+Estrai TUTTI i prodotti. Rispondi SOLO JSON valido.`
+
+/* ─── Helpers classificazione ───────────────────────────────────── */
+function categorizeExpense(raw) {
+  const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|salumer|norcineria|macelleria|panetteria|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|bolletta|luce|gas|internet|affitto|manutenzione|arredo|ferramenta|elettrodomest|asporto|take.?away|porta.?via|deliveroo|glovo|just.?eat)\b/.test(s)) return 'casa'
+  if (/\b(vestit|abbigliam|scarpe|moda|borsa|gioiell|orologio)\b/.test(s)) return 'vestiti'
+  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|colazione|pranzo|cena|aperitiv|gelato|pasticceria)\b/.test(s)) return 'cene'
+  return 'varie'
 }
 
-REGOLE CATEGORIA per receipt e invoice:
-- "casa": supermercato, alimentari, pulizia, detersivi, bollette, ferramenta, arredo, elettrodomestici
-- "vestiti": abbigliamento, scarpe, accessori moda
-- "cene": ristorante, bar, pizzeria, aperitivo, colazione, gelato, pasticceria, delivery
-- "varie": farmacia, parrucchiere, tabaccheria, benzinaio, regali, elettronica, sport, cinema, taxi, parcheggio, veterinario, altro
+// Classifica il tipo di deperibilità di un prodotto
+function classifyPerishable(name, brand = '') {
+  const s = (name + ' ' + brand).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
-Estrai TUTTI i prodotti visibili nello scontrino. Sii preciso sui prezzi.
-Rispondi SOLO JSON valido, nessun testo extra.`
+  // Formaggi stagionati → consumo graduale, NO scadenza automatica
+  if (/\b(parmigian|grana|pecorino|caciocavallo|provolone|scamorza|emmental|fontina|camoscio.?d.?oro|asiago|groviera|pecorino.?grattugiato|parmigiano.?grattugiato)\b/.test(s))
+    return 'cheese_aged'
 
+  // Affettati e salumi freschi aperti
+  if (/\b(prosciutto|bresaola|salame|mortadella|speck|coppa|pancetta|affettat|salumi)\b/.test(s))
+    return 'deli_sliced'
+
+  // Formaggi freschi
+  if (/\b(mozzarella|ricotta|stracchino|crescenza|robiola|mascarpone|primo.?sale|quark|cottage|burrata)\b/.test(s))
+    return 'cheese_fresh'
+
+  // Carne fresca
+  if (/\b(pollo|manzo|maiale|agnello|tacchino|bistecca|fettina|hamburger|polpette|salsiccia|braciola|carne.?macinata|filetto)\b/.test(s))
+    return 'meat_fresh'
+
+  // Pesce fresco
+  if (/\b(salmone|tonno.?fresco|orata|branzino|merluzzo|gamberi|vongole|cozze|pesce)\b/.test(s))
+    return 'fish_fresh'
+
+  // Frutta e verdura
+  if (/\b(mela|pera|banana|arancia|limone|fragola|uva|pomodoro|insalata|lattuga|zucchina|carota|patata|cipolla|aglio|spinaci|broccoli|cavolfiore|frutta|verdura)\b/.test(s))
+    return 'produce'
+
+  // Pane fresco
+  if (/\b(pane|baguette|focaccia|ciabatta|rosetta|michetta)\b/.test(s))
+    return 'bread'
+
+  return 'shelf_stable' // prodotto confezionato stabile
+}
+
+// Calcola la data di scadenza automatica basata sul tipo
+function autoExpiryDate(perishableType, purchaseDateStr) {
+  if (perishableType === 'cheese_aged' || perishableType === 'shelf_stable') return null
+
+  const base = purchaseDateStr ? new Date(purchaseDateStr) : new Date()
+  const daysMap = {
+    deli_sliced:  2,
+    cheese_fresh: 2,
+    meat_fresh:   1,
+    fish_fresh:   1,
+    produce:      5,
+    bread:        2,
+  }
+  const days = daysMap[perishableType]
+  if (!days) return null
+
+  const expiry = new Date(base)
+  expiry.setDate(expiry.getDate() + days)
+  return expiry.toISOString().slice(0, 10)
+}
+
+// Categorizza il prodotto per inventory
+function categorizeProduct(name, brand = '') {
+  const s = (name + ' ' + brand).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/\b(detersiv|ammorbident|candeggina|scottex|carta.?igienica|spugna|scopino|secchio|guanti.?gomma|lavastoviglie.?pastiglia)\b/.test(s)) return 'pulizia'
+  if (/\b(shampo|balsamo|dentifricio|sapone|bagnoschiuma|deodorante|rasoi|cotton|assorbenti|pannolini|crema)\b/.test(s)) return 'igiene'
+  if (/\b(aspirina|tachipirina|antibiotico|vitamina|integratore|farmaco|medicina|sciroppo|cerotto|garza)\b/.test(s)) return 'farmaco'
+  return 'alimentari'
+}
+
+/* ─── Handler ───────────────────────────────────────────────────── */
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo non consentito' })
   if (!openai) return res.status(500).json({ error: 'OpenAI non configurato' })
-
-  const tmpFiles = []
 
   try {
     await runMiddleware(req, res, upload.single('image'))
@@ -137,34 +198,41 @@ export default async function handler(req, res) {
       messages: [{
         role: 'user',
         content: [
-          {
-            type: 'image_url',
-            image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' },
-          },
-          { type: 'text', text: UNIVERSAL_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' } },
+          { type: 'text', text: PROMPT },
         ],
       }],
     })
 
-    const raw  = response.choices?.[0]?.message?.content || '{}'
+    const raw = response.choices?.[0]?.message?.content || '{}'
     let parsed
-
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      return res.status(422).json({ error: 'Risposta GPT non valida', raw })
-    }
+    try { parsed = JSON.parse(raw) }
+    catch { return res.status(422).json({ error: 'Risposta GPT non valida', raw }) }
 
     const docType = parsed.doc_type || 'unknown'
+    const purchaseDate = parsed.purchase_date || new Date().toISOString().slice(0, 10)
 
-    // Normalizza categoria per receipt/invoice
     if (docType === 'receipt' || docType === 'invoice') {
       parsed.ok = true
-      parsed.categoria = normalizeCategory(parsed.categoria || parsed.store_type || '')
-      // Fix purchase_date se mancante
-      if (!parsed.purchase_date) parsed.purchase_date = new Date().toISOString().slice(0, 10)
-      // Assicura items array
+      // Categoria: usa store_type + categoria GPT + nome negozio per massima precisione
+      const catInput = [parsed.categoria, parsed.store_type, parsed.store].filter(Boolean).join(' ')
+      parsed.categoria = categorizeExpense(catInput)
+      if (!parsed.purchase_date) parsed.purchase_date = purchaseDate
       if (!Array.isArray(parsed.items)) parsed.items = []
+
+      // Arricchisce ogni prodotto
+      parsed.items = parsed.items.map(item => {
+        const perishable = classifyPerishable(item.name || '', item.brand || '')
+        const catItem    = categorizeProduct(item.name || '', item.brand || '')
+        // Usa expiry_date da GPT se disponibile, altrimenti calcola automaticamente
+        const expiry = item.expiry_date || autoExpiryDate(perishable, purchaseDate)
+        return {
+          ...item,
+          perishable_type: perishable,
+          category_item:   catItem,
+          expiry_date:     expiry,
+        }
+      })
     }
 
     if (docType === 'wine_label') {
@@ -175,7 +243,7 @@ export default async function handler(req, res) {
 
     if (docType === 'unknown') {
       parsed.ok = false
-      parsed.error = 'Documento non riconosciuto'
+      parsed.error = 'Documento non riconoscibile'
     }
 
     return res.status(200).json(parsed)
@@ -183,15 +251,5 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[ocr-universal]', err?.message || err)
     return res.status(500).json({ error: 'Errore OCR: ' + (err?.message || 'errore sconosciuto') })
-  } finally {
-    for (const p of tmpFiles) try { await unlink(p) } catch {}
   }
-}
-
-function normalizeCategory(raw) {
-  const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  if (/\b(supermercat|spesa|alimentar|cibo|pulizia|detersiv|bolletta|luce|gas|internet|affitto|manutenzione|arredo|ferramenta|elettrodomest)\b/.test(s)) return 'casa'
-  if (/\b(vestit|abbigliam|scarpe|moda|borsa|gioiell)\b/.test(s)) return 'vestiti'
-  if (/\b(ristorante|pizzeria|bar|caffe|colazione|cena|pranzo|aperitiv|gelato|pasticceria|delivery|pub|enoteca)\b/.test(s)) return 'cene'
-  return 'varie'
 }

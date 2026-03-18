@@ -9,9 +9,13 @@ import { supabase } from '../lib/supabaseClient'
 /* --- Normalizza categoria spesa --- */
 function normCat(raw) {
   const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio)\b/.test(s)) return 'casa'
+  // CASA: cibo (anche da asporto/pizzerie porta via), pulizia, bollette, arredo, elettrodomestici
+  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|pannolini|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio|asporto|porta.?via|take.?away|deliveroo|glovo|just.?eat)\b/.test(s)) return 'casa'
+  // VESTITI
   if (/\b(vestit|abbigliam|scarpe|camicia|pantalon|maglion|giacca|cappotto|borsa|cintura|cravatta|calze|intimo|pigiama|costume|sciarpa|guanti|cappello|gioiell|orologio|zaino|valigia|moda)\b/.test(s)) return 'vestiti'
-  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food|takeaway|asporto|deliveroo|glovo)\b/.test(s)) return 'cene'
+  // CENE: consumo fuori casa (NON asporto che va in casa)
+  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food)\b/.test(s)) return 'cene'
+  // VARIE: tutto il resto
   return 'varie'
 }
 
@@ -61,13 +65,19 @@ async function executeAction(action, userId, router) {
         return `✓ Entrata €${Number(action.amount).toFixed(2)} salvata`
       }
       case 'add_to_list': {
+        // Guard: name può arrivare come action.name, action.item, action.product o action.product_name
+        const itemName = (action.name || action.item || action.product || action.product_name || '').trim()
+        if (!itemName) return '⚠️ Non ho capito il prodotto da aggiungere, riprova'
         const { error } = await supabase.from('shopping_list').insert({
-          user_id: userId, name: action.name, qty: Number(action.qty || 1),
-          unit_label: action.unit || 'pz', list_type: action.list_type || 'supermercato',
+          user_id: userId,
+          name: itemName,
+          qty: Number(action.qty || action.quantity || 1),
+          unit_label: action.unit || action.unit_label || 'pz',
+          list_type: action.list_type || 'supermercato',
           category: action.category || 'alimentari',
         })
         if (error) throw error
-        return `✓ "${action.name}" aggiunto alla lista`
+        return `✓ "${itemName}" aggiunto alla lista della spesa`
       }
       case 'add_wine': {
         const { error } = await supabase.from('wines').insert({
@@ -366,25 +376,52 @@ const Home = () => {
         })))
       } catch {}
 
-      if (cat === 'casa' && items.length) for (const item of items) {
-        if (!item.name) continue
+      // Aggiorna inventory per TUTTI i prodotti alimentari (non solo categoria casa)
+      // casa = supermercato → inventory; cene = fuori casa → no inventory
+      const itemsForInventory = items.filter(it => it.name && it.category_item !== 'altro')
+      if (cat === 'casa' && itemsForInventory.length) for (const item of itemsForInventory) {
         try {
-          const tot = Number(item.qty || 1)
+          const tot          = Number(item.qty || 1)
+          const perishable   = item.perishable_type || 'standard'
+          const catItem      = item.category_item   || 'alimentari'
+          // Expiry: usa quella dello scontrino, oppure 2gg auto per freschi
+          const expiryAuto   = perishable === 'fresh' && !item.expiry_date
+            ? (() => { const d = new Date(pd); d.setDate(d.getDate()+2); return d.toISOString().slice(0,10) })()
+            : (item.expiry_date ?? null)
+
+          // Cerca per le prime 2 parole del nome (più preciso di 1 sola)
+          const searchKey = item.name.split(' ').slice(0,2).join(' ')
           const { data: ex } = await supabase.from('inventory').select('id,qty,initial_qty')
-            .eq('user_id', user.id).ilike('product_name', `%${item.name.split(' ')[0]}%`).maybeSingle()
-          if (ex) await supabase.from('inventory').update({
-            qty: Number(ex.qty || 0) + tot, initial_qty: Number(ex.initial_qty || 0) + tot,
-            consumed_pct: 0, avg_price: item.unit_price || item.price || 0,
-            last_updated: new Date().toISOString(),
-            ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
-          }).eq('id', ex.id)
-          else await supabase.from('inventory').insert({
-            user_id: user.id, product_name: item.name, brand: item.brand ?? null,
-            category: item.category_item ?? 'alimentari', qty: tot, initial_qty: tot,
-            avg_price: item.unit_price || item.price || 0, purchase_date: pd,
-            expiry_date: item.expiry_date ?? null, consumed_pct: 0,
-          })
-        } catch {}
+            .eq('user_id', user.id).ilike('product_name', `%${searchKey}%`).maybeSingle()
+
+          if (ex) {
+            // Prodotto esistente: aggiorna quantità
+            await supabase.from('inventory').update({
+              qty:         Number(ex.qty || 0) + tot,
+              initial_qty: Number(ex.initial_qty || 0) + tot,
+              consumed_pct: 0,
+              avg_price:   item.unit_price || item.price || 0,
+              last_updated: new Date().toISOString(),
+              perishable_type: perishable,
+              ...(expiryAuto ? { expiry_date: expiryAuto } : {}),
+            }).eq('id', ex.id)
+          } else {
+            // Prodotto nuovo: inserisci
+            await supabase.from('inventory').insert({
+              user_id:        user.id,
+              product_name:   item.name,
+              brand:          item.brand ?? null,
+              category:       catItem,
+              qty:            tot,
+              initial_qty:    tot,
+              avg_price:      item.unit_price || item.price || 0,
+              purchase_date:  pd,
+              expiry_date:    expiryAuto,
+              consumed_pct:   0,
+              perishable_type: perishable,
+            })
+          }
+        } catch (invErr) { console.warn('[inv] skip', item.name, invErr?.message) }
       }
 
       if (pm === 'cash' && im > 0) try {

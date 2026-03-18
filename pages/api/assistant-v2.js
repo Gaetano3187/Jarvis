@@ -29,7 +29,7 @@ async function loadUserContext(userId) {
   ] = await Promise.all([
     // Scorte in esaurimento o scadenza
     supabase.from('inventory')
-      .select('product_name, qty, initial_qty, consumed_pct, expiry_date, avg_price, store')
+      .select('product_name, qty, initial_qty, consumed_pct, expiry_date, avg_price, store, unit, perishable_type')
       .eq('user_id', userId)
       .order('expiry_date', { ascending: true, nullsFirst: false }),
 
@@ -136,7 +136,12 @@ STORICO PREZZI (ultimi acquisti):
 ${ctx.prezzi.slice(0, 20).map(p => `- ${p.product_name}${p.brand ? ' (' + p.brand + ')' : ''}: €${Number(p.avg_unit_price).toFixed(2)}/u @ ${p.store} (${p.times_purchased}x acquistato)`).join('\n') || 'Nessuno storico'}
 
 SCORTE COMPLETE (${ctx.scorte.length} prodotti):
-${ctx.scorte.slice(0, 20).map(s => `- ${s.product_name}: ${s.qty} ${s.unit || 'pz'}, consumato ${Math.round(s.consumed_pct || 0)}%`).join('\n') || 'Nessuna scorta'}
+${ctx.scorte.slice(0, 25).map(s => {
+  const pct = Math.round(s.consumed_pct || 0)
+  const tipo = s.perishable_type === 'fresh' ? '[FRESCO]' : s.perishable_type === 'aged' ? '[STAGIONATO]' : ''
+  const scad = s.expiry_date ? ` scade ${s.expiry_date}` : ''
+  return `- ${s.product_name}${tipo ? ' ' + tipo : ''}: ${s.qty} ${s.unit || 'pz'}, consumato ${pct}%${scad}`
+}).join('\n') || 'Nessuna scorta'}
 
 VINI RECENTI (${ctx.vini.length}):
 ${ctx.vini.slice(0, 10).map(v => `- ${v.name}${v.winery ? ' · ' + v.winery : ''}${v.vintage ? ' ' + v.vintage : ''}${v.rating_5 ? ' ★'.repeat(v.rating_5) : ''}`).join('\n') || 'Nessun vino'}
@@ -144,11 +149,14 @@ ${ctx.vini.slice(0, 10).map(v => `- ${v.name}${v.winery ? ' · ' + v.winery : ''
 ISTRUZIONI DI RISPOSTA:
 - Rispondi sempre in italiano, in modo conciso e utile
 - Per domande sui dati, usa i dati reali sopra
+- Prodotti [FRESCO]: affettati, formaggi freschi, pesce/carne fresca → scadono automaticamente in 2 giorni dall'acquisto
+- Prodotti [STAGIONATO]: pecorino, parmigiano, caciocavallo, ecc. → vanno a consumo progressivo, non hanno scadenza automatica
 - Per azioni add_expense: "category" deve essere SOLO uno di: "casa", "vestiti", "cene", "varie"
-  - casa: spesa alimentare, cibo, pulizia, detersivi, bollette, affitto, manutenzioni, arredo, elettrodomestici, ferramenta
+  - casa: spesa alimentare, cibo (INCLUSO asporto/pizza porta via/delivery), pulizia, detersivi, bollette, affitto, manutenzioni, arredo, elettrodomestici
   - vestiti: abbigliamento, scarpe, accessori moda, borse, gioielli
-  - cene: ristoranti, bar, colazioni, aperitivi, pranzi/cene fuori, pizzerie, pub, gelato, pasticceria, delivery
-  - varie: TUTTO il resto — farmacia, parrucchiere, tabaccheria, benzinaio, carburante, regali, giocattoli, libri, elettronica, sport, palestra, teatro, cinema, trasporti, taxi, parcheggio, banca, assicurazione, veterinario, animali, hobby
+  - cene: consumo fuori casa — ristoranti, bar, colazioni al bar, aperitivi, pranzi/cene fuori, pub, gelato, pasticceria
+  - varie: farmacia, parrucchiere, tabaccheria, benzinaio, regali, libri, elettronica, sport, cinema, trasporti, taxi, parcheggio, assicurazione, veterinario, hobby
+- Per azioni add_to_list: usa SEMPRE "name" con il nome del prodotto (es. "latte", "pane", "pasta"). Non lasciare mai name vuoto o null. Se l'utente dice "aggiungi X" → name="X". Campi: name (string, OBBLIGATORIO), qty (number, default 1), unit (string, default "pz"), list_type ("supermercato"|"online", default "supermercato")
 - Per azioni (aggiungi spesa, aggiungi entrata, ecc.) restituisci JSON strutturato
 - Per domande generali rispondi in linguaggio naturale
 - Per confronto prezzi usa lo storico prezzi per negozio
@@ -169,9 +177,9 @@ Sempre un JSON con:
 /* --- Normalizza categoria spesa --- */
 function normalizeCategory(raw) {
   const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio)\b/.test(s)) return 'casa'
+  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio|asporto|porta.?via|take.?away|deliveroo|glovo|just.?eat)\b/.test(s)) return 'casa'
   if (/\b(vestit|abbigliam|scarpe|camicia|pantalon|maglion|giacca|cappotto|borsa|cintura|cravatta|calze|intimo|pigiama|costume|sciarpa|guanti|cappello|gioiell|orologio|zaino|valigia|moda)\b/.test(s)) return 'vestiti'
-  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food|takeaway|asporto|deliveroo|glovo)\b/.test(s)) return 'cene'
+  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food)\b/.test(s)) return 'cene'
   return 'varie'
 }
 
