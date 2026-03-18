@@ -268,51 +268,137 @@ const Home = () => {
     setLoadOCR(true); setErr(null); setOcrResult(null)
     try {
       const pl = (file.type === 'application/pdf' || file.name?.endsWith('.pdf')) ? file : await resizeImage(file)
-      const fd = new FormData(); fd.append('image', pl, file.name || 'scontrino.jpg')
-      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 55000)
-      let r; try { r = await fetch('/api/ocr-smart', { method: 'POST', body: fd, signal: ctrl.signal }) } finally { clearTimeout(t) }
+      const fd = new FormData(); fd.append('image', pl, file.name || 'foto.jpg')
+      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000)
+      let r; try { r = await fetch('/api/ocr-universal', { method: 'POST', body: fd, signal: ctrl.signal }) } finally { clearTimeout(t) }
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r.status}`) }
-      const data = await r.json(); if (!data.ok) throw new Error(data.error || 'OCR fallito')
-      if (data.confidence === 'low') setErr('⚠️ Immagine poco nitida')
+      const data = await r.json()
+      if (!data.doc_type || data.doc_type === 'unknown') throw new Error('Documento non riconoscibile — riprova con una foto più nitida')
+      if (data.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
       setOcrResult(data)
-    } catch (e) { setErr(e.name === 'AbortError' ? '⏱ Timeout' : 'OCR: ' + e.message) }
+    } catch (e) { setErr(e.name === 'AbortError' ? '⏱ Timeout — riprova' : 'OCR: ' + e.message) }
     finally { setLoadOCR(false) }
   }
 
   async function salvaRisultato() {
     if (!ocrResult || saving) return; setSaving(true); setErr(null)
     try {
-      const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('Sessione scaduta')
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessione scaduta')
+      const docType = ocrResult.doc_type || 'receipt'
+
+      // ── ETICHETTA VINO ──
+      if (docType === 'wine_label') {
+        const { data: newWine, error: wErr } = await supabase.from('wines').insert([{
+          user_id: user.id,
+          name: ocrResult.name || 'Vino (da etichetta)',
+          winery: ocrResult.winery || null,
+          denomination: ocrResult.denomination || null,
+          region: ocrResult.region || null,
+          vintage: ocrResult.vintage || null,
+          alcohol: ocrResult.alcohol || null,
+          style: ocrResult.style || 'rosso',
+          grapes: ocrResult.grapes?.length ? ocrResult.grapes : null,
+          source: 'ocr',
+        }]).select().single()
+        if (wErr) throw new Error(wErr.message)
+        // Geocodifica origine
+        try {
+          const geoQ = [ocrResult.locality, ocrResult.winery, ocrResult.region].filter(Boolean).join(' ')
+          if (geoQ.trim()) {
+            const geoR = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(geoQ)}&limit=1`)
+            const geoJ = await geoR.json()
+            if (Array.isArray(geoJ) && geoJ.length) {
+              await supabase.from('product_places').insert([{
+                user_id: user.id, item_type: 'wine', item_id: newWine.id, kind: 'origin',
+                place_name: ocrResult.locality || geoJ[0].display_name,
+                lat: Number(geoJ[0].lat), lng: Number(geoJ[0].lon), is_primary: true,
+              }])
+            }
+          }
+        } catch {}
+        // GPS dove lo bevo
+        try {
+          const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 6000 }))
+          await supabase.from('product_places').insert([{
+            user_id: user.id, item_type: 'wine', item_id: newWine.id, kind: 'purchase',
+            place_name: null, lat: pos.coords.latitude, lng: pos.coords.longitude, is_primary: true,
+          }])
+        } catch {}
+        setOcrResult(null)
+        alert(`✅ Vino salvato!\n🍷 ${ocrResult.name || 'Vino'}${ocrResult.winery ? '\n🏠 ' + ocrResult.winery : ''}${ocrResult.vintage ? '\n📅 ' + ocrResult.vintage : ''}`)
+        return
+      }
+
+      // ── SCONTRINO / FATTURA ──
       const pd = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
-      const st = ocrResult.store ?? 'Generico', im = parseFloat(ocrResult.price_total ?? 0)
-      const cat = ocrResult.categoria ?? 'varie', pm = ocrResult.payment_method ?? 'unknown'
+      const st = ocrResult.store ?? 'Generico'
+      const im = parseFloat(ocrResult.price_total ?? 0)
+      const cat = normCat(ocrResult.categoria ?? 'varie')
+      const pm = ocrResult.payment_method ?? 'unknown'
       const items = Array.isArray(ocrResult.items) ? ocrResult.items : []
+
       const { data: expRow, error: expErr } = await supabase.from('expenses').insert([{
-        user_id: user.id, category: cat, store: st, store_address: ocrResult.store_address ?? null,
-        description: `Spesa ${st} — ${pd}`, purchase_date: pd, amount: im, payment_method: pm, source: 'ocr',
+        user_id: user.id, category: cat, store: st,
+        store_address: ocrResult.store_address ?? null,
+        description: `Spesa ${st} — ${pd}`,
+        purchase_date: pd, amount: im, payment_method: pm, source: 'ocr',
       }]).select('id').single()
       if (expErr) throw new Error(expErr.message)
+
       let recId = null
       try {
         const { data: rr } = await supabase.from('receipts').insert([{
-          user_id: user.id, expense_id: expRow?.id, store: st, store_address: ocrResult.store_address ?? null,
-          purchase_date: pd, price_total: im, payment_method: pm, raw_text: ocrResult.raw_text ?? null, confidence: ocrResult.confidence ?? 'medium',
+          user_id: user.id, expense_id: expRow?.id, store: st,
+          store_address: ocrResult.store_address ?? null,
+          purchase_date: pd, price_total: im, payment_method: pm,
+          raw_text: ocrResult.raw_text ?? null, confidence: ocrResult.confidence ?? 'medium',
         }]).select('id').single(); recId = rr?.id ?? null
       } catch {}
-      if (recId && items.length) try { await supabase.from('receipt_items').insert(items.map(it => ({ receipt_id: recId, user_id: user.id, name: it.name, brand: it.brand ?? null, qty: it.qty ?? 1, unit: it.unit ?? 'pz', unit_price: it.unit_price ?? it.price ?? 0, price: it.price ?? 0, category_item: it.category_item ?? 'alimentari', expiry_date: it.expiry_date ?? null, purchase_date: pd }))) } catch {}
+
+      if (recId && items.length) try {
+        await supabase.from('receipt_items').insert(items.map(it => ({
+          receipt_id: recId, user_id: user.id, name: it.name,
+          brand: it.brand ?? null, qty: it.qty ?? 1, unit: it.unit ?? 'pz',
+          unit_price: it.unit_price ?? it.price ?? 0, price: it.price ?? 0,
+          category_item: it.category_item ?? 'alimentari',
+          expiry_date: it.expiry_date ?? null, purchase_date: pd,
+        })))
+      } catch {}
+
       if (cat === 'casa' && items.length) for (const item of items) {
         if (!item.name) continue
         try {
           const tot = Number(item.qty || 1)
-          const { data: ex } = await supabase.from('inventory').select('id,qty,initial_qty').eq('user_id', user.id).ilike('product_name', `%${item.name.split(' ')[0]}%`).maybeSingle()
-          if (ex) await supabase.from('inventory').update({ qty: Number(ex.qty || 0) + tot, initial_qty: Number(ex.initial_qty || 0) + tot, consumed_pct: 0, avg_price: item.unit_price || item.price || 0, last_updated: new Date().toISOString(), ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}) }).eq('id', ex.id)
-          else await supabase.from('inventory').insert({ user_id: user.id, product_name: item.name, brand: item.brand ?? null, category: item.category_item ?? 'alimentari', qty: tot, initial_qty: tot, avg_price: item.unit_price || item.price || 0, purchase_date: pd, expiry_date: item.expiry_date ?? null, consumed_pct: 0 })
+          const { data: ex } = await supabase.from('inventory').select('id,qty,initial_qty')
+            .eq('user_id', user.id).ilike('product_name', `%${item.name.split(' ')[0]}%`).maybeSingle()
+          if (ex) await supabase.from('inventory').update({
+            qty: Number(ex.qty || 0) + tot, initial_qty: Number(ex.initial_qty || 0) + tot,
+            consumed_pct: 0, avg_price: item.unit_price || item.price || 0,
+            last_updated: new Date().toISOString(),
+            ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
+          }).eq('id', ex.id)
+          else await supabase.from('inventory').insert({
+            user_id: user.id, product_name: item.name, brand: item.brand ?? null,
+            category: item.category_item ?? 'alimentari', qty: tot, initial_qty: tot,
+            avg_price: item.unit_price || item.price || 0, purchase_date: pd,
+            expiry_date: item.expiry_date ?? null, consumed_pct: 0,
+          })
         } catch {}
       }
-      if (pm === 'cash' && im > 0) try { await supabase.from('pocket_cash').insert({ user_id: user.id, note: `Spesa ${st} (${pd})`, delta: -im, moved_at: new Date().toISOString() }) } catch {}
+
+      if (pm === 'cash' && im > 0) try {
+        await supabase.from('pocket_cash').insert({
+          user_id: user.id, note: `Spesa ${st} (${pd})`,
+          delta: -im, moved_at: new Date().toISOString(),
+        })
+      } catch {}
+
       setOcrResult(null); if (userId) loadData(userId)
       alert(`✅ Salvato!\n🏪 ${st} — ${pd}\n💶 €${im.toFixed(2)}${items.length ? `\n🛒 ${items.length} prodotti` : ''}`)
-    } catch (e) { setErr('❌ ' + (e.message || 'Errore')) } finally { setSaving(false) }
+
+    } catch (e) { setErr('❌ ' + (e.message || 'Errore')) }
+    finally { setSaving(false) }
   }
 
   const nAlert = alertItems.length
@@ -330,8 +416,8 @@ const Home = () => {
       {loadingOCR && (
         <div className="ocr-overlay">
           <div className="ocr-ov-icon">📷</div>
-          <div className="ocr-ov-title">Analisi scontrino…</div>
-          <div className="ocr-ov-sub">GPT-4o sta leggendo i prodotti</div>
+          <div className="ocr-ov-title">Analisi immagine…</div>
+          <div className="ocr-ov-sub">GPT-4o riconosce il documento</div>
           <div className="ocr-prog-track"><div className="ocr-prog-fill" /></div>
         </div>
       )}
@@ -505,22 +591,37 @@ const Home = () => {
         {ocrResult && (
           <div className="ocr-prev">
             <div className="ocr-prev-head">
-              <span>📋 Spesa rilevata</span>
-              <span className={`conf ${ocrResult.confidence === 'high' ? 'conf-hi' : ocrResult.confidence === 'medium' ? 'conf-md' : 'conf-lo'}`}>
-                {ocrResult.confidence === 'high' ? '✓ Alta' : ocrResult.confidence === 'medium' ? '~ Media' : '⚠ Bassa'}
-              </span>
+              {ocrResult.doc_type === 'wine_label'
+                ? <span>🍷 Etichetta vino rilevata</span>
+                : <span>📋 {ocrResult.doc_type === 'invoice' ? 'Fattura' : 'Scontrino'} rilevato</span>
+              }
+              {ocrResult.confidence && (
+                <span className={`conf ${ocrResult.confidence === 'high' ? 'conf-hi' : ocrResult.confidence === 'medium' ? 'conf-md' : 'conf-lo'}`}>
+                  {ocrResult.confidence === 'high' ? '✓ Alta' : ocrResult.confidence === 'medium' ? '~ Media' : '⚠ Bassa'}
+                </span>
+              )}
             </div>
             <div className="ocr-prev-rows">
-              <div className="ocr-row"><span>Negozio</span><strong>{ocrResult.store ?? '—'}</strong></div>
-              <div className="ocr-row"><span>Data</span><strong>{ocrResult.purchase_date ?? '—'}</strong></div>
-              <div className="ocr-row"><span>Totale</span><strong style={{ color: '#22c55e' }}>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></div>
-              {Array.isArray(ocrResult.items) && ocrResult.items.length > 0 && (
-                <div className="ocr-row"><span>Prodotti</span><strong>{ocrResult.items.length} articoli</strong></div>
-              )}
+              {ocrResult.doc_type === 'wine_label' ? <>
+                <div className="ocr-row"><span>Vino</span><strong>{ocrResult.name ?? '—'}</strong></div>
+                <div className="ocr-row"><span>Cantina</span><strong>{ocrResult.winery ?? '—'}</strong></div>
+                <div className="ocr-row"><span>Località</span><strong>{ocrResult.locality ?? ocrResult.region ?? '—'}</strong></div>
+                {ocrResult.vintage && <div className="ocr-row"><span>Annata</span><strong>{ocrResult.vintage}</strong></div>}
+                {ocrResult.alcohol && <div className="ocr-row"><span>Alcol</span><strong>{ocrResult.alcohol}%</strong></div>}
+                {ocrResult.denomination && <div className="ocr-row"><span>Denominazione</span><strong>{ocrResult.denomination}</strong></div>}
+              </> : <>
+                <div className="ocr-row"><span>Negozio</span><strong>{ocrResult.store ?? '—'}</strong></div>
+                <div className="ocr-row"><span>Data</span><strong>{ocrResult.purchase_date ?? '—'}</strong></div>
+                <div className="ocr-row"><span>Totale</span><strong style={{ color: '#22c55e' }}>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></div>
+                <div className="ocr-row"><span>Categoria</span><strong>{ocrResult.categoria ?? '—'}</strong></div>
+                {Array.isArray(ocrResult.items) && ocrResult.items.length > 0 && (
+                  <div className="ocr-row"><span>Prodotti</span><strong>{ocrResult.items.length} articoli</strong></div>
+                )}
+              </>}
             </div>
             <div className="ocr-prev-btns">
               <button className="ocr-save" onClick={salvaRisultato} disabled={saving}>
-                {saving ? '⏳ Salvataggio…' : '✅ Conferma e salva'}
+                {saving ? '⏳ Salvataggio…' : ocrResult.doc_type === 'wine_label' ? '🍷 Salva vino' : '✅ Conferma e salva'}
               </button>
               <button className="ocr-cancel" onClick={() => !saving && setOcrResult(null)} disabled={saving}>✕</button>
             </div>
