@@ -45,9 +45,9 @@ const MASTER_PROMPT = [
   '━━━ SE receipt ━━━',
   'Determina la categoria dal nome/tipo del negozio:',
   '',
-  '"casa" → supermercati e GDO (Coop, Esselunga, Conad, Carrefour, Lidl, Aldi, Eurospin,',
+  '"casa" → supermercati e GDO — SEMPRE "casa" anche se il nome non è noto! (Coop, Esselunga, Conad, Carrefour, Lidl, Aldi, Eurospin,',
   '  Penny, Pam, Interspar, Spar, Sigma, NaturaSì, Bennet, Unes, Famila, Tigros, Despar,',
-  '  Iper, Prix, Dok, Il Gigante, Simply, Orsini, qualsiasi minimarket/alimentari),',
+  '  Iper, Prix, Dok, Il Gigante, Simply, Orsini, Orsini Carlo & Figli, Supermercati Orsini, qualsiasi minimarket/alimentari),',
   '  norcinerie, macellerie, pescherie, panetterie, fruttivendoli,',
   '  negozi pulizia/ferramenta/arredo/elettrodomestici,',
   '  delivery alimentare (Deliveroo, Glovo, Just Eat, Uber Eats), bollette',
@@ -230,7 +230,7 @@ function normCategory(categoria, storeType, storeName) {
   // CASA — catene GDO prima, poi parole chiave
   if (/\b(orsini|coop|esselunga|conad|carrefour|lidl|aldi|eurospin|penny|pam|interspar|spar|sigma|naturasi|bennet|unes|famila|tigros|despar|iper|ipercoop|prix|dok|il.?gigante|simply|mercatone|tuodi)\b/.test(all))
     return 'casa'
-  if (/\b(casa|supermercat|alimentar|norcineria|macelleria|pescheria|fruttivendolo|panetteria|minimarket|drogheria|spesa|detersiv|bolletta|ferramenta|arredo|elettrodomest|deliveroo|glovo|just.?eat|uber.?eat)\b/.test(all))
+  if (/\b(casa|supermercat|alimentar|norcineria|macelleria|pescheria|fruttivendolo|panetteria|minimarket|drogheria|spesa|detersiv|bolletta|ferramenta|arredo|elettrodomest|deliveroo|glovo|just.?eat|uber.?eat)/.test(all))
     return 'casa'
 
   // VESTITI
