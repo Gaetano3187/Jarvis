@@ -13,14 +13,18 @@ function eur(n){return(Number(n)||0).toLocaleString('it-IT',{style:'currency',cu
 /* --- Normalizza categoria spesa --- */
 function normCat(raw) {
   const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  // CASA: cibo (anche da asporto/pizzerie porta via), pulizia, bollette, arredo, elettrodomestici
-  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|scottex|pannolini|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|riparazione|arredo|mobile|divano|sedia|tavolo|letto|cucina|elettrodomest|lavatrice|frigorifero|forno|aspirapolvere|utensili|stoviglie|tende|coperte|lampadine|ferramenta|giardinaggio|asporto|porta.?via|take.?away|deliveroo|glovo|just.?eat)\b/.test(s)) return 'casa'
+  // GDO e supermercati specifici → CASA
+  if (/\b(orsini|coop|esselunga|conad|carrefour|lidl|aldi|eurospin|penny|pam|interspar|spar|sigma|naturasi|bennet|unes|famila|tigros|despar|iper|ipercoop|prix|dok|gigante|simply|mercatone|tuodi)\b/.test(s)) return 'casa'
+  // Keywords casa
+  if (/\b(supermercat|spesa|alimentar|cibo|frutta|verdura|carne|pesce|pane|latte|uova|pasta|riso|olio|acqua|bibite|bevande|detersiv|pulizia|ammorbident|candeggina|bolletta|luce|gas|internet|affitto|mutuo|condomin|manutenzione|arredo|mobile|cucina|elettrodomest|lavatrice|frigorifero|ferramenta|giardinaggio|asporto|porta.?via|take.?away|deliveroo|glovo|just.?eat)\b/.test(s)) return 'casa'
   // VESTITI
-  if (/\b(vestit|abbigliam|scarpe|camicia|pantalon|maglion|giacca|cappotto|borsa|cintura|cravatta|calze|intimo|pigiama|costume|sciarpa|guanti|cappello|gioiell|orologio|zaino|valigia|moda)\b/.test(s)) return 'vestiti'
-  // CENE: consumo fuori casa (NON asporto che va in casa)
-  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|digestivo|gelato|gelateria|pasticceria|panetteria|paninoteca|fast.?food)\b/.test(s)) return 'cene'
-  // VARIE: tutto il resto
-  return 'varie'
+  if (/\b(vestit|abbigliam|scarpe|camicia|pantalon|maglion|giacca|cappotto|borsa|cintura|cravatta|calze|intimo|pigiama|costume|sciarpa|guanti|cappello|gioiell|orologio|zaino|valigia|moda|boutique|abbigliamento)\b/.test(s)) return 'vestiti'
+  // CENE
+  if (/\b(ristorante|pizzeria|trattoria|osteria|braceria|sushi|kebab|hamburgeria|bistrot|pub|birreria|enoteca|bar|caffe|caffetteria|colazione|pranzo|cena|aperitiv|spritz|cocktail|gelateria|pasticceria|paninoteca|fast.?food)\b/.test(s)) return 'cene'
+  return null
+}
+function catFromStore(store, storeType) {
+  return normCat([store, storeType].filter(Boolean).join(' '))
 }
 
 /* ─── Audio helpers ─────────────────────────────────────────────── */
@@ -303,7 +307,10 @@ const Home = () => {
       const pd  = data.purchase_date ?? new Date().toISOString().slice(0, 10)
       const st  = data.store ?? 'Generico'
       const im  = parseFloat(data.price_total ?? 0)
-      const cat = normCat(data.categoria ?? 'varie')
+      // 1. Il nome/tipo negozio ha sempre priorità (corregge errori di GPT)
+      // 2. Se non basta, usa la categoria di ocr-universal
+      const cat = catFromStore(data.store, data.store_type)
+        || (['casa','vestiti','cene','varie'].includes(data.categoria) ? data.categoria : 'varie')
       const pm  = data.payment_method ?? 'unknown'
       const items = Array.isArray(data.items) ? data.items : []
 
@@ -482,7 +489,8 @@ const Home = () => {
       const pd = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
       const st = ocrResult.store ?? 'Generico'
       const im = parseFloat(ocrResult.price_total ?? 0)
-      const cat = normCat(ocrResult.categoria ?? 'varie')
+      const cat = catFromStore(ocrResult.store, ocrResult.store_type)
+        || (['casa','vestiti','cene','varie'].includes(ocrResult.categoria) ? ocrResult.categoria : 'varie')
       const pm = ocrResult.payment_method ?? 'unknown'
       const items = Array.isArray(ocrResult.items) ? ocrResult.items : []
 
