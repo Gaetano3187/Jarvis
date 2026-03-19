@@ -483,27 +483,48 @@ const Home = () => {
   }
 
   async function enablePushNotifications(uid) {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setMessages(p => [...p, { role:'assistant', text:'⚠️ Il tuo browser non supporta le notifiche push.' }])
-      return
-    }
     try {
-      const perm = await Notification.requestPermission()
-      if (perm !== 'granted') {
-        setMessages(p => [...p, { role:'assistant', text:'❌ Permesso notifiche negato. Abilitalo dalle impostazioni del browser.' }])
-        return
+      // Prova notifiche native se supportate
+      if ('Notification' in window) {
+        const perm = await Notification.requestPermission()
+        if (perm === 'granted') {
+          // Prova a registrare sw.js — se non esiste (404) usa solo polling
+          if ('serviceWorker' in navigator) {
+            try {
+              const reg = await navigator.serviceWorker.register('/sw.js')
+              const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+              if (vapidKey) {
+                const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey })
+                await fetch('/api/push-notify', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'subscribe', userId: uid, subscription: sub.toJSON() })
+                })
+              }
+            } catch(swErr) {
+              // sw.js non trovato o VAPID non configurato — polling attivo comunque
+              console.warn('[push] Service Worker non disponibile, uso solo polling:', swErr.message)
+            }
+          }
+          setPushEnabled(true)
+          setMessages(p => [...p, { role:'assistant', text:'🔔 Alert attivati! Riceverai notifiche per scadenze, budget e vini.\n\n(Il polling controlla ogni 5 minuti — nessuna configurazione aggiuntiva necessaria.)' }])
+          setJarvisOpen(true)
+          return
+        } else {
+          setMessages(p => [...p, { role:'assistant', text:'❌ Permesso notifiche negato. Puoi abilitarlo dalle impostazioni del browser.\n\nIl polling in-app (ogni 5 min) è comunque attivo.' }])
+          setJarvisOpen(true)
+          return
+        }
       }
-      const reg = await navigator.serviceWorker.register('/sw.js')
-      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-      if (!vapidKey) { setPushEnabled(true); return } // senza VAPID solo polling
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey })
-      await fetch('/api/push-notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'subscribe', userId: uid, subscription: sub.toJSON() })
-      })
+      // Browser senza Notification API — polling only
       setPushEnabled(true)
-      setMessages(p => [...p, { role:'assistant', text:'🔔 Notifiche push attivate! Riceverai alert per scadenze, budget e vini.' }])
-    } catch(e) { console.error('[push]', e) }
+      setMessages(p => [...p, { role:'assistant', text:'🔔 Alert attivati in modalità polling. Jarvis controllerà ogni 5 minuti.' }])
+      setJarvisOpen(true)
+    } catch(e) {
+      console.error('[push]', e)
+      setPushEnabled(true)
+      setMessages(p => [...p, { role:'assistant', text:'🔔 Alert attivati (modalità polling).' }])
+      setJarvisOpen(true)
+    }
   }
 
   async function handleBillOcr(file) {
@@ -1160,35 +1181,56 @@ const Home = () => {
         </div>
 
         {/* ══ KPI ══ */}
-        <div className="kpi-row">
-          <div className="kpi kpi-purple">
-            <div className="kpi-icon-wrap">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="9" stroke="#22d3ee" strokeWidth="1.5"/>
-                <path d="M12 7v5l3 3" stroke="#22d3ee" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <div>
-              <div className="kpi-label">In tasca</div>
-              <div className="kpi-val">{pocketBal !== null ? `€ ${pocketBal.toFixed(2)}` : '—'}</div>
+        {/* ══ KPI — ANELLI CIRCOLARI ══ */}
+        <div className="kpi-rings">
+
+          {/* Anello 1 — In tasca */}
+          <div className="ring-kpi">
+            <svg className="ring-svg" viewBox="0 0 140 140">
+              <circle cx="70" cy="70" r="60" fill="rgba(22,8,44,.92)" stroke="rgba(160,80,255,.12)" strokeWidth="1"/>
+              <circle cx="70" cy="70" r="60" fill="none" stroke="rgba(160,80,255,.08)" strokeWidth="12"/>
+              <circle cx="70" cy="70" r="60" fill="none" stroke="rgba(160,80,255,.55)" strokeWidth="1.5"
+                strokeDasharray="270 108" strokeDashoffset="-28" strokeLinecap="round"/>
+              <circle cx="70" cy="70" r="52" fill="none" stroke="rgba(160,80,255,.12)" strokeWidth="0.5" strokeDasharray="3 7"/>
+            </svg>
+            <div className="ring-inner">
+              <div className="ring-val ring-val-p">
+                {pocketBal !== null ? `€ ${pocketBal.toFixed(0)}` : '—'}
+              </div>
+              <div className="ring-label">In tasca</div>
+              <div className="ring-dot ring-dot-p" />
             </div>
           </div>
 
-          <button className={`kpi kpi-green ${nAlert > 0 ? 'kpi-alert--active' : ''}`} onClick={() => setShowLista(v => !v)}>
-            <div className="kpi-icon-wrap">
-              {nAlert > 0
-                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 20h20L12 2z" stroke="#f87171" strokeWidth="1.5" strokeLinejoin="round"/><path d="M12 9v5M12 17v.5" stroke="#f87171" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                : <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              }
-            </div>
-            <div style={{ textAlign: 'left' }}>
-              <div className="kpi-label">Scorte & Acquisti</div>
-              <div className="kpi-val" style={{ color: nAlert > 0 ? '#f87171' : '#22c55e' }}>
-                {nAlert > 0 ? `${nAlert} in alert` : 'Tutto ok'}
+          {/* Anello 2 — Scorte */}
+          <button className={`ring-kpi ring-kpi-btn ${nAlert > 0 ? 'ring-alert' : ''}`}
+            onClick={() => setShowLista(v => !v)}>
+            <svg className="ring-svg" viewBox="0 0 140 140">
+              <circle cx="70" cy="70" r="60"
+                fill={nAlert > 0 ? 'rgba(40,8,8,.92)' : 'rgba(0,22,16,.92)'}
+                stroke={nAlert > 0 ? 'rgba(239,68,68,.15)' : 'rgba(0,210,130,.12)'}
+                strokeWidth="1"/>
+              <circle cx="70" cy="70" r="60" fill="none"
+                stroke={nAlert > 0 ? 'rgba(239,68,68,.08)' : 'rgba(0,210,130,.08)'}
+                strokeWidth="12"/>
+              <circle cx="70" cy="70" r="60" fill="none"
+                stroke={nAlert > 0 ? 'rgba(239,68,68,.6)' : 'rgba(0,210,130,.55)'}
+                strokeWidth="1.5"
+                strokeDasharray={nAlert > 0 ? '200 178' : '378 0'}
+                strokeDashoffset="-28" strokeLinecap="round"/>
+              <circle cx="70" cy="70" r="52" fill="none"
+                stroke={nAlert > 0 ? 'rgba(239,68,68,.12)' : 'rgba(0,210,130,.12)'}
+                strokeWidth="0.5" strokeDasharray="3 7"/>
+            </svg>
+            <div className="ring-inner">
+              <div className={`ring-val ${nAlert > 0 ? 'ring-val-r' : 'ring-val-g'}`}>
+                {nAlert > 0 ? `${nAlert} alert` : 'OK'}
               </div>
+              <div className="ring-label">Scorte</div>
+              <div className={`ring-dot ${nAlert > 0 ? 'ring-dot-r' : 'ring-dot-g'}`} />
             </div>
-            <span className="kpi-chevron">{showLista ? '▲' : '▼'}</span>
           </button>
+
         </div>
 
         {/* Lista dropdown */}
@@ -1560,32 +1602,51 @@ const Home = () => {
         .spd-y { background:#dcc800;box-shadow:0 0 5px rgba(220,200,0,.8);animation-delay:1s; }
         @keyframes spPulse { 0%,100%{opacity:.5;transform:scale(.85)} 50%{opacity:1;transform:scale(1.3)} }
 
-        /* ══ KPI ══ */
-        .kpi-row { display: flex; gap: .8rem; width: 100%; }
-        .kpi {
-          flex:1; display:flex; align-items:center; gap:.7rem;
-          padding:14px 16px; border-radius:16px; position:relative; overflow:hidden;
-          cursor:pointer; transition:all .25s; backdrop-filter:blur(12px);
+        /* ══ KPI — ANELLI CIRCOLARI ══ */
+        .kpi-rings {
+          display: flex; gap: 1.4rem; justify-content: center;
+          width: 100%; padding: .2rem 0;
         }
-        .kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; }
-        .kpi::after  { content:''; position:absolute; bottom:5px; right:5px; width:10px; height:10px; border-right:1px solid; border-bottom:1px solid; }
-        .kpi-purple { background:rgba(28,8,48,.78);  border:1px solid rgba(160,80,255,.22); }
-        .kpi-purple::before { background:linear-gradient(90deg,transparent,rgba(160,80,255,.5),transparent); }
-        .kpi-purple::after  { border-color:rgba(160,80,255,.3); }
-        .kpi-purple:hover { border-color:rgba(160,80,255,.5);transform:translateY(-2px);box-shadow:0 8px 28px rgba(120,40,200,.22); }
-        .kpi-green  { background:rgba(0,26,18,.78);  border:1px solid rgba(0,210,130,.2); }
-        .kpi-green::before  { background:linear-gradient(90deg,transparent,rgba(0,210,130,.5),transparent); }
-        .kpi-green::after   { border-color:rgba(0,210,130,.3); }
-        .kpi-green:hover  { border-color:rgba(0,210,130,.5);transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,170,100,.18); }
-        .kpi-alert--active { border-color:rgba(239,68,68,.4)!important;box-shadow:0 0 20px rgba(239,68,68,.25)!important; }
-        button.kpi { text-align:left; }
-        .kpi-icon-wrap { flex-shrink:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center; }
-        .kpi-label { font-size:.54rem;text-transform:uppercase;letter-spacing:.14em;color:rgba(160,80,255,.45);margin-bottom:3px;font-family:'Syne Mono',monospace; }
-        .kpi-green .kpi-label { color:rgba(0,210,130,.45); }
-        .kpi-val   { font-family:'DM Sans',sans-serif;font-size:1rem;font-weight:500;color:rgba(240,224,255,.95); }
-        .kpi-green .kpi-val  { color:rgba(224,255,240,.95); }
-        .kpi-chevron { margin-left:auto;font-size:.6rem;color:rgba(160,80,255,.3); }
-        .kpi-green .kpi-chevron { color:rgba(0,210,130,.3); }
+        .ring-kpi {
+          position: relative; width: 142px; height: 142px;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+        }
+        .ring-kpi-btn {
+          cursor: pointer; background: transparent; border: none; padding: 0;
+          transition: transform .25s;
+        }
+        .ring-kpi-btn:hover { transform: scale(1.06); }
+        .ring-alert .ring-dot { animation-duration: .9s !important; }
+        .ring-svg {
+          position: absolute; inset: 0; width: 100%; height: 100%;
+          animation: ringRotate 18s linear infinite;
+        }
+        @keyframes ringRotate { to { transform: rotate(360deg); } }
+        .ring-inner {
+          position: relative; z-index: 1;
+          display: flex; flex-direction: column; align-items: center; gap: 4px;
+          pointer-events: none;
+        }
+        .ring-val {
+          font-family: 'Exo 2', sans-serif; font-style: italic;
+          font-size: 1.25rem; font-weight: 900; line-height: 1;
+        }
+        .ring-val-p { color: #fff; text-shadow: 0 0 18px rgba(160,80,255,.7); }
+        .ring-val-g { color: #fff; text-shadow: 0 0 18px rgba(0,210,130,.65); }
+        .ring-val-r { color: #fff; text-shadow: 0 0 18px rgba(239,68,68,.7); }
+        .ring-label {
+          font-family: 'Syne Mono', monospace; font-size: .46rem;
+          letter-spacing: .18em; text-transform: uppercase; color: rgba(255,255,255,.28);
+        }
+        .ring-dot {
+          width: 5px; height: 5px; border-radius: 50%;
+          animation: ringDotPulse 1.8s ease-in-out infinite;
+        }
+        .ring-dot-p { background: #a050ff; box-shadow: 0 0 6px rgba(160,80,255,.9); }
+        .ring-dot-g { background: #00dc82; box-shadow: 0 0 6px rgba(0,220,130,.9); animation-delay: .6s; }
+        .ring-dot-r { background: #f87171; box-shadow: 0 0 6px rgba(239,68,68,.9); animation-delay: 0s; }
+        @keyframes ringDotPulse { 0%,100%{opacity:.4;transform:scale(.8)} 50%{opacity:1;transform:scale(1.35)} }
 
         /* ── Lista drop ── */
         .lista-drop { width:100%;background:rgba(14,4,28,.9);border:1px solid rgba(160,80,255,.18);border-radius:14px;overflow:hidden;animation:slideDown .18s ease;backdrop-filter:blur(12px); }
