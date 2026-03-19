@@ -423,7 +423,7 @@ const Home = () => {
       const nItems = items.length
       setMessages(p => [...p, { role: 'assistant', text: `✅ Scontrino salvato!\n🏪 ${st} — ${eur(im)}\n📦 ${nItems} prodotti registrati${cat === 'casa' && nItems ? ' in dispensa' : ''}` }])
       setJarvisOpen(true)
-      await fetchDashboard(user.id)
+      if (userId) await loadData(userId)
 
     } catch (e) {
       setErr('Salvataggio: ' + e.message)
