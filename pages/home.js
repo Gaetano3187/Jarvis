@@ -258,11 +258,12 @@ const Home = () => {
   async function handleOCR(file) {
     if (!file) return
     setLoadOCR(true); setErr(null); setOcrResult(null)
+    setJarvisOpen(true)
+    setMessages(p => [...p, { role: 'assistant', text: '📷 Analizzo lo scontrino… (10-20 secondi)' }])
     try {
       const isPdf = file.type === 'application/pdf' || file.name?.endsWith('.pdf')
       const pl = isPdf ? file : await resizeImage(file)
 
-      // Step 1: prova ocr-universal per riconoscere il tipo documento
       const fd1 = new FormData(); fd1.append('image', pl, file.name || 'foto.jpg')
       const ctrl1 = new AbortController(); const t1 = setTimeout(() => ctrl1.abort(), 65000)
       let r1; try { r1 = await fetch('/api/ocr-universal', { method: 'POST', body: fd1, signal: ctrl1.signal }) } finally { clearTimeout(t1) }
@@ -276,29 +277,14 @@ const Home = () => {
         return
       }
 
-      // Scontrino/fattura → usa ocr-smart per parsing prodotti più preciso, poi salva automaticamente
+      // Scontrino/fattura → salva direttamente con i dati di ocr-universal
       if (universal.doc_type === 'receipt' || universal.doc_type === 'invoice') {
-        const fd2 = new FormData(); fd2.append('image', pl, file.name || 'foto.jpg')
-        const ctrl2 = new AbortController(); const t2 = setTimeout(() => ctrl2.abort(), 65000)
-        let smartData
-        try {
-          const r2 = await fetch('/api/ocr-smart', { method: 'POST', body: fd2, signal: ctrl2.signal })
-          const j2 = await r2.json()
-          // Unisce: prende categoria da universal (più affidabile), items da smart (più preciso)
-          smartData = {
-            ...j2,
-            doc_type: universal.doc_type,
-            categoria: universal.categoria || j2.categoria || 'varie',
-          }
-        } catch {
-          // Fallback: usa i dati di ocr-universal
-          smartData = { ...universal }
-        } finally { clearTimeout(t2) }
-
-        if (smartData.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
-
-        // Salva automaticamente
-        await _salvaRicevuta(smartData)
+        console.log('[OCR] universal data:', JSON.stringify({ store: universal.store, price_total: universal.price_total, categoria: universal.categoria, items_count: universal.items?.length, confidence: universal.confidence }))
+        if (!universal.store && !universal.price_total) {
+          throw new Error('OCR non ha estratto dati — riprova con foto più nitida e in buona luce')
+        }
+        if (universal.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
+        await _salvaRicevuta(universal)
         return
       }
 
