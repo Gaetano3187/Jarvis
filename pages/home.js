@@ -208,8 +208,13 @@ async function executeAction(action, userId, router) {
     const today = new Date().toISOString().slice(0, 10)
     switch (action.type) {
       case 'add_expense': {
+        // normCat può restituire null se non riconosce il negozio
+        // catFromStore cerca per nome/tipo, con fallback garantito a 'varie'
+        const rawCat = catFromStore(action.category, action.store_type)
+          || (['casa','vestiti','cene','varie'].includes(action.category) ? action.category : null)
+          || 'varie'
         const { error } = await supabase.from('expenses').insert({
-          user_id: userId, category: normCat(action.category || 'varie'),
+          user_id: userId, category: rawCat,
           store: action.store || null,
           description: action.description || action.store || 'Spesa vocale',
           amount: Number(action.amount || 0), purchase_date: action.date || today,
@@ -228,7 +233,7 @@ async function executeAction(action, userId, router) {
           user_id: userId, source: action.source || 'Entrata',
           description: action.description || 'Entrata vocale',
           amount: Number(action.amount || 0),
-          received_at: `${action.date || today}T12:00:00Z`,
+          received_date: action.date || today,
         })
         if (error) throw error
         return `✓ Entrata €${Number(action.amount).toFixed(2)} salvata`
@@ -306,23 +311,6 @@ const Home = () => {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  /* ── Auth + dati ── */
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return
-      setUserId(user.id)
-      loadData(user.id)
-      // Polling notifiche ogni 5 minuti
-      const poll = setInterval(() => checkPendingNotifications(user.id), 5 * 60 * 1000)
-      // Primo check dopo 35 minuti (in caso ci sia una notifica wine_vote pendente)
-      setTimeout(() => checkPendingNotifications(user.id), 35 * 60 * 1000)
-      return () => clearInterval(poll)
-    })
-    return () => {
-      try { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() } catch {}
-      try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
-    }
-  }, [])
 
   async function checkPendingNotifications(uid) {
     try {
@@ -421,6 +409,26 @@ const Home = () => {
     } catch(e) { setMessages(p => [...p, { role:'assistant', text:'⚠️ ' + e.message }]) }
   }
 
+
+  /* ── Auth + dati ── */
+  useEffect(() => {
+    let poll = null
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      setUserId(user.id)
+      loadData(user.id)
+      // Polling notifiche ogni 5 minuti
+      poll = setInterval(() => checkPendingNotifications(user.id), 5 * 60 * 1000)
+      // Primo check dopo 35 minuti
+      setTimeout(() => checkPendingNotifications(user.id), 35 * 60 * 1000)
+    })
+    return () => {
+      if (poll) clearInterval(poll)
+      try { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() } catch {}
+      try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
+    }
+  }, [])
+
   async function loadData(uid) {
     const today = new Date(); const in10 = new Date(); in10.setDate(today.getDate() + 10)
     const [{ data: inv }, { data: lista }, { data: pocket }] = await Promise.all([
@@ -456,71 +464,59 @@ const Home = () => {
     try {
       const s = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 
-      // ── 1. Query analitiche locali (spese/acquisti per periodo, dispensa, vini) ──
+      // ── 1. Query analitiche locali — risponde istantaneamente dal DB ──
       const localReply = await queryData(text, userId)
       if (localReply) {
         setMessages(p => [...p, { role: 'assistant', text: localReply }])
-        setAiBusy(false); return
+        return  // finally fa setAiBusy(false)
       }
 
       // ── 2. Sommelier integrato ──
       if (/\b(consiglia|abbina|sommelier|cosa bevo|quale vino|vino per|abbinamento vino|suggerisci un vino)\b/.test(s)) {
         setMessages(p => [...p, { role: 'assistant', text: '🍷 Consulto il sommelier…' }])
-        try {
-          // Carica gusti dai vini votati
-          const { data: winePrefs } = await supabase.from('wines')
-            .select('name,style,region,denomination,rating_5').eq('user_id', userId)
-            .gte('rating_5', 4).limit(10)
-          const prefsText = winePrefs?.length
-            ? 'Vini che mi piacciono (voto ≥4): ' + winePrefs.map(w=>`${w.name} (${w.style||'rosso'}, ${w.region||'—'}, ★${w.rating_5})`).join('; ')
-            : ''
-          const r = await fetch('/api/sommelier', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: text + (prefsText ? '\n\nI miei gusti: '+prefsText : ''), wineLists: [], qrLinks: [], userId })
-          })
-          const data = await r.json()
-          const recs = data?.recommendations || []
-          if (!recs.length) { setMessages(p => [...p.slice(0,-1), { role: 'assistant', text: '🍷 Nessun risultato. Prova a essere più specifico (es. "vino rosso per bistecca sotto 20€").' }]); setAiBusy(false); return }
-          const recText = recs.slice(0,4).map((r,i) =>
-            `${i+1}. **${r.name}**${r.denomination?' — '+r.denomination:''}
-   ${r.why||''}${r.typical_price_eur?' · ~€'+r.typical_price_eur:''}`
-          ).join('\n\n')
-          window.__jarvisWineRecs = recs
-          window.__jarvisWineQuery = text
-          setMessages(p => [...p.slice(0,-1), { role: 'assistant', text: `🍷 Ecco i miei consigli:\n\n${recText}\n\n💡 Scrivi "prendo il 1" (o 2,3,4) per aggiungerlo ai tuoi vini con geolocalizzazione!` }])
-        } catch(e) { setMessages(p => [...p.slice(0,-1), { role: 'assistant', text: '⚠️ Errore sommelier: '+e.message }]) }
-        setAiBusy(false); return
+        const { data: winePrefs } = await supabase.from('wines')
+          .select('name,style,region,denomination,rating_5').eq('user_id', userId)
+          .gte('rating_5', 4).limit(10)
+        const prefsText = winePrefs?.length
+          ? 'Vini che mi piacciono (voto ≥4): ' + winePrefs.map(w=>`${w.name} (${w.style||'rosso'}, ${w.region||'—'}, ★${w.rating_5})`).join('; ')
+          : ''
+        const sr = await fetch('/api/sommelier', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: text + (prefsText ? '\n\nI miei gusti: '+prefsText : ''), wineLists: [], qrLinks: [], userId })
+        })
+        const sData = await sr.json()
+        const recs = sData?.recommendations || []
+        if (!recs.length) {
+          setMessages(p => [...p.slice(0,-1), { role: 'assistant', text: '🍷 Nessun risultato. Prova: "vino rosso corposo per bistecca sotto 20€".' }])
+          return
+        }
+        const recText = recs.slice(0,4).map((r,i) =>
+          `${i+1}. **${r.name}**${r.denomination?' — '+r.denomination:''}\n   ${r.why||''}${r.typical_price_eur?' · ~€'+r.typical_price_eur:''}`
+        ).join('\n\n')
+        window.__jarvisWineRecs = recs
+        window.__jarvisWineQuery = text
+        setMessages(p => [...p.slice(0,-1), { role: 'assistant', text: `🍷 Ecco i miei consigli:\n\n${recText}\n\n💡 Scrivi "prendo il 1" (o 2, 3, 4) per aggiungerlo ai tuoi vini!` }])
+        return
       }
 
-      // ── 2b. Flusso "prendo questo vino" ──
-      if (/\b(prendo|scelgo|lo\s+prendo|prenderò|ordino)\b/.test(s) && window.__jarvisWineRecs?.length) {
+      // ── 2b. Flusso "prendo il vino N" ──
+      if (/\b(prendo|scelgo|lo\s+prendo|prender[oò]|ordino)\b/.test(s) && window.__jarvisWineRecs?.length) {
         const numMatch = text.match(/\b([1-4])\b/)
-        const idx = numMatch ? Number(numMatch[1])-1 : 0
-        const rec = window.__jarvisWineRecs[idx]
+        const rec = window.__jarvisWineRecs[numMatch ? Number(numMatch[1])-1 : 0]
         if (rec) {
-          setAiBusy(false)
-          setMessages(p => [...p, { role:'assistant', text:`✅ Ottima scelta: **${rec.name}**!\n📍 Acquisisco la tua posizione…` }])
+          setMessages(p => [...p, { role:'assistant', text:`✅ ${rec.name} — acquisisco posizione…` }])
+          let lat = null, lng = null
           try {
             const pos = await new Promise((ok,ko) => navigator.geolocation.getCurrentPosition(ok, ko, { timeout:8000, enableHighAccuracy:true }))
-            const lat = pos.coords.latitude, lng = pos.coords.longitude
-            const price = text.match(/\d+[,.]?\d*/)?.[0]
-            const r = await fetch('/api/wine-pairing-flow', {
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ action:'confirm_take', userId, wineRec: rec, lat, lng, price: price||null, sommelierQuery: window.__jarvisWineQuery })
-            })
-            const d = await r.json()
-            setMessages(p => [...p.slice(0,-1), { role:'assistant', text: d.text }])
-            window.__jarvisWineRecs = null
-          } catch(e) {
-            // Senza GPS
-            const r = await fetch('/api/wine-pairing-flow', {
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ action:'confirm_take', userId, wineRec: rec, sommelierQuery: window.__jarvisWineQuery })
-            })
-            const d = await r.json()
-            setMessages(p => [...p.slice(0,-1), { role:'assistant', text: d.text }])
-            window.__jarvisWineRecs = null
-          }
+            lat = pos.coords.latitude; lng = pos.coords.longitude
+          } catch { /* GPS non disponibile, procedo senza */ }
+          const wr = await fetch('/api/wine-pairing-flow', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'confirm_take', userId, wineRec: rec, lat, lng, sommelierQuery: window.__jarvisWineQuery })
+          })
+          const wd = await wr.json()
+          setMessages(p => [...p.slice(0,-1), { role:'assistant', text: wd.text || '✅ Vino aggiunto!' }])
+          window.__jarvisWineRecs = null
           return
         }
       }
@@ -528,16 +524,16 @@ const Home = () => {
       // ── 2c. Attiva notifiche push ──
       if (/\b(attiva|abilita|voglio)\s+.*(notifich|push|avvisi)\b/.test(s)) {
         await enablePushNotifications(userId)
-        setAiBusy(false); return
+        return
       }
 
-      // ── 2d. OCR bolletta (richiesta esplicita) ──
-      if (/\b(bolletta|fattura|luce|gas|acqua|internet|bollette)\b/.test(s) && /\b(carica|scansiona|ocr|aggiungi|inserisci)\b/.test(s)) {
-        setMessages(p => [...p, { role:'assistant', text:'📷 Usa il tasto 🧾 Bolletta nella barra per scansionare la bolletta!' }])
-        setAiBusy(false); return
+      // ── 2d. OCR bolletta (suggerimento) ──
+      if (/\b(bolletta|fattura|luce|gas|acqua|internet)\b/.test(s) && /\b(carica|scansiona|ocr|aggiungi|inserisci)\b/.test(s)) {
+        setMessages(p => [...p, { role:'assistant', text:'📷 Usa il tasto 🧾 Bolletta nella barra in alto per scansionare!' }])
+        return
       }
 
-      // ── 3. Assistant-v2 per tutto il resto ──
+      // ── 3. Assistant-v2 per tutto il resto (spese vocali, navigazione…) ──
       const r = await fetch('/api/assistant-v2', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: text, userId, conversationHistory: historyRef.current }),
@@ -547,8 +543,12 @@ const Home = () => {
       if (data.action) { const res = await executeAction(data.action, userId, router); if (res) reply += '\n' + res }
       if (data.navigate) { setTimeout(() => router.push(data.navigate), 800); reply += '\n→ Navigo…' }
       setMessages(p => [...p, { role: 'assistant', text: reply }])
-    } catch { setMessages(p => [...p, { role: 'assistant', text: '⚠️ Errore di connessione.' }]) }
-    finally { setAiBusy(false) }
+    } catch(e) {
+      console.error('[send]', e)
+      setMessages(p => [...p, { role: 'assistant', text: '⚠️ ' + (e?.message || 'Errore di connessione.') }])
+    } finally {
+      setAiBusy(false)  // SEMPRE qui — non nei branch intermedi
+    }
   }, [userId, router])
 
   const isRecRef = useRef(false)
@@ -568,22 +568,23 @@ const Home = () => {
       mediaRef.current = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
       mediaRef.current.ondataavailable = e => { if (e.data?.size > 0) chunksRef.current.push(e.data) }
       mediaRef.current.onstop = async () => {
+        // onstop NON gestisce setAiBusy — lo fa send() internamente con il suo try/finally
         try {
           const t0 = Date.now()
           while (!chunksRef.current.length && Date.now() - t0 < 1500) await new Promise(r => setTimeout(r, 60))
-          if (!chunksRef.current.length) throw new Error('Nessun audio')
+          if (!chunksRef.current.length) { setMessages(p => [...p, { role:'assistant', text:'⚠️ Nessun audio registrato' }]); return }
           const am = mediaRef.current?.mimeType || mime || 'audio/webm'
           const blob = new Blob(chunksRef.current, { type: am })
-          if (blob.size < 500) throw new Error('Audio troppo corto')
-          setAiBusy(true)
+          if (blob.size < 500) { setMessages(p => [...p, { role:'assistant', text:'⚠️ Audio troppo corto, riprova' }]); return }
           const fd = new FormData(); fd.append('audio', blob, extForMime(am))
           const r = await fetch('/api/stt', { method: 'POST', body: fd })
           const j = await r.json().catch(() => ({}))
-          if (!r.ok || !j?.text) throw new Error('Trascrizione fallita')
+          if (!r.ok || !j?.text) { setMessages(p => [...p, { role:'assistant', text:'⚠️ Trascrizione fallita — riprova' }]); return }
+          // send() gestisce setAiBusy(true/false) autonomamente
           await send(String(j.text || '').trim())
-        } catch (e) { setMessages(p => [...p, { role: 'assistant', text: '⚠️ ' + (e.message || 'Errore') }]) }
-        finally {
-          setAiBusy(false)
+        } catch (e) {
+          setMessages(p => [...p, { role: 'assistant', text: '⚠️ ' + (e.message || 'Errore audio') }])
+        } finally {
           try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
           streamRef.current = null
         }
@@ -1279,7 +1280,7 @@ const Home = () => {
         <div className="vote-overlay" onClick={e => e.target === e.currentTarget && setShowVoteModal(false)}>
           <div className="vote-modal">
             <div className="vote-header">
-              <span>🍷 Com'era <strong>{pendingVote.wineName}</strong>?</span>
+              <span>🍷 Com&apos;era <strong>{pendingVote.wineName}</strong>?</span>
               <button onClick={() => setShowVoteModal(false)}
                 style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:'1rem' }}>✕</button>
             </div>
