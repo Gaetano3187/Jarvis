@@ -369,7 +369,12 @@ const Home = () => {
             } else {
               await supabase.from('inventory').insert({
                 user_id: user.id, product_name: item.name, brand: item.brand ?? null,
-                category: catItem, qty: tot, initial_qty: tot,
+                category: catItem,
+                qty: tot, initial_qty: tot,
+                packs: item.packs ?? 1,
+                units_per_pack: item.units_per_pack ?? 1,
+                unit_label: item.unit_per_pack_label ?? item.unit ?? 'pz',
+                unit: item.unit ?? 'pz',
                 avg_price: item.unit_price || item.price || 0,
                 purchase_date: pd, expiry_date: expiryAuto, consumed_pct: 0, perishable_type: perishable,
               })
