@@ -52,7 +52,7 @@ function SpeseCasa(){
     try{
       const{data:rec}=await supabase.from('receipts').select('id').eq('expense_id',eid).maybeSingle()
       if(!rec){setRecMap(m=>({...m,[eid]:{items:[]}}));return}
-      const{data:items}=await supabase.from('receipt_items').select('id,name,brand,qty,unit,price').eq('receipt_id',rec.id).order('price',{ascending:false})
+      const{data:items}=await supabase.from('receipt_items').select('id,name,brand,packs,units_per_pack,unit_per_pack_label,qty,unit,unit_price,price,category_item').eq('receipt_id',rec.id).order('price',{ascending:false})
       setRecMap(m=>({...m,[eid]:{items:items||[]}}))
     }catch(e){setErr(e.message)}
   }
@@ -208,13 +208,32 @@ function SpeseCasa(){
               </div>
             </div>
             {expanded===exp.id&&<div className="ed2">
-              {recMap[exp.id]?.items?.length>0?(<><div className="dl">🛒 {recMap[exp.id].items.length} prodotti</div>
-                <div className="il">{recMap[exp.id].items.map(it=><div key={it.id} className="ir">
-                  <span className="iname">{it.name}{it.brand&&<em> · {it.brand}</em>}</span>
-                  <span className="iqty">{it.qty} {it.unit}</span>
-                  <span className="ipr" style={{color:'#22c55e'}}>{eur(it.price)}</span>
-                </div>)}</div></>)
-              :recMap[exp.id]?<div className="dem">Nessun dettaglio</div>:<div className="dem">Caricamento…</div>}
+              {recMap[exp.id]?.items?.length>0?(<>
+                <div className="dl">🛒 {recMap[exp.id].items.length} prodotti · scontrino</div>
+                <div className="il">{recMap[exp.id].items.map(it=>{
+                  const packs=Number(it.packs||1)
+                  const uPack=Number(it.units_per_pack||1)
+                  const uLabel=it.unit_per_pack_label||it.unit||'pz'
+                  const showPack=packs>1||uPack>1
+                  const packDesc=packs>1&&uPack>1
+                    ? `${packs} conf. × ${uPack} ${uLabel}`
+                    : packs>1 ? `${packs} × ${uLabel}`
+                    : uPack>1 ? `${uPack} ${uLabel}`
+                    : `${it.qty} ${it.unit||'pz'}`
+                  return<div key={it.id} className="ir">
+                    <div className="il-left">
+                      <span className="iname">{it.name}{it.brand&&<em className="ibrand"> · {it.brand}</em>}</span>
+                      <span className="ipack">{packDesc}</span>
+                    </div>
+                    <div className="il-right">
+                      {it.unit_price>0&&packs>1&&<span className="iupr">{eur(it.unit_price)}/cad</span>}
+                      <span className="ipr" style={{color:'#22c55e'}}>{eur(it.price)}</span>
+                    </div>
+                  </div>
+                })}</div>
+                <div className="itot">Totale <strong style={{color:'#22c55e'}}>{eur(recMap[exp.id].items.reduce((s,i)=>s+Number(i.price||0),0))}</strong></div>
+              </>)
+              :recMap[exp.id]?<div className="dem">Nessun dettaglio scontrino</div>:<div className="dem">Caricamento…</div>}
             </div>}
           </div>)}
         </div>}
@@ -347,6 +366,17 @@ const CSS = `
   .dprice{font-size:.69rem;color:rgba(100,116,139,.55)}
   .dexp{font-size:.66rem;color:#fbbf24}
   .dpct{font-size:.66rem;color:#f87171}
+  /* ── Dettaglio confezione ── */
+  .ir{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;font-size:.76rem;padding:.32rem 0;border-bottom:1px solid rgba(255,255,255,.03)}
+  .il-left{display:flex;flex-direction:column;gap:.1rem;flex:1;min-width:0}
+  .il-right{display:flex;flex-direction:column;align-items:flex-end;gap:.08rem;flex-shrink:0}
+  .iname{color:#cbd5e1;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ibrand{color:rgba(100,116,139,.6);font-style:normal}
+  .ipack{font-size:.68rem;color:rgba(100,116,139,.55)}
+  .iupr{font-size:.66rem;color:rgba(100,116,139,.45)}
+  .ipr{font-size:.8rem;font-weight:700;font-family:'Montserrat',sans-serif}
+  .iqty{color:rgba(100,116,139,.55);font-size:.69rem}
+  .itot{text-align:right;font-size:.72rem;color:rgba(100,116,139,.5);padding:.4rem 0 .1rem;border-top:1px solid rgba(255,255,255,.06);margin-top:.2rem}
 `
 
 export default withAuth(SpeseCasa)

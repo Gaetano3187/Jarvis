@@ -333,7 +333,11 @@ const Home = () => {
         try {
           await supabase.from('receipt_items').insert(items.map(it => ({
             receipt_id: recId, user_id: user.id, name: it.name,
-            brand: it.brand ?? null, qty: it.qty ?? 1, unit: it.unit ?? 'pz',
+            brand: it.brand ?? null,
+            packs: it.packs ?? 1,
+            units_per_pack: it.units_per_pack ?? 1,
+            unit_per_pack_label: it.unit_per_pack_label ?? 'pz',
+            qty: it.qty ?? 1, unit: it.unit ?? 'pz',
             unit_price: it.unit_price ?? it.price ?? 0, price: it.price ?? 0,
             category_item: it.category_item ?? 'alimentari',
             expiry_date: it.expiry_date ?? null, purchase_date: pd,
