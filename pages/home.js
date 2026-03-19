@@ -6,6 +6,10 @@ import { useRouter } from 'next/router'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '../lib/supabaseClient'
 
+/* --- Utility --- */
+function iso(d=new Date()){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function eur(n){return(Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'})}
+
 /* --- Normalizza categoria spesa --- */
 function normCat(raw) {
   const s = String(raw || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
