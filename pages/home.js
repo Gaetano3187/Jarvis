@@ -101,9 +101,7 @@ async function executeAction(action, userId, router) {
 ══════════════════════════════════════════════════════════════════ */
 const Home = () => {
   const router = useRouter()
-  const canvasRef = useRef(null)
-
-  /* ── State ── */
+    /* ── State ── */
   const [userId,      setUserId]      = useState(null)
   const [pocketBal,   setPocketBal]   = useState(null)
   const [alertItems,  setAlertItems]  = useState([])
@@ -165,33 +163,6 @@ const Home = () => {
     setListaSpesa(lista || [])
   }
 
-  /* ── Canvas particelle ── */
-  useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    let W, H, pts = [], raf
-    const resize = () => { W = canvas.width = canvas.offsetWidth; H = canvas.height = canvas.offsetHeight }
-    const mkPt = () => ({ x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - .5) * .22, vy: (Math.random() - .5) * .22, a: Math.random() * .35 + .05 })
-    const init = () => { resize(); pts = Array.from({ length: 65 }, mkPt) }
-    const draw = () => {
-      ctx.clearRect(0, 0, W, H)
-      for (const p of pts) {
-        ctx.beginPath(); ctx.arc(p.x, p.y, .7 + p.a, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(34,211,238,${p.a})`; ctx.fill()
-        p.x += p.vx; p.y += p.vy
-        if (p.x < 0 || p.x > W) p.vx *= -1
-        if (p.y < 0 || p.y > H) p.vy *= -1
-      }
-      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
-        const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y, d = Math.sqrt(dx * dx + dy * dy)
-        if (d < 85) { ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y); ctx.strokeStyle = `rgba(34,211,238,${(1 - d / 85) * .06})`; ctx.lineWidth = .5; ctx.stroke() }
-      }
-      raf = requestAnimationFrame(draw)
-    }
-    init(); draw()
-    window.addEventListener('resize', init)
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', init) }
-  }, [])
 
   /* ── Jarvis chat ── */
   const historyRef = useRef([])
@@ -278,17 +249,24 @@ const Home = () => {
     setLoadOCR(true); setErr(null); setOcrResult(null)
     try {
       const pl = (file.type === 'application/pdf' || file.name?.endsWith('.pdf')) ? file : await resizeImage(file)
+
+      // ocr-universal: riconosce tipo (scontrino/vino/fattura) + categoria in un'unica chiamata
       const fd = new FormData(); fd.append('image', pl, file.name || 'foto.jpg')
-      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000)
+      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 65000)
       let r; try { r = await fetch('/api/ocr-universal', { method: 'POST', body: fd, signal: ctrl.signal }) } finally { clearTimeout(t) }
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r.status}`) }
       const data = await r.json()
-      if (!data.doc_type || data.doc_type === 'unknown') throw new Error('Documento non riconoscibile — riprova con una foto più nitida')
+
+      if (!data.doc_type || data.doc_type === 'unknown')
+        throw new Error('Documento non riconoscibile — riprova con una foto più nitida')
+
       if (data.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
       setOcrResult(data)
+
     } catch (e) { setErr(e.name === 'AbortError' ? '⏱ Timeout — riprova' : 'OCR: ' + e.message) }
     finally { setLoadOCR(false) }
   }
+
 
   async function salvaRisultato() {
     if (!ocrResult || saving) return; setSaving(true); setErr(null)
@@ -424,6 +402,38 @@ const Home = () => {
         } catch (invErr) { console.warn('[inv] skip', item.name, invErr?.message) }
       }
 
+      // ── Spunta automatica lista spesa ──
+      // Per ogni prodotto acquistato, cerca nella lista e spunta purchased=true
+      if (items.length) {
+        try {
+          const { data: listaAperta } = await supabase
+            .from('shopping_list')
+            .select('id, name')
+            .eq('user_id', user.id)
+            .eq('purchased', false)
+
+          if (listaAperta?.length) {
+            const daSpuntare = []
+            for (const item of items) {
+              if (!item.name) continue
+              const parola = item.name.split(' ')[0].toLowerCase()
+              const match = listaAperta.find(l =>
+                l.name.toLowerCase().includes(parola) ||
+                parola.includes(l.name.toLowerCase().split(' ')[0])
+              )
+              if (match && !daSpuntare.includes(match.id))
+                daSpuntare.push(match.id)
+            }
+            if (daSpuntare.length) {
+              await supabase
+                .from('shopping_list')
+                .update({ purchased: true, updated_at: new Date().toISOString() })
+                .in('id', daSpuntare)
+            }
+          }
+        } catch (listErr) { console.warn('[lista] spunta skip:', listErr?.message) }
+      }
+
       if (pm === 'cash' && im > 0) try {
         await supabase.from('pocket_cash').insert({
           user_id: user.id, note: `Spesa ${st} (${pd})`,
@@ -444,10 +454,6 @@ const Home = () => {
   return (
     <>
       <Head><title>Home – Jarvis</title></Head>
-
-      <video className="home-video" src="/composizione%201.mp4" autoPlay muted loop preload="auto"
-        poster="https://play.teleporthq.io/static/svg/videoposter.svg" />
-      <canvas ref={canvasRef} className="home-canvas" />
 
       {/* OCR overlay */}
       {loadingOCR && (
@@ -673,14 +679,16 @@ const Home = () => {
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        .home-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
-        .home-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+        
+        
 
         .home-wrap {
-          position: relative; z-index: 2; min-height: 100vh;
+          position: relative; z-index: 1; min-height: 100vh;
           display: flex; flex-direction: column; align-items: center; gap: 1.1rem;
           padding: 2.5rem 1rem 3rem; font-family: Inter, system-ui, sans-serif;
           max-width: 680px; margin: 0 auto;
+          background: linear-gradient(180deg, #2aa9a9 0%, #114a52 38%, #0b2b31 100%);
+          background-attachment: fixed;
         }
 
         /* ══ HERO ══ */
