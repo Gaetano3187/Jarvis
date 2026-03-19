@@ -186,9 +186,14 @@ const Home = () => {
     finally { setAiBusy(false) }
   }, [userId, router])
 
+  const isRecRef = useRef(false)
   const toggleRec = useCallback(async () => {
-    if (isRec) {
+    // Usa ref per evitare stale closure
+    if (isRecRef.current) {
+      isRecRef.current = false
+      setIsRec(false)
       try { if (mediaRef.current?.state === 'recording') { mediaRef.current.requestData?.(); mediaRef.current.stop() } } catch {}
+      try { streamRef.current?.getTracks?.().forEach(t => t.stop()) } catch {}
       return
     }
     try {
@@ -218,11 +223,13 @@ const Home = () => {
           streamRef.current = null
         }
       }
+      isRecRef.current = true
       mediaRef.current.start(250); setIsRec(true); setJarvisOpen(true)
     } catch (err) {
+      isRecRef.current = false; setIsRec(false)
       setMessages(p => [...p, { role: 'assistant', text: '⚠️ ' + (err?.name === 'NotAllowedError' ? 'Microfono non autorizzato' : 'Microfono non disponibile') }])
     }
-  }, [isRec, send])
+  }, [send])
 
   useEffect(() => { if (!isRec) return; return () => { try { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() } catch {} } }, [isRec])
 
@@ -248,23 +255,175 @@ const Home = () => {
     if (!file) return
     setLoadOCR(true); setErr(null); setOcrResult(null)
     try {
-      const pl = (file.type === 'application/pdf' || file.name?.endsWith('.pdf')) ? file : await resizeImage(file)
+      const isPdf = file.type === 'application/pdf' || file.name?.endsWith('.pdf')
+      const pl = isPdf ? file : await resizeImage(file)
 
-      // ocr-universal: riconosce tipo (scontrino/vino/fattura) + categoria in un'unica chiamata
-      const fd = new FormData(); fd.append('image', pl, file.name || 'foto.jpg')
-      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 65000)
-      let r; try { r = await fetch('/api/ocr-universal', { method: 'POST', body: fd, signal: ctrl.signal }) } finally { clearTimeout(t) }
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r.status}`) }
-      const data = await r.json()
+      // Step 1: prova ocr-universal per riconoscere il tipo documento
+      const fd1 = new FormData(); fd1.append('image', pl, file.name || 'foto.jpg')
+      const ctrl1 = new AbortController(); const t1 = setTimeout(() => ctrl1.abort(), 65000)
+      let r1; try { r1 = await fetch('/api/ocr-universal', { method: 'POST', body: fd1, signal: ctrl1.signal }) } finally { clearTimeout(t1) }
+      if (!r1.ok) { const e = await r1.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r1.status}`) }
+      const universal = await r1.json()
 
-      if (!data.doc_type || data.doc_type === 'unknown')
-        throw new Error('Documento non riconoscibile — riprova con una foto più nitida')
+      // Etichetta vino → mostra preview per conferma
+      if (universal.doc_type === 'wine_label') {
+        if (universal.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
+        setOcrResult(universal)
+        return
+      }
 
-      if (data.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
-      setOcrResult(data)
+      // Scontrino/fattura → usa ocr-smart per parsing prodotti più preciso, poi salva automaticamente
+      if (universal.doc_type === 'receipt' || universal.doc_type === 'invoice') {
+        const fd2 = new FormData(); fd2.append('image', pl, file.name || 'foto.jpg')
+        const ctrl2 = new AbortController(); const t2 = setTimeout(() => ctrl2.abort(), 65000)
+        let smartData
+        try {
+          const r2 = await fetch('/api/ocr-smart', { method: 'POST', body: fd2, signal: ctrl2.signal })
+          const j2 = await r2.json()
+          // Unisce: prende categoria da universal (più affidabile), items da smart (più preciso)
+          smartData = {
+            ...j2,
+            doc_type: universal.doc_type,
+            categoria: universal.categoria || j2.categoria || 'varie',
+          }
+        } catch {
+          // Fallback: usa i dati di ocr-universal
+          smartData = { ...universal }
+        } finally { clearTimeout(t2) }
+
+        if (smartData.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
+
+        // Salva automaticamente
+        await _salvaRicevuta(smartData)
+        return
+      }
+
+      throw new Error('Documento non riconoscibile — riprova con una foto più nitida')
 
     } catch (e) { setErr(e.name === 'AbortError' ? '⏱ Timeout — riprova' : 'OCR: ' + e.message) }
     finally { setLoadOCR(false) }
+  }
+
+  // Salva scontrino/fattura automaticamente dopo OCR
+  async function _salvaRicevuta(data) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessione scaduta')
+
+      const pd  = data.purchase_date ?? new Date().toISOString().slice(0, 10)
+      const st  = data.store ?? 'Generico'
+      const im  = parseFloat(data.price_total ?? 0)
+      const cat = normCat(data.categoria ?? 'varie')
+      const pm  = data.payment_method ?? 'unknown'
+      const items = Array.isArray(data.items) ? data.items : []
+
+      // Salva spesa
+      const { data: expRow, error: expErr } = await supabase.from('expenses').insert([{
+        user_id: user.id, category: cat, store: st,
+        store_address: data.store_address ?? null,
+        description: `Spesa ${st} — ${pd}`,
+        purchase_date: pd, amount: im, payment_method: pm, source: 'ocr',
+      }]).select('id').single()
+      if (expErr) throw new Error(expErr.message)
+
+      // Salva receipt
+      let recId = null
+      try {
+        const { data: rr } = await supabase.from('receipts').insert([{
+          user_id: user.id, expense_id: expRow?.id, store: st,
+          store_address: data.store_address ?? null,
+          purchase_date: pd, price_total: im, payment_method: pm,
+          raw_text: data.raw_text ?? null, confidence: data.confidence ?? 'medium',
+        }]).select('id').single()
+        recId = rr?.id ?? null
+      } catch {}
+
+      // Salva receipt_items
+      if (recId && items.length) {
+        try {
+          await supabase.from('receipt_items').insert(items.map(it => ({
+            receipt_id: recId, user_id: user.id, name: it.name,
+            brand: it.brand ?? null, qty: it.qty ?? 1, unit: it.unit ?? 'pz',
+            unit_price: it.unit_price ?? it.price ?? 0, price: it.price ?? 0,
+            category_item: it.category_item ?? 'alimentari',
+            expiry_date: it.expiry_date ?? null, purchase_date: pd,
+          })))
+        } catch {}
+      }
+
+      // Aggiorna inventario (solo categoria casa)
+      if (cat === 'casa' && items.length) {
+        for (const item of items.filter(it => it.name && it.category_item !== 'altro')) {
+          try {
+            const tot = Number(item.qty || 1)
+            const perishable = item.perishable_type || 'standard'
+            const catItem = item.category_item || 'alimentari'
+            const expiryAuto = perishable === 'fresh' && !item.expiry_date
+              ? (() => { const d = new Date(pd); d.setDate(d.getDate()+2); return d.toISOString().slice(0,10) })()
+              : (item.expiry_date ?? null)
+            const searchKey = item.name.split(' ').slice(0,2).join(' ')
+            const { data: ex } = await supabase.from('inventory').select('id,qty,initial_qty')
+              .eq('user_id', user.id).ilike('product_name', `%${searchKey}%`).maybeSingle()
+            if (ex) {
+              await supabase.from('inventory').update({
+                qty: Number(ex.qty || 0) + tot,
+                initial_qty: Number(ex.initial_qty || 0) + tot,
+                consumed_pct: 0, avg_price: item.unit_price || item.price || 0,
+                last_updated: new Date().toISOString(), perishable_type: perishable,
+                ...(expiryAuto ? { expiry_date: expiryAuto } : {}),
+              }).eq('id', ex.id)
+            } else {
+              await supabase.from('inventory').insert({
+                user_id: user.id, product_name: item.name, brand: item.brand ?? null,
+                category: catItem, qty: tot, initial_qty: tot,
+                avg_price: item.unit_price || item.price || 0,
+                purchase_date: pd, expiry_date: expiryAuto, consumed_pct: 0, perishable_type: perishable,
+              })
+            }
+          } catch (invErr) { console.warn('[inv] skip', item.name, invErr?.message) }
+        }
+      }
+
+      // Spunta lista spesa
+      if (items.length) {
+        try {
+          const { data: lista } = await supabase.from('shopping_list').select('id,name')
+            .eq('user_id', user.id).eq('purchased', false)
+          if (lista?.length) {
+            const ids = []
+            for (const item of items) {
+              if (!item.name) continue
+              const parola = item.name.split(' ')[0].toLowerCase()
+              const match = lista.find(l =>
+                l.name.toLowerCase().includes(parola) ||
+                parola.includes(l.name.toLowerCase().split(' ')[0])
+              )
+              if (match && !ids.includes(match.id)) ids.push(match.id)
+            }
+            if (ids.length) await supabase.from('shopping_list')
+              .update({ purchased: true, updated_at: new Date().toISOString() }).in('id', ids)
+          }
+        } catch {}
+      }
+
+      // Pocket cash
+      if (pm === 'cash' && im > 0) {
+        try {
+          await supabase.from('pocket_cash').insert({
+            user_id: user.id, note: `Spesa ${st} (${pd})`,
+            delta: -im, moved_at: new Date().toISOString(),
+          })
+        } catch {}
+      }
+
+      const nItems = items.length
+      setMessages(p => [...p, { role: 'assistant', text: `✅ Scontrino salvato!\n🏪 ${st} — ${eur(im)}\n📦 ${nItems} prodotti registrati${cat === 'casa' && nItems ? ' in dispensa' : ''}` }])
+      setJarvisOpen(true)
+      await fetchDashboard(user.id)
+
+    } catch (e) {
+      setErr('Salvataggio: ' + e.message)
+    }
   }
 
 
@@ -532,58 +691,77 @@ const Home = () => {
           </div>
         )}
 
-        {/* ══ ZONA COMANDO ══ */}
+        {/* ══ ZONA COMANDO — 3 icone ══ */}
         <div className="cmd-zone">
 
-          {/* PULSANTE AI — effetto plasma */}
+          {/* 🎙 MICROFONO — vocale */}
           <button
-            className={`cmd-ai ${jarvisOpen ? 'cmd-ai--open' : ''} ${isRec ? 'cmd-ai--rec' : ''} ${aibusy ? 'cmd-ai--busy' : ''}`}
-            onClick={() => { setJarvisOpen(v => !v); if (isRec) toggleRec() }}
+            className={`cmd-icon-btn ${isRec ? 'cib--rec' : ''} ${aibusy && !isRec ? 'cib--busy' : ''}`}
+            onClick={toggleRec}
+            disabled={aibusy && !isRec}
+            title={isRec ? 'Ferma registrazione' : 'Parla con Jarvis'}
           >
-            {/* Anelli plasma */}
-            <span className="ai-plasma ai-plasma-1" />
-            <span className="ai-plasma ai-plasma-2" />
-            <span className="ai-plasma ai-plasma-3" />
-            {/* Core */}
-            <span className="ai-core">
-              <span className="ai-core-inner">AI</span>
+            <span className="cib-ring" />
+            <span className="cib-icon">
+              {isRec ? (
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                  <rect x="6" y="6" width="12" height="12" rx="2" fill="#f87171"/>
+                </svg>
+              ) : (
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                  <rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8"/>
+                  <path d="M5 10a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  <line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  <line x1="9" y1="21" x2="15" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+              )}
             </span>
-            <span className="ai-label-wrap">
-              <span className="ai-name">Jarvis</span>
-              <span className="ai-status">
-                {isRec ? '● In ascolto' : aibusy ? '◌ Elaboro…' : 'Assistente vocale'}
-              </span>
-            </span>
-            {/* Particelle decorative */}
-            <span className="ai-spark ai-spark-1" />
-            <span className="ai-spark ai-spark-2" />
-            <span className="ai-spark ai-spark-3" />
+            <span className="cib-label">{isRec ? 'Stop' : aibusy ? '…' : 'Voce'}</span>
           </button>
 
-          {/* PULSANTE OCR — effetto scan */}
-          <label className={`cmd-ocr ${loadingOCR ? 'cmd-ocr--busy' : ''}`}>
-            <span className="ocr-scan ocr-scan-h" />
-            <span className="ocr-scan ocr-scan-v" />
-            <span className="ocr-qr-wrap">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="ocr-qr-svg">
-                <rect x="2" y="2" width="8" height="8" rx="1.5" stroke="#f59e0b" strokeWidth="1.6"/>
-                <rect x="3.5" y="3.5" width="5" height="5" rx=".5" fill="#f59e0b" fillOpacity=".35"/>
-                <rect x="14" y="2" width="8" height="8" rx="1.5" stroke="#f59e0b" strokeWidth="1.6"/>
-                <rect x="15.5" y="3.5" width="5" height="5" rx=".5" fill="#f59e0b" fillOpacity=".35"/>
-                <rect x="2" y="14" width="8" height="8" rx="1.5" stroke="#f59e0b" strokeWidth="1.6"/>
-                <rect x="3.5" y="15.5" width="5" height="5" rx=".5" fill="#f59e0b" fillOpacity=".35"/>
-                <path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2zM16 16h2v2h-2z" fill="#f59e0b"/>
+          {/* ⌨️ TASTIERA — apre chat testo */}
+          <button
+            className={`cmd-icon-btn ${jarvisOpen ? 'cib--active' : ''}`}
+            onClick={() => setJarvisOpen(v => !v)}
+            title="Scrivi a Jarvis"
+          >
+            <span className="cib-ring" />
+            <span className="cib-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.8"/>
+                <line x1="6" y1="9" x2="6" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="10" y1="9" x2="10" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="14" y1="9" x2="14" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="18" y1="9" x2="18" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="6" y1="13" x2="6" y2="13.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="10" y1="13" x2="10" y2="13.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="14" y1="13" x2="14" y2="13.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
             </span>
-            <span className="ocr-label-wrap">
-              <span className="ocr-name">Scontrino</span>
-              <span className="ocr-status">{loadingOCR ? 'Analisi…' : 'Scansiona OCR'}</span>
+            <span className="cib-label">Scrivi</span>
+          </button>
+
+          {/* 📷 CAMERA — OCR */}
+          <label
+            className={`cmd-icon-btn ${loadingOCR ? 'cib--busy' : ''}`}
+            style={{cursor: loadingOCR ? 'wait' : 'pointer'}}
+            title="Scansiona scontrino o etichetta"
+          >
+            <span className="cib-ring" />
+            <span className="cib-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
+                <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.8"/>
+              </svg>
             </span>
+            <span className="cib-label">{loadingOCR ? '…' : 'OCR'}</span>
             {!loadingOCR && (
-              <input type="file" style={{ display: 'none' }}
+              <input type="file" accept="image/*" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleOCR(f) }} />
             )}
           </label>
+
         </div>
 
         {/* ══ CHAT JARVIS ══ */}
@@ -617,8 +795,11 @@ const Home = () => {
             {/* Input */}
             <form className="chat-form" onSubmit={onSubmit}>
               <button type="button" className={`chat-mic-btn ${isRec ? 'mic-rec' : ''}`}
-                onClick={toggleRec} disabled={aibusy && !isRec}>
-                {isRec ? '⏹' : '🎙'}
+                onClick={toggleRec} disabled={aibusy && !isRec} title={isRec ? 'Ferma registrazione' : 'Registra vocale'}>
+                {isRec
+                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                }
               </button>
               <input className="chat-inp" value={textInput}
                 onChange={e => setTextInput(e.target.value)}
@@ -762,90 +943,64 @@ const Home = () => {
         .lista-cta:hover { background: rgba(34,211,238,.04); }
 
         /* ══ ZONA COMANDO ══ */
-        .cmd-zone { display: flex; gap: .75rem; width: 100%; }
-
-        /* ── Pulsante AI ── */
-        .cmd-ai {
-          flex: 1; position: relative; display: flex; align-items: center; gap: .9rem;
-          background: rgba(0,6,15,.8); border: 1px solid rgba(34,211,238,.3);
-          border-radius: 18px; padding: 1rem 1.2rem;
-          cursor: pointer; overflow: hidden; isolation: isolate;
-          transition: border-color .2s, box-shadow .2s;
+        /* ══ ZONA COMANDO — 3 icone ══ */
+        .cmd-zone {
+          display: flex; gap: 1rem; width: 100%;
+          justify-content: center; padding: .5rem 0;
         }
-        .cmd-ai:hover { border-color: rgba(34,211,238,.6); box-shadow: 0 0 24px -6px rgba(34,211,238,.4); }
-        .cmd-ai--open { border-color: rgba(34,211,238,.7); box-shadow: 0 0 30px -4px rgba(34,211,238,.5); }
-        .cmd-ai--rec  { border-color: rgba(239,68,68,.6) !important; box-shadow: 0 0 24px -4px rgba(239,68,68,.4) !important; }
-        .cmd-ai--busy { border-color: rgba(251,191,36,.4) !important; }
 
-        /* Anelli plasma */
-        .ai-plasma {
-          position: absolute; border-radius: 50%; pointer-events: none;
-          border: 1px solid rgba(34,211,238,.25); top: 50%; left: 28px;
+        /* Bottone icona base */
+        .cmd-icon-btn {
+          position: relative;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: .55rem; width: 88px; height: 88px;
+          background: rgba(0,6,15,.7); border: 1px solid rgba(255,255,255,.12);
+          border-radius: 22px; cursor: pointer;
+          color: rgba(148,163,184,.8);
+          transition: color .18s, border-color .18s, box-shadow .18s, background .18s;
+          overflow: hidden;
         }
-        .ai-plasma-1 { width: 52px; height: 52px; transform: translate(-50%,-50%); animation: plasma 2s ease-in-out infinite; }
-        .ai-plasma-2 { width: 40px; height: 40px; transform: translate(-50%,-50%); animation: plasma 2s ease-in-out infinite .3s; border-color: rgba(34,211,238,.4); }
-        .ai-plasma-3 { width: 28px; height: 28px; transform: translate(-50%,-50%); animation: plasma 2s ease-in-out infinite .6s; border-color: rgba(34,211,238,.6); }
-        @keyframes plasma { 0%,100%{opacity:.4;transform:translate(-50%,-50%)scale(1)} 50%{opacity:1;transform:translate(-50%,-50%)scale(1.12)} }
-
-        .ai-core {
-          position: relative; z-index: 1; width: 36px; height: 36px; flex-shrink: 0;
-          border-radius: 50%; border: 1px solid rgba(34,211,238,.5);
-          background: radial-gradient(circle,rgba(34,211,238,.25),rgba(0,6,15,.8));
-          display: flex; align-items: center; justify-content: center;
-          animation: coreGlow 2s ease-in-out infinite;
+        .cmd-icon-btn:hover {
+          color: #e2e8f0; border-color: rgba(34,211,238,.45);
+          background: rgba(34,211,238,.07);
+          box-shadow: 0 0 20px -6px rgba(34,211,238,.35);
         }
-        @keyframes coreGlow { 0%,100%{box-shadow:0 0 8px rgba(34,211,238,.4)} 50%{box-shadow:0 0 20px rgba(34,211,238,.8),0 0 40px rgba(34,211,238,.3)} }
-        .ai-core-inner { font-family: 'Orbitron',monospace; font-size: .5rem; font-weight: 900; color: #22d3ee; letter-spacing: 1px; }
-
-        .ai-label-wrap { display: flex; flex-direction: column; gap: .1rem; position: relative; z-index: 1; }
-        .ai-name   { font-family: 'Orbitron',monospace; font-size: .88rem; font-weight: 900; color: #22d3ee; letter-spacing: 2px; }
-        .ai-status { font-size: .68rem; color: #475569; }
-
-        /* Scintille decorative */
-        .ai-spark {
-          position: absolute; width: 3px; height: 3px; border-radius: 50%;
-          background: rgba(34,211,238,.8); pointer-events: none;
-          animation: spark 3s ease-in-out infinite;
+        .cmd-icon-btn:nth-child(3):hover {
+          border-color: rgba(245,158,11,.45);
+          background: rgba(245,158,11,.07);
+          box-shadow: 0 0 20px -6px rgba(245,158,11,.35);
         }
-        .ai-spark-1 { top: 20%; right: 18%; animation-delay: 0s; }
-        .ai-spark-2 { top: 65%; right: 25%; animation-delay: 1s; }
-        .ai-spark-3 { top: 40%; right: 12%; animation-delay: 2s; }
-        @keyframes spark { 0%,100%{opacity:0;transform:scale(.5)} 40%,60%{opacity:1;transform:scale(1)} }
-
-        /* ── Pulsante OCR ── */
-        .cmd-ocr {
-          flex: 1; position: relative; display: flex; align-items: center; gap: .9rem;
-          background: rgba(15,8,0,.8); border: 1px solid rgba(245,158,11,.3);
-          border-radius: 18px; padding: 1rem 1.2rem;
-          cursor: pointer; overflow: hidden; isolation: isolate;
-          transition: border-color .2s, box-shadow .2s;
+        /* Mic attivo = registrazione in corso */
+        .cib--rec {
+          color: #f87171 !important; border-color: rgba(239,68,68,.6) !important;
+          background: rgba(239,68,68,.1) !important;
+          box-shadow: 0 0 20px -4px rgba(239,68,68,.4) !important;
+          animation: recPulse 1s ease-in-out infinite;
         }
-        .cmd-ocr:hover { border-color: rgba(245,158,11,.65); box-shadow: 0 0 24px -6px rgba(245,158,11,.4); }
-        .cmd-ocr--busy { opacity: .6; pointer-events: none; }
+        @keyframes recPulse { 0%,100%{box-shadow:0 0 14px -4px rgba(239,68,68,.4)} 50%{box-shadow:0 0 28px -2px rgba(239,68,68,.7)} }
 
-        /* Linee scan animate */
-        .ocr-scan {
-          position: absolute; background: rgba(245,158,11,.35); pointer-events: none;
+        /* Chat tastiera aperta */
+        .cib--active {
+          color: #22d3ee !important; border-color: rgba(34,211,238,.6) !important;
+          background: rgba(34,211,238,.1) !important;
         }
-        .ocr-scan-h { height: 1px; left: 0; right: 0; top: 35%; animation: scanH 2.5s linear infinite; }
-        .ocr-scan-v { width: 1px; top: 0; bottom: 0; left: 30%; animation: scanV 3s linear infinite .8s; }
-        @keyframes scanH { 0%{top:15%;opacity:0} 10%{opacity:1} 90%{opacity:1} 100%{top:85%;opacity:0} }
-        @keyframes scanV { 0%{left:15%;opacity:0} 10%{opacity:1} 90%{opacity:1} 100%{left:85%;opacity:0} }
+        /* Busy */
+        .cib--busy { opacity: .45; pointer-events: none; cursor: not-allowed; }
 
-        .ocr-qr-wrap {
-          position: relative; z-index: 1; width: 36px; height: 36px; flex-shrink: 0;
-          border-radius: 10px; border: 1px solid rgba(245,158,11,.4);
-          background: rgba(245,158,11,.08);
-          display: flex; align-items: center; justify-content: center;
-          animation: qrGlow 2.5s ease-in-out infinite;
+        /* Anello pulsante dietro */
+        .cib-ring {
+          position: absolute; inset: -1px; border-radius: 22px;
+          border: 1px solid transparent; pointer-events: none;
+          transition: border-color .18s;
         }
-        @keyframes qrGlow { 0%,100%{box-shadow:0 0 6px rgba(245,158,11,.3)} 50%{box-shadow:0 0 18px rgba(245,158,11,.7),0 0 32px rgba(245,158,11,.2)} }
-        .ocr-qr-svg { animation: qrSpin 8s linear infinite; }
-        @keyframes qrSpin { 0%,90%{transform:rotate(0)} 95%{transform:rotate(3deg)} 100%{transform:rotate(0)} }
+        .cmd-icon-btn:hover .cib-ring { border-color: rgba(34,211,238,.2); }
+        .cmd-icon-btn:nth-child(3):hover .cib-ring { border-color: rgba(245,158,11,.2); }
 
-        .ocr-label-wrap { display: flex; flex-direction: column; gap: .1rem; position: relative; z-index: 1; }
-        .ocr-name   { font-family: 'Orbitron',monospace; font-size: .88rem; font-weight: 900; color: #fbbf24; letter-spacing: 2px; }
-        .ocr-status { font-size: .68rem; color: #475569; }
+        .cib-icon { display: flex; align-items: center; justify-content: center; }
+        .cib-label {
+          font-size: .62rem; font-weight: 700; letter-spacing: .08em;
+          text-transform: uppercase; color: inherit; line-height: 1;
+        }
 
         /* ══ CHAT ══ */
         .chat-panel {
