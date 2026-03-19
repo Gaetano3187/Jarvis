@@ -204,7 +204,7 @@ function SpeseCasa(){
               <div className="eg">
                 <span className="ev" style={{color:'#22c55e'}}>{eur(exp.amount)}</span>
                 <span className="ech">{expanded===exp.id?'▲':'▼'}</span>
-                <button className="dx" onClick={e=>{e.stopPropagation();supabase.from('expenses').delete().eq('id',exp.id);setExpenses(x=>x.filter(r=>r.id!==exp.id));if(expanded===exp.id)setExpanded(null)}}>✕</button>
+                <button className="dx" onClick={async e=>{e.stopPropagation();const{error}=await supabase.from('expenses').delete().eq('id',exp.id);if(!error){setExpenses(x=>x.filter(r=>r.id!==exp.id));if(expanded===exp.id)setExpanded(null)}}}>✕</button>
               </div>
             </div>
             {expanded===exp.id&&<div className="ed2">
@@ -254,7 +254,7 @@ function SpeseCasa(){
                 {p.expiry_date&&<span className="dexp">⏰ {p.expiry_date}</span>}
                 {pct>0&&<span className="dpct">{Math.round(pct)}%</span>}
               </div>
-              <button className="dx" onClick={()=>{supabase.from('inventory').delete().eq('id',p.id);setInventory(iv=>iv.filter(r=>r.id!==p.id))}}>✕</button>
+              <button className="dx" onClick={()=>{(async()=>{const{error}=await supabase.from('inventory').delete().eq('id',p.id);if(!error)setInventory(iv=>iv.filter(r=>r.id!==p.id))})()}}>✕</button>
             </div>
           })}
         </div>}

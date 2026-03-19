@@ -192,7 +192,7 @@ function VestitiEdAltro(){
               <div className="eg">
                 <span className="ev" style={{color:'#f472b6'}}>{eur(exp.amount)}</span>
                 <span className="ech">{expanded===exp.id?'▲':'▼'}</span>
-                <button className="dx" onClick={e=>{e.stopPropagation();supabase.from('expenses').delete().eq('id',exp.id);setExpenses(x=>x.filter(r=>r.id!==exp.id));if(expanded===exp.id)setExpanded(null)}}>✕</button>
+                <button className="dx" onClick={e=>{e.stopPropagation();(async()=>{const{error}=await supabase.from('expenses').delete().eq('id',exp.id);if(!error){setExpenses(x=>x.filter(r=>r.id!==exp.id));if(expanded===exp.id)setExpanded(null)}})()}}>✕</button>
               </div>
             </div>
             {expanded===exp.id&&<div className="ed2">
@@ -220,7 +220,7 @@ function VestitiEdAltro(){
               {p.store&&<span className="pstore">@ {p.store}</span>}
               <span className="pdate">{p.purchase_date}</span>
             </div>
-            <button className="dx" onClick={()=>{supabase.from('purchase_items').delete().eq('id',p.id);setPurchases(px=>px.filter(r=>r.id!==p.id))}}>✕</button>
+            <button className="dx" onClick={()=>{(async()=>{const{error}=await supabase.from('purchase_items').delete().eq('id',p.id);if(!error)setPurchases(px=>px.filter(r=>r.id!==p.id))})()}}>✕</button>
           </div>)}
         </div>}
       </div>
