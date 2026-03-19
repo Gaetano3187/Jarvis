@@ -208,25 +208,54 @@ async function executeAction(action, userId, router) {
     const today = new Date().toISOString().slice(0, 10)
     switch (action.type) {
       case 'add_expense': {
-        // normCat può restituire null se non riconosce il negozio
-        // catFromStore cerca per nome/tipo, con fallback garantito a 'varie'
+        // catFromStore → fallback garantito a 'varie' (mai null)
         const rawCat = catFromStore(action.category, action.store_type)
           || (['casa','vestiti','cene','varie'].includes(action.category) ? action.category : null)
           || 'varie'
-        const { error } = await supabase.from('expenses').insert({
+        const storeVal = action.store || action.store_name || null
+        const descVal  = action.description || storeVal || 'Spesa'
+
+        // Salva spesa principale
+        const { data: newExp, error } = await supabase.from('expenses').insert({
           user_id: userId, category: rawCat,
-          store: action.store || null,
-          description: action.description || action.store || 'Spesa vocale',
-          amount: Number(action.amount || 0), purchase_date: action.date || today,
-          payment_method: action.payment_method || 'cash', source: 'voice',
-        })
+          store: storeVal, description: descVal,
+          amount: Number(action.amount || 0),
+          purchase_date: action.date || today,
+          payment_method: action.payment_method || 'cash',
+          source: 'voice',
+        }).select('id').single()
         if (error) throw error
-        if ((action.payment_method || 'cash') === 'cash' && action.amount > 0)
+
+        // Salva prodotti specifici in purchase_items (se forniti da GPT)
+        const items = Array.isArray(action.items) ? action.items.filter(i => i?.name?.trim()) : []
+        if (items.length && newExp?.id) {
+          await supabase.from('purchase_items').insert(
+            items.map(i => ({
+              user_id:      userId,
+              expense_id:   newExp.id,
+              category:     rawCat,
+              name:         String(i.name).trim(),
+              qty:          Number(i.qty || 1),
+              unit_price:   Number(i.unit_price || 0),
+              price:        parseFloat((Number(i.unit_price || 0) * Number(i.qty || 1)).toFixed(2)),
+              purchase_date: action.date || today,
+              store:        storeVal,
+            }))
+          )
+        }
+
+        // Aggiorna contanti se pagato in cash
+        if ((action.payment_method || 'cash') === 'cash' && Number(action.amount) > 0)
           await supabase.from('pocket_cash').insert({
-            user_id: userId, note: action.description || 'Spesa vocale',
+            user_id: userId, note: descVal,
             delta: -Number(action.amount), moved_at: new Date().toISOString(),
           })
-        return `✓ Spesa €${Number(action.amount).toFixed(2)} salvata`
+
+        const catIcon = {casa:'🏠',cene:'🍽️',vestiti:'👗',varie:'🧰'}[rawCat] || '📦'
+        const itemsStr = items.length
+          ? '\n' + items.map(i => `  • ${i.qty||1}x ${i.name}${i.unit_price?' @ €'+Number(i.unit_price).toFixed(2)+'/cad':''}`).join('\n')
+          : ''
+        return `${catIcon} €${Number(action.amount).toFixed(2)} salvati${storeVal?' @ '+storeVal:''}${itemsStr}`
       }
       case 'add_income': {
         const { error } = await supabase.from('incomes').insert({
