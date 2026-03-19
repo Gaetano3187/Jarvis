@@ -1770,6 +1770,9 @@ const Home = () => {
         }
         @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important;transition:none!important; } }
       `}</style>
+    </>
+  )
+}
 
 export default withAuth(Home)
 export async function getServerSideProps() { return { props: {} } }
