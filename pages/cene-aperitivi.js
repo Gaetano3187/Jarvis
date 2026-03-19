@@ -1,493 +1,292 @@
 // pages/cene-aperitivi.js
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
-import withAuth from '../hoc/withAuth';
-import { supabase } from '../lib/supabaseClient';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Head from 'next/head'
+import withAuth from '../hoc/withAuth'
+import { supabase } from '../lib/supabaseClient'
 
-/* -------------------- helpers data/tempo -------------------- */
-function isoLocal(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+function isoLocal(d=new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function toMonthKey(d=new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
+function clampMK(s) { return /^\d{4}-\d{2}$/.test(String(s||''))?s:toMonthKey() }
+function monthBounds(mk) {
+  if (mk==='all') return { s:'2000-01-01', e:'2099-12-31' }
+  const [y,m]=mk.split('-').map(Number)
+  return { s:isoLocal(new Date(y,m-1,1)), e:isoLocal(new Date(y,m,0)) }
 }
-function toMonthKey(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
+function eur(n) { return (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'}) }
+function getBestMime() {
+  if (typeof MediaRecorder==='undefined') return ''
+  for (const t of ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'])
+    try { if (MediaRecorder.isTypeSupported(t)) return t } catch {}
+  return ''
 }
-function clampMonthKey(s) {
-  return /^\d{4}-\d{2}$/.test(String(s || '')) ? s : toMonthKey(new Date());
-}
-function monthBounds(monthKey) {
-  if (monthKey === 'all') return { startISO: '2000-01-01', endISO: '2099-12-31' };
-  const [y, m] = monthKey.split('-').map(Number);
-  const start = new Date(y, m - 1, 1);
-  const end = new Date(y, m, 0);
-  return { startISO: isoLocal(start), endISO: isoLocal(end) };
-}
+function extForMime(m='') { return m.includes('mp4')?'voice.mp4':m.includes('ogg')?'voice.ogg':'voice.webm' }
 
-/* -------------------- componente -------------------- */
 function CeneAperitivi() {
-  const [spese, setSpese] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const canvasRef = useRef(null)
+  const mediaRef  = useRef(null)
+  const chunksRef = useRef([])
+  const streamRef = useRef(null)
 
-  const [recBusy, setRecBusy] = useState(false);
-  const mediaRecRef = useRef(null);
-  const recordedChunks = useRef([]);
-  const ocrInputRef = useRef(null);
-
-  const [nuovaSpesa, setNuovaSpesa] = useState({
-    puntoVendita: '',
-    dettaglio: '',
-    quantita: '1',
-    prezzoTotale: '',
-    spentAt: '',
-  });
-
-  const initialMonth = useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    return new URLSearchParams(window.location.search).get('month') || null;
-  }, []);
-
+  const [rows,     setRows]     = useState([])
+  const [loading,  setLoading]  = useState(false)
+  const [err,      setErr]      = useState(null)
+  const [isRec,    setIsRec]    = useState(false)
+  const [aibusy,   setAiBusy]   = useState(false)
+  const [userId,   setUserId]   = useState(null)
+  const [showForm, setShowForm] = useState(false)
+  const [form,     setForm]     = useState({ store:'', description:'', amount:'', date:'' })
   const [monthKey, setMonthKey] = useState(() => {
-    if (typeof window === 'undefined') return toMonthKey(new Date());
-    const local = window.localStorage.getItem('__cene_month');
-    return clampMonthKey(initialMonth || local || toMonthKey(new Date()));
-  });
+    if (typeof window==='undefined') return toMonthKey()
+    return clampMK(localStorage.getItem('__cene_month')||toMonthKey())
+  })
 
   useEffect(() => {
+    supabase.auth.getUser().then(({data:{user}}) => { if (user) setUserId(user.id) })
+  }, [])
+  useEffect(() => { try { localStorage.setItem('__cene_month',monthKey) } catch {} }, [monthKey])
+
+  const { s:startISO, e:endISO } = useMemo(() => monthBounds(monthKey), [monthKey])
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true); setErr(null)
     try {
-      window.localStorage.setItem('__cene_month', monthKey);
-      const url = new URL(window.location.href);
-      url.searchParams.set('month', monthKey);
-      window.history.replaceState({}, '', url.toString());
-    } catch {}
-  }, [monthKey]);
+      const { data:{user} } = await supabase.auth.getUser(); if (!user) throw new Error('Sessione scaduta')
+      let q = supabase.from('expenses').select('id,store,description,amount,purchase_date').eq('user_id',user.id).eq('category','cene').order('purchase_date',{ascending:false})
+      if (monthKey!=='all') q = q.gte('purchase_date',startISO).lte('purchase_date',endISO)
+      const { data, error } = await q; if (error) throw error; setRows(data||[])
+    } catch(e) { setErr(e.message) } finally { setLoading(false) }
+  }, [startISO, endISO, monthKey])
 
-  const { startISO, endISO } = useMemo(() => monthBounds(monthKey), [monthKey]);
+  useEffect(() => { fetchRows() }, [fetchRows])
 
-  /* -------------------- fetch elenco -------------------- */
-  const fetchSpese = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  /* Canvas */
+  useEffect(() => {
+    const canvas=canvasRef.current; if (!canvas) return
+    const ctx=canvas.getContext('2d'); let W,H,pts=[],raf
+    const resize=()=>{W=canvas.width=canvas.offsetWidth;H=canvas.height=canvas.offsetHeight}
+    const mkPt=()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.2,vy:(Math.random()-.5)*.2,a:Math.random()*.3+.05})
+    const init=()=>{resize();pts=Array.from({length:50},mkPt)}
+    const draw=()=>{
+      ctx.clearRect(0,0,W,H)
+      for(const p of pts){ctx.beginPath();ctx.arc(p.x,p.y,.8,0,Math.PI*2);ctx.fillStyle=`rgba(251,191,36,${p.a})`;ctx.fill();p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>W)p.vx*=-1;if(p.y<0||p.y>H)p.vy*=-1}
+      raf=requestAnimationFrame(draw)
+    }
+    init();draw();window.addEventListener('resize',init)
+    return ()=>{cancelAnimationFrame(raf);window.removeEventListener('resize',init)}
+  }, [])
+
+  async function onSubmit(e) {
+    e.preventDefault(); setErr(null)
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      if (!user) throw new Error('Sessione scaduta');
-
-      const { data, error: qErr } = await supabase
-        .from('expenses')
-        .select('id, store, description, amount, purchase_date, created_at')
-        .eq('user_id', user.id)
-        .eq('category', 'cene')
-        .gte('purchase_date', startISO)
-        .lte('purchase_date', endISO)
-        .order('purchase_date', { ascending: false })
-        .order('created_at', { ascending: false });
-
-      if (qErr) throw qErr;
-      setSpese(data || []);
-    } catch (e) {
-      setError(e?.message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [startISO, endISO]);
-
-  useEffect(() => { fetchSpese(); }, [fetchSpese]);
-
-  /* -------------------- add manuale -------------------- */
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Sessione scaduta');
-
-      const row = {
-        user_id:      user.id,
-        category:     'cene',
-        store:        nuovaSpesa.puntoVendita || 'Cena/Aperitivo',
-        description:  nuovaSpesa.dettaglio,
-        amount:       Number(nuovaSpesa.prezzoTotale) || 0,
-        purchase_date: nuovaSpesa.spentAt || isoLocal(new Date()),
-      };
-
-      const { error: insertError } = await supabase.from('expenses').insert(row);
-      if (insertError) throw insertError;
-
-      setNuovaSpesa({ puntoVendita: '', dettaglio: '', quantita: '1', prezzoTotale: '', spentAt: '' });
-      await fetchSpese();
-    } catch (e) {
-      setError(e?.message || String(e));
-    }
-  };
-
-  /* -------------------- delete -------------------- */
-  const handleDelete = async (id) => {
-    try {
-      const { error } = await supabase.from('expenses').delete().eq('id', id);
-      if (error) throw error;
-      setSpese((prev) => prev.filter((r) => r.id !== id));
-    } catch (e) {
-      setError(e?.message || String(e));
-    }
-  };
-
-  /* -------------------- OCR multiplo -------------------- */
-  const handleOCR = async (files) => {
-    if (!files?.length) return;
-    try {
-      const fd = new FormData();
-      files.forEach((f) => fd.append('images', f));
-      const res = await fetch('/api/ocr', { method: 'POST', body: fd });
-      const { text } = await res.json();
-      await parseAssistantPrompt(buildSystemPrompt('ocr', text));
-    } catch (err) {
-      console.error(err);
-      setError('OCR fallito');
-    }
-  };
-
-  /* -------------------- Registrazione audio -------------------- */
-  const toggleRec = async () => {
-    if (recBusy) {
-      try { mediaRecRef.current?.stop(); } catch {}
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecRef.current = new MediaRecorder(stream);
-      recordedChunks.current = [];
-      mediaRecRef.current.ondataavailable = (e) => e.data.size && recordedChunks.current.push(e.data);
-      mediaRecRef.current.onstop = processVoice;
-      mediaRecRef.current.start();
-      setRecBusy(true);
-    } catch {
-      setError('Microfono non disponibile');
-    }
-  };
-
-  const processVoice = async () => {
-    const blob = new Blob(recordedChunks.current, { type: 'audio/webm' });
-    const fd = new FormData();
-    fd.append('audio', blob, 'voice.webm');
-    try {
-      const { text } = await (await fetch('/api/stt', { method: 'POST', body: fd })).json();
-      await parseAssistantPrompt(buildSystemPrompt('voice', text));
-    } catch (err) {
-      console.error(err);
-      setError('STT fallito');
-    } finally {
-      setRecBusy(false);
-    }
-  };
-
-  /* -------------------- Prompt assistant -------------------- */
-  function buildSystemPrompt(source, userText) {
-    const header =
-      source === 'ocr'
-        ? 'Sei Jarvis. Dal testo OCR estrai uno scontrino unico.'
-        : 'Sei Jarvis. Dal dettato vocale estrai uno scontrino unico (ignora "ehm", "ok", ecc.).';
-
-    return `
-${header}
-
-Devi produrre:
-- puntoVendita (string)
-- data (YYYY-MM-DD, usa quella sullo scontrino o oggi se assente)
-- lineItems: array di { desc (string), qty (number, default 1), price (number in EUR per unità) }
-- total (number in EUR). Se non c'è, calcola tu somma (qty * price).
-
-Rispondi **solo** JSON, senza testo extra:
-\`\`\`json
-{
-  "type":"receipt",
-  "puntoVendita":"Ristorante Il Cortile",
-  "data":"2025-08-06",
-  "lineItems":[
-    {"desc":"Bruschette","qty":1,"price":3.00},
-    {"desc":"Pizza margherita","qty":1,"price":7.00}
-  ],
-  "total":10.00
-}
-\`\`\`
-
-TESTO_INPUT:
-${userText}
-`.trim();
+      const { data:{user} } = await supabase.auth.getUser(); if (!user) throw new Error()
+      const { error } = await supabase.from('expenses').insert({
+        user_id:user.id, category:'cene', store:form.store||'Cena/Aperitivo',
+        description:form.description, amount:parseFloat(form.amount)||0,
+        purchase_date:form.date||isoLocal(), source:'manual'
+      })
+      if (error) throw error; setForm({store:'',description:'',amount:'',date:''}); await fetchRows()
+    } catch(e) { setErr(e.message) }
   }
 
-  /* -------------------- Parsing & insert -------------------- */
-  async function parseAssistantPrompt(prompt) {
-    const res = await fetch('/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    const { answer, error: apiErr } = await res.json();
-    if (!res.ok || apiErr) throw new Error(apiErr || res.status);
-
-    const data = JSON.parse(answer);
-
-    const eurF = (n) => Number(n || 0).toFixed(2).replace('.', ',');
-
-    let puntoVendita = '';
-    let spentAt = isoLocal(new Date());
-    let total = 0;
-    let descr = '';
-
-    if (data.type === 'receipt' && Array.isArray(data.lineItems)) {
-      puntoVendita = data.puntoVendita || '';
-      spentAt = data.data || spentAt;
-
-      const rows = data.lineItems.map((li) => {
-        const qty = Number(li.qty || 1);
-        const lineTotal = qty * Number(li.price || 0);
-        return `${li.desc?.trim() || 'Voce'}${qty > 1 ? ` x${qty}` : ''} ${eurF(lineTotal)} €`;
-      });
-      const calc = data.lineItems.reduce(
-        (s, li) => s + (Number(li.qty || 1) * Number(li.price || 0)),
-        0
-      );
-      total = Number(data.total || calc);
-      descr = `${rows.join('; ')}; Totale scontrino: ${eurF(total)} €`;
-    } else if (data.type === 'expense' && Array.isArray(data.items) && data.items.length) {
-      const rows = [];
-      total = 0;
-      let candidatePV = '';
-      data.items.forEach((it) => {
-        const q = Number(it.quantita || 1);
-        const price = Number(it.prezzoTotale || 0);
-        total += price;
-        if (it.data) spentAt = it.data;
-        if (!candidatePV && it.puntoVendita) candidatePV = it.puntoVendita;
-        rows.push(`${(it.dettaglio || 'Voce').trim()}${q > 1 ? ` x${q}` : ''} ${eurF(price)} €`);
-      });
-      puntoVendita = candidatePV;
-      descr = `${rows.join('; ')}; Totale scontrino: ${eurF(total)} €`;
-    } else {
-      throw new Error('Assistant response invalid');
-    }
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Sessione scaduta');
-
-    const row = {
-      user_id:      user.id,
-      category:     'cene',
-      store:        puntoVendita || 'Cena/Aperitivo',
-      description:  descr,
-      amount:       Number(total) || 0,
-      purchase_date: spentAt,
-    };
-
-    const { error: dbErr } = await supabase.from('expenses').insert(row);
-    if (dbErr) throw dbErr;
-
-    await fetchSpese();
-
-    setNuovaSpesa({
-      puntoVendita: puntoVendita || '',
-      dettaglio: descr,
-      quantita: '1',
-      prezzoTotale: Number(total) || 0,
-      spentAt,
-    });
+  async function onDelete(id) {
+    const { error } = await supabase.from('expenses').delete().eq('id',id)
+    if (error) setErr(error.message); else setRows(rows.filter(r=>r.id!==id))
   }
 
-  /* -------------------- render -------------------- */
-  const totale = spese.reduce((t, r) => t + Number(r.amount || 0), 0);
+  const toggleRec = useCallback(async () => {
+    if (isRec) {
+      try { if (mediaRef.current?.state==='recording') { mediaRef.current.requestData?.(); mediaRef.current.stop() } } catch {}
+      return
+    }
+    try {
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true})
+      streamRef.current=stream; chunksRef.current=[]
+      const mime=getBestMime()
+      mediaRef.current=new MediaRecorder(stream,mime?{mimeType:mime}:undefined)
+      mediaRef.current.ondataavailable=e=>{if(e.data?.size>0)chunksRef.current.push(e.data)}
+      mediaRef.current.onstop=async()=>{
+        setIsRec(false)
+        try {
+          const t0=Date.now(); while(!chunksRef.current.length&&Date.now()-t0<1500)await new Promise(r=>setTimeout(r,60))
+          if(!chunksRef.current.length)throw new Error('Nessun audio')
+          const am=mediaRef.current?.mimeType||mime||'audio/webm'
+          const blob=new Blob(chunksRef.current,{type:am}); if(blob.size<500)throw new Error('Troppo corto')
+          setAiBusy(true)
+          const fd=new FormData(); fd.append('audio',blob,extForMime(am))
+          const r=await fetch('/api/stt',{method:'POST',body:fd}); const j=await r.json().catch(()=>({}))
+          if(!r.ok||!j?.text)throw new Error('Trascrizione fallita')
+          await sendToAssistant(j.text)
+        } catch(e){setErr('Voce: '+(e.message||e))}
+        finally{setAiBusy(false);try{streamRef.current?.getTracks?.().forEach(t=>t.stop())}catch{}}
+      }
+      mediaRef.current.start(250); setIsRec(true)
+    } catch(e){setErr(e?.name==='NotAllowedError'?'Microfono non autorizzato':'Microfono non disponibile')}
+  }, [isRec])
+
+  async function handleOCR(file) {
+    if (!file) return; setAiBusy(true); setErr(null)
+    try {
+      const fd=new FormData(); fd.append('image',file,'foto.jpg')
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),60000)
+      let r; try{r=await fetch('/api/ocr-universal',{method:'POST',body:fd,signal:ctrl.signal})}finally{clearTimeout(t)}
+      const data=await r.json(); if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`)
+      if(data.doc_type!=='receipt'&&data.doc_type!=='invoice')throw new Error('Non è uno scontrino')
+      if(data.categoria!=='cene')throw new Error(`Scontrino categoria "${data.categoria}", non cene`)
+      const { data:{user} }=await supabase.auth.getUser()
+      const { error }=await supabase.from('expenses').insert({
+        user_id:user.id,category:'cene',store:data.store||'Cena/Aperitivo',
+        description:`${data.store||''} — ${data.purchase_date||''}`,
+        amount:parseFloat(data.price_total||0),purchase_date:data.purchase_date||isoLocal(),
+        payment_method:data.payment_method||'unknown',source:'ocr'
+      })
+      if(error)throw error; await fetchRows()
+    } catch(e){setErr('OCR: '+(e.message||e))} finally{setAiBusy(false)}
+  }
+
+  async function sendToAssistant(text) {
+    if (!userId) return
+    const r=await fetch('/api/assistant-v2',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt:`Registra questa cena/aperitivo: "${text}". Estrai store, amount, date. Azione: add_expense con category=cene.`,userId,conversationHistory:[]})
+    })
+    const data=await r.json()
+    if (data.action?.type==='add_expense') {
+      const { data:{user} }=await supabase.auth.getUser()
+      const { error }=await supabase.from('expenses').insert({
+        user_id:user.id,category:'cene',store:data.action.store||'Cena/Aperitivo',
+        description:data.action.description||'Cena vocale',amount:Number(data.action.amount||0),
+        purchase_date:data.action.date||isoLocal(),payment_method:data.action.payment_method||'cash',source:'voice'
+      })
+      if(error)throw error; await fetchRows()
+    } else { setErr(data.text||'Non ho capito') }
+  }
+
+  const totale=rows.reduce((s,r)=>s+Number(r.amount||0),0)
+  const monthLabel = monthKey==='all'?'Tutti i mesi':new Date(Number(monthKey.split('-')[0]),Number(monthKey.split('-')[1])-1,1).toLocaleString('it-IT',{month:'long',year:'numeric'})
 
   return (
     <>
-      <Head><title>Cene e Aperitivi</title></Head>
+      <Head><title>Cene – Jarvis</title></Head>
+      <canvas ref={canvasRef} className="page-canvas" style={{background:'#0a0800'}}/>
+      <div className="page-wrap">
+        <div className="page-card" style={{'--accent':'#fbbf24','--accent-dim':'rgba(251,191,36,.25)','--accent-rgb':'251,191,36'}}>
 
-      <div className="spese-casa-container1">
-        <div className="spese-casa-container2">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
-            <h2 className="title">🍽️ Cene e Aperitivi <small style={{opacity:.8}}>(mese {monthKey})</small></h2>
-            <Link href="/finanze" className="btn-manuale">📊 Vai a Finanze</Link>
-          </div>
-
-          {/* Toolbar mese */}
-          <div className="month-toolbar" style={{display:'flex', gap:8, alignItems:'center', margin:'8px 0 12px'}}>
-            <button className="btn-manuale" onClick={()=>{
-              const [y,m]=monthKey.split('-').map(Number);
-              const d=new Date(y, m-2, 1); setMonthKey(toMonthKey(d));
-            }}>«</button>
-
-            <input
-              type="month"
-              value={monthKey}
-              onChange={(e)=> setMonthKey(clampMonthKey(e.target.value))}
-              className="btn-manuale"
-              style={{padding:'6px 10px'}}
-            />
-
-            <button className="btn-manuale" onClick={()=>{
-              const [y,m]=monthKey.split('-').map(Number);
-              const d=new Date(y, m, 1); setMonthKey(toMonthKey(d));
-            }}>»</button>
-            <button className="btn-manuale" onClick={()=>setMonthKey('all')} style={{marginLeft:'8px'}}>Tutti</button>
-          </div>
-
-          <div className="table-buttons">
-            <button className="btn-vocale" onClick={toggleRec}>
-              {recBusy ? '⏹ Stop' : '🎙 Voce'}
-            </button>
-            <button className="btn-ocr" onClick={() => ocrInputRef.current?.click()}>
-              📷 OCR
-            </button>
-            <input
-              ref={ocrInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              hidden
-              onChange={e => handleOCR(Array.from(e.target.files || []))}
-            />
-          </div>
-
-          {/* form manuale */}
-          <form className="input-section" onSubmit={handleAdd}>
-            <label>Punto vendita</label>
-            <input
-              value={nuovaSpesa.puntoVendita}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, puntoVendita: e.target.value })}
-              required
-            />
-
-            <label>Dettaglio</label>
-            <textarea
-              value={nuovaSpesa.dettaglio}
-              onChange={e => setNuovaSpesa({ ...nuovaSpesa, dettaglio: e.target.value })}
-              required
-            />
-
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'.75rem'}}>
-              <div>
-                <label>Data</label>
-                <input
-                  type="date"
-                  value={nuovaSpesa.spentAt}
-                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, spentAt: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <label>Prezzo totale (€)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={nuovaSpesa.prezzoTotale}
-                  onChange={e => setNuovaSpesa({ ...nuovaSpesa, prezzoTotale: e.target.value })}
-                  required
-                />
-              </div>
+          <div className="card-header">
+            <div>
+              <div className="card-title" style={{backgroundImage:'linear-gradient(90deg,#fbbf24,#fb923c)'}}>🍽️ Cene & Aperitivi</div>
+              <div className="card-sub">{monthLabel}</div>
             </div>
+            <div className="kpi-total" style={{color:'#fbbf24'}}>{eur(totale)}</div>
+          </div>
 
-            <button className="btn-manuale" style={{marginTop:'.5rem'}}>Aggiungi</button>
-          </form>
+          <div className="month-nav">
+            <button className="mn-btn" style={{'--c':'rgba(251,191,36,.25)'}} onClick={()=>{const[y,m]=monthKey==='all'?[new Date().getFullYear(),new Date().getMonth()+1]:monthKey.split('-').map(Number);setMonthKey(toMonthKey(new Date(y,m-2,1)))}}>‹</button>
+            <input type="month" value={monthKey==='all'?toMonthKey():monthKey} onChange={e=>setMonthKey(clampMK(e.target.value))} className="mn-input"/>
+            <button className="mn-btn" onClick={()=>{const[y,m]=monthKey==='all'?[new Date().getFullYear(),new Date().getMonth()+1]:monthKey.split('-').map(Number);setMonthKey(toMonthKey(new Date(y,m,1)))}}>›</button>
+            <button className="mn-btn" onClick={()=>setMonthKey('all')} style={{padding:'0 .75rem',width:'auto',fontSize:'.7rem'}}>Tutti</button>
+          </div>
 
-          {/* tabella elenco */}
-          <div className="table-container">
-            {loading ? (
-              <p>Caricamento…</p>
-            ) : error ? (
-              <p className="error">Errore: {error}</p>
-            ) : (
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Punto vendita</th>
-                    <th>Dettaglio</th>
-                    <th>Data</th>
-                    <th>Prezzo €</th>
-                    <th></th>
-                  </tr>
-                </thead>
+          <div className="toolbar">
+            <button className={`tbtn ${isRec?'tbtn-rec':''} ${aibusy&&!isRec?'tbtn-busy':''}`} style={{'--c':'rgba(251,191,36,.3)','--ct':'#fbbf24'}} onClick={toggleRec} disabled={aibusy&&!isRec}>
+              {isRec?'⏹ Stop':aibusy?'◌ Elaboro…':'🎙 Voce'}
+            </button>
+            <label className={`tbtn ${aibusy?'tbtn-busy':''}`} style={{'--c':'rgba(251,191,36,.3)','--ct':'#fbbf24'}}>
+              📷 OCR
+              <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)handleOCR(f)}}/>
+            </label>
+            <button className="tbtn" style={{'--c':'rgba(251,191,36,.2)','--ct':'#fbbf24'}} onClick={()=>setShowForm(v=>!v)}>
+              {showForm?'— Chiudi':'＋ Manuale'}
+            </button>
+          </div>
+
+          {showForm && (
+            <form className="entry-form" onSubmit={onSubmit}>
+              <div className="form-row">
+                <div className="form-field"><label>Ristorante / Bar</label><input value={form.store} onChange={e=>setForm(f=>({...f,store:e.target.value}))} placeholder="Es. Ristorante Il Cortile…" required/></div>
+                <div className="form-field"><label>Data</label><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
+              </div>
+              <div className="form-field"><label>Dettaglio</label><input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Pizza + birra, aperitivo…"/></div>
+              <div className="form-row">
+                <div className="form-field"><label>Importo (€)</label><input type="number" step="0.01" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} required/></div>
+                <button type="submit" className="tbtn" style={{'--c':'rgba(34,197,94,.3)','--ct':'#22c55e',alignSelf:'flex-end',padding:'.55rem 1.4rem'}}>✓ Salva</button>
+              </div>
+            </form>
+          )}
+
+          {err && <div className="err-box">{err}<button onClick={()=>setErr(null)}>✕</button></div>}
+          {aibusy && <div className="ai-busy-bar"><span style={{background:'#fbbf24'}}/>Jarvis elabora…</div>}
+
+          <div className="table-wrap">
+            {loading?<div className="loading-rows"><span/><span/><span/></div>:(
+              <table className="data-table">
+                <thead><tr><th>Locale</th><th>Data</th><th>Dettaglio</th><th>€</th><th/></tr></thead>
                 <tbody>
-                  {spese.map(r => (
-                    <tr key={r.id}>
-                      <td>{r.store || 'Cena/Aperitivo'}</td>
-                      <td>{r.description || '-'}</td>
-                      <td>{new Date(r.purchase_date || r.created_at).toLocaleDateString('it-IT')}</td>
-                      <td>{(Number(r.amount || 0)).toFixed(2)}</td>
-                      <td>
-                        <button onClick={() => handleDelete(r.id)} className="btn-danger" title="Elimina">🗑</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {rows.length===0?<tr><td colSpan={5} className="empty-row">Nessuna cena in {monthLabel}</td></tr>
+                    :rows.map(r=>(
+                      <tr key={r.id}>
+                        <td>{r.store||'—'}</td>
+                        <td className="td-date">{r.purchase_date||'—'}</td>
+                        <td className="td-desc">{r.description||'—'}</td>
+                        <td className="td-amount" style={{color:'#fbbf24'}}>{eur(r.amount)}</td>
+                        <td><button className="del-btn" onClick={()=>onDelete(r.id)}>✕</button></td>
+                      </tr>
+                    ))
+                  }
                 </tbody>
               </table>
             )}
-            <div className="total-box">Totale mese {monthKey}: € {totale.toFixed(2)}</div>
           </div>
-
-          <Link href="/home">
-            <button className="btn-vocale" style={{marginTop:'1rem'}}>🏠 Home</button>
-          </Link>
         </div>
       </div>
 
       <style jsx global>{`
-        .spese-casa-container1 {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #0f172a;
-          min-height: 100vh;
-          padding: 2rem;
-          font-family: Inter, sans-serif;
-        }
-        .spese-casa-container2 {
-          background: rgba(0, 0, 0, 0.6);
-          padding: 2rem;
-          border-radius: 1rem;
-          color: #fff;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-          max-width: 900px;
-          width: 100%;
-        }
-        .title { margin-bottom: .5rem; font-size: 1.5rem; color: #fff; }
-        .table-buttons { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
-        .btn-vocale, .btn-ocr, .btn-manuale, .btn-danger {
-          background: #10b981; color: #fff; border: none;
-          padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer;
-          text-decoration: none;
-        }
-        .btn-ocr { background: #f43f5e; }
-        .btn-danger { background: #ef4444; }
-        .input-section { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
-        input, textarea {
-          width: 100%; padding: 0.6rem; border: none; border-radius: 0.5rem;
-          background: rgba(255, 255, 255, 0.1); color: #fff;
-        }
-        textarea { resize: vertical; min-height: 4.5rem; }
-        .custom-table { width: 100%; border-collapse: collapse; }
-        .custom-table thead { background: #1f2937; }
-        .custom-table th, .custom-table td {
-          padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .custom-table tbody tr:hover { background: rgba(255,255,255,0.05); }
-        .total-box {
-          margin-top: 1rem; background: rgba(34,197,94,0.85);
-          padding: 1rem; border-radius: 0.5rem; text-align: right; font-weight: 600;
-        }
-        .month-toolbar .btn-manuale { background: rgba(99,102,241,.9); }
-        .error { color: #f87171; margin-top: 1rem; }
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
+        .page-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+        .page-wrap{position:relative;z-index:1;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:5rem 1rem 3rem;font-family:Inter,system-ui,sans-serif}
+        .page-card{width:100%;max-width:900px;background:rgba(0,4,12,.88);border:1px solid rgba(251,191,36,.2);border-radius:20px;overflow:hidden}
+        .card-header{display:flex;justify-content:space-between;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.06)}
+        .card-title{font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:2px}
+        .card-sub{font-size:.75rem;color:#475569;margin-top:.2rem;text-transform:capitalize}
+        .kpi-total{font-family:'Orbitron',monospace;font-size:1.4rem;font-weight:900}
+        .month-nav{display:flex;align-items:center;gap:.5rem;padding:.75rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.05)}
+        .mn-btn{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:8px;color:#fbbf24;width:32px;height:32px;cursor:pointer;font-size:1rem}
+        .mn-input{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#e2e8f0;padding:.3rem .6rem;font-size:.82rem;outline:none}
+        .toolbar{display:flex;gap:.6rem;padding:.75rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.05);flex-wrap:wrap}
+        .tbtn{position:relative;display:inline-flex;align-items:center;gap:.4rem;padding:.55rem 1.1rem;border-radius:12px;font-size:.82rem;font-weight:700;cursor:pointer;border:1px solid var(--c,rgba(255,255,255,.15));background:transparent;color:var(--ct,#e2e8f0);transition:all .2s;white-space:nowrap}
+        .tbtn:hover{background:var(--c,rgba(255,255,255,.06))}
+        .tbtn-rec{animation:pulsBtn 1s ease-in-out infinite}
+        .tbtn-busy{opacity:.5;cursor:not-allowed}
+        @keyframes pulsBtn{0%,100%{opacity:.6}50%{opacity:1}}
+        .entry-form{padding:1rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;gap:.7rem}
+        .form-row{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;align-items:end}
+        @media(max-width:600px){.form-row{grid-template-columns:1fr}}
+        .form-field{display:flex;flex-direction:column;gap:.3rem}
+        .form-field label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#475569}
+        .form-field input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#e2e8f0;padding:.45rem .7rem;font-size:.85rem;outline:none}
+        .err-box{margin:.5rem 1.5rem;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:.6rem 1rem;font-size:.8rem;color:#f87171;display:flex;justify-content:space-between}
+        .err-box button{background:none;border:none;color:#f87171;cursor:pointer}
+        .ai-busy-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem 1.5rem;font-size:.78rem;color:#fbbf24;border-bottom:1px solid rgba(255,255,255,.04)}
+        .ai-busy-bar span{width:6px;height:6px;border-radius:50%;animation:typing .9s infinite}
+        .table-wrap{overflow-x:auto;padding:.5rem 0}
+        .data-table{width:100%;border-collapse:collapse;font-size:.82rem}
+        .data-table thead tr{background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.08)}
+        .data-table th{padding:.65rem 1.2rem;text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#475569;font-weight:600}
+        .data-table td{padding:.65rem 1.2rem;border-bottom:1px solid rgba(255,255,255,.04);color:#e2e8f0}
+        .data-table tbody tr:hover{background:rgba(255,255,255,.03)}
+        .td-date{color:#64748b;font-size:.78rem;white-space:nowrap}
+        .td-desc{color:#94a3b8;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .td-amount{font-weight:700;white-space:nowrap}
+        .del-btn{background:none;border:1px solid rgba(239,68,68,.25);border-radius:6px;color:rgba(239,68,68,.6);cursor:pointer;padding:.2rem .5rem;font-size:.75rem}
+        .del-btn:hover{border-color:rgba(239,68,68,.6);color:#f87171;background:rgba(239,68,68,.08)}
+        .empty-row{text-align:center;color:#334155;padding:2rem!important}
+        .loading-rows{display:flex;flex-direction:column;gap:.5rem;padding:1.5rem}
+        .loading-rows span{height:36px;background:rgba(255,255,255,.04);border-radius:8px;animation:shimLoad 1.5s ease-in-out infinite}
+        @keyframes shimLoad{0%,100%{opacity:.4}50%{opacity:.8}}
+        @keyframes typing{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
       `}</style>
     </>
-  );
+  )
 }
 
-export default withAuth(CeneAperitivi);
-
-export async function getServerSideProps() {
-  return { props: {} }
-}
+export default withAuth(CeneAperitivi)
+export async function getServerSideProps() { return { props:{} } }

@@ -1,196 +1,236 @@
 // pages/varie.js
-import { useEffect, useState, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
-import Link from 'next/link'
 import withAuth from '../hoc/withAuth'
 import { supabase } from '../lib/supabaseClient'
 
-async function askAssistant(prompt) {
-  const res = await fetch('/api/assistant', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  })
-  const { answer, error } = await res.json()
-  if (error) throw new Error(error)
-  return answer
-}
+function isoLocal(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function eur(n){return (Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'})}
+function getBestMime(){if(typeof MediaRecorder==='undefined')return '';for(const t of['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'])try{if(MediaRecorder.isTypeSupported(t))return t}catch{}return ''}
+function extForMime(m=''){return m.includes('mp4')?'voice.mp4':m.includes('ogg')?'voice.ogg':'voice.webm'}
 
 function Varie() {
-  const [rows, setRows]              = useState([])
-  const [form, setForm]              = useState({ store: '', purchase_date: '', price_total: '' })
-  const [err, setErr]                = useState(null)
-  const [isRec, setIsRec]            = useState(false)
-  const [loadingVoice, setLoadVoice] = useState(false)
-  const [loadingOCR, setLoadOCR]     = useState(false)
+  const canvasRef = useRef(null)
   const mediaRef  = useRef(null)
   const chunksRef = useRef([])
-  const fileRef   = useRef(null)
+  const streamRef = useRef(null)
 
-  useEffect(() => { fetchRows() }, [])
+  const [rows,     setRows]     = useState([])
+  const [loading,  setLoading]  = useState(false)
+  const [err,      setErr]      = useState(null)
+  const [isRec,    setIsRec]    = useState(false)
+  const [aibusy,   setAiBusy]   = useState(false)
+  const [userId,   setUserId]   = useState(null)
+  const [showForm, setShowForm] = useState(false)
+  const [form,     setForm]     = useState({store:'',description:'',amount:'',date:''})
 
-  async function fetchRows() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    const { data, error } = await supabase
-      .from('expenses')
-      .select('id, store, purchase_date, amount')
-      .eq('user_id', user.id)
-      .eq('category', 'varie')
-      .order('purchase_date', { ascending: false })
-    if (error) setErr(error.message)
-    else setRows(data ?? [])
+  useEffect(()=>{supabase.auth.getUser().then(({data:{user}})=>{if(user){setUserId(user.id);fetchRows(user.id)}})}, [])
+
+  async function fetchRows(uid){
+    setLoading(true); setErr(null)
+    try{
+      const id=uid||userId; if(!id)return
+      const {data,error}=await supabase.from('expenses').select('id,store,description,amount,purchase_date').eq('user_id',id).eq('category','varie').order('purchase_date',{ascending:false})
+      if(error)throw error; setRows(data||[])
+    }catch(e){setErr(e.message)}finally{setLoading(false)}
   }
 
-  async function onSubmit(e) {
-    e.preventDefault()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    const { error } = await supabase.from('expenses').insert([{
-      user_id: user.id,
-      category: 'varie',
-      store: form.store,
-      purchase_date: form.purchase_date || new Date().toISOString().slice(0, 10),
-      amount: parseFloat(form.price_total),
-    }])
-    if (error) setErr(error.message)
-    else { setForm({ store: '', purchase_date: '', price_total: '' }); fetchRows() }
+  /* Canvas particelle grigie */
+  useEffect(()=>{
+    const canvas=canvasRef.current; if(!canvas)return
+    const ctx=canvas.getContext('2d'); let W,H,pts=[],raf
+    const resize=()=>{W=canvas.width=canvas.offsetWidth;H=canvas.height=canvas.offsetHeight}
+    const mkPt=()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.2,vy:(Math.random()-.5)*.2,a:Math.random()*.25+.05})
+    const init=()=>{resize();pts=Array.from({length:50},mkPt)}
+    const draw=()=>{
+      ctx.clearRect(0,0,W,H)
+      for(const p of pts){ctx.beginPath();ctx.arc(p.x,p.y,.8,0,Math.PI*2);ctx.fillStyle=`rgba(148,163,184,${p.a})`;ctx.fill();p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>W)p.vx*=-1;if(p.y<0||p.y>H)p.vy*=-1}
+      raf=requestAnimationFrame(draw)
+    }
+    init();draw();window.addEventListener('resize',init)
+    return()=>{cancelAnimationFrame(raf);window.removeEventListener('resize',init)}
+  },[])
+
+  async function onSubmit(e){
+    e.preventDefault(); setErr(null)
+    try{
+      const {data:{user}}=await supabase.auth.getUser(); if(!user)throw new Error()
+      const {error}=await supabase.from('expenses').insert({user_id:user.id,category:'varie',store:form.store,description:form.description,amount:parseFloat(form.amount)||0,purchase_date:form.date||isoLocal(),source:'manual'})
+      if(error)throw error; setForm({store:'',description:'',amount:'',date:''}); await fetchRows()
+    }catch(e){setErr(e.message)}
   }
 
-  async function onDelete(id) {
-    const { error } = await supabase.from('expenses').delete().eq('id', id)
-    if (error) setErr(error.message)
-    else setRows(rows.filter(r => r.id !== id))
+  async function onDelete(id){
+    const {error}=await supabase.from('expenses').delete().eq('id',id)
+    if(error)setErr(error.message); else setRows(rows.filter(r=>r.id!==id))
   }
 
-  async function parseAndInsert(text) {
-    setErr(null)
-    try {
-      const sys = 'Estrai spese varie da testo/OCR. Rispondi SOLO con JSON array: [{store, purchase_date (YYYY-MM-DD), price_total (numero)}].'
-      const answer = await askAssistant(sys + '\n\nTESTO:\n' + text)
-      const clean = answer.replace(/```json|```/g, '').trim()
-      const parsed = JSON.parse(clean)
-      const items = Array.isArray(parsed) ? parsed : [parsed]
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { error } = await supabase.from('expenses').insert(
-        items.map(i => ({
-          user_id: user.id,
-          category: 'varie',
-          store: i.store ?? 'Generico',
-          purchase_date: i.purchase_date ?? new Date().toISOString().slice(0, 10),
-          amount: parseFloat(i.price_total ?? 0),
-        }))
-      )
-      if (error) setErr(error.message)
-      else fetchRows()
-    } catch (e) { setErr('Assistant: ' + e.message) }
-  }
-
-  async function handleOCR(file) {
-    if (!file) return
-    setLoadOCR(true)
-    const fd = new FormData(); fd.append('image', file)
-    try {
-      const r = await fetch('/api/ocr', { method: 'POST', body: fd })
-      const { text } = await r.json()
-      await parseAndInsert(text)
-    } catch (e) { setErr(e.message) }
-    finally { setLoadOCR(false) }
-  }
-
-  async function startRec() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaRef.current = new MediaRecorder(stream)
-      chunksRef.current = []
-      mediaRef.current.ondataavailable = e => e.data.size && chunksRef.current.push(e.data)
-      mediaRef.current.onstop = async () => {
-        setLoadVoice(true)
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        const fd = new FormData(); fd.append('audio', blob, 'audio.webm')
-        try {
-          const r = await fetch('/api/stt', { method: 'POST', body: fd })
-          const { text } = await r.json()
-          await parseAndInsert(text)
-        } catch (e) { setErr(e.message) }
-        finally { setLoadVoice(false) }
+  const toggleRec=useCallback(async()=>{
+    if(isRec){try{if(mediaRef.current?.state==='recording'){mediaRef.current.requestData?.();mediaRef.current.stop()}}catch{}return}
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true})
+      streamRef.current=stream; chunksRef.current=[]
+      const mime=getBestMime()
+      mediaRef.current=new MediaRecorder(stream,mime?{mimeType:mime}:undefined)
+      mediaRef.current.ondataavailable=e=>{if(e.data?.size>0)chunksRef.current.push(e.data)}
+      mediaRef.current.onstop=async()=>{
+        setIsRec(false)
+        try{
+          const t0=Date.now(); while(!chunksRef.current.length&&Date.now()-t0<1500)await new Promise(r=>setTimeout(r,60))
+          if(!chunksRef.current.length)throw new Error('Nessun audio')
+          const am=mediaRef.current?.mimeType||mime||'audio/webm'
+          const blob=new Blob(chunksRef.current,{type:am}); if(blob.size<500)throw new Error('Troppo corto')
+          setAiBusy(true)
+          const fd=new FormData(); fd.append('audio',blob,extForMime(am))
+          const r=await fetch('/api/stt',{method:'POST',body:fd}); const j=await r.json().catch(()=>({}))
+          if(!r.ok||!j?.text)throw new Error('Trascrizione fallita')
+          await sendToAssistant(j.text)
+        }catch(e){setErr('Voce: '+(e.message||e))}
+        finally{setAiBusy(false);try{streamRef.current?.getTracks?.().forEach(t=>t.stop())}catch{}}
       }
-      mediaRef.current.start(); setIsRec(true)
-    } catch { setErr('Microfono non disponibile') }
+      mediaRef.current.start(250); setIsRec(true)
+    }catch(e){setErr(e?.name==='NotAllowedError'?'Microfono non autorizzato':'Microfono non disponibile')}
+  },[isRec])
+
+  async function handleOCR(file){
+    if(!file)return; setAiBusy(true); setErr(null)
+    try{
+      const fd=new FormData(); fd.append('image',file,'foto.jpg')
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),60000)
+      let r; try{r=await fetch('/api/ocr-universal',{method:'POST',body:fd,signal:ctrl.signal})}finally{clearTimeout(t)}
+      const data=await r.json(); if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`)
+      if(data.doc_type!=='receipt'&&data.doc_type!=='invoice')throw new Error('Non è uno scontrino')
+      const {data:{user}}=await supabase.auth.getUser()
+      const {error}=await supabase.from('expenses').insert({user_id:user.id,category:'varie',store:data.store||'Varie',description:`${data.store||''}`,amount:parseFloat(data.price_total||0),purchase_date:data.purchase_date||isoLocal(),payment_method:data.payment_method||'unknown',source:'ocr'})
+      if(error)throw error; await fetchRows()
+    }catch(e){setErr('OCR: '+(e.message||e))}finally{setAiBusy(false)}
   }
-  function stopRec() { mediaRef.current?.stop(); setIsRec(false) }
 
-  const totale = rows.reduce((s, r) => s + Number(r.amount || 0), 0)
+  async function sendToAssistant(text){
+    if(!userId)return
+    const r=await fetch('/api/assistant-v2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:`Registra questa spesa varia: "${text}". Esempi: farmacia, parrucchiere, tabaccheria, benzinaio, regali, ecc. Estrai store, amount, date. Azione: add_expense con category=varie.`,userId,conversationHistory:[]})})
+    const data=await r.json()
+    if(data.action?.type==='add_expense'){
+      const {data:{user}}=await supabase.auth.getUser()
+      const {error}=await supabase.from('expenses').insert({user_id:user.id,category:'varie',store:data.action.store||'Varie',description:data.action.description||'Spesa vocale',amount:Number(data.action.amount||0),purchase_date:data.action.date||isoLocal(),payment_method:data.action.payment_method||'cash',source:'voice'})
+      if(error)throw error; await fetchRows()
+    }else{setErr(data.text||'Non ho capito')}
+  }
 
-  return (
+  const totale=rows.reduce((s,r)=>s+Number(r.amount||0),0)
+
+  return(
     <>
-      <Head><title>Spese Varie – Jarvis</title></Head>
-      <div className="page-wrapper">
-        <div className="table-container">
-          <h2>🧰 Spese Varie</h2>
-          <div className="table-buttons">
-            <button className="btn-vocale" onClick={isRec ? stopRec : startRec}>
-              {isRec ? '⏹ Stop' : '🎙 Voce'}
-            </button>
-            <button className="btn-ocr" onClick={() => fileRef.current?.click()}>📷 OCR</button>
+      <Head><title>Varie – Jarvis</title></Head>
+      <canvas ref={canvasRef} className="page-canvas" style={{background:'#080a0c'}}/>
+      <div className="page-wrap">
+        <div className="page-card">
+          <div className="card-header">
+            <div>
+              <div className="card-title" style={{backgroundImage:'linear-gradient(90deg,#94a3b8,#d4d4d8)'}}>🧰 Spese Varie</div>
+              <div className="card-sub">Farmacia · Parrucchiere · Benzina · Regali · altro</div>
+            </div>
+            <div className="kpi-total" style={{color:'#94a3b8'}}>{eur(totale)}</div>
           </div>
-          <form className="input-section" onSubmit={onSubmit}>
-            <label>Punto vendita / Servizio</label>
-            <input value={form.store} onChange={e => setForm({ ...form, store: e.target.value })} placeholder="Es. Farmacia, Amazon…" required />
-            <label>Data acquisto</label>
-            <input type="date" value={form.purchase_date} onChange={e => setForm({ ...form, purchase_date: e.target.value })} />
-            <label>Prezzo totale (€)</label>
-            <input type="number" step="0.01" value={form.price_total} onChange={e => setForm({ ...form, price_total: e.target.value })} placeholder="30.00" required />
-            <button type="submit" className="btn-manuale">Aggiungi</button>
-          </form>
-          <table className="custom-table">
-            <thead><tr><th>Punto vendita</th><th>Data</th><th>Prezzo €</th><th></th></tr></thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.id}>
-                  <td>{r.store ?? '-'}</td>
-                  <td>{r.purchase_date ?? '-'}</td>
-                  <td>{Number(r.amount).toFixed(2)}</td>
-                  <td><button onClick={() => onDelete(r.id)}>🗑</button></td>
-                </tr>
-              ))}
-              {!rows.length && <tr><td colSpan={4} style={{ opacity: .5 }}>Nessuna spesa</td></tr>}
-            </tbody>
-          </table>
-          <div className="total-box">Totale: € {totale.toFixed(2)}</div>
-          {(loadingVoice || loadingOCR) && <p style={{ color: '#00e4ff' }}>Elaborazione…</p>}
-          {err && <p style={{ color: 'red' }}>{err}</p>}
+
+          <div className="toolbar">
+            <button className={`tbtn ${isRec?'tbtn-rec':''} ${aibusy&&!isRec?'tbtn-busy':''}`} style={{'--c':'rgba(148,163,184,.3)','--ct':'#94a3b8'}} onClick={toggleRec} disabled={aibusy&&!isRec}>
+              {isRec?'⏹ Stop':aibusy?'◌ Elaboro…':'🎙 Voce'}
+            </button>
+            <label className={`tbtn ${aibusy?'tbtn-busy':''}`} style={{'--c':'rgba(148,163,184,.3)','--ct':'#94a3b8'}}>
+              📷 OCR
+              <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)handleOCR(f)}}/>
+            </label>
+            <button className="tbtn" style={{'--c':'rgba(148,163,184,.2)','--ct':'#94a3b8'}} onClick={()=>setShowForm(v=>!v)}>
+              {showForm?'— Chiudi':'＋ Manuale'}
+            </button>
+          </div>
+
+          {showForm&&(
+            <form className="entry-form" onSubmit={onSubmit}>
+              <div className="form-row">
+                <div className="form-field"><label>Punto vendita / Servizio</label><input value={form.store} onChange={e=>setForm(f=>({...f,store:e.target.value}))} placeholder="Farmacia, Parrucchiere, Benzina…" required/></div>
+                <div className="form-field"><label>Data</label><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></div>
+              </div>
+              <div className="form-field"><label>Descrizione</label><input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Medicinali, taglio capelli, regalo…"/></div>
+              <div className="form-row">
+                <div className="form-field"><label>Importo (€)</label><input type="number" step="0.01" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} required/></div>
+                <button type="submit" className="tbtn" style={{'--c':'rgba(34,197,94,.3)','--ct':'#22c55e',alignSelf:'flex-end',padding:'.55rem 1.4rem'}}>✓ Salva</button>
+              </div>
+            </form>
+          )}
+
+          {err&&<div className="err-box">{err}<button onClick={()=>setErr(null)}>✕</button></div>}
+          {aibusy&&<div className="ai-busy-bar"><span style={{background:'#94a3b8'}}/>Jarvis elabora…</div>}
+
+          <div className="table-wrap">
+            {loading?<div className="loading-rows"><span/><span/><span/></div>:(
+              <table className="data-table">
+                <thead><tr><th>Punto vendita</th><th>Data</th><th>Descrizione</th><th>€</th><th/></tr></thead>
+                <tbody>
+                  {rows.length===0?<tr><td colSpan={5} className="empty-row">Nessuna spesa varia</td></tr>
+                    :rows.map(r=>(
+                      <tr key={r.id}>
+                        <td>{r.store||'—'}</td>
+                        <td className="td-date">{r.purchase_date||'—'}</td>
+                        <td className="td-desc">{r.description||'—'}</td>
+                        <td className="td-amount" style={{color:'#94a3b8'}}>{eur(r.amount)}</td>
+                        <td><button className="del-btn" onClick={()=>onDelete(r.id)}>✕</button></td>
+                      </tr>
+                    ))
+                  }
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
-        <Link href="/finanze" className="btn-back">← Finanze</Link>
       </div>
-      <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => handleOCR(e.target.files?.[0])} />
+
       <style jsx global>{`
-        .page-wrapper{width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:5rem 1rem 3rem;color:#e6e7eb;font-family:Inter,sans-serif}
-        .table-container{overflow-x:auto;background:rgba(0,0,0,.6);border-radius:1rem;padding:1.5rem;box-shadow:0 6px 16px rgba(0,0,0,.3);width:100%;max-width:900px;box-sizing:border-box}
-        .table-container h2{font-size:1.5rem;margin-bottom:1.25rem;color:#fff}
-        table.custom-table{width:100%;border-collapse:collapse;font-size:1rem;color:#fff}
-        table.custom-table thead{background:#1f2937}
-        table.custom-table th,table.custom-table td{padding:.75rem 1rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.1)}
-        table.custom-table tbody tr:hover{background:rgba(255,255,255,.05)}
-        table.custom-table tbody button{background:none;border:none;color:#fff;cursor:pointer;font-size:1.1rem}
-        .total-box{margin-top:1rem;background:rgba(34,197,94,.8);color:#fff;padding:1rem;border-radius:.5rem;font-size:1.25rem;font-weight:600;text-align:right}
-        .table-buttons{display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap}
-        .table-buttons button{padding:.75rem 1.25rem;font-size:1rem;border-radius:.5rem;border:none;font-weight:600;cursor:pointer;transition:opacity .3s}
-        .btn-manuale{background:#22c55e;color:#fff;border:none;padding:.6rem 1.25rem;border-radius:.5rem;font-weight:600;cursor:pointer}
-        .btn-vocale{background:#10b981;color:#fff}.btn-ocr{background:#f43f5e;color:#fff}
-        .table-buttons button:hover,.btn-manuale:hover{opacity:.85}
-        .input-section{background:rgba(255,255,255,.08);padding:1rem;margin-bottom:1.5rem;border-radius:.5rem;display:flex;flex-direction:column;gap:.75rem}
-        .input-section label{font-weight:600;font-size:.95rem;color:#fff}
-        .input-section input{padding:.6rem;border-radius:.5rem;border:none;font-size:1rem;width:100%;background:#1f2937;color:#fff}
-        .btn-back{margin-top:1.5rem;color:#00e4ff;text-decoration:none;font-size:.95rem}
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
+        .page-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+        .page-wrap{position:relative;z-index:1;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:5rem 1rem 3rem;font-family:Inter,system-ui,sans-serif}
+        .page-card{width:100%;max-width:900px;background:rgba(2,4,8,.88);border:1px solid rgba(148,163,184,.2);border-radius:20px;overflow:hidden}
+        .card-header{display:flex;justify-content:space-between;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.06)}
+        .card-title{font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:2px}
+        .card-sub{font-size:.72rem;color:#334155;margin-top:.25rem}
+        .kpi-total{font-family:'Orbitron',monospace;font-size:1.4rem;font-weight:900}
+        .toolbar{display:flex;gap:.6rem;padding:.75rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.05);flex-wrap:wrap}
+        .tbtn{position:relative;display:inline-flex;align-items:center;gap:.4rem;padding:.55rem 1.1rem;border-radius:12px;font-size:.82rem;font-weight:700;cursor:pointer;border:1px solid var(--c,rgba(255,255,255,.15));background:transparent;color:var(--ct,#e2e8f0);transition:all .2s;white-space:nowrap}
+        .tbtn:hover{background:var(--c,rgba(255,255,255,.06))}
+        .tbtn-rec{animation:pulsBtn 1s ease-in-out infinite}
+        .tbtn-busy{opacity:.5;cursor:not-allowed}
+        @keyframes pulsBtn{0%,100%{opacity:.6}50%{opacity:1}}
+        .entry-form{padding:1rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;gap:.7rem}
+        .form-row{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;align-items:end}
+        @media(max-width:600px){.form-row{grid-template-columns:1fr}}
+        .form-field{display:flex;flex-direction:column;gap:.3rem}
+        .form-field label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#475569}
+        .form-field input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#e2e8f0;padding:.45rem .7rem;font-size:.85rem;outline:none}
+        .err-box{margin:.5rem 1.5rem;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:.6rem 1rem;font-size:.8rem;color:#f87171;display:flex;justify-content:space-between}
+        .err-box button{background:none;border:none;color:#f87171;cursor:pointer}
+        .ai-busy-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem 1.5rem;font-size:.78rem;color:#94a3b8;border-bottom:1px solid rgba(255,255,255,.04)}
+        .ai-busy-bar span{width:6px;height:6px;border-radius:50%;animation:typing .9s infinite}
+        .table-wrap{overflow-x:auto;padding:.5rem 0}
+        .data-table{width:100%;border-collapse:collapse;font-size:.82rem}
+        .data-table thead tr{background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.08)}
+        .data-table th{padding:.65rem 1.2rem;text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#475569;font-weight:600}
+        .data-table td{padding:.65rem 1.2rem;border-bottom:1px solid rgba(255,255,255,.04);color:#e2e8f0}
+        .data-table tbody tr:hover{background:rgba(255,255,255,.03)}
+        .td-date{color:#64748b;font-size:.78rem;white-space:nowrap}
+        .td-desc{color:#94a3b8;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .td-amount{font-weight:700;white-space:nowrap}
+        .del-btn{background:none;border:1px solid rgba(239,68,68,.25);border-radius:6px;color:rgba(239,68,68,.6);cursor:pointer;padding:.2rem .5rem;font-size:.75rem}
+        .del-btn:hover{border-color:rgba(239,68,68,.6);color:#f87171;background:rgba(239,68,68,.08)}
+        .empty-row{text-align:center;color:#334155;padding:2rem!important}
+        .loading-rows{display:flex;flex-direction:column;gap:.5rem;padding:1.5rem}
+        .loading-rows span{height:36px;background:rgba(255,255,255,.04);border-radius:8px;animation:shimLoad 1.5s ease-in-out infinite}
+        @keyframes shimLoad{0%,100%{opacity:.4}50%{opacity:.8}}
+        @keyframes typing{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
       `}</style>
     </>
   )
 }
 
 export default withAuth(Varie)
-
-export async function getServerSideProps() {
-  return { props: {} }
-}
+export async function getServerSideProps(){return{props:{}}}
