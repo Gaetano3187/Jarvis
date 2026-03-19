@@ -44,8 +44,6 @@ function extForMime(m = '') {
 /* ═══════════════════════════════════════════════════════════════════
    QUERY DATI LOCALI — risponde a domande analitiche senza GPT
 ══════════════════════════════════════════════════════════════════ */
-function eur(n){return(Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'})}
-
 async function queryData(text, userId) {
   if (!userId) return null
   const s = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
