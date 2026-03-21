@@ -220,7 +220,7 @@ async function executeAction(action, userId, router) {
           )
         }
 
-        // ── FIX VOCE: scala tasca per tutto tranne carta/bonifico ──────────
+        // ── Aggiorna tasca (voce) ──────────────────────────────────────────
         const pmAction = action.payment_method || 'cash'
         if (pmAction !== 'card' && pmAction !== 'transfer' && Number(action.amount) > 0)
           await supabase.from('pocket_cash').insert({
@@ -879,7 +879,8 @@ const Home = () => {
         } catch {}
       }
 
-      // ── FIX: scala tasca per tutto tranne carta/bonifico ───────────────
+      // ── Aggiorna tasca (solo contanti, non carta/bonifico) ─────────────
+      // Il trigger DB blocca eventuali duplicati automaticamente
       if (pm !== 'card' && pm !== 'transfer' && im > 0) {
         try {
           await supabase.from('pocket_cash').insert({
@@ -1048,7 +1049,7 @@ const Home = () => {
         } catch (listErr) { console.warn('[lista] spunta skip:', listErr?.message) }
       }
 
-      // ── FIX: scala tasca per tutto tranne carta/bonifico ───────────────
+      // ── Aggiorna tasca ────────────────────────────────────────────────
       if (pm !== 'card' && pm !== 'transfer' && im > 0) try {
         await supabase.from('pocket_cash').insert({
           user_id: user.id,
