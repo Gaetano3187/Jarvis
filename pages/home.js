@@ -1571,7 +1571,6 @@ const Home = () => {
 {/* particles init moved to useEffect below */}
 
       <style jsx global>{`
-
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body { background: #020d0d; min-height: 100vh; overflow-x: hidden; }
@@ -1587,10 +1586,7 @@ const Home = () => {
             #020d0d;
         }
         .bg-particles { position: absolute; inset: 0; width: 100%; height: 100%; }
-        .hex-grid {
-          position: absolute; inset: 0; opacity: 0;
-        }
-        
+        .hex-grid { position: absolute; inset: 0; opacity: 0; }
         .e-beam {
           position: absolute; left: 0; right: 0; height: 2px;
           background: linear-gradient(90deg, transparent, rgba(0,255,180,0.5), transparent);
@@ -1622,7 +1618,7 @@ const Home = () => {
         @keyframes lrp { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(2.2); opacity: 0; } }
 
         /* ── HERO ── */
-        .hero { text-align: center; width: 100%; }
+        .hero { text-align: center; width: 100%; position: relative; overflow: visible; }
         .orbit-system { width: 64px; height: 64px; margin: 0 auto 8px; position: relative; display: flex; align-items: center; justify-content: center; }
         .or { position: absolute; inset: 0; border-radius: 50%; border: 1px solid; }
         .or1 { border-color: rgba(0,255,180,0.45); border-style: dashed; animation: spinOrb 8s linear infinite; }
@@ -1667,9 +1663,6 @@ const Home = () => {
         .orb:hover .ol { color: rgba(0,255,180,0.85); }
         .oi { color: rgba(0,255,180,0.52); display: flex; transition: all .2s; z-index: 1; }
         .ol { font-family: 'Space Mono', monospace; font-size: 7px; letter-spacing: .08em; color: rgba(0,255,180,0.3); text-transform: uppercase; transition: all .2s; z-index: 1; }
-      `}</style>
-      <style jsx global>{`
-        /* Gold (OCR) */
         .orb-g { border-color: rgba(255,210,0,0.2); }
         .orb-g .p1 { border-color: rgba(255,210,0,0.32); }
         .orb-g .p2 { border-color: rgba(255,210,0,0.18); }
@@ -1679,14 +1672,11 @@ const Home = () => {
         .orb-g:hover { border-color: rgba(255,210,0,0.65); background: rgba(255,210,0,0.06); box-shadow: 0 0 28px rgba(255,210,0,0.25); }
         .orb-g:hover .oi { color: rgba(255,210,0,1); filter: drop-shadow(0 0 7px rgba(255,210,0,0.9)); }
         .orb-g:hover .ol { color: rgba(255,210,0,0.85); }
-        /* Recording */
         .orb-rec { border-color: rgba(255,60,60,0.6) !important; background: rgba(255,30,30,0.08) !important; box-shadow: 0 0 28px rgba(255,60,60,0.4) !important; }
         .orb-rec .p1 { border-color: rgba(255,60,60,0.55) !important; animation-duration: 1.2s !important; }
         .orb-rec .oi { color: #ff4d4d !important; }
         .orb-rec .ol { color: rgba(255,77,77,0.7) !important; }
-        /* Active (chat aperta) */
         .orb-on { border-color: rgba(0,255,180,0.8) !important; background: rgba(0,255,180,0.1) !important; box-shadow: 0 0 35px rgba(0,255,180,0.45), inset 0 0 16px rgba(0,255,180,0.07) !important; }
-        /* Busy */
         .orb-busy { opacity: .35; pointer-events: none; }
 
         /* ── DIVIDER ── */
@@ -1766,8 +1756,6 @@ const Home = () => {
         }
         .jt-toggle:hover { border-color: rgba(0,255,180,0.4); color: rgba(0,255,180,0.85); background: rgba(0,255,180,0.08); }
 
-      `}</style>
-      <style jsx global>{`
         /* ── CHAT PANEL ── */
         .chat-panel { width: 100%; background: rgba(0,14,10,0.96); border: 1px solid rgba(0,255,180,0.12); border-radius: 0 0 12px 12px; overflow: hidden; }
         .chat-messages { max-height: 260px; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -1862,11 +1850,10 @@ const Home = () => {
           .logo-title { font-size: 46px; }
           .cmd-zone { gap: 7px; }
           .orb { width: 56px; height: 56px; }
-          .home-wrap { padding: 1.2rem .75rem 2.5rem; }
+          .home-wrap { padding: 3.5rem .75rem 2.5rem; }
         }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-      
-      `}</style>
+`}</style>
     </>
   )
 }
