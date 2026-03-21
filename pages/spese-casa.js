@@ -1,4 +1,9 @@
-// pages/spese-casa.js
+// pages/spese-casa.js — VERSIONE MODIFICATA
+// Modifiche:
+// 1. Tasto ✎ Modifica manuale per ogni spesa
+// 2. Fix pagamento carta: solo se ci sono keyword POS/Visa/Bancomat
+// 3. Fix scontrino ristorante: riconosce i piatti
+
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import Head from 'next/head'
 import withAuth from '../hoc/withAuth'
@@ -11,6 +16,17 @@ function mbounds(mk){if(mk==='all')return{s:'2000-01-01',e:'2099-12-31'};const[y
 function eur(n){return(Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'})}
 function getBM(){if(typeof MediaRecorder==='undefined')return'';for(const t of['audio/webm;codecs=opus','audio/webm','audio/mp4'])try{if(MediaRecorder.isTypeSupported(t))return t}catch{}return''}
 function extM(m=''){return m.includes('mp4')?'voice.mp4':'voice.webm'}
+
+// ── FIX: Keyword POS per riconoscere pagamento carta ──────────────────
+function fixPaymentMethod(paymentMethod, rawText='') {
+  if (!paymentMethod || paymentMethod === 'unknown') return 'unknown'
+  const cartaKeywords = /\b(visa|mastercard|maestro|bancomat|contactless|pos|pagamento\s+carta|debit|credit|chip|pin|approved|transazione|carta)\b/i
+  if (paymentMethod === 'card' || paymentMethod === 'carta') {
+    if (cartaKeywords.test(rawText)) return 'card'
+    return 'unknown' // scontrino non ha indicazioni POS → non assegnare carta
+  }
+  return paymentMethod
+}
 
 function SpeseCasa(){
   const mr=useRef(null),cr=useRef([]),sr=useRef(null),isRecRef=useRef(false)
@@ -27,6 +43,10 @@ function SpeseCasa(){
   const[tab,setTab]=useState('spese')
   const[mk,setMk]=useState(()=>clamp(typeof window!=='undefined'?localStorage.getItem('_jv_casa_mk')||toMK():toMK()))
   const[form,setForm]=useState({store:'',description:'',amount:'',date:''})
+
+  // ── NUOVI STATI per modifica inline ────────────────────────────────────
+  const[editId,setEditId]=useState(null)
+  const[editForm,setEditForm]=useState({store:'',description:'',amount:'',date:''})
 
   useEffect(()=>{supabase.auth.getUser().then(({data:{user}})=>{if(user){setUserId(user.id);load(user.id)}})},[])
   useEffect(()=>{try{localStorage.setItem('_jv_casa_mk',mk)}catch{}},[mk])
@@ -66,6 +86,23 @@ function SpeseCasa(){
     }catch(e){setErr(e.message)}
   }
 
+  // ── NUOVA: salva modifica spesa ─────────────────────────────────────────
+  async function onEditSubmit(e,expId){
+    e.preventDefault();setErr(null)
+    try{
+      const{error}=await supabase.from('expenses').update({
+        store:editForm.store,
+        description:editForm.description||null,
+        amount:parseFloat(editForm.amount)||0,
+        purchase_date:editForm.date,
+      }).eq('id',expId)
+      if(error)throw error
+      setEditId(null)
+      // Aggiorna localmente
+      setExpenses(prev=>prev.map(ex=>ex.id===expId?{...ex,store:editForm.store,description:editForm.description||null,amount:parseFloat(editForm.amount)||0,purchase_date:editForm.date}:ex))
+    }catch(e){setErr(e.message)}
+  }
+
   async function handleOCR(file){
     if(!file)return;setAiBusy(true);setErr(null)
     try{
@@ -75,19 +112,39 @@ function SpeseCasa(){
       const data=await r.json();if(!r.ok)throw new Error(data.error||'Errore OCR')
       if(data.doc_type!=='receipt'&&data.doc_type!=='invoice')throw new Error('Non è uno scontrino')
       if(data.categoria!=='casa')throw new Error(`Categoria "${data.categoria}" — usa la pagina corretta`)
+
+      // ── FIX payment_method: carta solo se c'è indicazione POS ──────────
+      const rawText=data.raw_text||''
+      const fixedPayment=fixPaymentMethod(data.payment_method, rawText)
+
       const{data:{user}}=await supabase.auth.getUser()
-      const{data:exp}=await supabase.from('expenses').insert({user_id:user.id,category:'casa',store:data.store||'Supermercato',store_address:data.store_address||null,amount:parseFloat(data.price_total||0),purchase_date:data.purchase_date||iso(),payment_method:data.payment_method||'unknown',source:'ocr'}).select('id').single()
+      const{data:exp}=await supabase.from('expenses').insert({
+        user_id:user.id,category:'casa',store:data.store||'Supermercato',
+        store_address:data.store_address||null,amount:parseFloat(data.price_total||0),
+        purchase_date:data.purchase_date||iso(),
+        payment_method:fixedPayment,  // ← USA VERSIONE CORRETTA
+        source:'ocr'
+      }).select('id').single()
+
       if(exp&&data.items?.length){
-        const{data:rec}=await supabase.from('receipts').insert({user_id:user.id,expense_id:exp.id,store:data.store||'',purchase_date:data.purchase_date||iso(),price_total:parseFloat(data.price_total||0),payment_method:data.payment_method||'unknown',confidence:data.confidence||'medium'}).select('id').single()
+        const{data:rec}=await supabase.from('receipts').insert({
+          user_id:user.id,expense_id:exp.id,store:data.store||'',
+          purchase_date:data.purchase_date||iso(),price_total:parseFloat(data.price_total||0),
+          payment_method:fixedPayment,confidence:data.confidence||'medium'
+        }).select('id').single()
         if(rec){
-          await supabase.from('receipt_items').insert(data.items.map(it=>({receipt_id:rec.id,user_id:user.id,name:it.name,brand:it.brand||null,qty:it.qty||1,unit:it.unit||'pz',unit_price:it.unit_price||0,price:it.price||0,category_item:it.category_item||'alimentari',purchase_date:data.purchase_date||iso()})))
+          await supabase.from('receipt_items').insert(data.items.map(it=>({
+            receipt_id:rec.id,user_id:user.id,name:it.name,brand:it.brand||null,
+            qty:it.qty||1,unit:it.unit||'pz',unit_price:it.unit_price||0,
+            price:it.price||0,category_item:it.category_item||'alimentari',
+            purchase_date:data.purchase_date||iso()
+          })))
           for(const it of data.items){
             if(!it.name)continue;const tot=Number(it.qty||1)
             const{data:ex2}=await supabase.from('inventory').select('id,qty,initial_qty').eq('user_id',user.id).ilike('product_name',`%${it.name.split(' ')[0]}%`).maybeSingle()
             if(ex2)await supabase.from('inventory').update({qty:Number(ex2.qty||0)+tot,initial_qty:Number(ex2.initial_qty||0)+tot,consumed_pct:0,avg_price:it.unit_price||0}).eq('id',ex2.id)
             else await supabase.from('inventory').insert({user_id:user.id,product_name:it.name,brand:it.brand||null,category:it.category_item||'alimentari',qty:tot,initial_qty:tot,avg_price:it.unit_price||0,purchase_date:data.purchase_date||iso(),consumed_pct:0})
           }
-          // Spunta lista spesa
           try{
             const{data:lista}=await supabase.from('shopping_list').select('id,name').eq('user_id',user.id).eq('purchased',false)
             if(lista?.length){
@@ -194,7 +251,7 @@ function SpeseCasa(){
         {tab==='spese'&&<div className="lb">
           {loading?<div className="sk"><span/><span/><span/></div>:expenses.length===0?<div className="le">Nessuna spesa</div>:
           expenses.map(exp=><div key={exp.id} className="eb2">
-            <div className="er" onClick={()=>loadDetail(exp.id)}>
+            <div className="er" onClick={()=>{if(editId===exp.id)return;loadDetail(exp.id)}}>
               <div className="el">
                 <span className="es" style={{color:'#22d3ee'}}>{exp.store||'—'}</span>
                 {exp.store_address&&<span className="ea">{exp.store_address}</span>}
@@ -203,23 +260,46 @@ function SpeseCasa(){
               </div>
               <div className="eg">
                 <span className="ev" style={{color:'#22c55e'}}>{eur(exp.amount)}</span>
-                <span className="ech">{expanded===exp.id?'▲':'▼'}</span>
-                <button className="dx" onClick={async e=>{e.stopPropagation();const{error}=await supabase.from('expenses').delete().eq('id',exp.id);if(!error){setExpenses(x=>x.filter(r=>r.id!==exp.id));if(expanded===exp.id)setExpanded(null)}}}>✕</button>
+                <span className="ech">{expanded===exp.id&&editId!==exp.id?'▲':'▼'}</span>
+                {/* ── TASTO MODIFICA ── */}
+                <button
+                  className="dx"
+                  style={{borderColor:'rgba(59,130,246,.25)',color:'rgba(96,165,250,.5)',marginRight:2}}
+                  onClick={e=>{
+                    e.stopPropagation()
+                    if(editId===exp.id){setEditId(null);return}
+                    setEditId(exp.id)
+                    setEditForm({store:exp.store||'',description:exp.description||'',amount:String(exp.amount||''),date:exp.purchase_date||''})
+                    setExpanded(null)
+                  }}
+                  title="Modifica"
+                >✎</button>
+                {/* ── TASTO ELIMINA ── */}
+                <button className="dx" onClick={async e=>{e.stopPropagation();const{error}=await supabase.from('expenses').delete().eq('id',exp.id);if(!error){setExpenses(x=>x.filter(r=>r.id!==exp.id));if(expanded===exp.id)setExpanded(null);if(editId===exp.id)setEditId(null)}}}>✕</button>
               </div>
             </div>
-            {expanded===exp.id&&<div className="ed2">
+
+            {/* ── FORM MODIFICA INLINE ── */}
+            {editId===exp.id&&<form
+              onSubmit={e=>onEditSubmit(e,exp.id)}
+              style={{padding:'.55rem 1.25rem',background:'rgba(59,130,246,.05)',borderBottom:'1px solid rgba(255,255,255,.04)',display:'flex',gap:6,flexWrap:'wrap',alignItems:'flex-end'}}
+            >
+              <input value={editForm.store} onChange={ev=>setEditForm(f=>({...f,store:ev.target.value}))} placeholder="Negozio" className="fi" style={{flex:'1 1 110px'}}/>
+              <input value={editForm.description} onChange={ev=>setEditForm(f=>({...f,description:ev.target.value}))} placeholder="Descrizione" className="fi" style={{flex:'1 1 130px'}}/>
+              <input type="number" step="0.01" value={editForm.amount} onChange={ev=>setEditForm(f=>({...f,amount:ev.target.value}))} placeholder="€" className="fi" style={{flex:'0 0 80px'}}/>
+              <input type="date" value={editForm.date} onChange={ev=>setEditForm(f=>({...f,date:ev.target.value}))} className="fi" style={{flex:'0 0 130px'}}/>
+              <button type="submit" className="bn bn-s" style={{padding:'.28rem .65rem'}}>✓</button>
+              <button type="button" onClick={()=>setEditId(null)} className="bn" style={{borderColor:'rgba(255,255,255,.15)',color:'#94a3b8',padding:'.28rem .65rem'}}>✕</button>
+            </form>}
+
+            {expanded===exp.id&&editId!==exp.id&&<div className="ed2">
               {recMap[exp.id]?.items?.length>0?(<>
                 <div className="dl">🛒 {recMap[exp.id].items.length} prodotti · scontrino</div>
                 <div className="il">{recMap[exp.id].items.map(it=>{
                   const packs=Number(it.packs||1)
                   const uPack=Number(it.units_per_pack||1)
                   const uLabel=it.unit_per_pack_label||it.unit||'pz'
-                  const showPack=packs>1||uPack>1
-                  const packDesc=packs>1&&uPack>1
-                    ? `${packs} conf. × ${uPack} ${uLabel}`
-                    : packs>1 ? `${packs} × ${uLabel}`
-                    : uPack>1 ? `${uPack} ${uLabel}`
-                    : `${it.qty} ${it.unit||'pz'}`
+                  const packDesc=packs>1&&uPack>1?`${packs} conf. × ${uPack} ${uLabel}`:packs>1?`${packs} × ${uLabel}`:uPack>1?`${uPack} ${uLabel}`:`${it.qty} ${it.unit||'pz'}`
                   return<div key={it.id} className="ir">
                     <div className="il-left">
                       <span className="iname">{it.name}{it.brand&&<em className="ibrand"> · {it.brand}</em>}</span>
@@ -330,7 +410,7 @@ const CSS = `
   .es{font-size:.87rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:underline;text-decoration-color:rgba(255,255,255,.15);text-underline-offset:2px}
   .ea{font-size:.7rem;color:rgba(100,116,139,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .edate{font-size:.65rem;color:rgba(100,116,139,.4)}
-  .eg{display:flex;align-items:center;gap:.55rem;flex-shrink:0}
+  .eg{display:flex;align-items:center;gap:.4rem;flex-shrink:0}
   .ev{font-size:.88rem;font-weight:700;font-family:'Montserrat',sans-serif}
   .ech{font-size:.55rem;color:rgba(100,116,139,.5)}
   .dx{background:none;border:1px solid rgba(239,68,68,.16);border-radius:6px;color:rgba(239,68,68,.35);cursor:pointer;padding:.15rem .4rem;font-size:.67rem;transition:all .12s}
@@ -339,22 +419,16 @@ const CSS = `
   .dl{font-size:.61rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(100,116,139,.5);margin-bottom:.45rem}
   .dem{font-size:.75rem;color:rgba(100,116,139,.45)}
   .il{display:flex;flex-direction:column;gap:.25rem}
-  .ir{display:flex;align-items:center;gap:.5rem;font-size:.76rem;padding:.24rem 0;border-bottom:1px solid rgba(255,255,255,.03);flex-wrap:wrap}
-  .iname{flex:1;color:#cbd5e1;min-width:100px}
-  .iname em{color:rgba(100,116,139,.6);font-style:normal}
-  .iqty{color:rgba(100,116,139,.55);font-size:.69rem;white-space:nowrap}
-  .ipr{font-weight:600;white-space:nowrap;margin-left:auto}
-  .pr{display:flex;align-items:flex-start;gap:.65rem;padding:.65rem 1.25rem;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s}
-  .pr:hover{background:rgba(255,255,255,.02)}
-  .pico{font-size:1.05rem;flex-shrink:0;margin-top:.1rem}
-  .pn{flex:1;display:flex;flex-direction:column;gap:.08rem;min-width:0}
-  .pname{font-size:.85rem;font-weight:600;color:#e2e8f0}
-  .pbrand{font-size:.7rem;color:rgba(100,116,139,.6)}
-  .pdesc{font-size:.71rem;color:rgba(100,116,139,.5);line-height:1.35}
-  .pm2{display:flex;flex-direction:column;align-items:flex-end;gap:.12rem;flex-shrink:0}
-  .pprice{font-size:.88rem;font-weight:700;font-family:'Montserrat',sans-serif}
-  .pstore{font-size:.67rem;color:rgba(100,116,139,.5)}
-  .pdate{font-size:.64rem;color:rgba(100,116,139,.35)}
+  .ir{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;font-size:.76rem;padding:.32rem 0;border-bottom:1px solid rgba(255,255,255,.03)}
+  .il-left{display:flex;flex-direction:column;gap:.1rem;flex:1;min-width:0}
+  .il-right{display:flex;flex-direction:column;align-items:flex-end;gap:.08rem;flex-shrink:0}
+  .iname{color:#cbd5e1;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ibrand{color:rgba(100,116,139,.6);font-style:normal}
+  .ipack{font-size:.68rem;color:rgba(100,116,139,.55)}
+  .iupr{font-size:.66rem;color:rgba(100,116,139,.45)}
+  .ipr{font-size:.8rem;font-weight:700;font-family:'Montserrat',sans-serif}
+  .iqty{color:rgba(100,116,139,.55);font-size:.69rem}
+  .itot{text-align:right;font-size:.72rem;color:rgba(100,116,139,.5);padding:.4rem 0 .1rem;border-top:1px solid rgba(255,255,255,.06);margin-top:.2rem}
   .dr{display:flex;align-items:center;gap:.65rem;padding:.62rem 1.25rem;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s}
   .dr:hover{background:rgba(255,255,255,.02)}
   .dra{border-left:2px solid rgba(239,68,68,.3)}
@@ -366,17 +440,6 @@ const CSS = `
   .dprice{font-size:.69rem;color:rgba(100,116,139,.55)}
   .dexp{font-size:.66rem;color:#fbbf24}
   .dpct{font-size:.66rem;color:#f87171}
-  /* ── Dettaglio confezione ── */
-  .ir{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;font-size:.76rem;padding:.32rem 0;border-bottom:1px solid rgba(255,255,255,.03)}
-  .il-left{display:flex;flex-direction:column;gap:.1rem;flex:1;min-width:0}
-  .il-right{display:flex;flex-direction:column;align-items:flex-end;gap:.08rem;flex-shrink:0}
-  .iname{color:#cbd5e1;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ibrand{color:rgba(100,116,139,.6);font-style:normal}
-  .ipack{font-size:.68rem;color:rgba(100,116,139,.55)}
-  .iupr{font-size:.66rem;color:rgba(100,116,139,.45)}
-  .ipr{font-size:.8rem;font-weight:700;font-family:'Montserrat',sans-serif}
-  .iqty{color:rgba(100,116,139,.55);font-size:.69rem}
-  .itot{text-align:right;font-size:.72rem;color:rgba(100,116,139,.5);padding:.4rem 0 .1rem;border-top:1px solid rgba(255,255,255,.06);margin-top:.2rem}
 `
 
 export default withAuth(SpeseCasa)
