@@ -1587,10 +1587,9 @@ const Home = () => {
         }
         .bg-particles { position: absolute; inset: 0; width: 100%; height: 100%; }
         .hex-grid {
-          position: absolute; inset: 0; opacity: 0.45;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='70'%3E%3Cpath d='M30 2 L58 17 L58 53 L30 68 L2 53 L2 17Z' fill='none' stroke='rgba(0,220,150,0.07)' stroke-width='0.6'/%3E%3C/svg%3E");
-          background-size: 60px 70px;
+          position: absolute; inset: 0; opacity: 0;
         }
+        
         .e-beam {
           position: absolute; left: 0; right: 0; height: 2px;
           background: linear-gradient(90deg, transparent, rgba(0,255,180,0.5), transparent);
