@@ -220,8 +220,13 @@ async function executeAction(action, userId, router) {
           )
         }
 
-        // pocket_cash NON viene inserito qui:
-        // entrate.js calcola già i contanti dalle expenses con payment_method='cash'
+        // ── FIX VOCE: scala tasca per tutto tranne carta/bonifico ──────────
+        const pmAction = action.payment_method || 'cash'
+        if (pmAction !== 'card' && pmAction !== 'transfer' && Number(action.amount) > 0)
+          await supabase.from('pocket_cash').insert({
+            user_id: userId, note: descVal,
+            delta: -Number(action.amount), moved_at: new Date().toISOString(),
+          })
 
         const catIcon = {casa:'🏠',cene:'🍽️',vestiti:'👗',varie:'🧰'}[rawCat] || '📦'
         const itemsStr = items.length
@@ -874,9 +879,16 @@ const Home = () => {
         } catch {}
       }
 
-      // pocket_cash NON viene inserito qui:
-      // entrate.js calcola già i contanti dalle expenses con payment_method='cash'
-      // inserire qui creerebbe un doppio conteggio nella pagina Entrate & Saldi
+      // ── FIX: scala tasca per tutto tranne carta/bonifico ───────────────
+      if (pm !== 'card' && pm !== 'transfer' && im > 0) {
+        try {
+          await supabase.from('pocket_cash').insert({
+            user_id: user.id,
+            note: sa ? `${st} — ${sa} (${pd})` : `${st} (${pd})`,
+            delta: -im, moved_at: new Date().toISOString(),
+          })
+        } catch {}
+      }
 
       const nItems = items.length
       const catIcon = {casa:'🏠',cene:'🍽️',vestiti:'👗',varie:'🧰'}[cat] || '📦'
@@ -1036,8 +1048,14 @@ const Home = () => {
         } catch (listErr) { console.warn('[lista] spunta skip:', listErr?.message) }
       }
 
-      // pocket_cash NON viene inserito qui:
-      // entrate.js calcola già i contanti dalle expenses con payment_method='cash'
+      // ── FIX: scala tasca per tutto tranne carta/bonifico ───────────────
+      if (pm !== 'card' && pm !== 'transfer' && im > 0) try {
+        await supabase.from('pocket_cash').insert({
+          user_id: user.id,
+          note: sa ? `${st} — ${sa} (${pd})` : `${st} (${pd})`,
+          delta: -im, moved_at: new Date().toISOString(),
+        })
+      } catch {}
 
       setOcrResult(null); if (userId) loadData(userId)
       alert(`✅ Salvato!\n🏪 ${st}${sa?' — '+sa:''}\n💶 €${im.toFixed(2)}${items.length ? `\n🛒 ${items.length} prodotti` : ''}`)
