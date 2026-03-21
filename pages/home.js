@@ -868,8 +868,7 @@ const Home = () => {
           throw new Error('OCR non ha estratto dati — riprova con foto più nitida e in buona luce')
         }
         if (universal.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
-        // Mostra preview per conferma — il salvataggio avviene solo con "Conferma e salva"
-        setOcrResult(universal)
+        await _salvaRicevuta(universal)
         return
       }
 
