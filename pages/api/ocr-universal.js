@@ -178,12 +178,13 @@ Servizi vari:
   fiorista, piante, vivaio, regalo, giocattoli
 
 ━━━ REGOLA FONDAMENTALE: payment_method ━━━
+Il pagamento DEFAULT è sempre "cash" (contanti).
 Assegna "card" SOLO se nel testo dello scontrino appaiono ESPLICITAMENTE:
   VISA, MASTERCARD, MAESTRO, BANCOMAT, CONTACTLESS, POS,
-  PAGAMENTO CARTA, DEBIT CARD, CREDIT CARD, CHIP, PIN, APPROVED,
-  TRANSAZIONE APPROVATA, CARTA DI CREDITO, CARTA DI DEBITO.
-Se queste parole NON appaiono → usa "cash" o "unknown".
-Scontrini bar/ristorante senza indicazione POS → "unknown", NON "card".
+  PAGAMENTO CARTA, PAGAMENTO CON CARTA, DEBIT CARD, CREDIT CARD,
+  CHIP, PIN, APPROVED, TRANSAZIONE APPROVATA,
+  CARTA DI CREDITO, CARTA DI DEBITO, PAGO BANCOMAT.
+Se queste parole NON appaiono → usa SEMPRE "cash", MAI "unknown" o "card".
 
 ━━━ FORMATO JSON per receipt ━━━
 {
@@ -342,12 +343,14 @@ export default async function handler(req, res) {
       // Items
       if (!Array.isArray(parsed.items)) parsed.items = []
 
-      // ── FIX payment_method: carta SOLO con evidenza POS ──────────────
+      // ── payment_method: carta SOLO con evidenza POS, default = cash ───
       const rawText = String(parsed.raw_text || '')
-      if (parsed.payment_method === 'card') {
-        if (!CARTA_REGEX.test(rawText)) {
-          parsed.payment_method = 'unknown'
-        }
+      if (parsed.payment_method === 'card' || parsed.payment_method === 'carta') {
+        // card rimane solo se c'è evidenza POS nel testo raw
+        parsed.payment_method = CARTA_REGEX.test(rawText) ? 'card' : 'cash'
+      } else if (parsed.payment_method !== 'transfer') {
+        // unknown, null, cash, o qualsiasi altro valore → sempre contanti
+        parsed.payment_method = 'cash'
       }
 
       // Sanitize items in base alla categoria

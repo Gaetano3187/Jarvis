@@ -1,4 +1,7 @@
-// pages/cene-aperitivi.js
+// pages/cene-aperitivi.js — VERSIONE CORRETTA
+// Fix 1: tab "Piatti & Ordini" mostra anche i piatti da receipt_items (OCR)
+// Fix 2: loadDetail carica correttamente nome/prezzo per scontrini ristorante
+
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import Head from 'next/head'
 import withAuth from '../hoc/withAuth'
@@ -15,8 +18,8 @@ function extM(m=''){return m.includes('mp4')?'voice.mp4':'voice.webm'}
 function CeneAperitivi(){
   const mr=useRef(null),cr=useRef([]),sr=useRef(null),isRecRef=useRef(false)
   const[expenses,setExpenses]=useState([])
-  const[purchases,setPurchases]=useState([])
-  const[recMap,setRecMap]=useState({})
+  const[purchases,setPurchases]=useState([])   // purchase_items manuali
+  const[recMap,setRecMap]=useState({})          // receipt_items per spesa espansa
   const[expanded,setExpanded]=useState(null)
   const[loading,setLoading]=useState(false)
   const[err,setErr]=useState(null)
@@ -29,6 +32,9 @@ function CeneAperitivi(){
   const[mk,setMk]=useState(()=>clamp(typeof window!=='undefined'?localStorage.getItem('_jv_cene_mk')||toMK():toMK()))
   const[form,setForm]=useState({store:'',description:'',amount:'',date:''})
   const[iForm,setIForm]=useState({name:'',price:'',store:'',date:''})
+
+  // ── contatore piatti totali (purchase_items manuali + receipt_items OCR) ──
+  const[ocrPiattiCount,setOcrPiattiCount]=useState(0)
 
   useEffect(()=>{supabase.auth.getUser().then(({data:{user}})=>{if(user){setUserId(user.id);load(user.id)}})},[])
   useEffect(()=>{try{localStorage.setItem('_jv_cene_mk',mk)}catch{}},[mk])
@@ -44,7 +50,20 @@ function CeneAperitivi(){
           .eq('user_id',uid).eq('category','cene').order('purchase_date',{ascending:false})
       ])
       if(ex.error)throw ex.error
-      setExpenses(ex.data||[]);if(!pu.error)setPurchases(pu.data||[])
+      setExpenses(ex.data||[])
+      if(!pu.error)setPurchases(pu.data||[])
+
+      // Carica anche il conteggio piatti OCR (receipt_items categoria ristorante)
+      if(ex.data?.length){
+        const expIds=ex.data.map(e=>e.id)
+        // Prendi i receipt delle spese cene
+        const{data:recs}=await supabase.from('receipts').select('id').in('expense_id',expIds)
+        if(recs?.length){
+          const recIds=recs.map(r=>r.id)
+          const{count}=await supabase.from('receipt_items').select('id',{count:'exact',head:true}).in('receipt_id',recIds)
+          setOcrPiattiCount(count||0)
+        }
+      }
     }catch(e){setErr(e.message)}finally{setLoading(false)}
   }
 
@@ -54,7 +73,11 @@ function CeneAperitivi(){
     try{
       const{data:rec}=await supabase.from('receipts').select('id').eq('expense_id',eid).maybeSingle()
       if(!rec){setRecMap(m=>({...m,[eid]:{items:[]}}));return}
-      const{data:items}=await supabase.from('receipt_items').select('id,name,brand,qty,unit,price').eq('receipt_id',rec.id).order('price',{ascending:false})
+      // Carica receipt_items (piatti OCR)
+      const{data:items}=await supabase.from('receipt_items')
+        .select('id,name,brand,qty,unit,unit_price,price,category_item')
+        .eq('receipt_id',rec.id)
+        .order('price',{ascending:false})
       setRecMap(m=>({...m,[eid]:{items:items||[]}}))
     }catch(e){setErr(e.message)}
   }
@@ -86,10 +109,43 @@ function CeneAperitivi(){
       const data=await r.json();if(!r.ok)throw new Error(data.error||'Errore OCR')
       if(data.doc_type!=='receipt'&&data.doc_type!=='invoice')throw new Error('Non è uno scontrino')
       const{data:{user}}=await supabase.auth.getUser()
-      const{data:exp}=await supabase.from('expenses').insert({user_id:user.id,category:'cene',store:data.store||'Cena',store_address:data.store_address||null,amount:parseFloat(data.price_total||0),purchase_date:data.purchase_date||iso(),payment_method:data.payment_method||'unknown',source:'ocr'}).select('id').single()
+
+      // Indirizzo + città nella description
+      const locationParts=[data.store_address,data.store_city||null].filter(Boolean)
+      const locationStr=locationParts.length?` — ${locationParts.join(', ')}`:''
+
+      const{data:exp}=await supabase.from('expenses').insert({
+        user_id:user.id,category:'cene',
+        store:data.store||'Cena',
+        store_address:data.store_address||null,
+        description:(data.store||'Cena')+locationStr,
+        amount:parseFloat(data.price_total||0),
+        purchase_date:data.purchase_date||iso(),
+        payment_method:data.payment_method||'unknown',
+        source:'ocr'
+      }).select('id').single()
+
       if(exp){
-        await supabase.from('receipts').insert({user_id:user.id,expense_id:exp.id,store:data.store||'',purchase_date:data.purchase_date||iso(),price_total:parseFloat(data.price_total||0),payment_method:data.payment_method||'unknown',confidence:data.confidence||'medium'})
-        if(data.items?.length)await supabase.from('purchase_items').insert(data.items.map(it=>({user_id:user.id,category:'cene',expense_id:exp.id,name:it.name,price:it.price||0,store:data.store||null,purchase_date:data.purchase_date||iso()})))
+        const{data:rec}=await supabase.from('receipts').insert({
+          user_id:user.id,expense_id:exp.id,store:data.store||'',
+          purchase_date:data.purchase_date||iso(),
+          price_total:parseFloat(data.price_total||0),
+          payment_method:data.payment_method||'unknown',
+          confidence:data.confidence||'medium'
+        }).select('id').single()
+
+        // Salva receipt_items (piatti) per tutti i locali cene
+        if(rec&&data.items?.length){
+          await supabase.from('receipt_items').insert(data.items.map(it=>({
+            receipt_id:rec.id,user_id:user.id,
+            name:it.name,brand:it.brand||null,
+            qty:it.qty||1,unit:it.unit||'pz',
+            unit_price:it.unit_price||it.price||0,
+            price:it.price||0,
+            category_item:it.category_item||'ristorante',
+            purchase_date:data.purchase_date||iso()
+          })))
+        }
       }
       await load(user.id)
     }catch(e){setErr('OCR: '+(e.message||e))}finally{setAiBusy(false)}
@@ -132,6 +188,8 @@ function CeneAperitivi(){
 
   const totale=expenses.reduce((s,r)=>s+Number(r.amount||0),0)
   const mLabel=mk==='all'?'Tutti i mesi':new Date(Number(mk.split('-')[0]),Number(mk.split('-')[1])-1,1).toLocaleString('it-IT',{month:'long',year:'numeric'})
+  // Totale piatti: manuali + OCR
+  const totalePiatti=purchases.length+ocrPiattiCount
 
   return(<>
     <Head><title>Cene – Jarvis</title></Head>
@@ -140,7 +198,7 @@ function CeneAperitivi(){
       <div className="ks">
         <div className="kc"><div className="kl">Spese Cene</div><div className="kv" style={{color:'#fbbf24'}}>{eur(totale)}</div></div>
         <div className="kc"><div className="kl">N° uscite</div><div className="kv" style={{color:'#22d3ee'}}>{expenses.length}</div></div>
-        <div className="kc"><div className="kl">Piatti registrati</div><div className="kv" style={{color:'#fb923c'}}>{purchases.length}</div></div>
+        <div className="kc"><div className="kl">Piatti registrati</div><div className="kv" style={{color:'#fb923c'}}>{totalePiatti}</div></div>
       </div>
       <div className="mc">
         <div className="sh">
@@ -149,7 +207,7 @@ function CeneAperitivi(){
         </div>
         <div className="tr">
           <button className="tb" style={tab==='spese'?{color:'#fbbf24',borderBottom:'2px solid #fbbf24'}:{}} onClick={()=>setTab('spese')}>📋 Spese ({expenses.length})</button>
-          <button className="tb" style={tab==='listino'?{color:'#fbbf24',borderBottom:'2px solid #fbbf24'}:{}} onClick={()=>setTab('listino')}>🥘 Piatti & Ordini ({purchases.length})</button>
+          <button className="tb" style={tab==='listino'?{color:'#fbbf24',borderBottom:'2px solid #fbbf24'}:{}} onClick={()=>setTab('listino')}>🥘 Piatti & Ordini ({totalePiatti})</button>
         </div>
         {tab==='spese'&&<div className="mn">
           <button className="mb" onClick={()=>{const[y,m]=mk.split('-').map(Number);setMk(toMK(new Date(y,m-2,1)))}}>‹</button>
@@ -194,13 +252,16 @@ function CeneAperitivi(){
         {err&&<div className="eb">{err}<button onClick={()=>setErr(null)}>✕</button></div>}
         {aibusy&&<div className="ab"><span className="ad"/>Elaboro…</div>}
 
+        {/* ── TAB SPESE ── */}
         {tab==='spese'&&<div className="lb">
           {loading?<div className="sk"><span/><span/><span/></div>:expenses.length===0?<div className="le">Nessuna spesa</div>:
           expenses.map(exp=><div key={exp.id} className="eb2">
             <div className="er" onClick={()=>loadDetail(exp.id)}>
               <div className="el">
                 <span className="es" style={{color:'#fbbf24'}}>{exp.store||'—'}</span>
-                {exp.description&&<span className="ea">{exp.description}</span>}
+                {/* Mostra indirizzo/città se disponibile */}
+                {exp.store_address&&<span className="ea">📍 {exp.store_address}</span>}
+                {exp.description&&exp.description!==(exp.store||'')&&<span className="ea">{exp.description}</span>}
                 <span className="edate">{exp.purchase_date}</span>
               </div>
               <div className="eg">
@@ -210,37 +271,94 @@ function CeneAperitivi(){
               </div>
             </div>
             {expanded===exp.id&&<div className="ed2">
-              {recMap[exp.id]?.items?.length>0?(<><div className="dl">🍽️ {recMap[exp.id].items.length} voci</div>
+              {recMap[exp.id]?.items?.length>0?(<>
+                <div className="dl">🍽️ {recMap[exp.id].items.length} voci — scontrino</div>
                 <div className="il">{recMap[exp.id].items.map(it=><div key={it.id} className="ir">
-                  <span className="iname">{it.name}{it.brand&&<em> · {it.brand}</em>}</span>
+                  <div className="il-left">
+                    <span className="iname">
+                      {it.name}
+                      {it.brand&&<em className="ibrand"> · {it.brand}</em>}
+                    </span>
+                    {it.qty>1&&<span className="ipack">{it.qty} × {eur(it.unit_price)}</span>}
+                  </div>
                   <span className="ipr" style={{color:'#fbbf24'}}>{eur(it.price)}</span>
-                </div>)}</div></>)
-              :recMap[exp.id]?<div className="dem">Nessun dettaglio</div>:<div className="dem">Caricamento…</div>}
+                </div>)}</div>
+                <div className="itot">Totale <strong style={{color:'#fbbf24'}}>{eur(recMap[exp.id].items.reduce((s,i)=>s+Number(i.price||0),0))}</strong></div>
+              </>)
+              :recMap[exp.id]?<div className="dem">Nessun dettaglio scontrino</div>:<div className="dem">Caricamento…</div>}
             </div>}
           </div>)}
         </div>}
 
-        {tab==='listino'&&<div className="lb">
-          {purchases.length===0?<div className="le">Nessun piatto registrato</div>:
-          purchases.map(p=><div key={p.id} className="pr">
-            <div className="pico">🍽️</div>
-            <div className="pn">
-              <span className="pname">{p.name}</span>
-              {p.brand&&<span className="pbrand">{p.brand}</span>}
-              {p.description&&<span className="pdesc">{p.description}</span>}
-            </div>
-            <div className="pm2">
-              <span className="pprice" style={{color:'#fbbf24'}}>{eur(p.price)}</span>
-              {p.store&&<span className="pstore">@ {p.store}</span>}
-              <span className="pdate">{p.purchase_date}</span>
-            </div>
-            <button className="dx" onClick={()=>{(async()=>{const{error}=await supabase.from('purchase_items').delete().eq('id',p.id);if(!error)setPurchases(px=>px.filter(r=>r.id!==p.id))})()}}>✕</button>
-          </div>)}
-        </div>}
+        {/* ── TAB PIATTI & ORDINI ── */}
+        {/* Mostra sia purchase_items manuali che i receipt_items OCR di tutte le spese */}
+        {tab==='listino'&&<ListinoPiatti uid={userId} expenses={expenses} purchases={purchases}/>}
       </div>
     </div></div>
     <style jsx global>{CSS}</style>
   </>)
+}
+
+// ── Componente separato per la lista piatti che carica anche receipt_items ──
+function ListinoPiatti({uid, expenses, purchases}){
+  const[ocrPiatti,setOcrPiatti]=useState([])
+  const[loading,setLoading]=useState(false)
+
+  useEffect(()=>{
+    if(!uid||!expenses.length)return
+    ;(async()=>{
+      setLoading(true)
+      try{
+        const expIds=expenses.map(e=>e.id)
+        const{data:recs}=await supabase.from('receipts').select('id,expense_id,store,purchase_date').in('expense_id',expIds)
+        if(!recs?.length){setOcrPiatti([]);return}
+
+        // Mappa expense_id → store/data per ciascun receipt
+        const recMap=Object.fromEntries(recs.map(r=>[r.id,{store:r.store,date:r.purchase_date}]))
+        const recIds=recs.map(r=>r.id)
+
+        const{data:items}=await supabase.from('receipt_items')
+          .select('id,receipt_id,name,brand,qty,unit_price,price,category_item,purchase_date')
+          .in('receipt_id',recIds)
+          .order('purchase_date',{ascending:false})
+
+        setOcrPiatti((items||[]).map(it=>({
+          ...it,
+          store: recMap[it.receipt_id]?.store||'',
+          purchase_date: it.purchase_date||recMap[it.receipt_id]?.date||'',
+        })))
+      }catch(e){console.error('[listino piatti]',e)}
+      finally{setLoading(false)}
+    })()
+  },[uid, expenses])
+
+  const eur2=(n)=>(Number(n)||0).toLocaleString('it-IT',{style:'currency',currency:'EUR'})
+
+  if(loading)return<div style={{padding:'1.5rem',textAlign:'center',color:'rgba(100,116,139,.5)',fontSize:'.8rem'}}>Caricamento piatti…</div>
+
+  const all=[
+    ...purchases.map(p=>({id:'m-'+p.id,name:p.name,brand:p.brand||null,price:p.price,store:p.store,purchase_date:p.purchase_date,source:'manual'})),
+    ...ocrPiatti.map(p=>({id:'o-'+p.id,name:p.name,brand:p.brand||null,price:p.price,store:p.store,purchase_date:p.purchase_date,qty:p.qty,unit_price:p.unit_price,source:'ocr'}))
+  ].sort((a,b)=>(b.purchase_date||'').localeCompare(a.purchase_date||''))
+
+  if(!all.length)return<div className="le">Nessun piatto registrato — scannerizza uno scontrino di ristorante</div>
+
+  return<div className="lb">
+    {all.map(p=><div key={p.id} className="pr">
+      <div className="pico">🍽️</div>
+      <div className="pn">
+        <span className="pname">{p.name}</span>
+        {p.brand&&<span className="pbrand">{p.brand}</span>}
+        {p.qty>1&&<span className="pbrand">{p.qty} × {eur2(p.unit_price)}</span>}
+      </div>
+      <div className="pm2">
+        <span className="pprice" style={{color:'#fbbf24'}}>{eur2(p.price)}</span>
+        {p.store&&<span className="pstore">@ {p.store}</span>}
+        <span className="pdate">{p.purchase_date}</span>
+        {p.source==='ocr'&&<span style={{fontSize:'.58rem',color:'rgba(251,191,36,.4)',letterSpacing:'.06em'}}>OCR</span>}
+      </div>
+    </div>)}
+  </div>
 }
 
 const CSS = `
@@ -318,11 +436,13 @@ const CSS = `
   .dl{font-size:.61rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(100,116,139,.5);margin-bottom:.45rem}
   .dem{font-size:.75rem;color:rgba(100,116,139,.45)}
   .il{display:flex;flex-direction:column;gap:.25rem}
-  .ir{display:flex;align-items:center;gap:.5rem;font-size:.76rem;padding:.24rem 0;border-bottom:1px solid rgba(255,255,255,.03);flex-wrap:wrap}
-  .iname{flex:1;color:#cbd5e1;min-width:100px}
-  .iname em{color:rgba(100,116,139,.6);font-style:normal}
-  .iqty{color:rgba(100,116,139,.55);font-size:.69rem;white-space:nowrap}
-  .ipr{font-weight:600;white-space:nowrap;margin-left:auto}
+  .ir{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;font-size:.76rem;padding:.28rem 0;border-bottom:1px solid rgba(255,255,255,.03)}
+  .il-left{display:flex;flex-direction:column;gap:.06rem;flex:1;min-width:0}
+  .iname{color:#cbd5e1;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ibrand{color:rgba(100,116,139,.6);font-style:normal}
+  .ipack{font-size:.67rem;color:rgba(100,116,139,.5)}
+  .ipr{font-size:.8rem;font-weight:700;font-family:'Montserrat',sans-serif;flex-shrink:0}
+  .itot{text-align:right;font-size:.72rem;color:rgba(100,116,139,.5);padding:.4rem 0 .1rem;border-top:1px solid rgba(255,255,255,.06);margin-top:.2rem}
   .pr{display:flex;align-items:flex-start;gap:.65rem;padding:.65rem 1.25rem;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s}
   .pr:hover{background:rgba(255,255,255,.02)}
   .pico{font-size:1.05rem;flex-shrink:0;margin-top:.1rem}
@@ -334,17 +454,6 @@ const CSS = `
   .pprice{font-size:.88rem;font-weight:700;font-family:'Montserrat',sans-serif}
   .pstore{font-size:.67rem;color:rgba(100,116,139,.5)}
   .pdate{font-size:.64rem;color:rgba(100,116,139,.35)}
-  .dr{display:flex;align-items:center;gap:.65rem;padding:.62rem 1.25rem;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s}
-  .dr:hover{background:rgba(255,255,255,.02)}
-  .dra{border-left:2px solid rgba(239,68,68,.3)}
-  .dinfo{flex:1;display:flex;flex-direction:column;gap:.08rem;min-width:0}
-  .dname{font-size:.84rem;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .dtag{font-size:.68rem;color:rgba(100,116,139,.55)}
-  .dmeta{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;flex-shrink:0}
-  .dqty{font-size:.77rem;color:#22d3ee;font-weight:600}
-  .dprice{font-size:.69rem;color:rgba(100,116,139,.55)}
-  .dexp{font-size:.66rem;color:#fbbf24}
-  .dpct{font-size:.66rem;color:#f87171}
 `
 
 export default withAuth(CeneAperitivi)

@@ -220,7 +220,9 @@ async function executeAction(action, userId, router) {
           )
         }
 
-        if ((action.payment_method || 'cash') === 'cash' && Number(action.amount) > 0)
+        // ── FIX VOCE: scala tasca per tutto tranne carta/bonifico ──────────
+        const pmAction = action.payment_method || 'cash'
+        if (pmAction !== 'card' && pmAction !== 'transfer' && Number(action.amount) > 0)
           await supabase.from('pocket_cash').insert({
             user_id: userId, note: descVal,
             delta: -Number(action.amount), moved_at: new Date().toISOString(),
@@ -760,10 +762,7 @@ const Home = () => {
     finally { setLoadOCR(false) }
   }
 
-  // ── _salvaRicevuta — VERSIONE CORRETTA ──────────────────────────────────
-  // FIX: receipt_items ora vengono salvati per TUTTE le categorie
-  // (casa, cene, vestiti, varie) — non solo per "casa".
-  // L'aggiornamento dell'inventario rimane solo per "casa".
+  // ── _salvaRicevuta — versione con tutti i fix ───────────────────────────
   async function _salvaRicevuta(data) {
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -771,17 +770,21 @@ const Home = () => {
 
       const pd  = data.purchase_date ?? new Date().toISOString().slice(0, 10)
       const st  = data.store ?? 'Generico'
+      const sa  = data.store_address ?? null   // indirizzo/città
       const im  = parseFloat(data.price_total ?? 0)
       const cat = catFromStore(data.store, data.store_type)
         || (['casa','vestiti','cene','varie'].includes(data.categoria) ? data.categoria : 'varie')
-      const pm  = data.payment_method ?? 'unknown'
+      const pm  = data.payment_method ?? 'cash'
       const items = Array.isArray(data.items) ? data.items : []
+
+      // ── FIX description: include città ─────────────────────────────────
+      const desc = sa ? `${st} — ${sa}` : st
 
       // Salva spesa
       const { data: expRow, error: expErr } = await supabase.from('expenses').insert([{
         user_id: user.id, category: cat, store: st,
-        store_address: data.store_address ?? null,
-        description: `Spesa ${st} — ${pd}`,
+        store_address: sa,
+        description: desc,
         purchase_date: pd, amount: im, payment_method: pm, source: 'ocr',
       }]).select('id').single()
       if (expErr) throw new Error(expErr.message)
@@ -791,14 +794,14 @@ const Home = () => {
       try {
         const { data: rr } = await supabase.from('receipts').insert([{
           user_id: user.id, expense_id: expRow?.id, store: st,
-          store_address: data.store_address ?? null,
+          store_address: sa,
           purchase_date: pd, price_total: im, payment_method: pm,
           raw_text: data.raw_text ?? null, confidence: data.confidence ?? 'medium',
         }]).select('id').single()
         recId = rr?.id ?? null
       } catch {}
 
-      // ── FIX: salva receipt_items per TUTTE le categorie ──────────────
+      // Salva receipt_items per TUTTE le categorie
       if (recId && items.length) {
         try {
           await supabase.from('receipt_items').insert(items.map(it => ({
@@ -854,7 +857,7 @@ const Home = () => {
         }
       }
 
-      // Spunta lista spesa per tutte le categorie
+      // Spunta lista spesa
       if (items.length) {
         try {
           const { data: lista } = await supabase.from('shopping_list').select('id,name')
@@ -876,11 +879,12 @@ const Home = () => {
         } catch {}
       }
 
-      // Pocket cash solo per contanti
-      if (pm === 'cash' && im > 0) {
+      // ── FIX: scala tasca per tutto tranne carta/bonifico ───────────────
+      if (pm !== 'card' && pm !== 'transfer' && im > 0) {
         try {
           await supabase.from('pocket_cash').insert({
-            user_id: user.id, note: `Spesa ${st} (${pd})`,
+            user_id: user.id,
+            note: sa ? `${st} — ${sa} (${pd})` : `${st} (${pd})`,
             delta: -im, moved_at: new Date().toISOString(),
           })
         } catch {}
@@ -889,7 +893,7 @@ const Home = () => {
       const nItems = items.length
       const catIcon = {casa:'🏠',cene:'🍽️',vestiti:'👗',varie:'🧰'}[cat] || '📦'
       const catLabel = {casa:'Casa/Dispensa',cene:'Cene & Aperitivi',vestiti:'Vestiti & Moda',varie:'Spese Varie'}[cat] || cat
-      setMessages(p => [...p, { role: 'assistant', text: `✅ Scontrino salvato!\n🏪 ${st} — ${eur(im)}\n${catIcon} Categoria: ${catLabel}\n📦 ${nItems} prodotti registrati${cat === 'casa' && nItems ? ' in dispensa' : ''}` }])
+      setMessages(p => [...p, { role: 'assistant', text: `✅ Scontrino salvato!\n🏪 ${st}${sa?' — '+sa:''} — ${eur(im)}\n${catIcon} Categoria: ${catLabel}\n📦 ${nItems} prodotti registrati${cat === 'casa' && nItems ? ' in dispensa' : ''}` }])
       setJarvisOpen(true)
       if (userId) await loadData(userId)
 
@@ -947,16 +951,20 @@ const Home = () => {
 
       const pd = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
       const st = ocrResult.store ?? 'Generico'
+      const sa = ocrResult.store_address ?? null
       const im = parseFloat(ocrResult.price_total ?? 0)
       const cat = catFromStore(ocrResult.store, ocrResult.store_type)
         || (['casa','vestiti','cene','varie'].includes(ocrResult.categoria) ? ocrResult.categoria : 'varie')
-      const pm = ocrResult.payment_method ?? 'unknown'
+      const pm = ocrResult.payment_method ?? 'cash'
       const items = Array.isArray(ocrResult.items) ? ocrResult.items : []
+
+      // ── FIX description con città ───────────────────────────────────────
+      const desc = sa ? `${st} — ${sa}` : st
 
       const { data: expRow, error: expErr } = await supabase.from('expenses').insert([{
         user_id: user.id, category: cat, store: st,
-        store_address: ocrResult.store_address ?? null,
-        description: `Spesa ${st} — ${pd}`,
+        store_address: sa,
+        description: desc,
         purchase_date: pd, amount: im, payment_method: pm, source: 'ocr',
       }]).select('id').single()
       if (expErr) throw new Error(expErr.message)
@@ -965,13 +973,13 @@ const Home = () => {
       try {
         const { data: rr } = await supabase.from('receipts').insert([{
           user_id: user.id, expense_id: expRow?.id, store: st,
-          store_address: ocrResult.store_address ?? null,
+          store_address: sa,
           purchase_date: pd, price_total: im, payment_method: pm,
           raw_text: ocrResult.raw_text ?? null, confidence: ocrResult.confidence ?? 'medium',
         }]).select('id').single(); recId = rr?.id ?? null
       } catch {}
 
-      // FIX: salva receipt_items per tutte le categorie
+      // Salva receipt_items per tutte le categorie
       if (recId && items.length) try {
         await supabase.from('receipt_items').insert(items.map(it => ({
           receipt_id: recId, user_id: user.id, name: it.name,
@@ -997,26 +1005,17 @@ const Home = () => {
             .eq('user_id', user.id).ilike('product_name', `%${searchKey}%`).maybeSingle()
           if (ex) {
             await supabase.from('inventory').update({
-              qty:         Number(ex.qty || 0) + tot,
-              initial_qty: Number(ex.initial_qty || 0) + tot,
-              consumed_pct: 0,
-              avg_price:   item.unit_price || item.price || 0,
-              last_updated: new Date().toISOString(),
-              perishable_type: perishable,
+              qty: Number(ex.qty || 0) + tot, initial_qty: Number(ex.initial_qty || 0) + tot,
+              consumed_pct: 0, avg_price: item.unit_price || item.price || 0,
+              last_updated: new Date().toISOString(), perishable_type: perishable,
               ...(expiryAuto ? { expiry_date: expiryAuto } : {}),
             }).eq('id', ex.id)
           } else {
             await supabase.from('inventory').insert({
-              user_id:        user.id,
-              product_name:   item.name,
-              brand:          item.brand ?? null,
-              category:       catItem,
-              qty:            tot,
-              initial_qty:    tot,
-              avg_price:      item.unit_price || item.price || 0,
-              purchase_date:  pd,
-              expiry_date:    expiryAuto,
-              consumed_pct:   0,
+              user_id: user.id, product_name: item.name, brand: item.brand ?? null,
+              category: catItem, qty: tot, initial_qty: tot,
+              avg_price: item.unit_price || item.price || 0,
+              purchase_date: pd, expiry_date: expiryAuto, consumed_pct: 0,
               perishable_type: perishable,
             })
           }
@@ -1049,15 +1048,17 @@ const Home = () => {
         } catch (listErr) { console.warn('[lista] spunta skip:', listErr?.message) }
       }
 
-      if (pm === 'cash' && im > 0) try {
+      // ── FIX: scala tasca per tutto tranne carta/bonifico ───────────────
+      if (pm !== 'card' && pm !== 'transfer' && im > 0) try {
         await supabase.from('pocket_cash').insert({
-          user_id: user.id, note: `Spesa ${st} (${pd})`,
+          user_id: user.id,
+          note: sa ? `${st} — ${sa} (${pd})` : `${st} (${pd})`,
           delta: -im, moved_at: new Date().toISOString(),
         })
       } catch {}
 
       setOcrResult(null); if (userId) loadData(userId)
-      alert(`✅ Salvato!\n🏪 ${st} — ${pd}\n💶 €${im.toFixed(2)}${items.length ? `\n🛒 ${items.length} prodotti` : ''}`)
+      alert(`✅ Salvato!\n🏪 ${st}${sa?' — '+sa:''}\n💶 €${im.toFixed(2)}${items.length ? `\n🛒 ${items.length} prodotti` : ''}`)
 
     } catch (e) { setErr('❌ ' + (e.message || 'Errore')) }
     finally { setSaving(false) }
@@ -1352,8 +1353,10 @@ const Home = () => {
                 {ocrResult.denomination && <div className="ocr-row"><span>Denominazione</span><strong>{ocrResult.denomination}</strong></div>}
               </> : <>
                 <div className="ocr-row"><span>Negozio</span><strong>{ocrResult.store ?? '—'}</strong></div>
+                {ocrResult.store_address && <div className="ocr-row"><span>Indirizzo</span><strong>{ocrResult.store_address}</strong></div>}
                 <div className="ocr-row"><span>Data</span><strong>{ocrResult.purchase_date ?? '—'}</strong></div>
                 <div className="ocr-row"><span>Totale</span><strong style={{ color: '#22c55e' }}>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></div>
+                <div className="ocr-row"><span>Pagamento</span><strong>{ocrResult.payment_method === 'card' ? '💳 Carta' : ocrResult.payment_method === 'transfer' ? '🏦 Bonifico' : '💵 Contanti'}</strong></div>
                 <div className="ocr-row"><span>Categoria</span><strong>{ocrResult.categoria ?? '—'}</strong></div>
                 {Array.isArray(ocrResult.items) && ocrResult.items.length > 0 && (
                   <div className="ocr-row"><span>Prodotti</span><strong>{ocrResult.items.length} articoli</strong></div>
