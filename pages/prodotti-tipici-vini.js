@@ -8,12 +8,57 @@ import { supabase } from '../lib/supabaseClient';
 /* ─── Leaflet (no SSR) ──────────────────────────────────────────── */
 const MapContainer  = dynamic(() => import('react-leaflet').then(m => m.MapContainer),  { ssr: false });
 const TileLayer     = dynamic(() => import('react-leaflet').then(m => m.TileLayer),     { ssr: false });
-const CircleMarker  = dynamic(() => import('react-leaflet').then(m => m.CircleMarker),  { ssr: false });
+const Marker        = dynamic(() => import('react-leaflet').then(m => m.Marker),        { ssr: false });
 const Tooltip       = dynamic(() => import('react-leaflet').then(m => m.Tooltip),       { ssr: false });
 const Popup         = dynamic(() => import('react-leaflet').then(m => m.Popup),         { ssr: false });
 const useMap        = dynamic(() => import('react-leaflet').then(m => m.useMap),        { ssr: false });
 
-/* ─── MapFlyTo: ricentra la mappa reattivamente ─────────────────── */
+/* ─── Icone SVG custom per Leaflet ──────────────────────────────── */
+function makeLeafletIcon(svgContent, color) {
+  if (typeof window === 'undefined') return null;
+  try {
+    const L = require('leaflet');
+    return L.divIcon({
+      html: `<div style="
+        width:36px;height:36px;
+        background:${color};
+        border-radius:50% 50% 50% 0;
+        transform:rotate(-45deg);
+        border:2px solid rgba(255,255,255,0.8);
+        box-shadow:0 2px 8px rgba(0,0,0,0.5);
+        display:flex;align-items:center;justify-content:center;
+      "><div style="transform:rotate(45deg);display:flex;align-items:center;justify-content:center;width:100%;height:100%;">
+        ${svgContent}
+      </div></div>`,
+      className: '',
+      iconSize:   [36, 36],
+      iconAnchor: [18, 36],
+      popupAnchor:[0, -40],
+    });
+  } catch { return null; }
+}
+
+// SVG grappolo d'uva (origine)
+const GRAPE_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="9"  cy="8"  r="2.5"/>
+  <circle cx="15" cy="8"  r="2.5"/>
+  <circle cx="6"  cy="13" r="2.5"/>
+  <circle cx="12" cy="13" r="2.5"/>
+  <circle cx="18" cy="13" r="2.5"/>
+  <circle cx="9"  cy="18" r="2.5"/>
+  <circle cx="15" cy="18" r="2.5"/>
+  <line x1="12" y1="5" x2="12" y2="2" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="12" y1="2" x2="15" y2="1" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+// SVG calice di vino (dove bevuto)
+const GLASS_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+  <path d="M8 2h8l-2 7a4 4 0 01-4 0L8 2z" fill="rgba(255,255,255,0.3)"/>
+  <line x1="12" y1="9" x2="12" y2="18"/>
+  <line x1="8"  y1="18" x2="16" y2="18"/>
+</svg>`;
+
+/* ─── MapFlyTo ───────────────────────────────────────────────────── */
 function MapFlyTo({ center, zoom }) {
   const map = typeof useMap === 'function' ? useMap() : null;
   useEffect(() => {
@@ -53,14 +98,12 @@ async function toJpegIfNeeded(file, { maxSide = 1800, quality = 0.82 } = {}) {
 
 async function reverseGeocode(lat, lng) {
   try {
-    // zoom=18 restituisce il nome del locale/esercizio se disponibile
     const r = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
       { headers: { 'Accept-Language': 'it' } }
     );
     const j = await r.json();
     if (!j) return null;
-    // Preferisci nome locale (bar, ristorante, enoteca...) + indirizzo breve
     const addr = j.address || {};
     const localName = j.name || addr.amenity || addr.shop || addr.tourism || addr.leisure || '';
     const road   = addr.road || addr.pedestrian || '';
@@ -69,6 +112,7 @@ async function reverseGeocode(lat, lng) {
     return parts.length ? parts.join(', ') : (j.display_name || null);
   } catch { return null; }
 }
+
 async function searchGeocode(query) {
   if (!query?.trim()) return null;
   try {
@@ -78,6 +122,7 @@ async function searchGeocode(query) {
   } catch {}
   return null;
 }
+
 async function getCurrentPlaceOrAsk(kindLabel) {
   try {
     const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
@@ -94,16 +139,16 @@ async function getCurrentPlaceOrAsk(kindLabel) {
 
 function guessRegionFromText(text = '') {
   const s = text.toLowerCase();
-  if (/\b(valpolicella|amarone|soave|lugana|bardolino)\b/.test(s)) return 'Veneto (VR)';
-  if (/\b(barolo|barbaresco|nebbiolo|roero|gattinara|barbera d['']?asti)\b/.test(s)) return 'Piemonte (CN)';
-  if (/\b(chianti|brunello|montalcino|bolgheri|morellino|vernaccia)\b/.test(s)) return 'Toscana (SI)';
-  if (/\b(etna|carricante|frappato|nero d.?avola)\b/.test(s)) return 'Sicilia (CT)';
-  if (/\b(montepulciano d.?abruzzo|trebbiano d.?abruzzo)\b/.test(s)) return 'Abruzzo (PE)';
-  if (/\b(verdicchio|castelli di jesi|matelica)\b/.test(s)) return 'Marche (AN)';
-  if (/\b(franciacorta|valtellina|sassella|sforzato)\b/.test(s)) return 'Lombardia (BS)';
+  if (/\b(valpolicella|amarone|soave|lugana|bardolino)\b/.test(s)) return 'Veneto';
+  if (/\b(barolo|barbaresco|nebbiolo|roero|gattinara|barbera d['']?asti)\b/.test(s)) return 'Piemonte';
+  if (/\b(chianti|brunello|montalcino|bolgheri|morellino|vernaccia)\b/.test(s)) return 'Toscana';
+  if (/\b(etna|carricante|frappato|nero d.?avola)\b/.test(s)) return 'Sicilia';
+  if (/\b(montepulciano d.?abruzzo|trebbiano d.?abruzzo)\b/.test(s)) return 'Abruzzo';
+  if (/\b(verdicchio|castelli di jesi|matelica)\b/.test(s)) return 'Marche';
+  if (/\b(franciacorta|valtellina|sassella|sforzato)\b/.test(s)) return 'Lombardia';
   if (/\b(trento doc|teroldego|lagrein|alto adige)\b/.test(s)) return 'Trentino-Alto Adige';
-  if (/\b(primitivo di manduria|negroamaro|salice salentino)\b/.test(s)) return 'Puglia (TA)';
-  if (/\b(taurasi|aglianico|greco di tufo|fiano di avellino)\b/.test(s)) return 'Campania (AV)';
+  if (/\b(primitivo di manduria|negroamaro|salice salentino)\b/.test(s)) return 'Puglia';
+  if (/\b(taurasi|aglianico|greco di tufo|fiano di avellino)\b/.test(s)) return 'Campania';
   return null;
 }
 
@@ -296,22 +341,18 @@ function ProdottiTipiciViniPage() {
   const [userId, setUserId] = useState(null);
   const { toasts, show: showToast } = useToasts();
 
-  /* ── Dati ── */
   const [places,  setPlaces]  = useState([]);
   const [artisan, setArtisan] = useState([]);
   const [wines,   setWines]   = useState([]);
   const [cellar,  setCellar]  = useState([]);
   const [loading, setLoading] = useState(true);
 
-  /* ── UI state ── */
   const [showAddWine,    setShowAddWine]    = useState(false);
   const [showAddArtisan, setShowAddArtisan] = useState(false);
   const [showAddCellar,  setShowAddCellar]  = useState(false);
 
-  /* ── OCR Preview ── */
   const [ocrBusy, setOcrBusy] = useState(false);
 
-  /* ── Sommelier ── */
   const [sommelierQuery,  setSommelierQuery]  = useState('');
   const [sommelierLists,  setSommelierLists]  = useState([]);
   const [sommelierQr,     setSommelierQr]     = useState([]);
@@ -320,12 +361,20 @@ function ProdottiTipiciViniPage() {
   const [sommelierData,   setSommelierData]   = useState(null);
   const [showQr,          setShowQr]          = useState(false);
 
-  /* ── Mappa ── */
-  const [mapFly,    setMapFly]    = useState(null); // { center:[lat,lng], zoom }
+  const [mapFly,    setMapFly]    = useState(null);
   const [popupInfo, setPopupInfo] = useState({});
   const [selIds,    setSelIds]    = useState(new Set());
 
-  /* ── Form stati ── */
+  // Icone Leaflet (create solo client-side)
+  const [grapeIcon, setGrapeIcon] = useState(null);
+  const [glassIcon, setGlassIcon] = useState(null);
+
+  useEffect(() => {
+    // Init icone solo lato client
+    setGrapeIcon(makeLeafletIcon(GRAPE_SVG, '#8B5CF6')); // viola per origine
+    setGlassIcon(makeLeafletIcon(GLASS_SVG, '#3B82F6')); // blu per dove bevuto
+  }, []);
+
   const emptyWine = { name:'', winery:'', denomination:'', region:'', grapes:'', vintage:'', style:'rosso', price_target:'', origin_place_name:'', origin_lat:'', origin_lng:'', purchase_place_name:'', purchase_lat:'', purchase_lng:'', addToCellar:false, bottles:'', purchase_price_eur:'' };
   const emptyArtisan = { name:'', category:'formaggio', designation:'', price_eur:'', notes:'', origin_place_name:'', origin_lat:'', origin_lng:'' };
   const emptyCellar = { wine_id:'', bottles:'1', purchase_price_eur:'', pairings:'' };
@@ -333,7 +382,6 @@ function ProdottiTipiciViniPage() {
   const [artisanForm, setArtisanForm] = useState(emptyArtisan);
   const [cellarForm,  setCellarForm]  = useState(emptyCellar);
 
-  /* ── Auth ── */
   useEffect(() => {
     let sub = null;
     (async () => {
@@ -345,7 +393,6 @@ function ProdottiTipiciViniPage() {
     return () => { try { sub?.subscription?.unsubscribe(); } catch {} };
   }, []);
 
-  /* ── Memo maps ── */
   const wineById = useMemo(() => {
     const m = {}; for (const w of wines) m[w.id] = w; return m;
   }, [wines]);
@@ -360,7 +407,6 @@ function ProdottiTipiciViniPage() {
     return mp;
   }, [places]);
 
-  /* ── refreshAll ── */
   const refreshAll = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
@@ -369,7 +415,6 @@ function ProdottiTipiciViniPage() {
         supabase.from('product_places').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('artisan_products').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('wines').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-        // Fix: join server-side invece di client-side
         supabase.from('cellar').select('*, wine:wines(id,name,winery,style,region)').eq('user_id', userId).order('created_at', { ascending: false }),
       ]);
       setPlaces(p || []);
@@ -382,7 +427,6 @@ function ProdottiTipiciViniPage() {
 
   useEffect(() => { refreshAll(); }, [refreshAll]);
 
-  /* ── Geolocalizzazione ── */
   const addPlaceFor = useCallback(async (itemType, itemId, kind) => {
     if (!userId) return showToast('Sessione assente', 'err');
     const p = await getCurrentPlaceOrAsk(kind === 'purchase' ? 'dove acquistato/consumato' : 'origine');
@@ -405,7 +449,7 @@ function ProdottiTipiciViniPage() {
   async function ensureOriginForWine(wineId) {
     const w = wineById[wineId]; if (!w) return;
     const guess = [w.region, w.denomination, w.winery, w.name].filter(Boolean).join(' ').trim();
-    if (!guess) return; // Fix: guard su stringa vuota
+    if (!guess) return;
     const hit = await searchGeocode(guess);
     if (!hit) return;
     await supabase.from('product_places').insert([{
@@ -424,7 +468,6 @@ function ProdottiTipiciViniPage() {
     setTimeout(() => setSelIds(new Set()), 3000);
   }, [placesByWine, showToast]);
 
-  /* ── Popup mappa ── */
   async function loadPopupInfo(place) {
     if (!place?.id) return;
     const w = wineById[place.item_id]; if (!w) return;
@@ -455,10 +498,10 @@ function ProdottiTipiciViniPage() {
       price_target: f.price_target ? Number(f.price_target) : null,
     }]).select().single();
     if (error) return showToast('Errore salvataggio', 'err');
-    const places = [];
-    if (f.origin_lat && f.origin_lng) places.push({ user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'origin', place_name: f.origin_place_name || null, lat: Number(f.origin_lat), lng: Number(f.origin_lng), is_primary: true });
-    if (f.purchase_lat && f.purchase_lng) places.push({ user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'purchase', place_name: f.purchase_place_name || null, lat: Number(f.purchase_lat), lng: Number(f.purchase_lng), is_primary: true });
-    if (places.length) await supabase.from('product_places').insert(places);
+    const placesToInsert = [];
+    if (f.origin_lat && f.origin_lng) placesToInsert.push({ user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'origin', place_name: f.origin_place_name || null, lat: Number(f.origin_lat), lng: Number(f.origin_lng), is_primary: true });
+    if (f.purchase_lat && f.purchase_lng) placesToInsert.push({ user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'purchase', place_name: f.purchase_place_name || null, lat: Number(f.purchase_lat), lng: Number(f.purchase_lng), is_primary: true });
+    if (placesToInsert.length) await supabase.from('product_places').insert(placesToInsert);
     if (f.addToCellar) {
       const { error: ce } = await supabase.from('cellar').insert([{ user_id: userId, wine_id: newWine.id, bottles: f.bottles ? Number(f.bottles) : 1, purchase_price_eur: f.purchase_price_eur ? Number(f.purchase_price_eur) : null }]);
       if (ce) showToast('Vino salvato ma errore cantina: ' + ce.message, 'warn');
@@ -511,7 +554,7 @@ function ProdottiTipiciViniPage() {
     showToast('Bottiglia aggiunta!'); refreshAll();
   }
 
-  /* ── OCR Etichetta — inserimento diretto automatico ── */
+  /* ── OCR Etichetta con geocodifica robusta ── */
   const ocrFileRef = useRef(null);
   async function handleOcrEtichetta(file) {
     if (!userId || !file) return;
@@ -520,20 +563,19 @@ function ProdottiTipiciViniPage() {
       const safeFile = await toJpegIfNeeded(file);
       const fd = new FormData();
       fd.append('images', safeFile, safeFile.name || 'label.jpg');
-      fd.append('mode', 'wine_label'); // estrazione strutturata via GPT Vision
+      fd.append('mode', 'wine_label');
 
       const r1 = await fetch('/api/ocr-generic', { method: 'POST', body: fd });
       if (!r1.ok) throw new Error('OCR fallito: ' + r1.status);
       const ocrResult = await r1.json();
 
-      // Usa i campi strutturati se disponibili (mode=wine_label)
       const w = ocrResult.wine || {};
       const wineName    = w.name    || ocrResult.text?.split('\n')[0] || 'Vino (da etichetta)';
       const wineryName  = w.winery  || '';
-      const localityStr = w.locality || ''; // es. "Vasto (CH)"
+      const localityStr = w.locality || '';
       const regionGuess = w.region  || guessRegionFromText(ocrResult.text || wineName);
+      const denomStr    = w.denomination || '';
 
-      // Inserimento diretto in Supabase con tutti i campi estratti
       const { data: newWine, error } = await supabase.from('wines').insert([{
         user_id:      userId,
         name:         wineName,
@@ -542,28 +584,38 @@ function ProdottiTipiciViniPage() {
         vintage:      w.vintage   || null,
         alcohol:      w.alcohol   || null,
         style:        w.style     || 'rosso',
-        denomination: w.denomination || null,
+        denomination: denomStr    || null,
         grapes:       w.grapes?.length ? w.grapes : null,
         source:       'ocr',
       }]).select().single();
       if (error) throw error;
 
-      // 1) Origine: cerca prima la città esatta (es. "Vasto CH"),
-      //    poi la regione, poi il nome vino come fallback
-      const originQueries = [
-        localityStr,                          // "Vasto (CH)" — più preciso
-        [wineryName, localityStr].filter(Boolean).join(' '),
-        regionGuess,
+      // ── Origine: query multiple in ordine di precisione ──
+      const _originQueries = [
+        // Cantina + città (più preciso)
+        [wineryName, localityStr].filter(Boolean).join(', '),
+        // Cantina + regione
+        [wineryName, regionGuess].filter(Boolean).join(', '),
+        // Denominazione + regione
+        [denomStr, regionGuess].filter(Boolean).join(', '),
+        // Solo denominazione
+        denomStr,
+        // Regione pulita (senza codice provincia)
+        regionGuess ? regionGuess.replace(/\s*\(\w+\)$/, '').trim() : '',
+        // Solo città
+        localityStr,
+        // Solo cantina
+        wineryName,
+        // Nome vino come ultimo fallback
         wineName,
-      ].map(s => s?.trim()).filter(Boolean);
+      ].map(s => s?.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
       let origInserted = false;
-      for (const q of originQueries) {
+      for (const q of _originQueries) {
+        if (!q || q.length < 3) continue;
         const orig = await searchGeocode(q);
         if (orig) {
-          const label = localityStr
-            ? `${wineryName || wineName}${localityStr ? ', ' + localityStr : ''}`
-            : orig.name;
+          const label = [wineryName || wineName, localityStr || regionGuess].filter(Boolean).join(', ') || orig.name;
           await supabase.from('product_places').insert([{
             user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'origin',
             place_name: label, lat: orig.lat, lng: orig.lng, is_primary: true,
@@ -573,14 +625,13 @@ function ProdottiTipiciViniPage() {
         }
       }
 
-      // 2) Dove l'ho bevuto: GPS automatico + nome locale da Nominatim
+      // ── Dove l'ho bevuto: GPS automatico ──
       try {
         showToast('Rilevo posizione…');
         const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 8000 })
         );
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        // reverseGeocode ora restituisce "Nome locale, Via, Città" se disponibile
         const placeName = await reverseGeocode(lat, lng);
         await supabase.from('product_places').insert([{
           user_id: userId, item_type: 'wine', item_id: newWine.id, kind: 'purchase',
@@ -617,7 +668,6 @@ function ProdottiTipiciViniPage() {
   }
 
   async function runSommelier() {
-    // Guard: richiede almeno query o allegati
     if (!sommelierQuery.trim() && !sommelierLists.length && !sommelierQr.length) {
       showToast('Inserisci una query o allega la carta vini', 'warn'); return;
     }
@@ -651,7 +701,6 @@ function ProdottiTipiciViniPage() {
     showToast('Aggiunto ai bevuti!'); refreshAll(); focusWineOnMap(newWine.id);
   }
 
-  /* ── KPI cantina ── */
   const cellarBottles    = cellar.reduce((t, r) => t + (Number(r.bottles) || 0), 0);
   const cellarLabels     = new Set(cellar.map(r => r.wine_id)).size;
   const cellarInvestment = cellar.reduce((t, r) => t + (Number(r.purchase_price_eur) || 0) * (Number(r.bottles) || 1), 0);
@@ -661,7 +710,6 @@ function ProdottiTipiciViniPage() {
     <>
       <Head><title>Prodotti & Vini · Jarvis</title></Head>
 
-      {/* Modali */}
       {sommelierOpen && <SommelierDrawer data={sommelierData} onClose={() => setSommelierOpen(false)} onAdd={addRecommendationToBevuti} />}
       {showQr && (
         <LiveQrScanner
@@ -708,7 +756,6 @@ function ProdottiTipiciViniPage() {
                 {showAddArtisan ? '✕ Chiudi' : '+ Aggiungi'}
               </button>
             </div>
-
             {showAddArtisan && (
               <form className="add-form-grid" onSubmit={handleSaveArtisan}>
                 <input className="fi" value={artisanForm.name} placeholder="Nome *" required onChange={e => setArtisanForm({ ...artisanForm, name: e.target.value })} />
@@ -727,7 +774,6 @@ function ProdottiTipiciViniPage() {
                 </div>
               </form>
             )}
-
             <div className="card-list">
               {loading && <div className="empty">Caricamento…</div>}
               {!loading && artisan.length === 0 && <div className="empty">Nessun prodotto</div>}
@@ -757,7 +803,8 @@ function ProdottiTipiciViniPage() {
                 <button className="btn-add" onClick={() => setShowAddWine(v => !v)}>
                   {showAddWine ? '✕ Chiudi' : '+ Aggiungi'}
                 </button>
-                <button className={`btn-add ${ocrBusy ? 'btn-busy' : ''}`} style={{ background: 'rgba(6,182,212,.12)', borderColor: 'rgba(6,182,212,.3)', color: '#22d3ee' }}
+                <button className={`btn-add ${ocrBusy ? 'btn-busy' : ''}`}
+                  style={{ background: 'rgba(6,182,212,.12)', borderColor: 'rgba(6,182,212,.3)', color: '#22d3ee' }}
                   onClick={() => ocrFileRef.current?.click()} disabled={ocrBusy}>
                   {ocrBusy ? <span className="spinner" /> : 'OCR etichetta'}
                 </button>
@@ -765,7 +812,6 @@ function ProdottiTipiciViniPage() {
                   onChange={async e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) await handleOcrEtichetta(f); }} />
               </div>
             </div>
-
             {showAddWine && (
               <form className="add-form-grid" onSubmit={handleSaveWine}>
                 <input className="fi" value={wineForm.name} placeholder="Nome vino *" required onChange={e => setWineForm({ ...wineForm, name: e.target.value })} />
@@ -776,7 +822,8 @@ function ProdottiTipiciViniPage() {
                 <input className="fi" value={wineForm.vintage} placeholder="Annata" onChange={e => setWineForm({ ...wineForm, vintage: e.target.value })} />
                 <select className="fi" value={wineForm.style} onChange={e => setWineForm({ ...wineForm, style: e.target.value })}>
                   <option value="rosso">Rosso</option><option value="bianco">Bianco</option>
-                  <option value="rosé">Rosé</option><option value="frizzante">Frizzante</option><option value="fortificato">Fortificato</option>
+                  <option value="rosé">Rosé</option><option value="frizzante">Frizzante</option>
+                  <option value="fortificato">Fortificato</option>
                 </select>
                 <input className="fi" value={wineForm.price_target} placeholder="Budget €" onChange={e => setWineForm({ ...wineForm, price_target: e.target.value })} />
                 <div style={{ gridColumn: '1/-1', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -795,7 +842,6 @@ function ProdottiTipiciViniPage() {
                 </div>
               </form>
             )}
-
             <div className="card-list">
               {loading && <div className="empty">Caricamento…</div>}
               {!loading && wines.length === 0 && <div className="empty">Nessun vino — aggiungi manualmente o scansiona un'etichetta</div>}
@@ -838,14 +884,12 @@ function ProdottiTipiciViniPage() {
               <div className="kpi"><div className="kpi-label">Etichette</div><div className="kpi-value kpi-cyan">{cellarLabels}</div></div>
               <div className="kpi"><div className="kpi-label">Investimento</div><div className="kpi-value kpi-green">€ {cellarInvestment.toFixed(0)}</div></div>
             </div>
-
             <div className="toolbar">
               <span className="section-title">Cantina</span>
               <button className="btn-add" onClick={() => setShowAddCellar(v => !v)}>
                 {showAddCellar ? '✕ Chiudi' : '+ Aggiungi bottiglia'}
               </button>
             </div>
-
             {showAddCellar && (
               <form className="add-form-grid" onSubmit={handleSaveCellar}>
                 <select className="fi" value={cellarForm.wine_id} onChange={e => setCellarForm({ ...cellarForm, wine_id: e.target.value })} required>
@@ -861,7 +905,6 @@ function ProdottiTipiciViniPage() {
                 </div>
               </form>
             )}
-
             <div className="card-list">
               {loading && <div className="empty">Caricamento…</div>}
               {!loading && cellar.length === 0 && <div className="empty">Cantina vuota</div>}
@@ -891,35 +934,62 @@ function ProdottiTipiciViniPage() {
         <div id="map-section" className="map-section">
           <div className="map-header">
             <span className="section-title">Mappa</span>
-            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-              <span className="map-legend"><span className="map-dot-red" /> Origine</span>
-              <span className="map-legend"><span className="map-dot-blue" /> Acquisto/consumo</span>
+            <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
+              <span className="map-legend">
+                <span className="map-icon-grape">🍇</span>
+                Origine
+              </span>
+              <span className="map-legend">
+                <span className="map-icon-glass">🍷</span>
+                Dove bevuto
+              </span>
             </div>
           </div>
+
           <MapContainer center={[42.5, 12.5]} zoom={5} scrollWheelZoom style={{ width: '100%', height: 380, borderRadius: '0 0 14px 14px' }}>
             {mapFly && <MapFlyTo center={mapFly.center} zoom={mapFly.zoom} />}
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
             {places.map(p => {
-              const color  = p.kind === 'origin' ? '#ef4444' : '#3b82f6';
-              const isSel  = selIds.has(p.id);
-              const wine   = p.item_type === 'wine' ? wineById[p.item_id] : null;
-              const info   = popupInfo[p.id] || {};
+              const isOrigin = p.kind === 'origin';
+              const icon = isOrigin ? grapeIcon : glassIcon;
+              const isSel = selIds.has(p.id);
+              const wine  = p.item_type === 'wine' ? wineById[p.item_id] : null;
+              const info  = popupInfo[p.id] || {};
+
+              // Fallback a CircleMarker se icona non ancora inizializzata (SSR)
+              if (!icon) return null;
+
               return (
-                <CircleMarker key={p.id} center={[p.lat, p.lng]} radius={isSel ? 8 : 5}
-                  pathOptions={{ color, fillColor: color, fillOpacity: 1 }}
-                  eventHandlers={{ click: () => p.item_type === 'wine' && loadPopupInfo(p) }}>
-                  {p.place_name && <Tooltip direction="top">{p.place_name}</Tooltip>}
+                <Marker
+                  key={p.id}
+                  position={[p.lat, p.lng]}
+                  icon={icon}
+                  eventHandlers={{ click: () => p.item_type === 'wine' && loadPopupInfo(p) }}
+                  opacity={isSel ? 1 : 0.85}
+                >
+                  {p.place_name && (
+                    <Tooltip direction="top" permanent={false}>
+                      <span style={{ fontWeight: 600 }}>
+                        {isOrigin ? '🍇 ' : '🍷 '}
+                        {p.place_name}
+                      </span>
+                    </Tooltip>
+                  )}
                   {wine && (
                     <Popup>
-                      <div style={{ minWidth: 200, fontFamily: 'Inter,sans-serif', fontSize: 13, color: '#e2e8f0', background: '#0f172a' }}>
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>{wine.name}</div>
+                      <div style={{ minWidth: 200, fontFamily: 'Inter,sans-serif', fontSize: 13, color: '#e2e8f0', background: '#0f172a', padding: 4 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                          {isOrigin ? '🍇 Origine · ' : '🍷 Bevuto · '}
+                          {wine.name}
+                        </div>
                         <div style={{ opacity: .8 }}>{[wine.denomination, wine.region, wine.vintage].filter(Boolean).join(' · ')}</div>
+                        {p.place_name && <div style={{ marginTop: 4, color: '#60a5fa', fontSize: 12 }}>{p.place_name}</div>}
                         {info?.vintages?.length > 0 && <div style={{ marginTop: 6 }}>Annate migliori: <strong>{info.vintages.join(', ')}</strong></div>}
                         {info?.pairing && <div style={{ marginTop: 4, opacity: .75 }}>{info.pairing}</div>}
                       </div>
                     </Popup>
                   )}
-                </CircleMarker>
+                </Marker>
               );
             })}
           </MapContainer>
@@ -938,40 +1008,31 @@ function ProdottiTipiciViniPage() {
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        .pg {
-          background: #0f172a; min-height: 100vh; padding: 1.25rem;
-          font-family: Inter, system-ui, -apple-system, sans-serif;
-          color: #e2e8f0; max-width: 1000px; margin: 0 auto;
-        }
+        .pg { background: #0f172a; min-height: 100vh; padding: 1.25rem; font-family: Inter, system-ui, -apple-system, sans-serif; color: #e2e8f0; max-width: 1000px; margin: 0 auto; }
 
-        /* Sommelier bar */
         .som-bar { display: flex; gap: .5rem; align-items: center; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: .7rem 1rem; margin-bottom: 1.1rem; flex-wrap: wrap; }
         .som-input { flex: 1; min-width: 200px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 9px; color: #e2e8f0; padding: .45rem .75rem; font-size: .83rem; outline: none; }
         .som-input:focus { border-color: rgba(99,102,241,.5); }
         .som-btn { display: flex; align-items: center; gap: .4rem; background: rgba(99,102,241,.15); border: 1px solid rgba(99,102,241,.35); border-radius: 9px; color: #818cf8; font-size: .8rem; font-weight: 600; padding: .45rem .9rem; cursor: pointer; white-space: nowrap; }
         .som-btn:disabled { opacity: .5; cursor: not-allowed; }
         .som-btn-sec { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 9px; color: #475569; font-size: .8rem; font-weight: 600; padding: .45rem .75rem; cursor: pointer; white-space: nowrap; }
-        .som-attachments { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: '#64748b'; background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.2); border-radius: 8px; padding: .25rem .6rem; }
+        .som-attachments { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: #64748b; background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.2); border-radius: 8px; padding: .25rem .6rem; }
         .som-clear { background: none; border: none; color: #475569; cursor: pointer; font-size: .75rem; }
 
-        /* Tabs */
         .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
         .tab { padding: .5rem 1rem; border-radius: 10px; font-size: .8rem; font-weight: 600; cursor: pointer; border: 1px solid transparent; letter-spacing: .02em; }
         .tab-active { background: rgba(99,102,241,.15); border-color: rgba(99,102,241,.3); color: #818cf8; }
         .tab-inactive { background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.07); color: #475569; }
 
-        /* Toolbar */
         .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .65rem; flex-wrap: wrap; gap: .4rem; }
         .section-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: #475569; font-weight: 600; }
 
-        /* KPI */
         .kpi-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: .6rem; margin-bottom: 1rem; }
         .kpi { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: .8rem 1rem; }
-        .kpi-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: '#475569'; margin-bottom: .3rem; }
+        .kpi-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: #475569; margin-bottom: .3rem; }
         .kpi-value { font-size: 1.1rem; font-weight: 700; }
         .kpi-purple { color: #a78bfa; } .kpi-cyan { color: #06b6d4; } .kpi-green { color: #22c55e; }
 
-        /* Card list */
         .card-list { display: flex; flex-direction: column; gap: .45rem; }
         .item-card { display: flex; align-items: center; gap: .65rem; padding: .7rem .9rem; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; cursor: default; transition: border-color .15s; }
         .wine-card { cursor: pointer; }
@@ -988,30 +1049,29 @@ function ProdottiTipiciViniPage() {
         .wa:hover { color: #94a3b8; border-color: rgba(255,255,255,.15); }
         .wa-del:hover { color: #f87171; border-color: rgba(239,68,68,.3); }
 
-        /* Form */
         .add-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .5rem; margin-bottom: .75rem; background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: .85rem; }
         .fi { padding: .45rem .7rem; border-radius: 9px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05); color: #e2e8f0; font-size: .82rem; outline: none; width: 100%; }
         .fi:focus { border-color: rgba(99,102,241,.5); }
 
-        /* Buttons */
         .btn-add { font-size: .74rem; background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.25); color: #818cf8; border-radius: 8px; padding: .3rem .65rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; }
         .btn-save { background: #6366f1; border: none; border-radius: 9px; color: #fff; font-size: .82rem; font-weight: 600; padding: .45rem 1rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; }
         .btn-save:disabled { opacity: .5; cursor: not-allowed; }
         .btn-secondary { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 9px; color: #64748b; font-size: .82rem; font-weight: 600; padding: .45rem .85rem; cursor: pointer; }
 
-        /* Spinner */
         .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Empty */
         .empty { font-size: .8rem; color: #334155; padding: 1.5rem; text-align: center; background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.05); border-radius: 12px; }
 
         /* Mappa */
         .map-section { background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; overflow: hidden; margin-top: 1.25rem; }
         .map-header { display: flex; align-items: center; justify-content: space-between; padding: .6rem 1rem; border-bottom: 1px solid rgba(255,255,255,.06); flex-wrap: wrap; gap: .5rem; }
-        .map-legend { display: flex; align-items: center; gap: .35rem; font-size: .7rem; color: #475569; }
-        .map-dot-red  { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
-        .map-dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; flex-shrink: 0; }
+        .map-legend { display: flex; align-items: center; gap: .35rem; font-size: .72rem; color: #64748b; }
+        .map-icon-grape { font-size: 16px; }
+        .map-icon-glass  { font-size: 16px; }
+
+        /* Leaflet pin personalizzato */
+        .leaflet-div-icon { background: transparent !important; border: none !important; }
 
         /* Modal */
         .modal-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.65); backdrop-filter: blur(4px); padding: 1rem; }
@@ -1047,11 +1107,9 @@ function ProdottiTipiciViniPage() {
         .toast-warn { border-color: rgba(251,191,36,.3); }
         .toast-err  { border-color: rgba(239,68,68,.3); }
 
-        /* Leaflet dark popup */
         .leaflet-container .leaflet-popup-content-wrapper { background: #0f172a; color: #e2e8f0; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; }
         .leaflet-container .leaflet-popup-tip { background: #0f172a; }
 
-        /* Responsive */
         @media (max-width: 600px) {
           .kpi-grid { grid-template-columns: repeat(3,1fr); }
           .pg { padding: .9rem; }
