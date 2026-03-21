@@ -1226,11 +1226,12 @@ const Home = () => {
         </div>
 
         {/* ── ① LOGO ── */}
-        <header className="hero">
+        <header className="hero" style={{position:'relative', overflow:'visible'}}>
+          <canvas id="logo-canvas" style={{position:'absolute',inset:'-40px -60px',width:'calc(100% + 120px)',height:'calc(100% + 80px)',pointerEvents:'none',zIndex:0}}/>
           <div className="orbit-system">
             <div className="or or1"><div className="od od1"/></div>
             <div className="or or2"><div className="od od2"/></div>
-            <div className="orbit-core"><div className="core-dot"/></div>
+            <div className="orbit-core logo-core"><div className="core-dot"/></div>
           </div>
           <div className="logo-title">JARVIS</div>
           <div className="logo-bar"/>
