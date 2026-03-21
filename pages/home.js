@@ -1183,6 +1183,29 @@ const Home = () => {
 
   const nAlert = alertItems.length
 
+  // ── Suggestion carousel ──────────────────────────────────────────
+  const [sugIdx, setSugIdx] = useState(0)
+  const allSugs = [
+    'Quanto mi resta questo mese?',
+    'Quanto ho speso questo mese?',
+    'Ho speso di più questo mese o il mese scorso?',
+    'Cosa posso cucinare con quello che ho?',
+    'Report mensile',
+    'Cosa ho in dispensa?',
+    'Consiglimi un vino rosso',
+    'Vino per una bistecca',
+    'Quanto costava il latte?',
+  ]
+  useEffect(() => {
+    const t = setInterval(() => setSugIdx(i => (i + 3) % allSugs.length), 3000)
+    return () => clearInterval(t)
+  }, [])
+  const visibleSugs = [
+    allSugs[sugIdx % allSugs.length],
+    allSugs[(sugIdx + 1) % allSugs.length],
+    allSugs[(sugIdx + 2) % allSugs.length],
+  ]
+
 
   /* ══ RENDER ══ */
   return (
@@ -1440,20 +1463,12 @@ const Home = () => {
               <div ref={messagesEndRef}/>
             </div>
 
-            <div className="chat-sugs">
-              {[
-                'Quanto mi resta questo mese?',
-                'Quanto ho speso questo mese?',
-                'Ho speso di più questo mese o il mese scorso?',
-                'Cosa posso cucinare con quello che ho?',
-                'Report mensile',
-                'Cosa ho in dispensa?',
-                'Consiglimi un vino rosso',
-                'Vino per una bistecca',
-                'Quanto costava il latte?',
-              ].map(s => (
-                <button key={s} className="sug-pill" onClick={() => !aibusy && send(s)} disabled={aibusy}>{s}</button>
-              ))}
+            <div className="sug-carousel">
+              <div className="sug-track">
+                {visibleSugs.map((s, i) => (
+                  <button key={i} className="sug-pill" onClick={() => !aibusy && send(s)} disabled={aibusy}>{s}</button>
+                ))}
+              </div>
             </div>
 
             <form className="chat-form" onSubmit={onSubmit}>
