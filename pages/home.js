@@ -668,7 +668,7 @@ const Home = () => {
             moved_at: new Date().toISOString(),
           })
           await loadData(userId)
-          setMessages(p => [...p, { role: 'assistant', text: \`💵 €\${importo.toFixed(2)} aggiunti in tasca!\` }])
+          setMessages(p => [...p, { role: 'assistant', text: `💵 €${importo.toFixed(2)} aggiunti in tasca!` }])
           return
         }
       }
