@@ -572,6 +572,55 @@ const Home = () => {
     setListaSpesa(lista || [])
   }
 
+  // ── Particles background ──────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const canvas = document.getElementById('bg-particles')
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    let animId = null
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight }
+    resize()
+    window.addEventListener('resize', resize)
+    const pts = Array.from({length:60}, () => ({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      r: Math.random() * .8 + .3,
+      dx: (Math.random() - .5) * .22,
+      dy: (Math.random() - .5) * .22,
+      a: Math.random() * Math.PI * 2,
+    }))
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      pts.forEach(p => {
+        p.x += p.dx; p.y += p.dy; p.a += .007
+        if (p.x < 0) p.x = canvas.width
+        if (p.x > canvas.width) p.x = 0
+        if (p.y < 0) p.y = canvas.height
+        if (p.y > canvas.height) p.y = 0
+        const a = .35 + .28 * Math.sin(p.a)
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(0,255,180,${a * .48})`; ctx.fill()
+      })
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y
+          const d = Math.sqrt(dx * dx + dy * dy)
+          if (d < 70) {
+            ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y)
+            ctx.strokeStyle = `rgba(0,255,180,${(1 - d / 70) * .09})`; ctx.lineWidth = .4; ctx.stroke()
+          }
+        }
+      }
+      animId = requestAnimationFrame(draw)
+    }
+    draw()
+    return () => {
+      window.removeEventListener('resize', resize)
+      if (animId) cancelAnimationFrame(animId)
+    }
+  }, [])
+
   const historyRef = useRef([])
   useEffect(() => { historyRef.current = messages.slice(-6).map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.text })) }, [messages])
 
@@ -1351,7 +1400,7 @@ const Home = () => {
               </svg>
             </div>
             <div>
-              <div className="jt-title">JARVIS TALK</div>
+              <div className="jt-title">PARLA CON JARVIS</div>
               <div className="jt-sub">Neural Interface · v4.0</div>
             </div>
           </div>
@@ -1806,43 +1855,7 @@ const Home = () => {
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
       `}</style>
 
-      <script dangerouslySetInnerHTML={{ __html: `
-        (function(){
-          var canvas = document.getElementById('bg-particles');
-          if(!canvas) return;
-          var ctx = canvas.getContext('2d');
-          function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-          resize();
-          window.addEventListener('resize', resize);
-          var pts = Array.from({length:60}, function(){
-            return {
-              x: Math.random()*window.innerWidth,
-              y: Math.random()*window.innerHeight,
-              r: Math.random()*.8+.3,
-              dx: (Math.random()-.5)*.22,
-              dy: (Math.random()-.5)*.22,
-              a: Math.random()*Math.PI*2
-            };
-          });
-          function draw(){
-            ctx.clearRect(0,0,canvas.width,canvas.height);
-            pts.forEach(function(p){
-              p.x+=p.dx; p.y+=p.dy; p.a+=.007;
-              if(p.x<0)p.x=canvas.width; if(p.x>canvas.width)p.x=0;
-              if(p.y<0)p.y=canvas.height; if(p.y>canvas.height)p.y=0;
-              var a=.35+.28*Math.sin(p.a);
-              ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-              ctx.fillStyle='rgba(0,255,180,'+a*.48+')'; ctx.fill();
-            });
-            for(var i=0;i<pts.length;i++) for(var j=i+1;j<pts.length;j++){
-              var dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=Math.sqrt(dx*dx+dy*dy);
-              if(d<70){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y); ctx.strokeStyle='rgba(0,255,180,'+(1-d/70)*.09+')'; ctx.lineWidth=.4; ctx.stroke(); }
-            }
-            requestAnimationFrame(draw);
-          }
-          draw();
-        })();
-      `}} />
+{/* particles init moved to useEffect below */}
 
     </>
   )
