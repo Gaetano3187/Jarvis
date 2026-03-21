@@ -1184,7 +1184,12 @@ const Home = () => {
   /* ══ RENDER ══ */
   return (
     <>
-      <Head><title>Home – Jarvis</title></Head>
+      <Head>
+        <title>Home – Jarvis</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com"/>
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous"/>
+        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:ital,wght@0,300;0,400;1,900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+      </Head>
 
       {/* ── OCR OVERLAY ── */}
       {loadingOCR && (
@@ -1561,8 +1566,6 @@ const Home = () => {
       )}
 
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:ital,wght@0,300;0,400;1,900&family=Space+Mono:wght@400;700&display=swap');
-
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body { background: #020d0d; min-height: 100vh; overflow-x: hidden; }
