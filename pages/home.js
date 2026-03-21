@@ -1607,7 +1607,7 @@ const Home = () => {
           position: relative; z-index: 1;
           min-height: 100vh;
           display: flex; flex-direction: column; align-items: center; gap: 1rem;
-          padding: 1.5rem 1rem 3rem;
+          padding: 5rem 1rem 3rem;
           max-width: 480px; margin: 0 auto;
           font-family: 'Exo 2', sans-serif;
         }
