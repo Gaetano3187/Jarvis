@@ -1137,93 +1137,197 @@ const Home = () => {
     <>
       <Head><title>Home – Jarvis</title></Head>
 
+      {/* ── OCR OVERLAY ── */}
       {loadingOCR && (
         <div className="ocr-overlay">
-          <div className="ocr-ov-icon">📷</div>
-          <div className="ocr-ov-title">Analisi immagine…</div>
-          <div className="ocr-ov-sub">GPT-4o riconosce il documento</div>
-          <div className="ocr-prog-track"><div className="ocr-prog-fill" /></div>
+          <div className="scan-frame">
+            <span className="sf-tl"/><span className="sf-tr"/>
+            <span className="sf-bl"/><span className="sf-br"/>
+            <div className="sf-beam"/>
+          </div>
+          <div className="ocr-title">ANALISI IN CORSO</div>
+          <div className="ocr-sub">Riconoscimento documento · GPT-4o</div>
+          <div className="ocr-prog"><div className="ocr-fill"/></div>
         </div>
       )}
 
-      <div className="neural-bg" aria-hidden="true">
-        <div className="blob b1" /><div className="blob b2" /><div className="blob b3" /><div className="blob b4" />
-        <canvas id="neural-canvas" className="neural-canvas" />
+      {/* ── SFONDO ── */}
+      <div className="teal-bg" aria-hidden="true">
+        <div className="bg-void"/>
+        <canvas id="bg-particles" className="bg-particles"/>
+        <div className="hex-grid"/>
+        <div className="e-beam"/>
+        <div className="scanlines"/>
       </div>
 
       <div className="home-wrap">
 
-        <div className="hero">
-          <div className="logo-wrap">
-            <canvas id="logo-canvas" className="logo-canvas" />
-            <div className="logo-core">
-              <div className="logo-main">JARVIS</div>
-              <div className="logo-sep">
-                <div className="logo-sep-line" />
-                <div className="logo-sep-dia" />
-                <div className="logo-sep-line" />
-              </div>
-              <div className="logo-sub">Neural Intelligence</div>
-            </div>
-          </div>
-          <div className="status-pills">
-            <div className="spill sp-g"><span className="spd spd-g" />Sistema attivo</div>
-            <div className="spill sp-p"><span className="spd spd-p" />AI Core v4</div>
-            <div className="spill sp-y"><span className="spd spd-y" />Sync live</div>
+        {/* ── TOPBAR ── */}
+        <div className="topbar">
+          <div className="tb-id">SYS://JARVIS.4.0</div>
+          <div className="tb-live">
+            <div className="live-ring"><div className="live-dot"/></div>
+            LIVE
           </div>
         </div>
 
-        <div className="kpi-rings">
-          <div className="ring-kpi">
-            <svg className="ring-svg" viewBox="0 0 140 140">
-              <circle cx="70" cy="70" r="60" fill="rgba(22,8,44,.92)" stroke="rgba(160,80,255,.12)" strokeWidth="1"/>
-              <circle cx="70" cy="70" r="60" fill="none" stroke="rgba(160,80,255,.08)" strokeWidth="12"/>
-              <circle cx="70" cy="70" r="60" fill="none" stroke="rgba(160,80,255,.55)" strokeWidth="1.5"
-                strokeDasharray="270 108" strokeDashoffset="-28" strokeLinecap="round"/>
-              <circle cx="70" cy="70" r="52" fill="none" stroke="rgba(160,80,255,.12)" strokeWidth="0.5" strokeDasharray="3 7"/>
+        {/* ── ① LOGO ── */}
+        <header className="hero">
+          <div className="orbit-system">
+            <div className="or or1"><div className="od od1"/></div>
+            <div className="or or2"><div className="od od2"/></div>
+            <div className="orbit-core"><div className="core-dot"/></div>
+          </div>
+          <div className="logo-title">JARVIS</div>
+          <div className="logo-bar"/>
+          <div className="logo-sub">NEURAL&nbsp;&nbsp;INTELLIGENCE</div>
+        </header>
+
+        {/* ── ② ORB BUTTONS — Voce · Scrivi · OCR · Bolletta ── */}
+        <div className="cmd-zone">
+
+          {/* Voce */}
+          <button
+            className={`orb ${isRec ? 'orb-rec' : ''} ${aibusy && !isRec ? 'orb-busy' : ''}`}
+            onClick={toggleRec} disabled={aibusy && !isRec}
+            title={isRec ? 'Ferma registrazione' : 'Parla con Jarvis'}>
+            <span className="p1"/><span className="p2"/><span className="p3"/>
+            <span className="oi">
+              {isRec
+                ? <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" fill="#ff4d4d"/></svg>
+                : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
+              }
+            </span>
+            <span className="ol">{isRec ? 'Stop' : aibusy ? '…' : 'Voce'}</span>
+          </button>
+
+          {/* Scrivi */}
+          <button
+            className={`orb ${jarvisOpen ? 'orb-on' : ''}`}
+            onClick={() => setJarvisOpen(v => !v)}
+            title="Scrivi a Jarvis">
+            <span className="p1"/><span className="p2"/><span className="p3"/>
+            <span className="oi">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </span>
+            <span className="ol">Scrivi</span>
+          </button>
+
+          {/* OCR */}
+          <label
+            className={`orb orb-g ${loadingOCR ? 'orb-busy' : ''}`}
+            style={{cursor: loadingOCR ? 'wait' : 'pointer'}}
+            title="Scansiona scontrino o etichetta">
+            <span className="p1"/><span className="p2"/><span className="p3"/>
+            <span className="oi">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+            </span>
+            <span className="ol">{loadingOCR ? '…' : 'OCR'}</span>
+            {!loadingOCR && (
+              <input type="file" accept="image/*" style={{display:'none'}}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleOCR(f) }}/>
+            )}
+          </label>
+
+          {/* Bolletta */}
+          <label
+            className={`orb ${billBusy ? 'orb-busy' : ''}`}
+            style={{cursor: billBusy ? 'wait' : 'pointer'}}
+            title="Scansiona bolletta gas/luce">
+            <span className="p1"/><span className="p2"/><span className="p3"/>
+            <span className="oi">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+            </span>
+            <span className="ol">{billBusy ? '…' : 'Bolletta'}</span>
+            {!billBusy && (
+              <input ref={billOcrRef} type="file" accept="image/*,application/pdf" style={{display:'none'}}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleBillOcr(f) }}/>
+            )}
+          </label>
+
+        </div>{/* /cmd-zone */}
+
+        {/* ── DIVIDER ── */}
+        <div className="sec-div">
+          <div className="sdiv-line"/><div className="sdiv-dot"/><div className="sdiv-line"/>
+        </div>
+
+        {/* ── ③ KPI RINGS centrati ── */}
+        <div className="kpi-row">
+
+          {/* In Tasca */}
+          <div className="ring-card">
+            <svg className="ring-svg r-cw" viewBox="0 0 118 118" fill="none">
+              <circle cx="59" cy="59" r="52" stroke="rgba(0,255,180,0.06)" strokeWidth="10"/>
+              <circle cx="59" cy="59" r="52" stroke="rgba(0,255,180,0.5)" strokeWidth="1.2" strokeDasharray="238 88" strokeDashoffset="-24" strokeLinecap="round"/>
+              <circle cx="59" cy="59" r="44" stroke="rgba(0,255,180,0.1)" strokeWidth="0.4" strokeDasharray="2 8"/>
             </svg>
-            <div className="ring-inner">
-              <div className="ring-val ring-val-p">
-                {pocketBal !== null ? `€ ${pocketBal.toFixed(0)}` : '—'}
+            <svg className="ring-svg r-ccw" viewBox="0 0 118 118" fill="none">
+              <circle cx="59" cy="7"   r="3" fill="#00ffb4" style={{filter:'drop-shadow(0 0 6px #00ffb4)'}}/>
+              <circle cx="111" cy="59" r="2" fill="rgba(0,255,180,0.4)"/>
+              <circle cx="59" cy="111" r="3" fill="#00ffb4" style={{filter:'drop-shadow(0 0 6px #00ffb4)'}}/>
+              <circle cx="7" cy="59"  r="2" fill="rgba(0,255,180,0.4)"/>
+            </svg>
+            <div className="ring-data">
+              <div className="ring-val">
+                {pocketBal !== null ? `€ ${Math.round(pocketBal)}` : '—'}
               </div>
-              <div className="ring-label">In tasca</div>
-              <div className="ring-dot ring-dot-p" />
+              <div className="ring-lbl">IN TASCA</div>
+              <div className="ring-tick">▲ stabile</div>
             </div>
           </div>
 
-          <button className={`ring-kpi ring-kpi-btn ${nAlert > 0 ? 'ring-alert' : ''}`}
+          {/* Scorte / Alert */}
+          <button
+            className={`ring-card ring-btn ${nAlert > 0 ? 'ring-alert' : ''}`}
             onClick={() => setShowLista(v => !v)}>
-            <svg className="ring-svg" viewBox="0 0 140 140">
-              <circle cx="70" cy="70" r="60"
-                fill={nAlert > 0 ? 'rgba(40,8,8,.92)' : 'rgba(0,22,16,.92)'}
-                stroke={nAlert > 0 ? 'rgba(239,68,68,.15)' : 'rgba(0,210,130,.12)'}
-                strokeWidth="1"/>
-              <circle cx="70" cy="70" r="60" fill="none"
-                stroke={nAlert > 0 ? 'rgba(239,68,68,.08)' : 'rgba(0,210,130,.08)'}
-                strokeWidth="12"/>
-              <circle cx="70" cy="70" r="60" fill="none"
-                stroke={nAlert > 0 ? 'rgba(239,68,68,.6)' : 'rgba(0,210,130,.55)'}
-                strokeWidth="1.5"
-                strokeDasharray={nAlert > 0 ? '200 178' : '378 0'}
-                strokeDashoffset="-28" strokeLinecap="round"/>
-              <circle cx="70" cy="70" r="52" fill="none"
-                stroke={nAlert > 0 ? 'rgba(239,68,68,.12)' : 'rgba(0,210,130,.12)'}
-                strokeWidth="0.5" strokeDasharray="3 7"/>
+            <svg className="ring-svg r-cw" viewBox="0 0 118 118" fill="none">
+              <circle cx="59" cy="59" r="52" stroke={nAlert > 0 ? 'rgba(255,60,60,0.06)' : 'rgba(0,255,180,0.06)'} strokeWidth="10"/>
+              <circle cx="59" cy="59" r="52" stroke={nAlert > 0 ? 'rgba(255,60,60,0.6)' : 'rgba(0,255,180,0.5)'} strokeWidth="1.2"
+                strokeDasharray={nAlert > 0 ? '165 162' : '327 0'} strokeDashoffset="-24" strokeLinecap="round"/>
+              <circle cx="59" cy="59" r="44" stroke={nAlert > 0 ? 'rgba(255,60,60,0.1)' : 'rgba(0,255,180,0.1)'} strokeWidth="0.4" strokeDasharray="2 8"/>
             </svg>
-            <div className="ring-inner">
-              <div className={`ring-val ${nAlert > 0 ? 'ring-val-r' : 'ring-val-g'}`}>
+            <svg className="ring-svg r-ccw" viewBox="0 0 118 118" fill="none">
+              {nAlert > 0 ? <>
+                <circle cx="59" cy="7"   r="3" fill="#ff4d4d" style={{filter:'drop-shadow(0 0 6px #ff4d4d)'}}/>
+                <circle cx="111" cy="59" r="2" fill="rgba(255,77,77,0.4)"/>
+                <circle cx="59" cy="111" r="3" fill="#ff4d4d" style={{filter:'drop-shadow(0 0 6px #ff4d4d)'}}/>
+                <circle cx="7" cy="59"  r="2" fill="rgba(255,77,77,0.4)"/>
+              </> : <>
+                <circle cx="59" cy="7"   r="3" fill="#00ffb4" style={{filter:'drop-shadow(0 0 6px #00ffb4)'}}/>
+                <circle cx="111" cy="59" r="2" fill="rgba(0,255,180,0.4)"/>
+                <circle cx="59" cy="111" r="3" fill="#00ffb4" style={{filter:'drop-shadow(0 0 6px #00ffb4)'}}/>
+                <circle cx="7" cy="59"  r="2" fill="rgba(0,255,180,0.4)"/>
+              </>}
+            </svg>
+            <div className="ring-data">
+              <div className={`ring-val ${nAlert > 0 ? 'ring-val-r' : ''}`}>
                 {nAlert > 0 ? `${nAlert} alert` : 'OK'}
               </div>
-              <div className="ring-label">Scorte</div>
-              <div className={`ring-dot ${nAlert > 0 ? 'ring-dot-r' : 'ring-dot-g'}`} />
+              <div className="ring-lbl">SCORTE</div>
+              <div className={`ring-tick ${nAlert > 0 ? 'ring-tick-r' : ''}`}>
+                {nAlert > 0 ? '⚠ attenzione' : '✓ tutto ok'}
+              </div>
             </div>
           </button>
-        </div>
 
+        </div>{/* /kpi-row */}
+
+        {/* ── DROPDOWN SCORTE ── */}
         {showLista && (
           <div className="lista-drop">
             {alertItems.length === 0
-              ? <div className="lista-empty">Nessun alert — ottimo!</div>
+              ? <div className="lista-empty">Nessun alert — tutto OK</div>
               : alertItems.map(item => (
                 <div key={item.id} className={`lista-row ${item.type === 'lista' ? 'row-buy' : 'row-alert'}`}>
                   <span className="lista-name">{item.name}</span>
@@ -1231,114 +1335,32 @@ const Home = () => {
                 </div>
               ))
             }
-            <Link href="/liste-prodotti" className="lista-cta">Vai alla lista completa →</Link>
+            <Link href="/liste-prodotti" className="lista-cta">Lista completa →</Link>
           </div>
         )}
 
-        <div className="cmd-zone">
-          <button
-            className={`orb-btn ${isRec ? 'orb-rec' : ''} ${aibusy && !isRec ? 'orb-busy' : ''}`}
-            onClick={toggleRec}
-            disabled={aibusy && !isRec}
-            title={isRec ? 'Ferma registrazione' : 'Parla con Jarvis'}
-          >
-            <span className="orb-ring" />
-            <span className="orb-icon">
-              {isRec ? (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                  <rect x="6" y="6" width="12" height="12" rx="2" fill="#f87171"/>
-                </svg>
-              ) : (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                  <rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8"/>
-                  <path d="M5 10a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                  <line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                  <line x1="9" y1="21" x2="15" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                </svg>
-              )}
-            </span>
-            <span className="orb-label">{isRec ? 'Stop' : aibusy ? '…' : 'Voce'}</span>
+        {/* ── ④ JARVIS TALK + CHAT ── */}
+        <div className="jt-header">
+          <div className="jt-left">
+            <div className="jt-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(0,255,180,0.8)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                <circle cx="9" cy="10" r="1" fill="rgba(0,255,180,0.8)"/>
+                <circle cx="12" cy="10" r="1" fill="rgba(0,255,180,0.8)"/>
+                <circle cx="15" cy="10" r="1" fill="rgba(0,255,180,0.8)"/>
+              </svg>
+            </div>
+            <div>
+              <div className="jt-title">JARVIS TALK</div>
+              <div className="jt-sub">Neural Interface · v4.0</div>
+            </div>
+          </div>
+          <button className="jt-toggle" onClick={() => setJarvisOpen(v => !v)} title={jarvisOpen ? 'Minimizza' : 'Apri'}>
+            {jarvisOpen
+              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="18 15 12 9 6 15"/></svg>
+              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            }
           </button>
-
-          <button
-            className={`orb-btn ${jarvisOpen ? 'orb-active' : ''}`}
-            onClick={() => setJarvisOpen(v => !v)}
-            title="Scrivi a Jarvis"
-          >
-            <span className="orb-ring" />
-            <span className="orb-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.8"/>
-                <line x1="6" y1="9" x2="6" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="10" y1="9" x2="10" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="14" y1="9" x2="14" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="18" y1="9" x2="18" y2="9.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="6" y1="13" x2="6" y2="13.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="10" y1="13" x2="10" y2="13.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="14" y1="13" x2="14" y2="13.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            </span>
-            <span className="orb-label">Scrivi</span>
-          </button>
-
-          <label
-            className={`orb-btn ${loadingOCR ? 'orb-busy' : ''}`}
-            style={{cursor: loadingOCR ? 'wait' : 'pointer'}}
-            title="Scansiona scontrino o etichetta"
-          >
-            <span className="orb-ring" />
-            <span className="orb-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
-                <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.8"/>
-              </svg>
-            </span>
-            <span className="orb-label">{loadingOCR ? '…' : 'OCR'}</span>
-            {!loadingOCR && (
-              <input type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleOCR(f) }} />
-            )}
-          </label>
-
-          <label
-            className={`orb-btn ${billBusy ? 'orb-busy' : ''}`}
-            style={{cursor: billBusy ? 'wait' : 'pointer'}}
-            title="Scansiona bolletta gas/luce/acqua"
-          >
-            <span className="orb-ring" />
-            <span className="orb-icon">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
-                <polyline points="14 2 14 8 20 8" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
-                <line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                <line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                <polyline points="10 9 9 9 8 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
-            </span>
-            <span className="orb-label">{billBusy ? '…' : 'Bolletta'}</span>
-            {!billBusy && (
-              <input ref={billOcrRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleBillOcr(f) }} />
-            )}
-          </label>
-
-          {!pushEnabled && (
-            <button
-              className="orb-btn"
-              onClick={() => enablePushNotifications(userId)}
-              title="Attiva notifiche push"
-            >
-              <span className="orb-ring" />
-              <span className="orb-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                </svg>
-              </span>
-              <span className="orb-label">Alert</span>
-            </button>
-          )}
         </div>
 
         {jarvisOpen && (
@@ -1348,17 +1370,17 @@ const Home = () => {
                 <div key={i} className={`chat-msg ${m.role === 'user' ? 'msg-user' : 'msg-ai'}`}>
                   {m.role === 'assistant' && <span className="chat-av">J</span>}
                   <div className="chat-bubble">
-                    {m.text.split('\n').map((l, li) => <p key={li} style={{ margin: li > 0 ? '3px 0 0' : 0 }}>{l}</p>)}
+                    {m.text.split('\n').map((l, li) => <p key={li} style={{margin: li > 0 ? '3px 0 0' : 0}}>{l}</p>)}
                   </div>
                 </div>
               ))}
               {aibusy && (
                 <div className="chat-msg msg-ai">
                   <span className="chat-av">J</span>
-                  <div className="chat-bubble chat-typing"><span /><span /><span /></div>
+                  <div className="chat-bubble chat-typing"><span/><span/><span/></div>
                 </div>
               )}
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef}/>
             </div>
 
             <div className="chat-sugs">
@@ -1368,7 +1390,6 @@ const Home = () => {
                 'Ho speso di più questo mese o il mese scorso?',
                 'Cosa posso cucinare con quello che ho?',
                 'Report mensile',
-                'Cosa ho comprato questa settimana?',
                 'Cosa ho in dispensa?',
                 'Consiglimi un vino rosso',
                 'Vino per una bistecca',
@@ -1380,31 +1401,33 @@ const Home = () => {
 
             <form className="chat-form" onSubmit={onSubmit}>
               <button type="button" className={`chat-mic-btn ${isRec ? 'mic-rec' : ''}`}
-                onClick={toggleRec} disabled={aibusy && !isRec} title={isRec ? 'Ferma registrazione' : 'Registra vocale'}>
+                onClick={toggleRec} disabled={aibusy && !isRec}>
                 {isRec
-                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
                 }
               </button>
               <input className="chat-inp" value={textInput}
                 onChange={e => setTextInput(e.target.value)}
                 placeholder="JARVIS, dimmi…"
-                disabled={aibusy || isRec} />
+                disabled={aibusy || isRec}/>
               <button type="submit" className="chat-send"
-                disabled={!textInput.trim() || aibusy || isRec}>↑</button>
+                disabled={!textInput.trim() || aibusy || isRec}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="rgba(0,255,180,0.2)" stroke="rgba(0,255,180,0.7)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
             </form>
           </div>
         )}
 
+        {/* ── OCR PREVIEW ── */}
         {ocrResult && (
           <div className="ocr-prev">
             <div className="ocr-prev-head">
-              {ocrResult.doc_type === 'wine_label'
-                ? <span>🍷 Etichetta vino rilevata</span>
-                : <span>📋 {ocrResult.doc_type === 'invoice' ? 'Fattura' : 'Scontrino'} rilevato</span>
-              }
+              <span>{ocrResult.doc_type === 'wine_label' ? '🍷 Etichetta vino' : `📋 ${ocrResult.doc_type === 'invoice' ? 'Fattura' : 'Scontrino'}`}</span>
               {ocrResult.confidence && (
-                <span className={`conf ${ocrResult.confidence === 'high' ? 'conf-hi' : ocrResult.confidence === 'medium' ? 'conf-md' : 'conf-lo'}`}>
+                <span className={`conf conf-${ocrResult.confidence === 'high' ? 'hi' : ocrResult.confidence === 'medium' ? 'md' : 'lo'}`}>
                   {ocrResult.confidence === 'high' ? '✓ Alta' : ocrResult.confidence === 'medium' ? '~ Media' : '⚠ Bassa'}
                 </span>
               )}
@@ -1421,7 +1444,7 @@ const Home = () => {
                 <div className="ocr-row"><span>Negozio</span><strong>{ocrResult.store ?? '—'}</strong></div>
                 {ocrResult.store_address && <div className="ocr-row"><span>Indirizzo</span><strong>{ocrResult.store_address}</strong></div>}
                 <div className="ocr-row"><span>Data</span><strong>{ocrResult.purchase_date ?? '—'}</strong></div>
-                <div className="ocr-row"><span>Totale</span><strong style={{ color: '#22c55e' }}>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></div>
+                <div className="ocr-row"><span>Totale</span><strong style={{color:'#00ffb4'}}>€ {parseFloat(ocrResult.price_total ?? 0).toFixed(2)}</strong></div>
                 <div className="ocr-row"><span>Pagamento</span><strong>{ocrResult.payment_method === 'card' ? '💳 Carta' : ocrResult.payment_method === 'transfer' ? '🏦 Bonifico' : '💵 Contanti'}</strong></div>
                 <div className="ocr-row"><span>Categoria</span><strong>{ocrResult.categoria ?? '—'}</strong></div>
                 {Array.isArray(ocrResult.items) && ocrResult.items.length > 0 && (
@@ -1438,231 +1461,389 @@ const Home = () => {
           </div>
         )}
 
-        {err && <div className="err-box">{err}</div>}
+        {err && <div className="err-box">{err}<button onClick={() => setErr(null)} style={{background:'none',border:'none',color:'inherit',cursor:'pointer',marginLeft:'8px',fontSize:'14px'}}>✕</button></div>}
 
-      </div>
+        <div className="btm-bar">
+          <span className="btm-t">0x4A4256 · BUILD 2026.03</span>
+          <span className="btm-t">◈ SECURE</span>
+        </div>
 
+      </div>{/* /home-wrap */}
+
+      {/* ── WINE VOTE MODAL ── */}
       {showVoteModal && pendingVote && (
         <div className="vote-overlay" onClick={e => e.target === e.currentTarget && setShowVoteModal(false)}>
           <div className="vote-modal">
             <div className="vote-header">
               <span>🍷 Com&apos;era <strong>{pendingVote.wineName}</strong>?</span>
               <button onClick={() => setShowVoteModal(false)}
-                style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:'1rem' }}>✕</button>
+                style={{background:'none',border:'none',color:'rgba(255,255,255,.4)',cursor:'pointer',fontSize:'1rem'}}>✕</button>
             </div>
-            <p className="vote-hint">Il tuo feedback migliora i prossimi consigli del sommelier</p>
-
+            <p className="vote-hint">Il feedback migliora i prossimi consigli</p>
             <div className="vote-section">
               <div className="vote-label">⭐ Voto al vino</div>
               <div className="vote-stars">
                 {[1,2,3,4,5].map(n => (
-                  <span key={n} onClick={() => setWineVote(v => ({ ...v, ratingWine: n }))}
-                    style={{ fontSize:'2rem', cursor:'pointer', color: n <= wineVote.ratingWine ? '#fbbf24' : '#1e293b', transition:'color .1s' }}>
+                  <span key={n} onClick={() => setWineVote(v => ({...v, ratingWine: n}))}
+                    style={{fontSize:'2rem',cursor:'pointer',color: n <= wineVote.ratingWine ? '#00ffb4' : 'rgba(255,255,255,.15)',transition:'color .1s'}}>
                     {n <= wineVote.ratingWine ? '★' : '☆'}
                   </span>
                 ))}
               </div>
             </div>
-
             <div className="vote-section">
-              <div className="vote-label">🎯 Il consiglio del sommelier era azzeccato?</div>
+              <div className="vote-label">🎯 Consiglio azzeccato?</div>
               <div className="vote-stars">
                 {[1,2,3,4,5].map(n => (
-                  <span key={n} onClick={() => setWineVote(v => ({ ...v, ratingAdvice: n }))}
-                    style={{ fontSize:'2rem', cursor:'pointer', color: n <= wineVote.ratingAdvice ? '#22d3ee' : '#1e293b', transition:'color .1s' }}>
+                  <span key={n} onClick={() => setWineVote(v => ({...v, ratingAdvice: n}))}
+                    style={{fontSize:'2rem',cursor:'pointer',color: n <= wineVote.ratingAdvice ? '#00ffb4' : 'rgba(255,255,255,.15)',transition:'color .1s'}}>
                     {n <= wineVote.ratingAdvice ? '★' : '☆'}
                   </span>
                 ))}
               </div>
-              <div className="vote-labels-row">
-                <span>Pessimo</span><span>Ottimo</span>
-              </div>
+              <div className="vote-labels-row"><span>Pessimo</span><span>Ottimo</span></div>
             </div>
-
             <input className="vote-notes" placeholder="Note (sapore, abbinamento, occasione…)"
-              value={wineVote.notes}
-              onChange={e => setWineVote(v => ({ ...v, notes: e.target.value }))} />
-
-            <button className="vote-submit"
-              onClick={submitWineVote}
-              disabled={!wineVote.ratingWine || !wineVote.ratingAdvice}>
-              ✓ Invia feedback
-            </button>
+              value={wineVote.notes} onChange={e => setWineVote(v => ({...v, notes: e.target.value}))}/>
+            <button className="vote-submit" onClick={submitWineVote}
+              disabled={!wineVote.ratingWine || !wineVote.ratingAdvice}>✓ Invia feedback</button>
           </div>
         </div>
       )}
 
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,900&family=Syne+Mono&family=DM+Sans:wght@300;500&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #06030f; min-height: 100vh; overflow-x: hidden; }
-        .neural-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: radial-gradient(ellipse 80% 55% at 50% -5%, rgba(120,40,200,.16) 0%, transparent 70%), radial-gradient(ellipse 55% 38% at 92% 82%, rgba(0,210,130,.1) 0%, transparent 60%), radial-gradient(ellipse 45% 45% at 8% 72%, rgba(170,40,210,.07) 0%, transparent 60%), #06030f; }
-        .neural-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-        .blob { position: absolute; border-radius: 50%; pointer-events: none; filter: blur(55px); animation: blobPulse ease-in-out infinite; }
-        .b1 { width:370px;height:370px;left:-90px;top:-70px; background:rgba(120,40,200,.18); animation-duration:9s; }
-        .b2 { width:290px;height:290px;right:-65px;bottom:70px;background:rgba(0,210,130,.12); animation-duration:12s;animation-delay:-4s; }
-        .b3 { width:210px;height:210px;left:37%;top:22%; background:rgba(175,40,215,.1); animation-duration:7s; animation-delay:-6s; }
-        .b4 { width:150px;height:150px;right:18%;top:8%; background:rgba(0,175,255,.07); animation-duration:10s;animation-delay:-2s; }
-        @keyframes blobPulse { 0%,100%{transform:scale(1) translate(0,0)} 33%{transform:scale(1.1) translate(11px,-16px)} 66%{transform:scale(.94) translate(-7px,11px)} }
-        .home-wrap { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; padding: 2.5rem 1rem 4rem; font-family: 'Syne Mono', monospace; max-width: 680px; margin: 0 auto; }
-        .hero { display: flex; flex-direction: column; align-items: center; gap: .9rem; }
-        .logo-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; padding: 28px 0; }
-        .logo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
-        .logo-core { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-        .logo-main { font-family: 'Exo 2', sans-serif; font-size: 5.2rem; font-weight: 900; font-style: italic; letter-spacing: 6px; line-height: 1; color: #ffffff; animation: logoBreath 4s ease-in-out infinite; }
-        @keyframes logoBreath { 0%,100% { text-shadow: 0 0 18px rgba(200,140,255,.6), 0 0 45px rgba(160,80,255,.35), 0 0 90px rgba(120,40,200,.15); } 50% { text-shadow: 0 0 30px rgba(215,160,255,.88), 0 0 68px rgba(160,80,255,.6), 0 0 128px rgba(120,40,200,.32); } }
-        .logo-sep { display: flex; align-items: center; gap: 10px; width: 240px; }
-        .logo-sep-line { flex: 1; height: 1px; background: rgba(255,255,255,.1); }
-        .logo-sep-dia { width: 5px; height: 5px; background: rgba(160,80,255,.7); transform: rotate(45deg); box-shadow: 0 0 8px rgba(160,80,255,.9); flex-shrink: 0; }
-        .logo-sub { font-family: 'Syne Mono', monospace; font-size: .58rem; letter-spacing: .42em; color: rgba(255,255,255,.25); text-transform: uppercase; }
-        .status-pills { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-        .spill { display: flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 20px; font-size: .52rem; letter-spacing: .08em; border: 1px solid; background: rgba(0,0,0,.3); font-family: 'Syne Mono', monospace; }
-        .sp-g { border-color: rgba(0,220,130,.3); color: rgba(0,220,130,.75); }
-        .sp-p { border-color: rgba(160,80,255,.3); color: rgba(160,80,255,.75); }
-        .sp-y { border-color: rgba(220,200,0,.25); color: rgba(220,200,0,.65); }
-        .spd { width:5px;height:5px;border-radius:50%;display:inline-block;animation:spPulse 1.8s ease-in-out infinite;flex-shrink:0; }
-        .spd-g { background:#00dc82;box-shadow:0 0 5px rgba(0,220,130,.9); }
-        .spd-p { background:#a050ff;box-shadow:0 0 5px rgba(160,80,255,.9);animation-delay:.5s; }
-        .spd-y { background:#dcc800;box-shadow:0 0 5px rgba(220,200,0,.8);animation-delay:1s; }
-        @keyframes spPulse { 0%,100%{opacity:.5;transform:scale(.85)} 50%{opacity:1;transform:scale(1.3)} }
-        .kpi-rings { display: flex; gap: 1.4rem; justify-content: center; width: 100%; padding: .2rem 0; }
-        .ring-kpi { position: relative; width: 142px; height: 142px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .ring-kpi-btn { cursor: pointer; background: transparent; border: none; padding: 0; transition: transform .25s; }
-        .ring-kpi-btn:hover { transform: scale(1.06); }
-        .ring-alert .ring-dot { animation-duration: .9s !important; }
-        .ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; animation: ringRotate 18s linear infinite; }
-        @keyframes ringRotate { to { transform: rotate(360deg); } }
-        .ring-inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
-        .ring-val { font-family: 'Exo 2', sans-serif; font-style: italic; font-size: 1.25rem; font-weight: 900; line-height: 1; }
-        .ring-val-p { color: #fff; text-shadow: 0 0 18px rgba(160,80,255,.7); }
-        .ring-val-g { color: #fff; text-shadow: 0 0 18px rgba(0,210,130,.65); }
-        .ring-val-r { color: #fff; text-shadow: 0 0 18px rgba(239,68,68,.7); }
-        .ring-label { font-family: 'Syne Mono', monospace; font-size: .46rem; letter-spacing: .18em; text-transform: uppercase; color: rgba(255,255,255,.28); }
-        .ring-dot { width: 5px; height: 5px; border-radius: 50%; animation: ringDotPulse 1.8s ease-in-out infinite; }
-        .ring-dot-p { background: #a050ff; box-shadow: 0 0 6px rgba(160,80,255,.9); }
-        .ring-dot-g { background: #00dc82; box-shadow: 0 0 6px rgba(0,220,130,.9); animation-delay: .6s; }
-        .ring-dot-r { background: #f87171; box-shadow: 0 0 6px rgba(239,68,68,.9); animation-delay: 0s; }
-        @keyframes ringDotPulse { 0%,100%{opacity:.4;transform:scale(.8)} 50%{opacity:1;transform:scale(1.35)} }
-        .lista-drop { width:100%;background:rgba(14,4,28,.9);border:1px solid rgba(160,80,255,.18);border-radius:14px;overflow:hidden;animation:slideDown .18s ease;backdrop-filter:blur(12px); }
-        @keyframes slideDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
-        .lista-row { display:flex;align-items:center;justify-content:space-between;padding:.5rem .9rem;border-bottom:1px solid rgba(160,80,255,.07);font-size:.76rem;font-family:'Syne Mono',monospace; }
-        .row-buy { border-left:2px solid rgba(0,210,130,.5); }
-        .row-alert { border-left:2px solid rgba(239,68,68,.5); }
-        .lista-name { color:rgba(228,208,255,.85); }
-        .lista-tag { font-size:.63rem;color:rgba(160,80,255,.55);background:rgba(160,80,255,.08);border:1px solid rgba(160,80,255,.18);border-radius:4px;padding:.1rem .4rem; }
-        .lista-empty { padding:.9rem;text-align:center;font-size:.75rem;color:rgba(160,80,255,.3); }
-        .lista-cta { display:block;padding:.55rem .9rem;text-align:center;font-size:.7rem;color:#a050ff;border-top:1px solid rgba(160,80,255,.1);text-decoration:none;letter-spacing:.1em; }
-        .lista-cta:hover { background:rgba(160,80,255,.05); }
-        .cmd-zone { display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;padding:.4rem 0; }
-        .orb-btn { position:relative;width:84px;height:84px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;background:rgba(18,4,38,.9);border:1px solid rgba(160,80,255,.25);transition:border-color .25s, background .25s, box-shadow .25s; }
-        .orb-btn::before, .orb-btn::after { content:'';position:absolute;inset:-1px;border-radius:50%;border:1px solid rgba(160,80,255,.45);animation:pulseWave 2.6s ease-out infinite;pointer-events:none; }
-        .orb-btn::after { animation-delay:1.3s; }
-        @keyframes pulseWave { 0% { transform:scale(1); opacity:.55; } 100% { transform:scale(1.6); opacity:0; } }
-        .orb-btn:hover { border-color:rgba(160,80,255,.7);background:rgba(38,8,72,.92);box-shadow:0 0 22px rgba(120,40,200,.4), 0 0 45px rgba(120,40,200,.15); }
-        .orb-btn:nth-child(3)::before,.orb-btn:nth-child(3)::after { border-color:rgba(0,210,130,.4); }
-        .orb-btn:nth-child(3):hover { border-color:rgba(0,210,130,.7);background:rgba(0,32,22,.92);box-shadow:0 0 22px rgba(0,170,100,.35); }
-        .orb-btn:nth-child(4)::before,.orb-btn:nth-child(4)::after { border-color:rgba(210,165,0,.35);animation-delay:.65s; }
-        .orb-btn:nth-child(4)::after { animation-delay:1.95s; }
-        .orb-btn:nth-child(4):hover { border-color:rgba(220,170,0,.65);background:rgba(28,22,0,.92);box-shadow:0 0 22px rgba(180,130,0,.32); }
-        .orb-btn:nth-child(5)::before,.orb-btn:nth-child(5)::after { border-color:rgba(0,175,220,.38);animation-delay:1.3s; }
-        .orb-btn:nth-child(5)::after { animation-delay:2.6s; }
-        .orb-btn:nth-child(5):hover { border-color:rgba(0,178,220,.65);background:rgba(0,20,32,.92);box-shadow:0 0 22px rgba(0,140,195,.32); }
-        .orb-rec { border-color:rgba(255,55,55,.65)!important;background:rgba(38,5,5,.92)!important;box-shadow:0 0 28px rgba(255,30,30,.55)!important; }
-        .orb-rec::before,.orb-rec::after { border-color:rgba(255,55,55,.55)!important; animation-duration:1.2s!important; }
-        .orb-rec .orb-icon,.orb-rec .orb-label { color:#ff6666!important; }
-        .orb-active { border-color:rgba(160,80,255,.72)!important;background:rgba(48,10,88,.92)!important;box-shadow:0 0 24px rgba(120,40,200,.5)!important; }
-        .orb-active .orb-icon,.orb-active .orb-label { color:#c070ff!important; }
-        .orb-busy { opacity:.35; pointer-events:none; }
-        .orb-ring { display:none; }
-        .orb-icon { position:relative;z-index:1;color:rgba(160,80,255,.65);transition:color .22s;display:flex; }
-        .orb-label { position:relative;z-index:1;font-family:'Syne Mono',monospace;font-size:.5rem;letter-spacing:.13em;text-transform:uppercase;color:rgba(160,80,255,.48);transition:color .22s; }
-        .orb-btn:hover .orb-icon { color:#c070ff; }
-        .orb-btn:hover .orb-label { color:rgba(160,80,255,.9); }
-        .orb-btn:nth-child(3) .orb-icon { color:rgba(0,210,130,.62); }
-        .orb-btn:nth-child(3) .orb-label { color:rgba(0,210,130,.45); }
-        .orb-btn:nth-child(3):hover .orb-icon { color:#00ff9a; }
-        .orb-btn:nth-child(3):hover .orb-label { color:rgba(0,255,160,.88); }
-        .orb-btn:nth-child(4) .orb-icon { color:rgba(210,165,0,.62); }
-        .orb-btn:nth-child(4) .orb-label { color:rgba(210,165,0,.45); }
-        .orb-btn:nth-child(4):hover .orb-icon { color:#ffcc00; }
-        .orb-btn:nth-child(4):hover .orb-label { color:rgba(255,205,0,.88); }
-        .orb-btn:nth-child(5) .orb-icon { color:rgba(0,175,215,.62); }
-        .orb-btn:nth-child(5) .orb-label { color:rgba(0,175,215,.45); }
-        .orb-btn:nth-child(5):hover .orb-icon { color:#00ccff; }
-        .orb-btn:nth-child(5):hover .orb-label { color:rgba(0,210,255,.88); }
-        .chat-panel { width:100%;background:rgba(10,3,22,.92);border:1px solid rgba(160,80,255,.22);border-radius:18px;overflow:hidden;animation:slideDown .22s ease;box-shadow:0 0 40px rgba(100,20,180,.1),inset 0 0 28px rgba(0,0,0,.3);backdrop-filter:blur(16px); }
-        .chat-panel::before { content:'[ NEURAL INTERFACE — JARVIS v4.0 ]';display:block;padding:7px 14px;font-family:'Syne Mono',monospace;font-size:.5rem;letter-spacing:.2em;color:rgba(160,80,255,.3);border-bottom:1px solid rgba(160,80,255,.1);background:rgba(160,80,255,.04); }
-        .chat-messages { max-height:260px;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px; }
-        .chat-messages::-webkit-scrollbar { width:2px; }
-        .chat-messages::-webkit-scrollbar-thumb { background:rgba(160,80,255,.25);border-radius:1px; }
-        .chat-msg { display:flex;align-items:flex-start;gap:7px; }
-        .msg-ai { flex-direction:row; }
-        .msg-user { flex-direction:row-reverse; }
-        .chat-av { width:24px;height:24px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'Exo 2',sans-serif;font-size:.5rem;font-weight:900;font-style:italic;background:linear-gradient(135deg,rgba(100,30,180,.5),rgba(0,155,95,.3));border:1px solid rgba(160,80,255,.4);color:#c080ff;box-shadow:0 0 10px rgba(120,40,200,.3); }
-        .chat-bubble { max-width:84%;padding:8px 12px;border-radius:10px;font-size:.76rem;line-height:1.6;white-space:pre-wrap;font-family:'Syne Mono',monospace; }
-        .msg-ai .chat-bubble { background:rgba(80,20,150,.18);border:1px solid rgba(160,80,255,.14);color:rgba(228,208,255,.92);border-top-left-radius:3px; }
-        .msg-user .chat-bubble { background:rgba(0,52,38,.3);border:1px solid rgba(0,210,130,.14);color:rgba(198,252,232,.92);border-top-right-radius:3px; }
-        .chat-typing { display:flex;gap:5px;align-items:center; }
-        .chat-typing span { width:5px;height:5px;border-radius:50%;animation:ty .9s infinite; }
-        .chat-typing span:nth-child(1) { background:#a050ff;box-shadow:0 0 5px rgba(160,80,255,.8); }
-        .chat-typing span:nth-child(2) { background:#7030d0;animation-delay:.22s; }
-        .chat-typing span:nth-child(3) { background:#00dc82;box-shadow:0 0 5px rgba(0,220,130,.8);animation-delay:.44s; }
-        @keyframes ty { 0%,100%{opacity:.2;transform:scale(.7) translateY(0)} 50%{opacity:1;transform:scale(1) translateY(-3px)} }
-        .chat-sugs { display:flex;flex-wrap:wrap;gap:5px;padding:7px 12px;border-top:1px solid rgba(160,80,255,.08); }
-        .sug-pill { background:rgba(100,20,180,.1);border:1px solid rgba(160,80,255,.2);border-radius:20px;color:rgba(160,80,255,.55);font-family:'Syne Mono',monospace;font-size:.6rem;padding:3px 10px;cursor:pointer;transition:all .18s;letter-spacing:.04em;white-space:nowrap; }
-        .sug-pill:hover:not(:disabled) { color:#c080ff;border-color:rgba(160,80,255,.55);background:rgba(100,20,180,.25);box-shadow:0 0 10px rgba(120,40,200,.2); }
-        .sug-pill:disabled { opacity:.3;cursor:not-allowed; }
-        .chat-form { display:flex;gap:6px;padding:9px 12px;border-top:1px solid rgba(160,80,255,.08);align-items:center; }
-        .chat-mic-btn { width:36px;height:36px;border-radius:50%;background:rgba(100,20,180,.18);border:1px solid rgba(160,80,255,.3);color:#a050ff;cursor:pointer;font-size:.85rem;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s; }
-        .chat-mic-btn:hover { background:rgba(100,20,180,.35);box-shadow:0 0 14px rgba(120,40,200,.45); }
-        .mic-rec { background:rgba(175,18,18,.25)!important;border-color:rgba(255,55,55,.5)!important;color:#ff6060!important;animation:pulsRec 1s ease-in-out infinite; }
-        @keyframes pulsRec { 0%,100%{box-shadow:0 0 6px rgba(255,55,55,.3)} 50%{box-shadow:0 0 18px rgba(255,55,55,.7)} }
-        .chat-inp { flex:1;background:rgba(100,20,180,.08);border:1px solid rgba(160,80,255,.16);border-radius:10px;color:rgba(228,208,255,.9);padding:7px 12px;font-size:.75rem;outline:none;font-family:'Syne Mono',monospace;transition:all .2s; }
-        .chat-inp::placeholder { color:rgba(160,80,255,.28); }
-        .chat-inp:focus { border-color:rgba(160,80,255,.45);box-shadow:0 0 12px rgba(120,40,200,.18); }
-        .chat-send { width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,rgba(100,20,180,.35),rgba(0,155,95,.25));border:1px solid rgba(160,80,255,.35);color:#c080ff;cursor:pointer;font-size:.85rem;display:flex;align-items:center;justify-content:center;transition:all .2s; }
-        .chat-send:hover { box-shadow:0 0 18px rgba(120,40,200,.55);transform:scale(1.06); }
-        .chat-send:disabled { opacity:.3;cursor:not-allowed; }
-        .ocr-prev { width:100%;background:rgba(10,3,22,.92);border:1px solid rgba(160,80,255,.2);border-radius:14px;padding:.9rem 1rem;backdrop-filter:blur(12px); }
-        .ocr-prev-head { display:flex;justify-content:space-between;align-items:center;margin-bottom:.65rem;font-family:'DM Sans',sans-serif;font-size:.82rem;font-weight:500;color:rgba(228,208,255,.9); }
-        .conf { font-size:.6rem;padding:.15rem .45rem;border-radius:4px;font-family:'Syne Mono',monospace;letter-spacing:.1em; }
-        .conf-hi { background:rgba(0,210,130,.12);color:#00dc82;border:1px solid rgba(0,210,130,.28); }
-        .conf-md { background:rgba(215,175,0,.1);color:#dcc800;border:1px solid rgba(215,175,0,.25); }
-        .conf-lo { background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.25); }
-        .ocr-prev-rows { display:flex;flex-direction:column;gap:.3rem;margin-bottom:.65rem; }
-        .ocr-row { display:flex;justify-content:space-between;font-size:.74rem;font-family:'Syne Mono',monospace;padding:.2rem 0;border-bottom:1px solid rgba(160,80,255,.07); }
-        .ocr-row span { color:rgba(160,80,255,.4); } .ocr-row strong { color:rgba(228,208,255,.9); }
-        .ocr-prev-btns { display:flex;gap:.6rem; }
-        .ocr-save { flex:1;background:rgba(0,210,130,.14);border:1px solid rgba(0,210,130,.4);border-radius:8px;color:#00dc82;font-family:'Syne Mono',monospace;font-size:.74rem;letter-spacing:.1em;padding:.5rem;cursor:pointer;transition:all .2s; }
-        .ocr-save:hover { background:rgba(0,210,130,.26);box-shadow:0 0 14px rgba(0,175,100,.35); }
-        .ocr-save:disabled { opacity:.45;cursor:not-allowed; }
-        .ocr-cancel { background:rgba(160,80,255,.06);border:1px solid rgba(160,80,255,.2);border-radius:8px;color:rgba(160,80,255,.5);font-family:'Syne Mono',monospace;font-size:.74rem;padding:.5rem .8rem;cursor:pointer; }
-        .ocr-overlay { position:fixed;inset:0;z-index:50;background:rgba(6,3,15,.93);backdrop-filter:blur(6px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem; }
-        .ocr-ov-icon { font-size:2.5rem;animation:scanPulse 1s ease-in-out infinite; }
-        @keyframes scanPulse { 0%,100%{opacity:.7} 50%{opacity:1} }
-        .ocr-ov-title { font-family:'Exo 2',sans-serif;font-style:italic;font-size:.95rem;font-weight:900;letter-spacing:.15em;background:linear-gradient(135deg,#a050ff,#00dc82);-webkit-background-clip:text;background-clip:text;color:transparent; }
-        .ocr-ov-sub { font-family:'Syne Mono',monospace;font-size:.72rem;letter-spacing:.12em;color:rgba(160,80,255,.4); }
-        .ocr-prog-track { width:200px;height:2px;background:rgba(160,80,255,.1);border-radius:1px;overflow:hidden; }
-        .ocr-prog-fill { height:100%;background:linear-gradient(90deg,#a050ff,#00dc82);border-radius:1px;animation:ocrProg 35s linear forwards;box-shadow:0 0 8px rgba(160,80,255,.5); }
-        @keyframes ocrProg { from{width:0} to{width:100%} }
-        .err-box { width:100%;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:.7rem .9rem;color:#f87171;font-size:.75rem;font-family:'Syne Mono',monospace; }
-        .vote-overlay { position:fixed;inset:0;z-index:200;display:flex;align-items:flex-end;justify-content:center;background:rgba(6,3,15,.88);backdrop-filter:blur(10px); }
-        .vote-modal { background:linear-gradient(160deg,#0d0520 0%,#050f1a 100%);border:1px solid rgba(160,80,255,.22);border-radius:22px 22px 0 0;width:100%;max-width:480px;padding:1.5rem 1.5rem 2rem;display:flex;flex-direction:column;gap:.9rem;animation:slideUp .25s ease;box-shadow:0 -20px 60px rgba(120,40,200,.12); }
-        @keyframes slideUp { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
-        .vote-header { display:flex;justify-content:space-between;align-items:center;font-family:'DM Sans',sans-serif;font-size:.9rem;font-weight:500;color:rgba(228,208,255,.95); }
-        .vote-hint { font-family:'Syne Mono',monospace;font-size:.68rem;color:rgba(160,80,255,.35);letter-spacing:.08em; }
-        .vote-section { display:flex;flex-direction:column;gap:.35rem; }
-        .vote-label { font-family:'Syne Mono',monospace;font-size:.6rem;text-transform:uppercase;letter-spacing:.15em;color:rgba(160,80,255,.42); }
-        .vote-stars { display:flex;gap:.5rem; }
-        .vote-labels-row { display:flex;justify-content:space-between;font-family:'Syne Mono',monospace;font-size:.6rem;color:rgba(160,80,255,.22);margin-top:.1rem; }
-        .vote-notes { background:rgba(160,80,255,.06);border:1px solid rgba(160,80,255,.16);border-radius:8px;color:rgba(228,208,255,.9);padding:.6rem .8rem;font-size:.75rem;font-family:'Syne Mono',monospace;outline:none;width:100%; }
-        .vote-notes:focus { border-color:rgba(160,80,255,.45);box-shadow:0 0 12px rgba(120,40,200,.2); }
-        .vote-submit { background:linear-gradient(90deg,rgba(100,20,180,.35),rgba(0,155,95,.25));border:1px solid rgba(160,80,255,.4);border-radius:12px;color:#c080ff;font-family:'DM Sans',sans-serif;font-size:.82rem;font-weight:500;letter-spacing:.1em;padding:.75rem;cursor:pointer;width:100%;transition:all .2s; }
-        .vote-submit:hover { box-shadow:0 0 22px rgba(120,40,200,.4); }
-        .vote-submit:disabled { opacity:.3;cursor:not-allowed; }
-        @media (max-width:480px) { .logo-main { font-size:3.8rem; } .cmd-zone { gap:.6rem; } .orb-btn { width:72px;height:72px; } .home-wrap { padding:2rem .75rem 3rem; } }
-        @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important;transition:none!important; } }
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:ital,wght@0,300;0,400;1,900&family=Space+Mono:wght@400;700&display=swap');
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body { background: #020d0d; min-height: 100vh; overflow-x: hidden; }
+
+        /* ── SFONDO ── */
+        .teal-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+        .bg-void {
+          position: absolute; inset: 0;
+          background:
+            radial-gradient(ellipse 70% 50% at 50% -10%, rgba(0,200,130,0.22) 0%, transparent 65%),
+            radial-gradient(ellipse 50% 40% at 100% 60%, rgba(0,160,100,0.1) 0%, transparent 55%),
+            radial-gradient(ellipse 40% 35% at 0% 80%, rgba(0,180,120,0.08) 0%, transparent 55%),
+            #020d0d;
+        }
+        .bg-particles { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .hex-grid {
+          position: absolute; inset: 0; opacity: 0.45;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='70'%3E%3Cpath d='M30 2 L58 17 L58 53 L30 68 L2 53 L2 17Z' fill='none' stroke='rgba(0,220,150,0.07)' stroke-width='0.6'/%3E%3C/svg%3E");
+          background-size: 60px 70px;
+        }
+        .e-beam {
+          position: absolute; left: 0; right: 0; height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(0,255,180,0.5), transparent);
+          animation: eBeam 4s ease-in-out infinite;
+        }
+        @keyframes eBeam { 0% { top: -2px; opacity: 0; } 5% { opacity: 1; } 95% { opacity: .5; } 100% { top: 100%; opacity: 0; } }
+        .scanlines {
+          position: absolute; inset: 0;
+          background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,180,0.012) 2px, rgba(0,255,180,0.012) 4px);
+        }
+
+        /* ── LAYOUT ── */
+        .home-wrap {
+          position: relative; z-index: 1;
+          min-height: 100vh;
+          display: flex; flex-direction: column; align-items: center; gap: 1rem;
+          padding: 1.5rem 1rem 3rem;
+          max-width: 480px; margin: 0 auto;
+          font-family: 'Exo 2', sans-serif;
+        }
+
+        /* ── TOPBAR ── */
+        .topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+        .tb-id { font-family: 'Space Mono', monospace; font-size: 8px; letter-spacing: .1em; color: rgba(0,220,150,0.28); }
+        .tb-live { display: flex; align-items: center; gap: 5px; font-family: 'Space Mono', monospace; font-size: 8px; letter-spacing: .12em; color: rgba(0,220,150,0.5); }
+        .live-ring { position: relative; width: 10px; height: 10px; display: flex; align-items: center; justify-content: center; }
+        .live-ring::before { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(0,255,180,0.5); animation: lrp 1.5s ease-out infinite; }
+        .live-dot { width: 5px; height: 5px; border-radius: 50%; background: #00ffb4; box-shadow: 0 0 8px #00ffb4, 0 0 16px rgba(0,255,180,0.5); }
+        @keyframes lrp { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(2.2); opacity: 0; } }
+
+        /* ── HERO ── */
+        .hero { text-align: center; width: 100%; }
+        .orbit-system { width: 64px; height: 64px; margin: 0 auto 8px; position: relative; display: flex; align-items: center; justify-content: center; }
+        .or { position: absolute; inset: 0; border-radius: 50%; border: 1px solid; }
+        .or1 { border-color: rgba(0,255,180,0.45); border-style: dashed; animation: spinOrb 8s linear infinite; }
+        .or2 { inset: 10px; border-color: rgba(0,200,140,0.25); animation: spinOrb 14s linear infinite reverse; }
+        @keyframes spinOrb { to { transform: rotate(360deg); } }
+        .od { position: absolute; width: 5px; height: 5px; border-radius: 50%; }
+        .od1 { top: 0; left: 50%; transform: translateX(-50%) translateY(-2px); background: #00ffb4; box-shadow: 0 0 10px #00ffb4, 0 0 20px rgba(0,255,180,0.6); }
+        .od2 { bottom: 5px; right: 5px; width: 4px; height: 4px; background: #00d490; }
+        .orbit-core { position: relative; z-index: 2; width: 24px; height: 24px; background: rgba(0,255,180,0.06); border: 1.5px solid rgba(0,255,180,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: corePulse 2s ease-in-out infinite; }
+        @keyframes corePulse { 0%,100% { box-shadow: 0 0 12px rgba(0,255,180,0.25); } 50% { box-shadow: 0 0 30px rgba(0,255,180,0.65), 0 0 60px rgba(0,255,180,0.15); } }
+        .core-dot { width: 7px; height: 7px; border-radius: 50%; background: #00ffb4; box-shadow: 0 0 12px #00ffb4, 0 0 24px rgba(0,255,180,0.7); }
+        .logo-title {
+          font-family: 'Orbitron', monospace; font-weight: 900; font-size: 58px; letter-spacing: 8px;
+          background: linear-gradient(180deg, #ffffff 0%, #00ffb4 50%, #00b87a 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+          line-height: .9; filter: drop-shadow(0 0 30px rgba(0,255,180,0.5));
+          animation: logoFlare 3s ease-in-out infinite;
+        }
+        @keyframes logoFlare {
+          0%,100% { filter: drop-shadow(0 0 20px rgba(0,255,180,0.35)); }
+          50% { filter: drop-shadow(0 0 55px rgba(0,255,180,0.75)) drop-shadow(0 0 100px rgba(0,255,180,0.25)); }
+        }
+        .logo-bar { height: 1px; background: linear-gradient(90deg, transparent, rgba(0,255,180,0.8), transparent); margin: 4px 0 5px; position: relative; overflow: hidden; }
+        .logo-bar::after { content: ''; position: absolute; top: 0; left: -100%; right: 100%; height: 100%; background: rgba(255,255,255,0.9); animation: barShine 3s ease-in-out infinite; }
+        @keyframes barShine { 0% { left: -100%; right: 100%; } 50% { left: 0; right: 0; } 100% { left: 100%; right: -100%; } }
+        .logo-sub { font-family: 'Space Mono', monospace; font-size: 8px; letter-spacing: .42em; color: rgba(0,255,180,0.4); }
+
+        /* ── ORB BUTTONS ── */
+        .cmd-zone { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
+        .orb {
+          position: relative; width: 62px; height: 62px; border-radius: 50%;
+          background: rgba(0,255,180,0.03); border: 1px solid rgba(0,255,180,0.2);
+          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+          cursor: pointer; transition: all .22s; overflow: visible;
+        }
+        .p1,.p2,.p3 { position: absolute; inset: -4px; border-radius: 50%; border: 1px solid rgba(0,255,180,0.32); animation: triPulse 2.8s ease-out infinite; pointer-events: none; }
+        .p2 { animation-delay: .93s; border-color: rgba(0,255,180,0.18); }
+        .p3 { animation-delay: 1.86s; border-color: rgba(0,255,180,0.1); }
+        @keyframes triPulse { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.1); opacity: 0; } }
+        .orb:hover { border-color: rgba(0,255,180,0.65); background: rgba(0,255,180,0.08); box-shadow: 0 0 28px rgba(0,255,180,0.3), inset 0 0 16px rgba(0,255,180,0.06); }
+        .orb:hover .oi { color: rgba(0,255,180,1); filter: drop-shadow(0 0 7px rgba(0,255,180,0.9)); }
+        .orb:hover .ol { color: rgba(0,255,180,0.85); }
+        .oi { color: rgba(0,255,180,0.52); display: flex; transition: all .2s; z-index: 1; }
+        .ol { font-family: 'Space Mono', monospace; font-size: 7px; letter-spacing: .08em; color: rgba(0,255,180,0.3); text-transform: uppercase; transition: all .2s; z-index: 1; }
+        /* Gold (OCR) */
+        .orb-g { border-color: rgba(255,210,0,0.2); }
+        .orb-g .p1 { border-color: rgba(255,210,0,0.32); }
+        .orb-g .p2 { border-color: rgba(255,210,0,0.18); }
+        .orb-g .p3 { border-color: rgba(255,210,0,0.1); }
+        .orb-g .oi { color: rgba(255,210,0,0.52); }
+        .orb-g .ol { color: rgba(255,210,0,0.3); }
+        .orb-g:hover { border-color: rgba(255,210,0,0.65); background: rgba(255,210,0,0.06); box-shadow: 0 0 28px rgba(255,210,0,0.25); }
+        .orb-g:hover .oi { color: rgba(255,210,0,1); filter: drop-shadow(0 0 7px rgba(255,210,0,0.9)); }
+        .orb-g:hover .ol { color: rgba(255,210,0,0.85); }
+        /* Recording */
+        .orb-rec { border-color: rgba(255,60,60,0.6) !important; background: rgba(255,30,30,0.08) !important; box-shadow: 0 0 28px rgba(255,60,60,0.4) !important; }
+        .orb-rec .p1 { border-color: rgba(255,60,60,0.55) !important; animation-duration: 1.2s !important; }
+        .orb-rec .oi { color: #ff4d4d !important; }
+        .orb-rec .ol { color: rgba(255,77,77,0.7) !important; }
+        /* Active (chat aperta) */
+        .orb-on { border-color: rgba(0,255,180,0.8) !important; background: rgba(0,255,180,0.1) !important; box-shadow: 0 0 35px rgba(0,255,180,0.45), inset 0 0 16px rgba(0,255,180,0.07) !important; }
+        /* Busy */
+        .orb-busy { opacity: .35; pointer-events: none; }
+
+        /* ── DIVIDER ── */
+        .sec-div { display: flex; align-items: center; gap: 10px; width: 100%; }
+        .sdiv-line { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(0,255,180,0.15), transparent); }
+        .sdiv-dot { width: 4px; height: 4px; background: rgba(0,255,180,0.4); border-radius: 50%; box-shadow: 0 0 6px rgba(0,255,180,0.6); flex-shrink: 0; }
+
+        /* ── KPI RINGS ── */
+        .kpi-row { display: flex; gap: 20px; justify-content: center; width: 100%; }
+        .ring-card { position: relative; width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; }
+        .ring-btn { cursor: pointer; background: transparent; border: none; padding: 0; }
+        .ring-btn:hover { transform: scale(1.04); transition: transform .2s; }
+        .ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .r-cw { animation: rCW 18s linear infinite; }
+        .r-ccw { animation: rCCW 28s linear infinite; }
+        @keyframes rCW { to { transform: rotate(360deg); } }
+        @keyframes rCCW { to { transform: rotate(-360deg); } }
+        .ring-data { position: relative; z-index: 2; text-align: center; }
+        .ring-val {
+          font-family: 'Orbitron', monospace; font-weight: 700; font-size: 20px; letter-spacing: 1px;
+          color: #00ffb4; line-height: 1;
+          text-shadow: 0 0 20px rgba(0,255,180,0.9), 0 0 40px rgba(0,255,180,0.4);
+          animation: valGlow 2.5s ease-in-out infinite;
+        }
+        @keyframes valGlow {
+          0%,100% { text-shadow: 0 0 14px rgba(0,255,180,0.7), 0 0 28px rgba(0,255,180,0.3); }
+          50% { text-shadow: 0 0 28px rgba(0,255,180,1), 0 0 55px rgba(0,255,180,0.5), 0 0 80px rgba(0,255,180,0.15); }
+        }
+        .ring-val-r { color: #ff4d4d !important; text-shadow: 0 0 20px rgba(255,77,77,0.9) !important; animation: alertGlow 1.3s ease-in-out infinite !important; }
+        @keyframes alertGlow { 0%,100% { text-shadow: 0 0 14px rgba(255,77,77,0.6); } 50% { text-shadow: 0 0 28px rgba(255,77,77,1), 0 0 55px rgba(255,77,77,0.45); } }
+        .ring-lbl { font-family: 'Space Mono', monospace; font-size: 7px; letter-spacing: .16em; color: rgba(255,255,255,0.2); margin-top: 3px; }
+        .ring-tick { font-family: 'Space Mono', monospace; font-size: 8px; letter-spacing: .04em; color: rgba(0,255,180,0.38); margin-top: 2px; }
+        .ring-tick-r { color: rgba(255,77,77,0.45); }
+
+        /* ── DROPDOWN LISTA ── */
+        .lista-drop { width: 100%; background: rgba(2,20,16,0.95); border: 1px solid rgba(0,255,180,0.15); border-radius: 12px; overflow: hidden; animation: slideDown .18s ease; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .lista-row { display: flex; align-items: center; justify-content: space-between; padding: .5rem .9rem; border-bottom: 1px solid rgba(0,255,180,0.06); font-size: .76rem; font-family: 'Space Mono', monospace; }
+        .row-buy { border-left: 2px solid rgba(0,255,180,0.4); }
+        .row-alert { border-left: 2px solid rgba(255,77,77,0.4); }
+        .lista-name { color: rgba(190,240,220,0.85); font-size: 12px; }
+        .lista-tag { font-size: 10px; color: rgba(0,255,180,0.5); background: rgba(0,255,180,0.06); border: 1px solid rgba(0,255,180,0.15); border-radius: 3px; padding: .1rem .4rem; }
+        .lista-empty { padding: .9rem; text-align: center; font-size: 11px; color: rgba(0,255,180,0.3); font-family: 'Space Mono', monospace; }
+        .lista-cta { display: block; padding: .5rem .9rem; text-align: center; font-size: 11px; color: rgba(0,255,180,0.6); border-top: 1px solid rgba(0,255,180,0.08); text-decoration: none; font-family: 'Space Mono', monospace; }
+        .lista-cta:hover { background: rgba(0,255,180,0.04); }
+
+        /* ── JARVIS TALK HEADER ── */
+        .jt-header {
+          width: 100%; display: flex; align-items: center; justify-content: space-between;
+          padding: 9px 14px;
+          background: rgba(0,255,180,0.03);
+          border: 1px solid rgba(0,255,180,0.13);
+          border-radius: 12px 12px 0 0;
+          border-bottom: none;
+        }
+        .jt-left { display: flex; align-items: center; gap: 9px; }
+        .jt-icon {
+          width: 30px; height: 30px; border-radius: 8px;
+          background: rgba(0,255,180,0.07); border: 1px solid rgba(0,255,180,0.3);
+          display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 0 10px rgba(0,255,180,0.12);
+          animation: jtiPulse 2.5s ease-in-out infinite;
+        }
+        @keyframes jtiPulse { 0%,100% { box-shadow: 0 0 8px rgba(0,255,180,0.1); } 50% { box-shadow: 0 0 18px rgba(0,255,180,0.35), 0 0 35px rgba(0,255,180,0.1); } }
+        .jt-title {
+          font-family: 'Orbitron', monospace; font-weight: 700; font-size: 13px; letter-spacing: .12em;
+          background: linear-gradient(90deg, #ffffff, #00ffb4);
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+          filter: drop-shadow(0 0 8px rgba(0,255,180,0.4));
+        }
+        .jt-sub { font-family: 'Space Mono', monospace; font-size: 7px; letter-spacing: .06em; color: rgba(0,255,180,0.32); margin-top: 1px; }
+        .jt-toggle {
+          width: 28px; height: 28px; border-radius: 6px;
+          background: rgba(0,255,180,0.04); border: 1px solid rgba(0,255,180,0.15);
+          display: flex; align-items: center; justify-content: center; cursor: pointer;
+          color: rgba(0,255,180,0.45); transition: all .18s;
+        }
+        .jt-toggle:hover { border-color: rgba(0,255,180,0.4); color: rgba(0,255,180,0.85); background: rgba(0,255,180,0.08); }
+
+        /* ── CHAT PANEL ── */
+        .chat-panel { width: 100%; background: rgba(0,14,10,0.96); border: 1px solid rgba(0,255,180,0.12); border-radius: 0 0 12px 12px; overflow: hidden; }
+        .chat-messages { max-height: 260px; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+        .chat-messages::-webkit-scrollbar { width: 2px; }
+        .chat-messages::-webkit-scrollbar-thumb { background: rgba(0,255,180,0.2); border-radius: 1px; }
+        .chat-msg { display: flex; align-items: flex-start; gap: 7px; }
+        .msg-ai { flex-direction: row; }
+        .msg-user { flex-direction: row-reverse; }
+        .chat-av { width: 22px; height: 22px; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 700; background: rgba(0,255,180,0.08); border: 1px solid rgba(0,255,180,0.35); color: #00ffb4; box-shadow: 0 0 8px rgba(0,255,180,0.15); }
+        .chat-bubble { max-width: 84%; padding: 6px 10px; border-radius: 7px; font-size: .78rem; line-height: 1.5; font-family: 'Exo 2', sans-serif; }
+        .msg-ai .chat-bubble { background: rgba(0,255,180,0.04); border: 1px solid rgba(0,255,180,0.09); color: rgba(190,240,220,0.9); border-top-left-radius: 2px; }
+        .msg-user .chat-bubble { background: rgba(0,80,55,0.4); border: 1px solid rgba(0,255,180,0.06); color: rgba(160,220,200,0.85); border-top-right-radius: 2px; }
+        .chat-typing { display: flex; gap: 5px; align-items: center; }
+        .chat-typing span { width: 5px; height: 5px; border-radius: 50%; animation: ty .9s infinite; }
+        .chat-typing span:nth-child(1) { background: #00ffb4; box-shadow: 0 0 5px rgba(0,255,180,0.8); }
+        .chat-typing span:nth-child(2) { background: #00c890; animation-delay: .22s; }
+        .chat-typing span:nth-child(3) { background: #00a070; animation-delay: .44s; }
+        @keyframes ty { 0%,100% { opacity: .2; transform: scale(.7) translateY(0); } 50% { opacity: 1; transform: scale(1) translateY(-3px); } }
+        .chat-sugs { display: flex; flex-wrap: wrap; gap: 4px; padding: 7px 12px; border-top: 1px solid rgba(0,255,180,0.06); }
+        .sug-pill { background: rgba(0,255,180,0.03); border: 1px solid rgba(0,255,180,0.12); border-radius: 2px; color: rgba(0,255,180,0.38); font-family: 'Space Mono', monospace; font-size: 10px; padding: 2px 8px; cursor: pointer; transition: all .15s; white-space: nowrap; }
+        .sug-pill:hover:not(:disabled) { color: rgba(0,255,180,0.75); border-color: rgba(0,255,180,0.35); background: rgba(0,255,180,0.06); }
+        .sug-pill:disabled { opacity: .3; cursor: not-allowed; }
+        .chat-form { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid rgba(0,255,180,0.06); align-items: center; }
+        .chat-mic-btn { width: 32px; height: 32px; border-radius: 50%; background: rgba(0,255,180,0.06); border: 1px solid rgba(0,255,180,0.25); color: rgba(0,255,180,0.6); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .18s; flex-shrink: 0; }
+        .chat-mic-btn:hover { background: rgba(0,255,180,0.12); box-shadow: 0 0 12px rgba(0,255,180,0.3); }
+        .mic-rec { background: rgba(200,20,20,0.2) !important; border-color: rgba(255,60,60,0.5) !important; color: #ff4d4d !important; animation: recPulse .9s ease-in-out infinite; }
+        @keyframes recPulse { 0%,100% { box-shadow: 0 0 4px rgba(255,60,60,0.2); } 50% { box-shadow: 0 0 14px rgba(255,60,60,0.6); } }
+        .chat-inp { flex: 1; background: rgba(0,255,180,0.04); border: 1px solid rgba(0,255,180,0.1); border-radius: 5px; color: rgba(190,240,220,0.9); padding: 6px 10px; font-size: .78rem; outline: none; font-family: 'Exo 2', sans-serif; transition: all .18s; }
+        .chat-inp::placeholder { color: rgba(0,255,180,0.2); }
+        .chat-inp:focus { border-color: rgba(0,255,180,0.35); box-shadow: 0 0 10px rgba(0,255,180,0.12); }
+        .chat-send { width: 32px; height: 32px; border-radius: 5px; background: rgba(0,255,180,0.07); border: 1px solid rgba(0,255,180,0.25); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .18s; }
+        .chat-send:hover { background: rgba(0,255,180,0.14); box-shadow: 0 0 12px rgba(0,255,180,0.25); }
+        .chat-send:disabled { opacity: .3; cursor: not-allowed; }
+
+        /* ── OCR PREVIEW ── */
+        .ocr-prev { width: 100%; background: rgba(0,14,10,0.95); border: 1px solid rgba(0,255,180,0.15); border-radius: 12px; padding: .9rem 1rem; }
+        .ocr-prev-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .65rem; font-family: 'Exo 2', sans-serif; font-size: .85rem; font-weight: 500; color: rgba(190,240,220,0.9); }
+        .conf { font-size: .6rem; padding: .15rem .45rem; border-radius: 3px; font-family: 'Space Mono', monospace; letter-spacing: .1em; }
+        .conf-hi { background: rgba(0,255,180,0.1); color: #00dc82; border: 1px solid rgba(0,255,180,0.25); }
+        .conf-md { background: rgba(215,175,0,.1); color: #dcc800; border: 1px solid rgba(215,175,0,.25); }
+        .conf-lo { background: rgba(239,68,68,.1); color: #f87171; border: 1px solid rgba(239,68,68,.25); }
+        .ocr-prev-rows { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .65rem; }
+        .ocr-row { display: flex; justify-content: space-between; font-size: .75rem; font-family: 'Space Mono', monospace; padding: .2rem 0; border-bottom: 1px solid rgba(0,255,180,0.06); }
+        .ocr-row span { color: rgba(0,255,180,0.4); }
+        .ocr-row strong { color: rgba(190,240,220,0.9); }
+        .ocr-prev-btns { display: flex; gap: .6rem; }
+        .ocr-save { flex: 1; background: rgba(0,255,180,0.08); border: 1px solid rgba(0,255,180,0.35); border-radius: 7px; color: #00dc82; font-family: 'Space Mono', monospace; font-size: .72rem; letter-spacing: .1em; padding: .5rem; cursor: pointer; transition: all .18s; }
+        .ocr-save:hover { background: rgba(0,255,180,0.16); box-shadow: 0 0 14px rgba(0,255,180,0.25); }
+        .ocr-save:disabled { opacity: .45; cursor: not-allowed; }
+        .ocr-cancel { background: rgba(0,255,180,0.04); border: 1px solid rgba(0,255,180,0.15); border-radius: 7px; color: rgba(0,255,180,0.45); font-family: 'Space Mono', monospace; font-size: .72rem; padding: .5rem .8rem; cursor: pointer; }
+
+        /* ── OCR OVERLAY ── */
+        .ocr-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(2,13,13,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .9rem; }
+        .scan-frame { position: relative; width: 180px; height: 120px; margin-bottom: .5rem; }
+        .sf-tl,.sf-tr,.sf-bl,.sf-br { position: absolute; width: 22px; height: 22px; }
+        .sf-tl { top: 0; left: 0; border-top: 2px solid rgba(0,255,180,0.8); border-left: 2px solid rgba(0,255,180,0.8); }
+        .sf-tr { top: 0; right: 0; border-top: 2px solid rgba(0,255,180,0.8); border-right: 2px solid rgba(0,255,180,0.8); }
+        .sf-bl { bottom: 0; left: 0; border-bottom: 2px solid rgba(0,255,180,0.8); border-left: 2px solid rgba(0,255,180,0.8); }
+        .sf-br { bottom: 0; right: 0; border-bottom: 2px solid rgba(0,255,180,0.8); border-right: 2px solid rgba(0,255,180,0.8); }
+        .sf-beam { position: absolute; left: 0; right: 0; height: 1px; background: rgba(0,255,180,0.7); animation: sfScan 1.8s ease-in-out infinite; }
+        @keyframes sfScan { 0%,100% { top: 0; } 50% { top: 100%; } }
+        .ocr-title { font-family: 'Orbitron', monospace; font-weight: 700; font-size: .9rem; letter-spacing: .2em; background: linear-gradient(90deg, #ffffff, #00ffb4); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .ocr-sub { font-family: 'Space Mono', monospace; font-size: .68rem; letter-spacing: .12em; color: rgba(0,255,180,0.4); }
+        .ocr-prog { width: 180px; height: 2px; background: rgba(0,255,180,0.1); border-radius: 1px; overflow: hidden; }
+        .ocr-fill { height: 100%; background: linear-gradient(90deg, #00b87a, #00ffb4); border-radius: 1px; animation: ocrProg 35s linear forwards; }
+        @keyframes ocrProg { from { width: 0; } to { width: 100%; } }
+
+        /* ── ERR BOX ── */
+        .err-box { width: 100%; background: rgba(239,68,68,.06); border: 1px solid rgba(239,68,68,.25); border-radius: 8px; padding: .65rem .9rem; color: #f87171; font-size: .75rem; font-family: 'Space Mono', monospace; display: flex; justify-content: space-between; align-items: center; }
+
+        /* ── BOTTOM BAR ── */
+        .btm-bar { display: flex; justify-content: space-between; width: 100%; padding-top: .4rem; border-top: 1px solid rgba(0,255,180,0.05); }
+        .btm-t { font-family: 'Space Mono', monospace; font-size: 7px; letter-spacing: .08em; color: rgba(0,255,180,0.14); }
+
+        /* ── WINE VOTE ── */
+        .vote-overlay { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; background: rgba(2,13,13,0.88); }
+        .vote-modal { background: linear-gradient(160deg, #031a14 0%, #020d0a 100%); border: 1px solid rgba(0,255,180,0.18); border-radius: 20px 20px 0 0; width: 100%; max-width: 480px; padding: 1.5rem 1.5rem 2rem; display: flex; flex-direction: column; gap: .9rem; animation: slideUp .25s ease; }
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .vote-header { display: flex; justify-content: space-between; align-items: center; font-family: 'Exo 2', sans-serif; font-size: .9rem; font-weight: 500; color: rgba(190,240,220,0.95); }
+        .vote-hint { font-family: 'Space Mono', monospace; font-size: .65rem; color: rgba(0,255,180,0.3); letter-spacing: .08em; }
+        .vote-section { display: flex; flex-direction: column; gap: .35rem; }
+        .vote-label { font-family: 'Space Mono', monospace; font-size: .6rem; text-transform: uppercase; letter-spacing: .15em; color: rgba(0,255,180,0.4); }
+        .vote-stars { display: flex; gap: .5rem; }
+        .vote-labels-row { display: flex; justify-content: space-between; font-family: 'Space Mono', monospace; font-size: .6rem; color: rgba(0,255,180,0.2); margin-top: .1rem; }
+        .vote-notes { background: rgba(0,255,180,0.04); border: 1px solid rgba(0,255,180,0.14); border-radius: 7px; color: rgba(190,240,220,0.9); padding: .6rem .8rem; font-size: .78rem; font-family: 'Exo 2', sans-serif; outline: none; width: 100%; }
+        .vote-notes:focus { border-color: rgba(0,255,180,0.35); }
+        .vote-submit { background: rgba(0,100,70,0.25); border: 1px solid rgba(0,255,180,0.35); border-radius: 10px; color: rgba(0,255,180,0.85); font-family: 'Exo 2', sans-serif; font-size: .85rem; font-weight: 500; letter-spacing: .1em; padding: .75rem; cursor: pointer; width: 100%; transition: all .18s; }
+        .vote-submit:hover { background: rgba(0,140,90,0.2); box-shadow: 0 0 20px rgba(0,255,180,0.25); }
+        .vote-submit:disabled { opacity: .3; cursor: not-allowed; }
+
+        @media (max-width: 480px) {
+          .logo-title { font-size: 46px; }
+          .cmd-zone { gap: 7px; }
+          .orb { width: 56px; height: 56px; }
+          .home-wrap { padding: 1.2rem .75rem 2.5rem; }
+        }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
       `}</style>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function(){
+          var canvas = document.getElementById('bg-particles');
+          if(!canvas) return;
+          var ctx = canvas.getContext('2d');
+          function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+          resize();
+          window.addEventListener('resize', resize);
+          var pts = Array.from({length:60}, function(){
+            return {
+              x: Math.random()*window.innerWidth,
+              y: Math.random()*window.innerHeight,
+              r: Math.random()*.8+.3,
+              dx: (Math.random()-.5)*.22,
+              dy: (Math.random()-.5)*.22,
+              a: Math.random()*Math.PI*2
+            };
+          });
+          function draw(){
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            pts.forEach(function(p){
+              p.x+=p.dx; p.y+=p.dy; p.a+=.007;
+              if(p.x<0)p.x=canvas.width; if(p.x>canvas.width)p.x=0;
+              if(p.y<0)p.y=canvas.height; if(p.y>canvas.height)p.y=0;
+              var a=.35+.28*Math.sin(p.a);
+              ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+              ctx.fillStyle='rgba(0,255,180,'+a*.48+')'; ctx.fill();
+            });
+            for(var i=0;i<pts.length;i++) for(var j=i+1;j<pts.length;j++){
+              var dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=Math.sqrt(dx*dx+dy*dy);
+              if(d<70){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y); ctx.strokeStyle='rgba(0,255,180,'+(1-d/70)*.09+')'; ctx.lineWidth=.4; ctx.stroke(); }
+            }
+            requestAnimationFrame(draw);
+          }
+          draw();
+        })();
+      `}} />
+
     </>
   )
 }
