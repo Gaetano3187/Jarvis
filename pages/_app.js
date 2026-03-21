@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/globals.css';
 import '../styles/mobile-overrides.css';
+import '../styles/home.css';
 import 'leaflet/dist/leaflet.css';
 
 
@@ -394,8 +395,6 @@ export default function MyApp({ Component, pageProps }) {
   const hideNavOn = ['/', '/login', '/auth/login'];
   const showNav = !hideNavOn.includes(router.pathname);
 
-
-
   // Etichetta rotta + classe per /liste-prodotti (per gli stili mirati)
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -432,7 +431,7 @@ export default function MyApp({ Component, pageProps }) {
     };
 
     router.events.on('routeChangeComplete', onRoute);
-    onRoute(router.pathname); // flush immediato all'apertura della pagina
+    onRoute(router.pathname);
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', doFlush);
     }
@@ -467,7 +466,7 @@ export default function MyApp({ Component, pageProps }) {
           }
 
           html {
-            background-color: #0b2b31 !important; /* fallback (iOS bounce) */
+            background-color: #0b2b31 !important;
           }
 
           body {
@@ -475,7 +474,6 @@ export default function MyApp({ Component, pageProps }) {
             overflow-x: hidden !important;
           }
 
-          /* Elimina eventuali sfondi “celesti” dei wrapper */
           .app-shell,
           .page-container,
           .page,
@@ -491,5 +489,5 @@ export default function MyApp({ Component, pageProps }) {
         `}</style>
       </div>
     </AuthProvider>
-);
+  );
 }
