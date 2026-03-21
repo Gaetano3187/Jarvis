@@ -1181,6 +1181,7 @@ const Home = () => {
 
   const nAlert = alertItems.length
 
+
   /* ══ RENDER ══ */
   return (
     <>
@@ -1188,7 +1189,7 @@ const Home = () => {
         <title>Home – Jarvis</title>
         <link rel="preconnect" href="https://fonts.googleapis.com"/>
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous"/>
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:ital,wght@0,300;0,400;1,900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
       </Head>
 
       {/* ── OCR OVERLAY ── */}
@@ -1209,7 +1210,6 @@ const Home = () => {
       <div className="teal-bg" aria-hidden="true">
         <div className="bg-void"/>
         <canvas id="bg-particles" className="bg-particles"/>
-        <div className="hex-grid"/>
         <div className="e-beam"/>
         <div className="scanlines"/>
       </div>
@@ -1226,13 +1226,13 @@ const Home = () => {
         </div>
 
         {/* ── ① LOGO ── */}
-        <header className="hero" style={{position:'relative', overflow:'visible'}}>
-          <canvas id="logo-canvas" style={{position:'absolute',inset:'-40px -60px',width:'calc(100% + 120px)',height:'calc(100% + 80px)',pointerEvents:'none',zIndex:0}}/>
+        <header className="hero">
           <div className="orbit-system">
             <div className="or or1"><div className="od od1"/></div>
             <div className="or or2"><div className="od od2"/></div>
             <div className="orbit-core logo-core"><div className="core-dot"/></div>
           </div>
+          <canvas id="logo-canvas" style={{position:'absolute',inset:'-40px -60px',width:'calc(100% + 120px)',height:'calc(100% + 80px)',pointerEvents:'none',zIndex:0}}/>
           <div className="logo-title">JARVIS</div>
           <div className="logo-bar"/>
           <div className="logo-sub">NEURAL&nbsp;&nbsp;INTELLIGENCE</div>
@@ -1310,7 +1310,7 @@ const Home = () => {
             )}
           </label>
 
-        </div>{/* /cmd-zone */}
+        </div>
 
         {/* ── DIVIDER ── */}
         <div className="sec-div">
@@ -1376,7 +1376,7 @@ const Home = () => {
             </div>
           </button>
 
-        </div>{/* /kpi-row */}
+        </div>
 
         {/* ── DROPDOWN SCORTE ── */}
         {showLista && (
@@ -1394,7 +1394,7 @@ const Home = () => {
           </div>
         )}
 
-        {/* ── ④ JARVIS TALK + CHAT ── */}
+        {/* ── ④ PARLA CON JARVIS ── */}
         <div className="jt-header">
           <div className="jt-left">
             <div className="jt-icon">
@@ -1516,6 +1516,46 @@ const Home = () => {
           </div>
         )}
 
+        {/* Wine vote modal */}
+        {showVoteModal && pendingVote && (
+          <div className="vote-overlay" onClick={e => e.target === e.currentTarget && setShowVoteModal(false)}>
+            <div className="vote-modal">
+              <div className="vote-header">
+                <span>🍷 Com&apos;era <strong>{pendingVote.wineName}</strong>?</span>
+                <button onClick={() => setShowVoteModal(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,.4)',cursor:'pointer',fontSize:'1rem'}}>✕</button>
+              </div>
+              <p className="vote-hint">Il feedback migliora i prossimi consigli</p>
+              <div className="vote-section">
+                <div className="vote-label">⭐ Voto al vino</div>
+                <div className="vote-stars">
+                  {[1,2,3,4,5].map(n => (
+                    <span key={n} onClick={() => setWineVote(v => ({...v, ratingWine: n}))}
+                      style={{fontSize:'2rem',cursor:'pointer',color: n <= wineVote.ratingWine ? '#00ffb4' : 'rgba(255,255,255,.15)',transition:'color .1s'}}>
+                      {n <= wineVote.ratingWine ? '★' : '☆'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="vote-section">
+                <div className="vote-label">🎯 Consiglio azzeccato?</div>
+                <div className="vote-stars">
+                  {[1,2,3,4,5].map(n => (
+                    <span key={n} onClick={() => setWineVote(v => ({...v, ratingAdvice: n}))}
+                      style={{fontSize:'2rem',cursor:'pointer',color: n <= wineVote.ratingAdvice ? '#00ffb4' : 'rgba(255,255,255,.15)',transition:'color .1s'}}>
+                      {n <= wineVote.ratingAdvice ? '★' : '☆'}
+                    </span>
+                  ))}
+                </div>
+                <div className="vote-labels-row"><span>Pessimo</span><span>Ottimo</span></div>
+              </div>
+              <input className="vote-notes" placeholder="Note (sapore, abbinamento, occasione…)"
+                value={wineVote.notes} onChange={e => setWineVote(v => ({...v, notes: e.target.value}))}/>
+              <button className="vote-submit" onClick={submitWineVote}
+                disabled={!wineVote.ratingWine || !wineVote.ratingAdvice}>✓ Invia feedback</button>
+            </div>
+          </div>
+        )}
+
         {err && <div className="err-box">{err}<button onClick={() => setErr(null)} style={{background:'none',border:'none',color:'inherit',cursor:'pointer',marginLeft:'8px',fontSize:'14px'}}>✕</button></div>}
 
         <div className="btm-bar">
@@ -1523,56 +1563,10 @@ const Home = () => {
           <span className="btm-t">◈ SECURE</span>
         </div>
 
-      </div>{/* /home-wrap */}
-
-      {/* ── WINE VOTE MODAL ── */}
-      {showVoteModal && pendingVote && (
-        <div className="vote-overlay" onClick={e => e.target === e.currentTarget && setShowVoteModal(false)}>
-          <div className="vote-modal">
-            <div className="vote-header">
-              <span>🍷 Com&apos;era <strong>{pendingVote.wineName}</strong>?</span>
-              <button onClick={() => setShowVoteModal(false)}
-                style={{background:'none',border:'none',color:'rgba(255,255,255,.4)',cursor:'pointer',fontSize:'1rem'}}>✕</button>
-            </div>
-            <p className="vote-hint">Il feedback migliora i prossimi consigli</p>
-            <div className="vote-section">
-              <div className="vote-label">⭐ Voto al vino</div>
-              <div className="vote-stars">
-                {[1,2,3,4,5].map(n => (
-                  <span key={n} onClick={() => setWineVote(v => ({...v, ratingWine: n}))}
-                    style={{fontSize:'2rem',cursor:'pointer',color: n <= wineVote.ratingWine ? '#00ffb4' : 'rgba(255,255,255,.15)',transition:'color .1s'}}>
-                    {n <= wineVote.ratingWine ? '★' : '☆'}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="vote-section">
-              <div className="vote-label">🎯 Consiglio azzeccato?</div>
-              <div className="vote-stars">
-                {[1,2,3,4,5].map(n => (
-                  <span key={n} onClick={() => setWineVote(v => ({...v, ratingAdvice: n}))}
-                    style={{fontSize:'2rem',cursor:'pointer',color: n <= wineVote.ratingAdvice ? '#00ffb4' : 'rgba(255,255,255,.15)',transition:'color .1s'}}>
-                    {n <= wineVote.ratingAdvice ? '★' : '☆'}
-                  </span>
-                ))}
-              </div>
-              <div className="vote-labels-row"><span>Pessimo</span><span>Ottimo</span></div>
-            </div>
-            <input className="vote-notes" placeholder="Note (sapore, abbinamento, occasione…)"
-              value={wineVote.notes} onChange={e => setWineVote(v => ({...v, notes: e.target.value}))}/>
-            <button className="vote-submit" onClick={submitWineVote}
-              disabled={!wineVote.ratingWine || !wineVote.ratingAdvice}>✓ Invia feedback</button>
-          </div>
-        </div>
-      )}
-
-      {/* styles moved to home.module.css */}
-
-{/* particles init moved to useEffect below */}
+      </div>
 
       <style jsx global>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
         body { background: #020d0d; min-height: 100vh; overflow-x: hidden; }
 
         /* ── SFONDO ── */
@@ -1586,7 +1580,6 @@ const Home = () => {
             #020d0d;
         }
         .bg-particles { position: absolute; inset: 0; width: 100%; height: 100%; }
-        .hex-grid { position: absolute; inset: 0; opacity: 0; }
         .e-beam {
           position: absolute; left: 0; right: 0; height: 2px;
           background: linear-gradient(90deg, transparent, rgba(0,255,180,0.5), transparent);
@@ -1630,6 +1623,7 @@ const Home = () => {
         .orbit-core { position: relative; z-index: 2; width: 24px; height: 24px; background: rgba(0,255,180,0.06); border: 1.5px solid rgba(0,255,180,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: corePulse 2s ease-in-out infinite; }
         @keyframes corePulse { 0%,100% { box-shadow: 0 0 12px rgba(0,255,180,0.25); } 50% { box-shadow: 0 0 30px rgba(0,255,180,0.65), 0 0 60px rgba(0,255,180,0.15); } }
         .core-dot { width: 7px; height: 7px; border-radius: 50%; background: #00ffb4; box-shadow: 0 0 12px #00ffb4, 0 0 24px rgba(0,255,180,0.7); }
+
         .logo-title {
           font-family: 'Orbitron', monospace; font-weight: 900; font-size: 58px; letter-spacing: 8px;
           background: linear-gradient(180deg, #ffffff 0%, #00ffb4 50%, #00b87a 100%);
@@ -1711,7 +1705,7 @@ const Home = () => {
         .ring-tick { font-family: 'Space Mono', monospace; font-size: 8px; letter-spacing: .04em; color: rgba(0,255,180,0.38); margin-top: 2px; }
         .ring-tick-r { color: rgba(255,77,77,0.45); }
 
-        /* ── DROPDOWN LISTA ── */
+        /* ── DROPDOWN ── */
         .lista-drop { width: 100%; background: rgba(2,20,16,0.95); border: 1px solid rgba(0,255,180,0.15); border-radius: 12px; overflow: hidden; animation: slideDown .18s ease; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
         .lista-row { display: flex; align-items: center; justify-content: space-between; padding: .5rem .9rem; border-bottom: 1px solid rgba(0,255,180,0.06); font-size: .76rem; font-family: 'Space Mono', monospace; }
@@ -1723,7 +1717,7 @@ const Home = () => {
         .lista-cta { display: block; padding: .5rem .9rem; text-align: center; font-size: 11px; color: rgba(0,255,180,0.6); border-top: 1px solid rgba(0,255,180,0.08); text-decoration: none; font-family: 'Space Mono', monospace; }
         .lista-cta:hover { background: rgba(0,255,180,0.04); }
 
-        /* ── JARVIS TALK HEADER ── */
+        /* ── JARVIS TALK ── */
         .jt-header {
           width: 100%; display: flex; align-items: center; justify-content: space-between;
           padding: 9px 14px;
@@ -1756,7 +1750,7 @@ const Home = () => {
         }
         .jt-toggle:hover { border-color: rgba(0,255,180,0.4); color: rgba(0,255,180,0.85); background: rgba(0,255,180,0.08); }
 
-        /* ── CHAT PANEL ── */
+        /* ── CHAT ── */
         .chat-panel { width: 100%; background: rgba(0,14,10,0.96); border: 1px solid rgba(0,255,180,0.12); border-radius: 0 0 12px 12px; overflow: hidden; }
         .chat-messages { max-height: 260px; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
         .chat-messages::-webkit-scrollbar { width: 2px; }
@@ -1853,10 +1847,9 @@ const Home = () => {
           .home-wrap { padding: 3.5rem .75rem 2.5rem; }
         }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-`}</style>
+      `}</style>
     </>
   )
 }
 
 export default withAuth(Home)
-export async function getServerSideProps() { return { props: {} } }
