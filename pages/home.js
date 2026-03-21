@@ -646,6 +646,33 @@ const Home = () => {
         return
       }
 
+      // ── Ricarica contanti in tasca (intercettato prima di assistant-v2) ──
+      // Frasi: "ho preso 300 euro", "prelevato 200", "messo in tasca 150", ecc.
+      // Riconosce ricarica tasca — NON "ho preso X euro" da solo (quello è stipendio)
+      // Riconosce: "ho preso X euro e li ho messi in tasca", "prelevato X", "messo in tasca X", ecc.
+      const _ricText = text.toLowerCase()
+      const _hasInTasca = /in\s+tasca|messi?\s+in\s+tasca/.test(_ricText)
+      const _hasPreso   = /\bpres[oa]\b/.test(_ricText)
+      const _hasAltroVerbo = /\b(prelevat[oa]|ritira[to]{2}|messo\s+in\s+tasca|mett[oi]\s+in\s+tasca|ricaric[ao]|aggiungi|aggiungo)\b/.test(_ricText)
+      const _importoM   = text.match(/(\d+(?:[.,]\d{1,2})?)\s*(?:euro|€)?/)
+      // Trigger: (preso + in tasca) OPPURE (altro verbo da lista)
+      const _isRicarica = (_hasPreso && _hasInTasca) || _hasAltroVerbo
+      const ricarikaMatch = _isRicarica ? _importoM : null
+      if (ricarikaMatch) {
+        const importo = parseFloat(ricarikaMatch[1].replace(',','.'))
+        if (importo > 0 && userId) {
+          await supabase.from('pocket_cash').insert({
+            user_id: userId,
+            note: 'Ricarica contanti (voce)',
+            delta: importo,
+            moved_at: new Date().toISOString(),
+          })
+          await loadData(userId)
+          setMessages(p => [...p, { role: 'assistant', text: \`💵 €\${importo.toFixed(2)} aggiunti in tasca!\` }])
+          return
+        }
+      }
+
       const r = await fetch('/api/assistant-v2', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: text, userId, conversationHistory: historyRef.current }),
