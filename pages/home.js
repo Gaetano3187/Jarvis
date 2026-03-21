@@ -646,6 +646,44 @@ const Home = () => {
         return
       }
 
+      // ── Lista spesa multipla (intercettata prima di assistant-v2) ─────────
+      // Frasi: "devo comprare X, Y e Z" / "aggiungi X, Y e Z alla lista"
+      const _isLista = /\b(devo\s+comprare|devo\s+prendere|aggiungi|metti\s+in\s+lista|lista\s+della\s+spesa|compra)\b/.test(s)
+      if (_isLista) {
+        // Estrae la parte dopo il verbo
+        const _dopoVerbo = text
+          .replace(/^.*?(?:devo\s+comprare|devo\s+prendere|aggiungi|metti\s+in\s+lista|compra)\s*/i, '')
+          .replace(/\s+alla\s+(lista|spesa).*$/i, '')
+          .replace(/\s+in\s+lista.*$/i, '')
+        // Split per virgola, "e", "ed", punto e virgola
+        const _prodotti = _dopoVerbo
+          .split(/,|;|\s+e\s+|\s+ed\s+/)
+          .map(p => p.trim().replace(/^(del|della|dello|degli|dei|le|il|lo|la|un|una|uno)\s+/i, '').trim())
+          .filter(p => p.length > 1)
+        if (_prodotti.length > 0) {
+          const inseriti = []
+          const falliti  = []
+          for (const prodotto of _prodotti) {
+            const { error } = await supabase.from('shopping_list').insert({
+              user_id: userId,
+              name: prodotto,
+              qty: 1,
+              unit_label: 'pz',
+              list_type: 'supermercato',
+              category: 'alimentari',
+            })
+            if (error) falliti.push(prodotto)
+            else inseriti.push(prodotto)
+          }
+          let risposta = ''
+          if (inseriti.length) risposta += `✅ Aggiunto alla lista: ${inseriti.join(', ')}`
+          if (falliti.length)  risposta += `\n⚠️ Non aggiunto: ${falliti.join(', ')}`
+          setMessages(p => [...p, { role: 'assistant', text: risposta }])
+          if (userId) loadData(userId)
+          return
+        }
+      }
+
       // ── Ricarica contanti in tasca (intercettato prima di assistant-v2) ──
       // Frasi: "ho preso 300 euro", "prelevato 200", "messo in tasca 150", ecc.
       // Riconosce ricarica tasca — NON "ho preso X euro" da solo (quello è stipendio)
