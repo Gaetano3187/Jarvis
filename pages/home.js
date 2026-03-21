@@ -863,11 +863,11 @@ const Home = () => {
       }
 
       if (universal.doc_type === 'receipt' || universal.doc_type === 'invoice') {
-        console.log('[OCR] universal data:', JSON.stringify({ store: universal.store, price_total: universal.price_total, categoria: universal.categoria, items_count: universal.items?.length, confidence: universal.confidence }))
         if (!universal.store && !universal.price_total) {
           throw new Error('OCR non ha estratto dati — riprova con foto più nitida e in buona luce')
         }
         if (universal.confidence === 'low') setErr('⚠️ Immagine poco nitida — controlla i dati')
+        // Salva immediatamente senza conferma
         await _salvaRicevuta(universal)
         return
       }
@@ -1164,15 +1164,6 @@ const Home = () => {
           }
         } catch (listErr) { console.warn('[lista] spunta skip:', listErr?.message) }
       }
-
-      // ── Aggiorna tasca ────────────────────────────────────────────────
-      if (pm !== 'card' && pm !== 'transfer' && im > 0) try {
-        await supabase.from('pocket_cash').insert({
-          user_id: user.id,
-          note: sa ? `${st} — ${sa} (${pd})` : `${st} (${pd})`,
-          delta: -im, moved_at: new Date().toISOString(),
-        })
-      } catch {}
 
       setOcrResult(null); if (userId) loadData(userId)
       alert(`✅ Salvato!\n🏪 ${st}${sa?' — '+sa:''}\n💶 €${im.toFixed(2)}${items.length ? `\n🛒 ${items.length} prodotti` : ''}`)
