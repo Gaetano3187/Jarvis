@@ -41,7 +41,7 @@ function showError(setter, err) {
   console.error('[ENTRATE ERROR]', err);
 }
 
-/* ─── MimeType ottimale (incluso iPhone/Safari) ─────────────────── */
+/* ─── MimeType ottimale ─────────────────────────────────────────── */
 function getBestMimeType() {
   if (typeof MediaRecorder === 'undefined') return '';
   for (const t of ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus','audio/ogg']) {
@@ -277,7 +277,9 @@ function Entrate() {
         payment_method: h.payment_method||'cash',
       })));
 
-      // Movimenti tasca
+      // ── FIX: Movimenti tasca solo da pocket_cash (no doppia sottrazione) ──
+      // Le spese cash sono già registrate in pocket_cash come delta negativo
+      // Aggiungere cashExpRows causerebbe una doppia sottrazione
       const { data: pc } = await supabase
         .from('pocket_cash').select('id,created_at,moved_at,moved_date,note,delta,amount,direction')
         .eq('user_id', user.id)
@@ -289,11 +291,9 @@ function Entrate() {
           : (row.amount!=null ? (row.direction==='in'?1:-1)*Number(row.amount||0) : 0);
         return { id:`pc-${row.id}`, dateISO: row.moved_date||(row.moved_at||row.created_at||'').slice(0,10), label: row.note?.trim()||(eff>=0?'Ricarica contanti':'Uscita contanti'), amount:Number(eff||0), kind:'manual' };
       });
-      const cashExpRows = (expenses||[])
-        .filter(h=>/^(cash|contanti)$/i.test(String(h.payment_method||'')))
-        .map(h=>({ id:`exp-${h.id}`, dateISO:h.purchase_date, label:h.description||h.store||h.category, amount:-Number(h.amount||0), kind:'expense-cash' }));
 
-      setPocketRows([...cashExpRows,...manualRows].filter(r=>Number.isFinite(r.amount)).sort((a,b)=>(b.dateISO||'').localeCompare(a.dateISO||'')));
+      // Solo manualRows — le spese cash sono già in pocket_cash come uscite
+      setPocketRows([...manualRows].filter(r=>Number.isFinite(r.amount)).sort((a,b)=>(b.dateISO||'').localeCompare(a.dateISO||'')));
 
     } catch(err){ showError(setError,err); }
     finally { setLoading(false); }
@@ -424,16 +424,11 @@ function Entrate() {
     if(!confirm('Eliminare questo movimento?')) return;
     try {
       const {data:{user}}=await supabase.auth.getUser(); if(!user) throw new Error('Sessione scaduta');
-      if(row.kind==='manual'){
-        const pid=String(row.id).startsWith('pc-')?row.id.slice(3):null;
-        if(!pid) throw new Error('ID non valido');
-        const {error}=await supabase.from('pocket_cash').delete().eq('user_id',user.id).eq('id',pid);
-        if(error) throw error;
-      } else {
-        const eid=String(row.id).startsWith('exp-')?row.id.slice(4):row.id;
-        const {error}=await supabase.from('expenses').delete().eq('id',eid);
-        if(error) throw error;
-      }
+      // Solo kind='manual' ora (cashExpRows rimosso)
+      const pid=String(row.id).startsWith('pc-')?row.id.slice(3):null;
+      if(!pid) throw new Error('ID non valido');
+      const {error}=await supabase.from('pocket_cash').delete().eq('user_id',user.id).eq('id',pid);
+      if(error) throw error;
       await loadAll();
     } catch(err){showError(setError,err);}
   }
@@ -444,7 +439,6 @@ function Entrate() {
   const pocketBalance  = pocketRows.reduce((t,r)=>t+Number(r.amount||0),0);
   const totUsciteCash  = uscite.filter(u=>/cash|contanti/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
   const totUsciteCard  = uscite.filter(u=>/card|bancomat/i.test(u.payment_method)).reduce((t,u)=>t+u.amount,0);
-  // Carta NON impatta i saldi (va direttamente sul conto corrente) — solo cash scalato
   const saldoDisponibile = Math.max(0, entratePeriodo+riserve-totUsciteCash-prelievi);
 
   const CAT_EMOJI = {casa:'🏠',cene:'🍽️',vestiti:'👔',varie:'📦'};
@@ -502,7 +496,6 @@ function Entrate() {
             </div>
           </div>
 
-          {/* Form aggiungi entrata */}
           {showAddIncome && (
             <form className="add-form" onSubmit={handleAddIncome}>
               <input className="fi" value={newIncome.source} placeholder="Fonte" onChange={e=>setNewIncome({...newIncome,source:e.target.value})} required/>
@@ -513,13 +506,9 @@ function Entrate() {
             </form>
           )}
 
-          {/* GRIGLIA PARTITA DOPPIA */}
           <div className="ledger">
-            {/* Colonna DARE (entrate) */}
             <div className="ledger-col">
-              <div className="ledger-head ledger-head--dare">
-                <span>INCASSI</span>
-              </div>
+              <div className="ledger-head ledger-head--dare"><span>INCASSI</span></div>
               {loading ? <div className="loading">…</div> : (
                 incomes.length===0
                   ? <div className="ledger-empty">Nessuna entrata</div>
@@ -539,14 +528,10 @@ function Entrate() {
               )}
             </div>
 
-            {/* Divisore verticale */}
             <div className="ledger-divider"/>
 
-            {/* Colonna SPESE (uscite) */}
             <div className="ledger-col">
-              <div className="ledger-head ledger-head--avere">
-                <span>SPESE</span>
-              </div>
+              <div className="ledger-head ledger-head--avere"><span>SPESE</span></div>
               {loading ? <div className="loading">…</div> : (
                 uscite.length===0
                   ? <div className="ledger-empty">Nessuna uscita</div>
@@ -572,7 +557,6 @@ function Entrate() {
                     );
                   })
               )}
-              {/* Totali in fondo alla colonna */}
               <div className="ledger-col-footer">
                 <div className="col-footer-row">
                   <span className="col-footer-label">Totale contanti</span>
@@ -644,12 +628,10 @@ function Entrate() {
 
         .pg{background:#0f172a;min-height:100vh;padding:1.5rem;font-family:Inter,system-ui,-apple-system,sans-serif;color:#e2e8f0;max-width:960px;margin:0 auto}
 
-        /* Topbar */
         .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
         .logo{font-family:'Orbitron',sans-serif;font-size:1.05rem;font-weight:900;background:linear-gradient(90deg,#5eead4,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:4px}
         .periodo-badge{font-size:.72rem;color:#64748b;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:.28rem .75rem}
 
-        /* FAB */
         .fab-row{display:flex;gap:.6rem;margin-bottom:1.25rem}
         .fab-voice{display:flex;align-items:center;gap:.5rem;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:12px;color:#818cf8;font-size:.82rem;font-weight:600;padding:.55rem 1.1rem;cursor:pointer;letter-spacing:.03em}
         .fab-voice--rec{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#f87171;animation:pulse-rec 1s ease-in-out infinite}
@@ -657,20 +639,17 @@ function Entrate() {
         .fab-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
         .fab-ocr{background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.3);border-radius:12px;color:#22d3ee;font-size:.82rem;font-weight:600;padding:.55rem 1rem;cursor:pointer}
 
-        /* KPI */
         .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-bottom:1.5rem}
         .kpi{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:.85rem 1rem}
         .kpi-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:.35rem}
         .kpi-value{font-size:1.15rem;font-weight:700;line-height:1}
         .kpi-green{color:#22c55e}.kpi-red{color:#f87171}.kpi-cyan{color:#06b6d4}.kpi-purple{color:#a78bfa}.kpi-amber{color:#fbbf24}
 
-        /* Section */
         .section{margin-bottom:1.5rem}
         .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem;flex-wrap:wrap;gap:.4rem}
         .section-title{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:#475569;font-weight:600}
         .btn-add{font-size:.74rem;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#818cf8;border-radius:8px;padding:.28rem .65rem;cursor:pointer}
 
-        /* ── PARTITA DOPPIA ── */
         .ledger{display:grid;grid-template-columns:1fr 1px 1fr;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;overflow:hidden}
         .ledger-divider{background:rgba(255,255,255,.07);width:1px}
         .ledger-col{display:flex;flex-direction:column;min-width:0}
@@ -678,10 +657,6 @@ function Entrate() {
         .ledger-head{display:flex;align-items:center;justify-content:space-between;padding:.55rem .9rem;border-bottom:1px solid rgba(255,255,255,.07);font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;font-weight:700;flex-wrap:wrap;gap:.3rem}
         .ledger-head--dare{color:#22c55e;background:rgba(34,197,94,.05)}
         .ledger-head--avere{color:#f87171;background:rgba(248,113,113,.05)}
-
-        .ledger-tot{font-size:.82rem;font-weight:800}
-        .ledger-tot--green{color:#22c55e}
-        .ledger-tot--red{color:#f87171}
 
         .ledger-row{display:flex;align-items:center;gap:.5rem;padding:.6rem .9rem;border-bottom:1px solid rgba(255,255,255,.04);min-width:0}
         .ledger-row:last-child{border-bottom:none}
@@ -693,7 +668,6 @@ function Entrate() {
         .ledger-row-amount.red{color:#f87171}
         .ledger-empty{font-size:.78rem;color:#334155;padding:1.25rem;text-align:center}
 
-        /* Footer saldo */
         .ledger-col-footer{border-top:1px solid rgba(255,255,255,.07);margin-top:auto;padding:.55rem .9rem;display:flex;flex-direction:column;gap:.3rem;background:rgba(255,255,255,.02)}
         .col-footer-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
         .col-footer-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:#475569;font-weight:600;flex:1}
@@ -702,19 +676,16 @@ function Entrate() {
         .col-footer-val.muted{color:#475569}
         .col-footer-note{font-size:.62rem;color:#334155;font-style:italic;white-space:nowrap}
 
-        /* Badge mini */
         .badge-mini{font-size:.62rem;font-weight:700;padding:.15rem .45rem;border-radius:4px;white-space:nowrap;flex-shrink:0}
         .badge-cash{background:rgba(251,191,36,.12);color:#fbbf24}
         .badge-card{background:rgba(99,102,241,.12);color:#818cf8}
 
-        /* Pocket bar */
         .pocket-bar-wrap{display:flex;align-items:center;gap:.6rem;margin-bottom:.65rem}
         .pocket-bar-label{font-size:.7rem;color:#475569;white-space:nowrap}
         .pocket-bar-track{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden}
         .pocket-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#06b6d4,#22d3ee);transition:width .4s ease}
         .pocket-bar-val{font-size:.8rem;font-weight:700;color:#06b6d4;white-space:nowrap}
 
-        /* Card / righe */
         .card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;overflow:hidden}
         .row{display:flex;align-items:center;gap:.65rem;padding:.7rem 1rem;border-bottom:1px solid rgba(255,255,255,.05)}
         .row:last-child{border-bottom:none}
@@ -728,23 +699,19 @@ function Entrate() {
         .del-btn{background:none;border:none;color:#334155;cursor:pointer;font-size:.78rem;padding:.2rem .3rem;border-radius:5px;flex-shrink:0;transition:color .15s}
         .del-btn:hover{color:#f87171}
 
-        /* Add form */
         .add-form{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.65rem}
         .fi{flex:1 1 130px;padding:.45rem .7rem;border-radius:9px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.82rem;outline:none}
         .fi:focus{border-color:rgba(99,102,241,.5)}
         .btn-save{background:#6366f1;border:none;border-radius:9px;color:#fff;font-size:.82rem;font-weight:600;padding:.45rem 1rem;cursor:pointer}
 
-        /* Misc */
         .loading{font-size:.8rem;color:#334155;padding:1rem;text-align:center}
         .empty{font-size:.8rem;color:#334155;padding:1.5rem;text-align:center}
         .error-box{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;border-radius:10px;padding:.75rem 1rem;font-size:.82rem;margin-top:.5rem}
         .btn-home{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:.45rem .9rem;cursor:pointer;font-size:.82rem}
 
-        /* Responsive */
         @media(max-width:600px){
           .kpi-grid{grid-template-columns:repeat(2,1fr)}
           .pg{padding:1rem}
-          /* Su mobile la partita doppia va in colonna */
           .ledger{grid-template-columns:1fr;grid-template-rows:auto 1px auto}
           .ledger-divider{width:auto;height:1px}
         }
