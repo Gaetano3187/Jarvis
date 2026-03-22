@@ -884,7 +884,15 @@ const Home = () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Sessione scaduta')
 
-      const pd  = data.purchase_date ?? new Date().toISOString().slice(0, 10)
+      const today = new Date().toISOString().slice(0, 10)
+      // Se la data OCR è nel futuro o più vecchia di 7 giorni, usa oggi
+      // (evita date sbagliate estratte da scontrini vecchi)
+      const _rawDate = data.purchase_date
+      let pd = today
+      if (_rawDate) {
+        const _diff = (new Date(today) - new Date(_rawDate)) / (1000 * 60 * 60 * 24)
+        if (_diff >= 0 && _diff <= 7) pd = _rawDate  // accetta solo ultimi 7 giorni
+      }
       const st  = data.store ?? 'Generico'
       const sa  = data.store_address ?? null   // indirizzo/città
       const im  = parseFloat(data.price_total ?? 0)
