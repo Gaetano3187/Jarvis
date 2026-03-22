@@ -899,44 +899,10 @@ const Home = () => {
       const cat = catFromStore(data.store, data.store_type)
         || (['casa','vestiti','cene','varie'].includes(data.categoria) ? data.categoria : 'varie')
       const pm  = data.payment_method ?? 'cash'
-      // Items dal parser strutturato; se vuoti, tenta parsing dal raw_text
-      let items = Array.isArray(data.items) ? data.items : []
+      // Items dal parser strutturato; se vuoti, usa il parser universale italiano
+      let items = Array.isArray(data.items) ? data.items.filter(it => it?.name?.trim()) : []
       if (items.length === 0 && data.raw_text) {
-        // Parsing semplice: ogni riga con un prezzo è un prodotto
-        const lines = data.raw_text.split('\n').map(l => l.trim()).filter(Boolean)
-        const priceRe = /([\d.,]+)\s*$/ // prezzo in fondo alla riga
-        const skipWords = /totale|subtotale|iva|pagamento|resto|importo|documento|arrotond|contante|cassa|trans|rt\s|p\.iva|tel\.|via |descrizione|dettaglio|ventilaz/i
-        for (const line of lines) {
-          if (skipWords.test(line)) continue
-          const m = line.match(priceRe)
-          if (!m) continue
-          const priceStr = m[1].replace(',', '.')
-          const price = parseFloat(priceStr)
-          if (!price || price <= 0 || price > 500) continue
-          const namePart = line.slice(0, line.lastIndexOf(m[0])).trim()
-            .replace(/\s+VI\*?\s*$/i, '') // rimuovi codice IVA
-            .replace(/\s+\d+$/, '')        // rimuovi codici interni
-            .trim()
-          if (namePart.length < 2) continue
-          // Normalizza nome: prima lettera maiuscola, resto minuscolo
-          const name = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase()
-          items.push({
-            name,
-            qty: 1,
-            unit_price: price,
-            price,
-            category_item: 'altro', // categoria generica per non-alimentari
-            perishable_type: 'standard',
-          })
-        }
-        // Deduplica: se stesso nome compare due volte, somma qty
-        const deduped = []
-        for (const it of items) {
-          const ex = deduped.find(d => d.name.toLowerCase() === it.name.toLowerCase())
-          if (ex) { ex.qty = (ex.qty || 1) + 1 }
-          else deduped.push({ ...it })
-        }
-        items = deduped
+        items = _parseItalianReceipt(data.raw_text)
       }
 
       // ── FIX description: include città ─────────────────────────────────
@@ -1637,6 +1603,122 @@ const Home = () => {
     </>
   )
 }
+
+// ── Parser universale scontrini italiani ──────────────────────────────────
+// Gestisce: Decò/supermercati (colonne IVA), Orsini (qty PRIMA del nome),
+// ristoranti (prezzi inline), osterie (N x prezzo prima del piatto),
+// McDonald's (N Nome IVA% prezzo), prodotti al peso (10.170x @ 1.00/kg)
+function _parseItalianReceipt(rawText) {
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean)
+  const RE_SKIP = /^(totale|subtotale|di cui|pagamento|resto|importo|documento|arrotond|contante|cassa|trans|rt\s|p\.iva|tel\.|dettaglio|ventilaz|appendice|prestazione|commerciale|discount|maxistore|descrizione|prezzo|vi\s*=|firma|server|ecr|incl\.|ota |mop|^out |sai che|tramite|concors|periodo|maggiori|esclusioni|verifica|www\.|pezzi|cassiere|transazione|partita|telefono|supermercati|operatore|^\*|riepilogo|tavolo|a testa|op\.\d|^-{3,})/i
+  const RE_IVA  = /\s+(VI|N)\*?\s*$|\s+\d{1,2}[.,]\d{2}%\s*|\s+\d{1,2}%\s*$/i
+  const RE_PEND = /^(\d+(?:[.,]\d+)?)\s*[xX]\s*([\d.,]+)?\s*$/
+  const RE_QONLY= /^(\d+(?:[.,]\d+)?)\s*[xX]\s*$/
+  const RE_UPONLY=/^(\d+[.,]\d{2,3})$/
+  const RE_MC   = /^(\d+)\s+([A-Za-zÀ-ú#][^%]+?)\s+\d{1,2}[.,]\d{0,2}%\s+([\d]{1,4}[.,]\d{2})\s*$/
+  const RE_MCNP = /^(\d+)\s+([A-Za-zÀ-ú#][^%]+?)\s+\d{1,2}[.,]\d{0,2}%\s*$/
+  const RE_NAST = /^n\.(\d+)\s*[*x×]\s*([\d.,]+)\s*$/i
+  const RE_PEND2= /([\d]{1,4}[.,]\d{2})\s*$/
+  const RE_ONLYP= /^-?[\d]{1,4}[.,]\d{2}$/
+
+  const toF = s => {
+    if (!s) return null
+    s = String(s).trim()
+    if (s.includes(',') && s.includes('.')) {
+      s = s.indexOf('.') < s.indexOf(',') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'')
+    } else if (s.includes(',')) s = s.replace(',','.')
+    const n = parseFloat(s); return isNaN(n) ? null : n
+  }
+  const clean = s => s.replace(RE_IVA,'').replace(/^[#\-]+\s*/,'').trim()
+
+  const items = []
+  let pqty = null, pup = null
+
+  const push = (name, qty, up, total, isWeight=false) => {
+    const n = clean(name)
+    if (!n || n.length < 2 || RE_SKIP.test(n)) return
+    const q = qty || 1
+    let t = total, u = up
+    if (!u && t && q) u = Math.round(t/q*10000)/10000
+    if (!t && u && q) t = Math.round(u*q*100)/100
+    const qi = (q && q === Math.floor(q) && !isWeight) ? Math.floor(q) : q
+    items.push({ name: n[0].toUpperCase()+n.slice(1), qty: qi,
+      unit_price: Math.round((u||0)*100)/100, price: Math.round((t||0)*100)/100,
+      _isWeight: isWeight, category_item: 'altro', perishable_type: 'standard' })
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line.length < 2 || RE_SKIP.test(line)) continue
+
+    let m
+    // n.X * prezzo → modifica ultimo item (ristorante)
+    if ((m = RE_NAST.exec(line)) && items.length) {
+      const q = toF(m[1]), u = toF(m[2])
+      if (q && u) { const last=items[items.length-1]; last.qty=Math.floor(q); last.unit_price=u; last.price=Math.round(q*u*100)/100 }
+      continue
+    }
+    // McDonald's con prezzo
+    if ((m = RE_MC.exec(line))) { push(m[2], toF(m[1]), null, toF(m[3])); pqty=pup=null; continue }
+    // McDonald's senza prezzo
+    if ((m = RE_MCNP.exec(line))) {
+      if (!/^(senza|con|aggiunto|rimosso)\b/i.test(m[2])) push(m[2], toF(m[1]), null, null)
+      pqty=pup=null; continue
+    }
+    // qty x unit_price (Orsini, osteria)
+    if ((m = RE_PEND.exec(line))) { pqty=toF(m[1]); pup=m[2]?toF(m[2]):null; continue }
+    // solo qty
+    if ((m = RE_QONLY.exec(line))) { pqty=toF(m[1]); pup=null; continue }
+    // unit_price solo (dopo qty-only)
+    if ((m = RE_UPONLY.exec(line)) && pqty!=null && pup==null) { pup=toF(m[1]); continue }
+    // solo prezzo
+    if (RE_ONLYP.test(line)) {
+      const p=toF(line)
+      if (p&&p>0&&p<500&&items.length) { const last=items[items.length-1]; if(!last.price){last.price=p;last.unit_price=p} }
+      pqty=pup=null; continue
+    }
+    // riga con prezzo inline
+    if ((m = RE_PEND2.exec(line))) {
+      const price=toF(m[1]), namePart=line.slice(0,line.lastIndexOf(m[1])).trim()
+      if (RE_SKIP.test(namePart)||namePart.length<2) { pqty=pup=null; continue }
+      if (price&&price>0&&price<5000) {
+        const isW = pqty!=null && pqty!==Math.floor(pqty)
+        if (pqty!=null) { push(namePart,pqty,pup,price,isW); pqty=pup=null }
+        else push(namePart,1,price,price)
+      }
+      continue
+    }
+    // nome senza prezzo
+    const nc = clean(line)
+    if (nc&&nc.length>=2&&!RE_SKIP.test(nc)) {
+      const isW = pqty!=null && pqty!==Math.floor(pqty)
+      if (pqty!=null) {
+        push(nc, pqty, pup, pup?Math.round(pup*pqty*100)/100:null, isW)
+        pqty=pup=null
+      } else {
+        items.push({ name:nc[0].toUpperCase()+nc.slice(1), qty:1, unit_price:0, price:0,
+          _isWeight:false, _np:true, category_item:'altro', perishable_type:'standard' })
+      }
+    }
+  }
+
+  // Deduplica (non per prodotti al peso)
+  const deduped = []
+  for (const it of items) {
+    if (it._np && it.price===0) continue
+    delete it._np
+    const isW = it._isWeight; delete it._isWeight
+    if (!isW) {
+      const ex = deduped.find(d => d.name.toLowerCase()===it.name.toLowerCase() && Math.abs(d.unit_price-it.unit_price)<0.01 && !d._wasWeight)
+      if (ex) { ex.qty = Math.round((ex.qty+it.qty)*1000)/1000; ex.price = Math.round(ex.qty*ex.unit_price*100)/100; continue }
+    }
+    it._wasWeight = isW
+    deduped.push({...it})
+  }
+  deduped.forEach(it => delete it._wasWeight)
+  return deduped
+}
+
 
 export async function getServerSideProps() {
   return { props: {} }
