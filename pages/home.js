@@ -899,7 +899,45 @@ const Home = () => {
       const cat = catFromStore(data.store, data.store_type)
         || (['casa','vestiti','cene','varie'].includes(data.categoria) ? data.categoria : 'varie')
       const pm  = data.payment_method ?? 'cash'
-      const items = Array.isArray(data.items) ? data.items : []
+      // Items dal parser strutturato; se vuoti, tenta parsing dal raw_text
+      let items = Array.isArray(data.items) ? data.items : []
+      if (items.length === 0 && data.raw_text) {
+        // Parsing semplice: ogni riga con un prezzo è un prodotto
+        const lines = data.raw_text.split('\n').map(l => l.trim()).filter(Boolean)
+        const priceRe = /([\d.,]+)\s*$/ // prezzo in fondo alla riga
+        const skipWords = /totale|subtotale|iva|pagamento|resto|importo|documento|arrotond|contante|cassa|trans|rt\s|p\.iva|tel\.|via |descrizione|dettaglio|ventilaz/i
+        for (const line of lines) {
+          if (skipWords.test(line)) continue
+          const m = line.match(priceRe)
+          if (!m) continue
+          const priceStr = m[1].replace(',', '.')
+          const price = parseFloat(priceStr)
+          if (!price || price <= 0 || price > 500) continue
+          const namePart = line.slice(0, line.lastIndexOf(m[0])).trim()
+            .replace(/\s+VI\*?\s*$/i, '') // rimuovi codice IVA
+            .replace(/\s+\d+$/, '')        // rimuovi codici interni
+            .trim()
+          if (namePart.length < 2) continue
+          // Normalizza nome: prima lettera maiuscola, resto minuscolo
+          const name = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase()
+          items.push({
+            name,
+            qty: 1,
+            unit_price: price,
+            price,
+            category_item: 'altro', // categoria generica per non-alimentari
+            perishable_type: 'standard',
+          })
+        }
+        // Deduplica: se stesso nome compare due volte, somma qty
+        const deduped = []
+        for (const it of items) {
+          const ex = deduped.find(d => d.name.toLowerCase() === it.name.toLowerCase())
+          if (ex) { ex.qty = (ex.qty || 1) + 1 }
+          else deduped.push({ ...it })
+        }
+        items = deduped
+      }
 
       // ── FIX description: include città ─────────────────────────────────
       const desc = sa ? `${st} — ${sa}` : st
@@ -981,20 +1019,29 @@ const Home = () => {
         }
       }
 
-      // Spunta lista spesa
+      // Spunta lista spesa — matching intelligente su tutte le parole significative
       if (items.length) {
         try {
           const { data: lista } = await supabase.from('shopping_list').select('id,name')
             .eq('user_id', user.id).eq('purchased', false)
           if (lista?.length) {
+            // Parole da ignorare nel matching (troppo generiche)
+            const stopWords = new Set(['di','del','della','da','in','e','il','la','le','lo','un','una','per','con','su','al','alla','agli','dei','delle'])
+            const tokenize = (s) => s.toLowerCase().split(/\s+/)
+              .map(w => w.replace(/[^a-z0-9àèéìòù]/gi, ''))
+              .filter(w => w.length >= 3 && !stopWords.has(w))
+
             const ids = []
             for (const item of items) {
               if (!item.name) continue
-              const parola = item.name.split(' ')[0].toLowerCase()
-              const match = lista.find(l =>
-                l.name.toLowerCase().includes(parola) ||
-                parola.includes(l.name.toLowerCase().split(' ')[0])
-              )
+              const itemTokens = tokenize(item.name)
+              const match = lista.find(l => {
+                const listTokens = tokenize(l.name)
+                // Match se almeno un token significativo è in comune
+                return itemTokens.some(it => listTokens.some(lt =>
+                  it.includes(lt) || lt.includes(it)
+                ))
+              })
               if (match && !ids.includes(match.id)) ids.push(match.id)
             }
             if (ids.length) await supabase.from('shopping_list')
@@ -1074,7 +1121,14 @@ const Home = () => {
         return
       }
 
-      const pd = ocrResult.purchase_date ?? new Date().toISOString().slice(0, 10)
+      const _today = new Date().toISOString().slice(0, 10)
+      // Accetta la data OCR solo se negli ultimi 7 giorni, altrimenti usa oggi
+      const _ocrDate = ocrResult.purchase_date
+      let pd = _today
+      if (_ocrDate) {
+        const _diff = (new Date(_today) - new Date(_ocrDate)) / (1000 * 60 * 60 * 24)
+        if (_diff >= 0 && _diff <= 7) pd = _ocrDate
+      }
       const st = ocrResult.store ?? 'Generico'
       const sa = ocrResult.store_address ?? null
       const im = parseFloat(ocrResult.price_total ?? 0)
