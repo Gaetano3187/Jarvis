@@ -12,37 +12,165 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
 
-/* ─── Classificatore piatti → stile vino ideale ──────────────────── */
+/* ─── Analizzatore piatti avanzato ───────────────────────────────── */
+// Ogni piatto viene analizzato singolarmente per ingredienti e tecniche
+// poi viene calcolato il profilo vino per l'intero pasto
+
+const DISH_SIGNALS = {
+  // Carne rossa intensa
+  rosso_potente: {
+    weight: 5,
+    rx: /\b(bistecca|fiorentina|tagliata|manzo|bue|brasato|arrosto di manzo|cacciagione|cinghiale|lepre|cervo|capriolo|selvaggina|rosbif|costata|entrecote|t.bone|controfiletto|filetto di manzo|carne rossa|scottadito|abbacchio|castrato|agnello al forno|agnello alla griglia)\b/,
+    style: 'rosso strutturato corposo',
+    examples: ['Barolo','Brunello','Amarone','Montepulciano d\'Abruzzo','Aglianico del Vulture'],
+  },
+  // Carne rossa media / maiale / pollame saporito
+  rosso_medio: {
+    weight: 4,
+    rx: /\b(maiale|lonza|arista|costine|salsiccia|ragù|amatriciana|carbonara|gricia|coda alla vaccinara|ossobuco|stinco|pollo arrosto|pollo alla cacciatora|anatra|piccione|quaglia|faraona|coniglio|lepre in salmi|trippa|pajata|guanciale|pancetta|speck|porchetta)\b/,
+    style: 'rosso di medio corpo',
+    examples: ['Chianti Classico','Montepulciano','Nero d\'Avola','Barbera d\'Asti'],
+  },
+  // Formaggio / latticini / uova come protagonisti
+  rosso_leggero_o_bianco: {
+    weight: 3,
+    rx: /\b(pecorino|parmigiano|gorgonzola|taleggio|fontina|formaggio|fonduta|fondua|flan di formaggio|stick di formaggio|soufflé|uova|frittata|carbonara di uova|cacio e pepe|pasta al formaggio|mac and cheese)\b/,
+    style: 'bianco strutturato o rosso leggero',
+    examples: ['Verdicchio','Fiano di Avellino','Dolcetto','Pinot Nero leggero'],
+    note: 'Formaggi stagionati e sapidi → rosso tannico; formaggi cremosi/fondute → bianco strutturato'
+  },
+  // Noci / frutta secca (accompagnamento o protagonista)
+  noci_fruttasecca: {
+    weight: 2,
+    rx: /\b(noci|nocciole|mandorle|pinoli|pistacchi|castagne|frutta secca|noce)\b/,
+    style: 'preferisce vini con tannini morbidi e leggera nota ossidativa',
+    examples: ['Barbera','Dolcetto','Vernaccia','Vermentino'],
+  },
+  // Tuberi / verdure dolci e terrose
+  tuberi_verdure: {
+    weight: 2,
+    rx: /\b(topinam|topinambur|patate|patata|tartufo|funghi|porcini|ovoli|finferli|carciofi|barbabietola|zucca|pastinaca|rapa|cicoria|radicchio)\b/,
+    style: 'rosso terroso o bianco minerale',
+    examples: ['Pinot Nero','Dolcetto','Verdicchio dei Castelli di Jesi','Etna Bianco'],
+    note: 'Tartufo e funghi → Nebbiolo o Pinot Nero; carciofi → sfida classica, Vermentino o Vernaccia'
+  },
+  // Pesce grasso / strutturato
+  pesce_strutturato: {
+    weight: 4,
+    rx: /\b(branzino al forno|orata|spigola|rombo|dentice|cernia|rana pescatrice|tonno|pesce spada|salmone|aragosta|astice|granchio|scampi al forno|brodetto|zuppa di pesce|cacciucco|risotto ai frutti di mare|spaghetti allo scoglio|tagliolini al granchio|linguine all.astice|seppie in umido)\b/,
+    style: 'bianco strutturato o rosato',
+    examples: ['Greco di Tufo','Fiano di Avellino','Vermentino di Sardegna','Etna Bianco'],
+  },
+  // Pesce crudo / molluschi freschi
+  pesce_fresco: {
+    weight: 4,
+    rx: /\b(vongole|cozze|ostriche|crudi di mare|carpaccio di pesce|tartare di pesce|polpo|polipetti|frittura|calamari|gamberi|scampi crudi|insalata di mare|totani|alici|acciughe|baccalà mantecato|sashimi|crudo di gamberi)\b/,
+    style: 'bianco fresco e sapido',
+    examples: ['Vermentino','Pecorino Abruzzese','Soave Classico','Pinot Grigio Collio'],
+  },
+  // Pasta / riso con condimenti leggeri
+  pasta_leggera: {
+    weight: 2,
+    rx: /\b(pasta al pomodoro|pasta al basilico|pesto|trofie|trenette|pasta alla norma|amatriciana|puttanesca|spaghetti al pomodoro|risotto al parmigiano|risotto bianco|pasta e patate|minestrone|pasta e fagioli)\b/,
+    style: 'rosso leggero o bianco medio',
+    examples: ['Lambrusco','Barbera giovane','Verdicchio','Soave'],
+  },
+  // Fritti
+  fritti: {
+    weight: 3,
+    rx: /\b(fritto|fritta|frittura|tempura|dorato|in pastella|supplì|arancini|crocchette|panzarotti|mozzarella in carrozza|battered|chips)\b/,
+    style: 'bollicine secche o bianco ad alta acidità',
+    examples: ['Franciacorta Brut','Trento DOC','Prosecco Extra Brut','Vermentino vivace'],
+  },
+  // Salumi / antipasti di terra
+  salumi: {
+    weight: 2,
+    rx: /\b(prosciutto|mortadella|salame|coppa|bresaola|culatello|lardo|guanciale|pancetta|speck|cotechino|zampone|tagliere di salumi|affettati)\b/,
+    style: 'rosso leggero fresco o lambrusco',
+    examples: ['Lambrusco di Sorbara','Barbera d\'Asti','Sangiovese giovane'],
+  },
+}
+
 function classifyDishes(dishText) {
   const s = dishText.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
-  const signals = {
-    rosso_potente: /\b(bistecca|fiorentina|tagliata|manzo|bue|brasato|arrosto|cacciagione|cinghiale|lepre|cervo|capriolo|agnello|castrato|scottadito|rosbif|costata|filetto di manzo|carne rossa|selvaggina)\b/,
-    rosso_medio:   /\b(agnello|maiale|salsiccia|ragù|amatriciana|bolognese|lasagne|pappardelle|ribollita|ossobuco|pollo arrosto|coniglio|anatra|piccione|quaglia|faraona|trippa|coda alla vaccinara|abbacchio)\b/,
-    rosso_leggero: /\b(pizza|pasta al pomodoro|pasta semplice|margherita|prosciutto|salumi|tagliere|affettati|mortadella|bruschetta|antipasto di terra|focaccia)\b/,
-    bianco_strutturato: /\b(aragosta|astice|branzino al forno|orata|spigola|rombo|dentice|cernia|brodetto|zuppa di pesce|risotto al pesce|spaghetti allo scoglio|tagliolini al granchio|linguine all.astice)\b/,
-    bianco_fresco:  /\b(vongole|cozze|ostriche|crudi di mare|carpaccio di pesce|sashimi|polpo|polipetti|baccala|frittura di pesce|calamari|gamberi|scampi|insalata di mare|seppie|totani)\b/,
-    bianco_aromatico: /\b(pesce spada|tonno|caprese|mozzarella|burrata|formaggi freschi|ricotta|insalata|verdure grigliate|zucchine|melanzane|peperoni)\b/,
-    bollicine:     /\b(fritto misto|frittura|tempura|aperitivo|stuzzichini|tartine|finger food|sushi|poke|crudite|ostriche)\b/,
-    rosato:        /\b(antipasto misto|insalata nizzarda|ratatouille|pasta al pesto|trofie|trenette|focaccia genovese|pesto)\b/,
+  // Split per separatori comuni
+  const dishes = s.split(/[,;\n\|]+|\b(e poi|poi|seguito da|con contorno di|accompagnato da)\b/)
+    .map(d => d?.trim()).filter(d => d && d.length > 2)
+
+  const scores = {}
+  const matchedDishes = []  // per debug e prompt
+
+  for (const [key, signal] of Object.entries(DISH_SIGNALS)) {
+    scores[key] = 0
+    for (const dish of dishes) {
+      if (signal.rx.test(dish)) {
+        scores[key] += signal.weight
+        matchedDishes.push({ dish, signal: key, style: signal.style })
+      }
+    }
+    // Cerca anche nel testo completo per piatti non separati
+    const fullMatch = s.match(new RegExp(signal.rx.source, 'g'))
+    if (fullMatch) scores[key] += fullMatch.length * signal.weight
+    // Deduplication: conta max 1x per tipo
+    if (scores[key] > signal.weight * 2) scores[key] = signal.weight * 2
   }
 
-  const matches = {}
-  for (const [style, rx] of Object.entries(signals)) {
-    const m = s.match(new RegExp(rx.source, 'g'))
-    matches[style] = m ? m.length : 0
+  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1])
+  const dominant = sorted[0]
+  const secondary = sorted.find(([k,v]) => v > 0 && k !== dominant[0])
+
+  const hasAny = dominant[1] > 0
+
+  return {
+    primary:    hasAny ? dominant[0] : 'rosso_medio',
+    secondary:  secondary?.[0] || null,
+    scores,
+    matchedDishes,
+    confidence: hasAny ? 'high' : 'low',
+    dishCount:  dishes.length,
+  }
+}
+
+// Costruisce il testo di analisi piatti da includere nel prompt
+function buildDishAnalysis(dishText, signals) {
+  if (!signals || signals.confidence === 'low') return null
+
+  const lines = []
+
+  if (signals.matchedDishes.length) {
+    lines.push('Piatti riconosciuti e loro profilo:')
+    const seen = new Set()
+    for (const { dish, signal } of signals.matchedDishes) {
+      if (seen.has(signal)) continue
+      seen.add(signal)
+      const s = DISH_SIGNALS[signal]
+      lines.push(`  • ${dish.trim()} → ${s.style}`)
+      if (s.note) lines.push(`    (${s.note})`)
+    }
   }
 
-  // Determina stile prevalente
-  const sorted = Object.entries(matches).sort((a, b) => b[1] - a[1])
-  const dominant = sorted[0][0]
-  const hasAny = sorted[0][1] > 0
+  // Conflitti (es. fonduta formaggio + carne rossa)
+  const hasRosso = (signals.scores.rosso_potente||0) + (signals.scores.rosso_medio||0) > 0
+  const hasBianco = (signals.scores.pesce_strutturato||0) + (signals.scores.pesce_fresco||0) > 0
+  if (hasRosso && hasBianco) {
+    lines.push('⚠️ Pasto misto carne+pesce: considera 2 bottiglie o un rosato strutturato')
+  }
+  const hasFormaggio = signals.scores.rosso_leggero_o_bianco > 0
+  if (hasFormaggio && hasRosso) {
+    lines.push('Nota fonduta/formaggio: se cremoso → bianco strutturato; se stagionato → rosso')
+  }
+  const hasNoci = signals.scores.noci_fruttasecca > 0
+  if (hasNoci) {
+    lines.push('Noci/frutta secca: preferisci tannini morbidi, evita vini molto tannici')
+  }
+  const hasTopinambur = /topinambur|topinam/.test(dishText.toLowerCase())
+  if (hasTopinambur) {
+    lines.push('Topinambur: dolcezza terrosa → ottimo con Chardonnay o Pinot Nero')
+  }
 
-  if (!hasAny) return { primary: 'rosso_medio', secondary: 'bianco_fresco', confidence: 'low' }
-
-  const secondary = sorted[1][1] > 0 ? sorted[1][0] : null
-  return { primary: dominant, secondary, confidence: 'high' }
+  return lines.join('\n')
 }
 
 /* ─── Costruisce profilo gusti utente ─────────────────────────────── */
@@ -151,7 +279,8 @@ export default async function handler(req, res) {
   }
 
   // ── Determina contesto piatti ────────────────────────────────────
-  const dishSignals = dishText ? classifyDishes(dishText) : null
+  const dishSignals   = dishText ? classifyDishes(dishText) : null
+  const dishAnalysis  = dishText ? buildDishAnalysis(dishText, dishSignals) : null
 
   // ── Profilo utente ───────────────────────────────────────────────
   const profile = buildUserProfile(userWines)
@@ -179,23 +308,15 @@ REGOLE:
   // Sezione piatti
   if (hasDishes) {
     userPrompt += `## PIATTI ORDINATI\n${dishText}\n\n`
-    if (dishSignals) {
-      const styleMap = {
-        rosso_potente:      'rosso strutturato e corposo (Barolo, Brunello, Montepulciano, Primitivo, Aglianico)',
-        rosso_medio:        'rosso di medio corpo (Chianti, Montepulciano, Nero d\'Avola, Barbera)',
-        rosso_leggero:      'rosso leggero e fresco (Lambrusco, Bardolino, Cerasuolo)',
-        bianco_strutturato: 'bianco strutturato (Verdicchio, Greco di Tufo, Fiano, Vernaccia)',
-        bianco_fresco:      'bianco fresco e minerale (Vermentino, Soave, Pinot Grigio, Pecorino)',
-        bianco_aromatico:   'bianco aromatico (Gewürztraminer, Müller-Thurgau, Viognier)',
-        bollicine:          'bollicine secche (Franciacorta, Trento DOC, Prosecco Extra Brut)',
-        rosato:             'rosato fresco (Cerasuolo d\'Abruzzo, Bardolino Chiaretto)',
-      }
-      userPrompt += `Abbinamento ideale suggerito: ${styleMap[dishSignals.primary] || dishSignals.primary}`
-      if (dishSignals.secondary) {
-        userPrompt += ` + ${styleMap[dishSignals.secondary] || dishSignals.secondary} (per altri piatti)`
-      }
-      userPrompt += '\n\n'
+    if (dishAnalysis) {
+      userPrompt += `### ANALISI AUTOMATICA DEI PIATTI\n${dishAnalysis}\n\n`
     }
+    userPrompt += `### ISTRUZIONI ABBINAMENTO\n`
+    userPrompt += `Considera TUTTI i piatti sopra come un pasto unico.\n`
+    userPrompt += `Se ci sono ingredienti insoliti o complessi (fonduta, topinambur, noci, formaggio stagionato),\n`
+    userPrompt += `spiega esplicitamente come il vino consigliato si comporta con QUELL'ingrediente specifico.\n`
+    userPrompt += `Se il pasto è misto (es. antipasto pesce + secondo carne), suggerisci la bottiglia\n`
+    userPrompt += `più versatile O proponi due opzioni (una per antipasto, una per secondo).\n\n`
   } else {
     userPrompt += `## RICHIESTA\n${dishText || 'Consiglio generale'}\n\n`
   }
@@ -270,7 +391,8 @@ Rispondi con un JSON valido:
       "region": "Regione italiana",
       "style": "rosso|bianco|rosé|frizzante",
       "vintage": 2020,
-      "why": "Perché si abbina a QUESTI piatti specifici (1-2 frasi dirette)",
+      "why": "Abbinamento principale in 1-2 frasi dirette e concrete",
+      "pairing_notes": "Note specifiche su ingredienti complessi (es. come si comporta con la fonduta, le noci, il topinambur) — ometti se non rilevante",
       "pairing_score": 95,
       "personal_match": true,
       "price_band": "low|med|high",

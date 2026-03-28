@@ -312,6 +312,11 @@ function SommelierDrawer({ data, onClose, onAdd }) {
                   <span style={{ fontSize: '.68rem', color: '#475569', marginRight: 4 }}>🍽</span>
                   {r.why}
                 </div>
+                {r.pairing_notes && (
+                  <div style={{ fontSize: '.72rem', color: '#475569', marginTop: '.3rem', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,.05)', paddingTop: '.3rem' }}>
+                    💡 {r.pairing_notes}
+                  </div>
+                )}
                 <div className="rec-footer">
                   {r.typical_price_eur != null && (
                     <span className="rec-price">~ € {Number(r.typical_price_eur).toFixed(0)}</span>
@@ -1012,14 +1017,42 @@ function ProdottiTipiciViniPage() {
               placeholder={'Es: bistecca alla brace con patate\noppure: spaghetti alle vongole e polipetti alla luciana\noppure: agnello scottadito, rosbif, cacciagione'}
               rows={3}
             />
-            {/* Suggerimenti rapidi */}
-            <div className="som-quick">
-              {['Bistecca alla brace','Pesce alla griglia','Spaghetti alle vongole','Cacciagione','Agnello','Pizza','Sushi'].map(p => (
-                <button key={p} className="som-quick-btn"
-                  onClick={() => setSommelierQuery(q => q ? q + ', ' + p.toLowerCase() : p.toLowerCase())}>
-                  {p}
-                </button>
-              ))}
+            {/* Suggerimenti rapidi per categoria */}
+            <div className="som-quick-section">
+              <span className="som-quick-label">🥩 Carne</span>
+              <div className="som-quick">
+                {['Bistecca alla brace','Filetto di maiale','Agnello scottadito','Cacciagione','Rosbif','Cinghiale'].map(p => (
+                  <button key={p} className="som-quick-btn"
+                    onClick={() => setSommelierQuery(q => q ? q + '\n' + p : p)}>{p}</button>
+                ))}
+              </div>
+            </div>
+            <div className="som-quick-section">
+              <span className="som-quick-label">🐟 Pesce</span>
+              <div className="som-quick">
+                {['Spaghetti alle vongole','Polipetti alla luciana','Frittura di paranza','Branzino al forno','Ostriche'].map(p => (
+                  <button key={p} className="som-quick-btn"
+                    onClick={() => setSommelierQuery(q => q ? q + '\n' + p : p)}>{p}</button>
+                ))}
+              </div>
+            </div>
+            <div className="som-quick-section">
+              <span className="som-quick-label">🧀 Formaggi</span>
+              <div className="som-quick">
+                {['Fonduta di pecorino','Stick di pecorino','Tagliere di formaggi','Gorgonzola','Parmigiano stagionato'].map(p => (
+                  <button key={p} className="som-quick-btn"
+                    onClick={() => setSommelierQuery(q => q ? q + '\n' + p : p)}>{p}</button>
+                ))}
+              </div>
+            </div>
+            <div className="som-quick-section">
+              <span className="som-quick-label">🌿 Altro</span>
+              <div className="som-quick">
+                {['Topinambur','Tartufo','Funghi porcini','Pizza','Pasta al pomodoro','Risotto'].map(p => (
+                  <button key={p} className="som-quick-btn"
+                    onClick={() => setSommelierQuery(q => q ? q + '\n' + p : p)}>{p}</button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1453,7 +1486,9 @@ function ProdottiTipiciViniPage() {
         .som-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: #64748b; font-weight: 600; }
         .som-textarea { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: #e2e8f0; padding: .55rem .75rem; font-size: .83rem; outline: none; resize: vertical; font-family: inherit; line-height: 1.5; }
         .som-textarea:focus { border-color: rgba(99,102,241,.5); }
-        .som-quick { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .25rem; }
+        .som-quick { display: flex; gap: .35rem; flex-wrap: wrap; }
+        .som-quick-section { margin-top: .5rem; }
+        .som-quick-label { font-size: .63rem; text-transform: uppercase; letter-spacing: .07em; color: #334155; font-weight: 700; display: block; margin-bottom: .3rem; }
         .som-quick-btn { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; color: #64748b; font-size: .7rem; padding: .2rem .55rem; cursor: pointer; transition: all .15s; }
         .som-quick-btn:hover { background: rgba(99,102,241,.1); border-color: rgba(99,102,241,.3); color: #818cf8; }
         .som-card-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
