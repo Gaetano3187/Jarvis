@@ -250,49 +250,94 @@ function OcrPreviewModal({ data, onConfirm, onClose }) {
 
 /* ─── Sommelier Drawer ───────────────────────────────────────────── */
 function SommelierDrawer({ data, onClose, onAdd }) {
-  const recs = data?.recommendations || [];
-  const src = data?.source || '';
+  const recs    = data?.recommendations || [];
+  const src     = data?.source || '';
+  const note    = data?.sommelier_note || '';
+  const hasCard = data?.has_card;
+  const hasProf = data?.has_profile;
+
   return (
     <div className="drawer-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="drawer">
         <div className="drawer-header">
-          <span>Sommelier — risultati</span>
+          <span>🍷 Il tuo Sommelier</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="drawer-meta">
-          Fonte: <strong>{src === 'list' ? 'Carta del locale' : src === 'web' ? 'Ricerca web' : 'Suggerimenti offline'}</strong>
+        {note && (
+          <div className="drawer-note">
+            <span className="drawer-note-icon">💬</span>
+            <span>{note}</span>
+          </div>
+        )}
+        <div className="drawer-badges">
+          <span className={`dbadge ${hasCard ? 'dbadge-green' : 'dbadge-gray'}`}>
+            {hasCard ? '✓ Dalla carta del locale' : '◈ Consigli generali'}
+          </span>
+          <span className={`dbadge ${hasProf ? 'dbadge-purple' : 'dbadge-gray'}`}>
+            {hasProf ? '★ Personalizzato per te' : '○ Senza profilo gusti'}
+          </span>
         </div>
         <div className="drawer-body">
-          {recs.length === 0 && <p style={{ color: '#475569', fontSize: '.85rem' }}>Nessun risultato.</p>}
+          {recs.length === 0 && (
+            <p style={{ color: '#475569', fontSize: '.85rem', padding: '1rem 0' }}>
+              Nessun risultato — prova ad aggiungere i piatti o la carta del ristorante.
+            </p>
+          )}
           {recs.map((r, i) => {
             const band = { low: '#22c55e', med: '#fbbf24', high: '#f87171' }[r.price_band] || '#64748b';
+            const score = r.pairing_score || 0;
+            const scoreColor = score >= 90 ? '#22c55e' : score >= 75 ? '#fbbf24' : '#94a3b8';
             return (
-              <div className="rec-card" key={i}>
+              <div className={`rec-card ${r.personal_match ? 'rec-card-match' : ''}`} key={i}>
                 <div className="rec-header">
-                  <div className="rec-name">{r.name}</div>
-                  <span className="rec-band" style={{ color: band, borderColor: band + '44', background: band + '11' }}>
-                    {r.price_band === 'low' ? 'Low' : r.price_band === 'med' ? 'Med' : 'High'}
-                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="rec-name">
+                      {r.personal_match && <span className="rec-match-star" title="Vicino ai tuoi gusti">★ </span>}
+                      {r.name}
+                      {r.vintage ? <span style={{ color: '#64748b', fontWeight: 400, fontSize: '.8rem' }}> {r.vintage}</span> : null}
+                    </div>
+                    {r.winery && <div style={{ fontSize: '.7rem', color: '#475569', marginTop: 1 }}>{r.winery}</div>}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                    <span className="rec-band" style={{ color: band, borderColor: band + '44', background: band + '11' }}>
+                      {r.price_band === 'low' ? '< 20€' : r.price_band === 'med' ? '20-50€' : '> 50€'}
+                    </span>
+                    {score > 0 && (
+                      <span style={{ fontSize: '.65rem', color: scoreColor, fontWeight: 700 }}>{score}% match</span>
+                    )}
+                  </div>
                 </div>
                 <div className="rec-sub">{[r.denomination, r.region].filter(Boolean).join(' · ')}</div>
-                <div className="rec-why">{r.why}</div>
+                <div className="rec-why">
+                  <span style={{ fontSize: '.68rem', color: '#475569', marginRight: 4 }}>🍽</span>
+                  {r.why}
+                </div>
                 <div className="rec-footer">
-                  {r.typical_price_eur != null && <span className="rec-price">~ € {Number(r.typical_price_eur).toFixed(2)}</span>}
+                  {r.typical_price_eur != null && (
+                    <span className="rec-price">~ € {Number(r.typical_price_eur).toFixed(0)}</span>
+                  )}
                   {(r.links || []).map((l, idx) => (
                     <a key={idx} href={l.url} target="_blank" rel="noreferrer" className="rec-link">{l.title || 'Link'}</a>
                   ))}
-                  <button className="btn-save" style={{ padding: '.3rem .7rem', fontSize: '.75rem' }} onClick={() => onAdd?.(r)}>
-                    + Aggiungi ai bevuti
+                  <button className="btn-save" style={{ padding: '.3rem .8rem', fontSize: '.75rem', marginLeft: 'auto' }}
+                    onClick={() => onAdd?.(r)}>
+                    + Ho bevuto questo
                   </button>
                 </div>
               </div>
             );
           })}
         </div>
+        {!hasProf && recs.length > 0 && (
+          <div className="drawer-tip">
+            💡 Più vini salvi e voti, più i consigli saranno precisi per te
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
 
 /* ─── QR Scanner ─────────────────────────────────────────────────── */
 function LiveQrScanner({ onClose, onResult }) {
@@ -347,6 +392,168 @@ function LiveQrScanner({ onClose, onResult }) {
   );
 }
 
+/* ─── TastingNoteModal ───────────────────────────────────────────── */
+// Aromi raggruppati per famiglia — ogni gruppo è separato visivamente nel modale
+const AROMA_GROUPS = [
+  {
+    label: '🍒 Fruttato',
+    aromas: ['frutta rossa','frutta nera','frutta secca','agrumi','frutta tropicale','melograno','mora','ciliegia','prugna','albicocca'],
+  },
+  {
+    label: '🌸 Floreale',
+    aromas: ['rosa','violetta','gelsomino','fiori bianchi','iris','lavanda'],
+  },
+  {
+    label: '🌿 Erbaceo / Vegetale',
+    aromas: ['erbaceo','erba tagliata','peperone verde','foglia di pomodoro','menta','eucalipto','anice'],
+  },
+  {
+    label: '🪨 Minerale',
+    aromas: ['minerale','pietra focaia','gesso','grafite','salino','iodio','vulcanico'],
+  },
+  {
+    label: '🌍 Terroso',
+    aromas: ['terra umida','humus','fungo','tartufo','cantina','muschio','sottobosco'],
+  },
+  {
+    label: '🪵 Tostato / Legno',
+    aromas: ['tostato','vaniglia','burro','caramello','cocco','cedro','resina'],
+  },
+  {
+    label: '☕ Ossidativo / Evoluto',
+    aromas: ['caffè','cioccolato fondente','moka','nocciola','mandorla','tabacco','cuoio','fumoso'],
+  },
+  {
+    label: '🌶 Speziato',
+    aromas: ['pepe nero','cannella','chiodi di garofano','liquirizia','cardamomo','noce moscata','incenso'],
+  },
+  {
+    label: '🍯 Dolce / Mielato',
+    aromas: ['miele','cera d'api','frutta candita','dattero','fico secco'],
+  },
+  {
+    label: '🐄 Animale / Balsamico',
+    aromas: ['balsamico','selvaggina','muschio','cuoio','sudore','carne'],
+  },
+];
+// Lista piatta per compatibilità
+const AROMA_OPTIONS = AROMA_GROUPS.flatMap(g => g.aromas);
+
+function SliderField({ label, value, onChange, min=1, max=5, leftLabel, rightLabel }) {
+  return (
+    <div className="tn-slider-wrap">
+      <div className="tn-slider-header">
+        <span className="tn-slider-label">{label}</span>
+        <span className="tn-slider-val">{value || '—'}/5</span>
+      </div>
+      <input type="range" min={min} max={max} value={value || 0}
+        onChange={e => onChange(Number(e.target.value))}
+        className="tn-slider" />
+      <div className="tn-slider-ends">
+        <span>{leftLabel}</span><span>{rightLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function TastingNoteModal({ wine, existing, onSave, onClose }) {
+  const [form, setForm] = useState({
+    tannins:    existing?.tannins    || 0,
+    acidity:    existing?.acidity    || 0,
+    body:       existing?.body       || 0,
+    sweetness:  existing?.sweetness  || 0,
+    finish:     existing?.finish     || 0,
+    aromas:     existing?.aromas     || [],
+    note:       existing?.note       || '',
+    occasion:   existing?.occasion   || '',
+    served_temp:existing?.served_temp|| '',
+  });
+
+  const toggleAroma = (a) => setForm(f => ({
+    ...f,
+    aromas: f.aromas.includes(a) ? f.aromas.filter(x => x !== a) : [...f.aromas, a]
+  }));
+
+  const upd = (key, val) => setForm(f => ({ ...f, [key]: val }));
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 520 }}>
+        <div className="modal-header">
+          <span>📝 Note — {wine?.name}</span>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <p className="modal-hint">
+          Le note affinano i consigli del Sommelier: con abbinamenti simili,
+          verrà preferito il vino più vicino al tuo profilo sensoriale.
+        </p>
+
+        {/* Sliders struttura */}
+        <div className="tn-section-title">Struttura</div>
+        <SliderField label="Corpo" value={form.body} onChange={v=>upd('body',v)}
+          leftLabel="Leggero" rightLabel="Corposo" />
+        <SliderField label="Tannini" value={form.tannins} onChange={v=>upd('tannins',v)}
+          leftLabel="Morbido" rightLabel="Astringente" />
+        <SliderField label="Acidità" value={form.acidity} onChange={v=>upd('acidity',v)}
+          leftLabel="Piatto" rightLabel="Vivace" />
+        <SliderField label="Dolcezza" value={form.sweetness} onChange={v=>upd('sweetness',v)}
+          leftLabel="Secco" rightLabel="Dolce" />
+        <SliderField label="Finale" value={form.finish} onChange={v=>upd('finish',v)}
+          leftLabel="Corto" rightLabel="Lunghissimo" />
+
+        {/* Aromi — per famiglia */}
+        <div className="tn-section-title" style={{ marginTop: '.75rem' }}>Aromi percepiti</div>
+        {AROMA_GROUPS.map(group => (
+          <div key={group.label} className="tn-aroma-group">
+            <div className="tn-aroma-group-label">{group.label}</div>
+            <div className="tn-aromas">
+              {group.aromas.map(a => (
+                <button key={a}
+                  className={`tn-aroma ${form.aromas.includes(a) ? 'tn-aroma-on' : ''}`}
+                  onClick={() => toggleAroma(a)}>
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {/* Temperatura servizio */}
+        <div className="tn-section-title" style={{ marginTop: '.75rem' }}>Temperatura di servizio</div>
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          {['freddo','fresco','leggermente fresco','ambiente'].map(t => (
+            <button key={t}
+              className={`tn-aroma ${form.served_temp === t ? 'tn-aroma-on' : ''}`}
+              onClick={() => upd('served_temp', form.served_temp === t ? '' : t)}>
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Occasione */}
+        <div className="tn-section-title" style={{ marginTop: '.75rem' }}>Abbinato a</div>
+        <input className="fi" value={form.occasion}
+          onChange={e => upd('occasion', e.target.value)}
+          placeholder="es. bistecca, pesce, aperitivo, compleanno…" />
+
+        {/* Nota libera */}
+        <div className="tn-section-title" style={{ marginTop: '.75rem' }}>Nota libera</div>
+        <textarea className="som-textarea" rows={2}
+          value={form.note} onChange={e => upd('note', e.target.value)}
+          placeholder="Impressioni, contesto, abbinamento riuscito/fallito…" />
+
+        <div className="modal-actions" style={{ marginTop: '.5rem' }}>
+          <button className="btn-secondary" onClick={onClose}>Annulla</button>
+          <button className="btn-save" onClick={() => onSave(form)}>
+            💾 Salva nota
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 /* ══════════════════════════════════════════════════════════════════
    PAGINA PRINCIPALE
 ══════════════════════════════════════════════════════════════════ */
@@ -366,6 +573,8 @@ function ProdottiTipiciViniPage() {
   const [showAddCellar,  setShowAddCellar]  = useState(false);
 
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [tastingModal, setTastingModal] = useState(null); // { wine } oppure null
+  const [tastingNotes, setTastingNotes] = useState({});   // { wine_id: note }
 
   const [sommelierQuery,  setSommelierQuery]  = useState('');
   const [sommelierLists,  setSommelierLists]  = useState([]);
@@ -373,6 +582,8 @@ function ProdottiTipiciViniPage() {
   const [sommelierBusy,   setSommelierBusy]   = useState(false);
   const [sommelierOpen,   setSommelierOpen]   = useState(false);
   const [sommelierData,   setSommelierData]   = useState(null);
+  const [sommelierBudget, setSommelierBudget] = useState('');
+  const [sommelierPref,   setSommelierPref]   = useState('');
   const [showQr,          setShowQr]          = useState(false);
 
   const [mapFly,    setMapFly]    = useState(null);
@@ -425,15 +636,20 @@ function ProdottiTipiciViniPage() {
     if (!userId) return;
     setLoading(true);
     try {
-      const [{ data: p }, { data: a }, { data: w }, { data: c }] = await Promise.all([
+      const [{ data: p }, { data: a }, { data: w }, { data: c }, { data: tn }] = await Promise.all([
         supabase.from('product_places').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('artisan_products').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('wines').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('cellar').select('*, wine:wines(id,name,winery,style,region)').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('wine_tasting_notes').select('*').eq('user_id', userId),
       ]);
       setPlaces(p || []);
       setArtisan(a || []);
-      setWines(w || []);
+      // Merge note di degustazione nei vini per passarle al sommelier
+      const notesMap = {};
+      for (const n of (tn || [])) notesMap[n.wine_id] = n;
+      setTastingNotes(notesMap);
+      setWines((w || []).map(wine => ({ ...wine, tasting_note: notesMap[wine.id] || null })));
       setCellar(c || []);
     } catch (e) { showToast('Errore caricamento: ' + (e?.message || e), 'err'); }
     setLoading(false);
@@ -685,15 +901,25 @@ function ProdottiTipiciViniPage() {
 
   async function runSommelier() {
     if (!sommelierQuery.trim() && !sommelierLists.length && !sommelierQr.length) {
-      showToast('Inserisci una query o allega la carta vini', 'warn'); return;
+      showToast('Scrivi i piatti che mangerai!', 'warn'); return;
     }
     setSommelierBusy(true);
     try {
       const r = await fetch('/api/sommelier', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: sommelierQuery, wineLists: sommelierLists, qrLinks: sommelierQr, userId }),
+        body: JSON.stringify({
+          dishes:      sommelierQuery,
+          wineLists:   sommelierLists,
+          qrLinks:     sommelierQr,
+          userWines:   wines,          // passa tutti i vini salvati con rating
+          userId,
+          budget:      sommelierBudget || null,
+          preferences: sommelierPref   || null,
+        }),
       });
-      setSommelierData(await r.json()); setSommelierOpen(true);
+      const data = await r.json();
+      setSommelierData(data);
+      setSommelierOpen(true);
     } catch (e) { showToast('Errore Sommelier: ' + (e?.message || e), 'err'); }
     finally { setSommelierBusy(false); }
   }
@@ -717,6 +943,29 @@ function ProdottiTipiciViniPage() {
     showToast('Aggiunto ai bevuti!'); refreshAll(); focusWineOnMap(newWine.id);
   }
 
+  /* ── Salva nota di degustazione ── */
+  async function saveTastingNote(wineId, form) {
+    if (!userId) return;
+    const { error } = await supabase.from('wine_tasting_notes').upsert([{
+      user_id:    userId,
+      wine_id:    wineId,
+      tannins:    form.tannins   || null,
+      acidity:    form.acidity   || null,
+      body:       form.body      || null,
+      sweetness:  form.sweetness || null,
+      finish:     form.finish    || null,
+      aromas:     form.aromas?.length ? form.aromas : null,
+      note:       form.note      || null,
+      occasion:   form.occasion  || null,
+      served_temp:form.served_temp || null,
+      updated_at: new Date().toISOString(),
+    }], { onConflict: 'user_id,wine_id' });
+    if (error) { showToast('Errore salvataggio nota: ' + error.message, 'err'); return; }
+    showToast('📝 Nota di degustazione salvata!');
+    setTastingModal(null);
+    refreshAll();
+  }
+
   const cellarBottles    = cellar.reduce((t, r) => t + (Number(r.bottles) || 0), 0);
   const cellarLabels     = new Set(cellar.map(r => r.wine_id)).size;
   const cellarInvestment = cellar.reduce((t, r) => t + (Number(r.purchase_price_eur) || 0) * (Number(r.bottles) || 1), 0);
@@ -734,26 +983,90 @@ function ProdottiTipiciViniPage() {
         />
       )}
 
+      {/* ── Modale Note di Degustazione ── */}
+      {tastingModal && (
+        <TastingNoteModal
+          wine={tastingModal.wine}
+          existing={tastingNotes[tastingModal.wine?.id] || null}
+          onSave={form => saveTastingNote(tastingModal.wine.id, form)}
+          onClose={() => setTastingModal(null)}
+        />
+      )}
+
       <div className="pg">
 
-        {/* ── Sommelier bar ── */}
-        <div className="som-bar">
-          <input className="som-input" value={sommelierQuery} onChange={e => setSommelierQuery(e.target.value)}
-            placeholder='Es: "rosso corposo sotto 25€" · "bianco minerale per pesce"'
-            onKeyDown={e => e.key === 'Enter' && runSommelier()} />
-          <button className="som-btn" onClick={runSommelier} disabled={sommelierBusy}>
-            {sommelierBusy ? <span className="spinner" /> : '✦'} Sommelier
-          </button>
-          <button className="som-btn-sec" onClick={() => sommelierFileRef.current?.click()}>OCR carta</button>
-          <input ref={sommelierFileRef} type="file" accept="image/*,application/pdf" multiple capture="environment" hidden
-            onChange={async e => { const f = Array.from(e.target.files || []); e.target.value = ''; if (f.length) await handleSommelierOcr(f); }} />
-          <button className="som-btn-sec" onClick={() => setShowQr(true)}>QR</button>
-          {(sommelierLists.length > 0 || sommelierQr.length > 0) && (
-            <div className="som-attachments">
-              <span>{sommelierLists.length} foto{sommelierQr.length > 0 ? ` · ${sommelierQr.length} QR` : ''}</span>
-              <button className="som-clear" onClick={() => { setSommelierLists([]); setSommelierQr([]); showToast('Allegati azzerati'); }}>✕ Pulisci</button>
+        {/* ── Sommelier Personale ── */}
+        <div className="som-panel">
+          <div className="som-panel-header">
+            <span className="som-panel-title">🍷 Sommelier Personale</span>
+            <span className="som-panel-sub">Consigli basati sui tuoi gusti e sui piatti che mangi</span>
+          </div>
+
+          {/* Piatti */}
+          <div className="som-field">
+            <label className="som-label">🍽 Cosa mangi stasera?</label>
+            <textarea
+              className="som-textarea"
+              value={sommelierQuery}
+              onChange={e => setSommelierQuery(e.target.value)}
+              placeholder={'Es: bistecca alla brace con patate\noppure: spaghetti alle vongole e polipetti alla luciana\noppure: agnello scottadito, rosbif, cacciagione'}
+              rows={3}
+            />
+            {/* Suggerimenti rapidi */}
+            <div className="som-quick">
+              {['Bistecca alla brace','Pesce alla griglia','Spaghetti alle vongole','Cacciagione','Agnello','Pizza','Sushi'].map(p => (
+                <button key={p} className="som-quick-btn"
+                  onClick={() => setSommelierQuery(q => q ? q + ', ' + p.toLowerCase() : p.toLowerCase())}>
+                  {p}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+
+          {/* Budget + preferenze */}
+          <div className="som-row">
+            <div className="som-field som-field-sm">
+              <label className="som-label">💶 Budget (opzionale)</label>
+              <input className="fi" value={sommelierBudget} onChange={e => setSommelierBudget(e.target.value)}
+                placeholder="es. sotto 30€" />
+            </div>
+            <div className="som-field som-field-sm">
+              <label className="som-label">✨ Preferenze extra</label>
+              <input className="fi" value={sommelierPref} onChange={e => setSommelierPref(e.target.value)}
+                placeholder="es. vino locale, biologico" />
+            </div>
+          </div>
+
+          {/* Carta vini */}
+          <div className="som-field">
+            <label className="som-label">📋 Carta del ristorante (opzionale)</label>
+            <div className="som-card-row">
+              <button className="som-btn-sec" onClick={() => sommelierFileRef.current?.click()}>
+                📷 OCR foto carta
+              </button>
+              <input ref={sommelierFileRef} type="file" accept="image/*,application/pdf" multiple capture="environment" hidden
+                onChange={async e => { const f = Array.from(e.target.files || []); e.target.value = ''; if (f.length) await handleSommelierOcr(f); }} />
+              <button className="som-btn-sec" onClick={() => setShowQr(true)}>
+                📲 Scansiona QR
+              </button>
+              {(sommelierLists.length > 0 || sommelierQr.length > 0) && (
+                <div className="som-attachments">
+                  <span>✓ {sommelierLists.length > 0 ? `${sommelierLists.length} pag.` : ''}{sommelierQr.length > 0 ? ` ${sommelierQr.length} QR` : ''} caricati</span>
+                  <button className="som-clear" onClick={() => { setSommelierLists([]); setSommelierQr([]); showToast('Carta rimossa'); }}>✕</button>
+                </div>
+              )}
+            </div>
+            {(sommelierLists.length === 0 && sommelierQr.length === 0) && (
+              <p className="som-hint-text">Senza carta: consigli generali basati sui tuoi gusti personali</p>
+            )}
+          </div>
+
+          <button className="som-cta" onClick={runSommelier} disabled={sommelierBusy || !sommelierQuery.trim()}>
+            {sommelierBusy
+              ? <><span className="spinner" /> Consulto il sommelier…</>
+              : <><span style={{fontSize:'1.1rem'}}>🍷</span> Chiedi al Sommelier</>
+            }
+          </button>
         </div>
 
         {/* ── Tab ── */}
@@ -880,8 +1193,11 @@ function ProdottiTipiciViniPage() {
                       <Stars value={row.rating_5 || 0} onChange={n => { setRating(row.id, n); }} />
                       {row.price_target != null && <span className="item-price">€ {Number(row.price_target).toFixed(0)}</span>}
                       <div className="wine-actions" onClick={e => e.stopPropagation()}>
+                        <button className="wa wa-note" onClick={() => setTastingModal({ wine: row })}
+                          title="Note di degustazione">
+                          {row.has_tasting_note ? '📝' : '+'} Note
+                        </button>
                         <button className="wa" onClick={() => addPlaceFor('wine', row.id, 'purchase')}>Dove bevuto</button>
-                        <button className="wa" onClick={() => navigator.clipboard?.writeText(row.name)}>Copia</button>
                         <button className="wa wa-del" onClick={() => deleteWine(row.id)}>Elimina</button>
                       </div>
                     </div>
@@ -1126,12 +1442,61 @@ function ProdottiTipiciViniPage() {
         .leaflet-container .leaflet-popup-content-wrapper { background: #0f172a; color: #e2e8f0; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; }
         .leaflet-container .leaflet-popup-tip { background: #0f172a; }
 
+        /* Sommelier Panel */
+        .som-panel { background: rgba(255,255,255,.02); border: 1px solid rgba(99,102,241,.2); border-radius: 16px; padding: 1.1rem; margin-bottom: 1.25rem; }
+        .som-panel-header { margin-bottom: .9rem; }
+        .som-panel-title { font-size: .9rem; font-weight: 700; color: #e2e8f0; display: block; margin-bottom: .2rem; }
+        .som-panel-sub { font-size: .72rem; color: #475569; }
+        .som-field { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .75rem; }
+        .som-field-sm { flex: 1; min-width: 140px; }
+        .som-row { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
+        .som-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: #64748b; font-weight: 600; }
+        .som-textarea { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: #e2e8f0; padding: .55rem .75rem; font-size: .83rem; outline: none; resize: vertical; font-family: inherit; line-height: 1.5; }
+        .som-textarea:focus { border-color: rgba(99,102,241,.5); }
+        .som-quick { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .25rem; }
+        .som-quick-btn { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; color: #64748b; font-size: .7rem; padding: .2rem .55rem; cursor: pointer; transition: all .15s; }
+        .som-quick-btn:hover { background: rgba(99,102,241,.1); border-color: rgba(99,102,241,.3); color: #818cf8; }
+        .som-card-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+        .som-hint-text { font-size: .7rem; color: #334155; margin-top: .25rem; font-style: italic; }
+        .som-cta { width: 100%; background: linear-gradient(135deg, rgba(99,102,241,.25), rgba(139,92,246,.2)); border: 1px solid rgba(99,102,241,.4); border-radius: 11px; color: #a5b4fc; font-size: .87rem; font-weight: 700; padding: .65rem 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: .5rem; margin-top: .25rem; transition: all .15s; letter-spacing: .02em; }
+        .som-cta:hover:not(:disabled) { background: linear-gradient(135deg, rgba(99,102,241,.35), rgba(139,92,246,.3)); color: #c4b5fd; }
+        .som-cta:disabled { opacity: .5; cursor: not-allowed; }
+
+        /* Drawer aggiornato */
+        .drawer-note { display: flex; align-items: flex-start; gap: .5rem; padding: .6rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,.05); font-size: .8rem; color: #94a3b8; font-style: italic; }
+        .drawer-note-icon { flex-shrink: 0; }
+        .drawer-badges { display: flex; gap: .5rem; padding: .5rem 1.25rem; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,.05); }
+        .dbadge { font-size: .68rem; font-weight: 600; padding: .2rem .6rem; border-radius: 20px; border: 1px solid; }
+        .dbadge-green { color: #22c55e; border-color: rgba(34,197,94,.3); background: rgba(34,197,94,.08); }
+        .dbadge-purple { color: #a78bfa; border-color: rgba(167,139,250,.3); background: rgba(167,139,250,.08); }
+        .dbadge-gray { color: #475569; border-color: rgba(255,255,255,.08); background: rgba(255,255,255,.03); }
+        .rec-card-match { border-color: rgba(167,139,250,.25) !important; background: rgba(167,139,250,.04) !important; }
+        .rec-match-star { color: #a78bfa; }
+        .drawer-tip { padding: .6rem 1.25rem; font-size: .72rem; color: #475569; border-top: 1px solid rgba(255,255,255,.05); font-style: italic; }
+
         @media (max-width: 600px) {
           .kpi-grid { grid-template-columns: repeat(3,1fr); }
           .pg { padding: .9rem; }
           .wine-right { display: none; }
           .wine-card::after { content: '→'; color: #334155; font-size: .8rem; }
         }
+
+        /* TastingNoteModal */
+        .tn-section-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: #475569; font-weight: 700; margin-bottom: .4rem; margin-top: .1rem; }
+        .tn-slider-wrap { margin-bottom: .5rem; }
+        .tn-slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .2rem; }
+        .tn-slider-label { font-size: .78rem; color: #94a3b8; }
+        .tn-slider-val { font-size: .75rem; font-weight: 700; color: #6366f1; min-width: 24px; text-align: right; }
+        .tn-slider { width: 100%; accent-color: #6366f1; cursor: pointer; }
+        .tn-slider-ends { display: flex; justify-content: space-between; font-size: .63rem; color: #334155; margin-top: .1rem; }
+        .tn-aromas { display: flex; flex-wrap: wrap; gap: .3rem; }
+        .tn-aroma { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; color: #475569; font-size: .7rem; padding: .2rem .55rem; cursor: pointer; transition: all .15s; }
+        .tn-aroma:hover { border-color: rgba(99,102,241,.3); color: #818cf8; }
+        .tn-aroma-on { background: rgba(99,102,241,.15); border-color: rgba(99,102,241,.4); color: #a5b4fc; }
+        .tn-aroma-group { margin-bottom: .6rem; }
+        .tn-aroma-group-label { font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; color: #334155; font-weight: 600; margin-bottom: .3rem; }
+        .wa-note { color: #818cf8 !important; border-color: rgba(99,102,241,.2) !important; }
+        .wa-note:hover { background: rgba(99,102,241,.08) !important; border-color: rgba(99,102,241,.35) !important; }
       `}</style>
     </>
   );
