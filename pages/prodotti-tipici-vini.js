@@ -429,7 +429,7 @@ const AROMA_GROUPS = [
   },
   {
     label: '🍯 Dolce / Mielato',
-    aromas: ['miele','cera d'api','frutta candita','dattero','fico secco'],
+    aromas: ['miele','cera d\'api','frutta candita','dattero','fico secco'],
   },
   {
     label: '🐄 Animale / Balsamico',
