@@ -116,9 +116,23 @@ async function reverseGeocode(lat, lng) {
 async function searchGeocode(query) {
   if (!query?.trim()) return null;
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+    // countrycodes=it limita i risultati all'Italia
+    // viewbox = bounding box Italia per prioritizzare risultati italiani
+    const params = new URLSearchParams({
+      format: 'json',
+      q: query,
+      limit: '3',
+      countrycodes: 'it',
+      addressdetails: '1',
+    });
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
     const j = await r.json();
-    if (Array.isArray(j) && j.length) return { name: j[0].display_name || query, lat: Number(j[0].lat), lng: Number(j[0].lon) };
+    if (!Array.isArray(j) || !j.length) return null;
+    // Preferisci risultati con classe 'place', 'boundary', 'landuse' o 'amenity'
+    // rispetto a 'highway' o 'building' (troppo specifici)
+    const best = j.find(x => ['place','boundary','landuse','amenity','natural'].includes(x.class))
+      || j[0];
+    return { name: best.display_name || query, lat: Number(best.lat), lng: Number(best.lon) };
   } catch {}
   return null;
 }
@@ -591,21 +605,23 @@ function ProdottiTipiciViniPage() {
       if (error) throw error;
 
       // ── Origine: query multiple in ordine di precisione ──
+      // Costruisce query con suffisso Italia per evitare geocodifiche errate fuori Italia
+      const _withItaly = (s) => s ? (s.includes('Abruzzo') || s.includes('Veneto') || s.includes('Toscana') || s.includes('Piemonte') || s.includes('Sicilia') || s.includes('Campania') || s.includes('Puglia') || s.includes('Lombardia') || s.includes('Marche') || s.includes('Italia') ? s : s + ', Italia') : s;
       const _originQueries = [
-        // Cantina + città (più preciso)
-        [wineryName, localityStr].filter(Boolean).join(', '),
+        // Cantina + città + regione (più preciso)
+        [wineryName, localityStr, regionGuess].filter(Boolean).join(', '),
         // Cantina + regione
-        [wineryName, regionGuess].filter(Boolean).join(', '),
+        _withItaly([wineryName, regionGuess].filter(Boolean).join(', ')),
         // Denominazione + regione
-        [denomStr, regionGuess].filter(Boolean).join(', '),
-        // Solo denominazione
-        denomStr,
-        // Regione pulita (senza codice provincia)
-        regionGuess ? regionGuess.replace(/\s*\(\w+\)$/, '').trim() : '',
-        // Solo città
-        localityStr,
-        // Solo cantina
-        wineryName,
+        _withItaly([denomStr, regionGuess].filter(Boolean).join(', ')),
+        // Solo denominazione + Italia
+        _withItaly(denomStr),
+        // Regione italiana
+        regionGuess ? regionGuess.replace(/\s*\(\w+\)$/, '').trim() + ', Italia' : '',
+        // Solo città + Italia
+        localityStr ? localityStr + ', Italia' : '',
+        // Solo cantina + Italia
+        _withItaly(wineryName),
         // Nome vino come ultimo fallback
         wineName,
       ].map(s => s?.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
